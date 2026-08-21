@@ -18,15 +18,7 @@ export function registerPiChat(context: vscode.ExtensionContext): void {
   const participant = vscode.chat.createChatParticipant(participantId, handleChatRequest);
   participant.iconPath = new vscode.ThemeIcon("sparkle");
 
-  context.subscriptions.push(
-    participant,
-    vscode.commands.registerCommand("piCodingAgent.openChat", async () => {
-      await vscode.commands.executeCommand("workbench.action.chat.open", {
-        query: "@pi ",
-        isPartialQuery: true,
-      });
-    }),
-  );
+  context.subscriptions.push(participant);
 }
 
 const handleChatRequest: vscode.ChatRequestHandler = async (request, chatContext, stream, token) => {

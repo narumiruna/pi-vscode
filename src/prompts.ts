@@ -63,10 +63,14 @@ export function limitChatHistory(
   maxCharacters: number,
   maxEntries: number,
 ): ChatHistoryEntry[] {
-  const limited: ChatHistoryEntry[] = [];
-  let remainingCharacters = Math.max(0, maxCharacters);
+  if (maxEntries <= 0 || maxCharacters <= 0) {
+    return [];
+  }
 
-  for (const entry of history.slice(-Math.max(0, maxEntries)).reverse()) {
+  const limited: ChatHistoryEntry[] = [];
+  let remainingCharacters = maxCharacters;
+
+  for (const entry of history.slice(-maxEntries).reverse()) {
     if (remainingCharacters <= 0) {
       break;
     }

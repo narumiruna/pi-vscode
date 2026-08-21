@@ -73,6 +73,8 @@ test("limitChatHistory keeps the newest bounded context in chronological order",
     { role: "user", content: "st-request" },
   ]);
   assert.deepEqual(limitChatHistory(history, 100, 2), history.slice(-2));
+  assert.deepEqual(limitChatHistory(history, 100, 0), []);
+  assert.deepEqual(limitChatHistory(history, 0, 2), []);
 });
 
 test("limitReferenceContent enforces per-reference and remaining-context bounds", () => {

@@ -8,6 +8,7 @@ import {
   extractReplacement,
   type SelectionContext,
 } from "./prompts";
+import { registerPiSidebar } from "./sidebar";
 import { abortAllPiInvocations, invokePiWithCancellation } from "./vscodePi";
 
 interface CapturedSelection {
@@ -19,6 +20,7 @@ interface CapturedSelection {
 
 export function activate(extensionContext: vscode.ExtensionContext): void {
   registerPiChat(extensionContext);
+  registerPiSidebar(extensionContext);
   extensionContext.subscriptions.push(
     vscode.commands.registerCommand("piCodingAgent.askSelection", askAboutSelection),
     vscode.commands.registerCommand("piCodingAgent.modifySelection", modifySelection),
