@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0
+
+- Add a dedicated Pi conversation view in the VS Code Activity Bar.
+- Persist bounded conversation history in workspace state.
+- Add explicit current-selection attachment, cancellation, and new-chat controls.
+- Protect the webview with a restrictive content security policy and text-only rendering.
+
 ## 0.2.0
 
 - Add the native `@pi` VS Code Chat participant.

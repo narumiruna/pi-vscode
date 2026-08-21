@@ -1,8 +1,8 @@
 {
   "name": "pi-coding-agent",
   "displayName": "Pi Coding Agent",
-  "description": "Ask Pi about selected code or replace a selection with a Pi-generated modification.",
-  "version": "0.2.0",
+  "description": "Chat with Pi in VS Code, ask about selected code, and apply focused modifications.",
+  "version": "0.3.0",
   "publisher": "narumitw",
   "license": "MIT",
   "engines": {
@@ -25,11 +25,30 @@
   "main": "./out/extension.js",
   "activationEvents": [
     "onChatParticipant:piCodingAgent.chat",
+    "onView:piCodingAgent.chatView",
     "onCommand:piCodingAgent.openChat",
     "onCommand:piCodingAgent.askSelection",
     "onCommand:piCodingAgent.modifySelection"
   ],
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "piCodingAgent",
+          "title": "Pi",
+          "icon": "resources/pi.svg"
+        }
+      ]
+    },
+    "views": {
+      "piCodingAgent": [
+        {
+          "id": "piCodingAgent.chatView",
+          "name": "Chat",
+          "type": "webview"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "piCodingAgent.openChat",
@@ -137,7 +156,7 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "npm run compile && node --test out/test/piClient.test.js out/test/prompts.test.js",
+    "test": "npm run compile && node --test out/test/piClient.test.js out/test/prompts.test.js out/test/sidebarState.test.js",
     "package": "npm run test && vsce package --out pi-coding-agent.vsix",
     "prepare": "husky"
   },
