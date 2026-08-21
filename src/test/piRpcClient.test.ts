@@ -72,6 +72,9 @@ test("PiRpcClient correlates responses and streams events", async () => {
       true,
     );
     assert.equal(events.some(event => event.type === "tool_execution_start"), true);
+    await client.prompt("image", [{ type: "image", data: "aW1hZ2U=", mimeType: "image/png" }]);
+    await waitForEvent(events, "image_received");
+    assert.equal(events.find(event => event.type === "image_received")?.count, 1);
     await client.abort();
     await client.stop();
     subscription.dispose();
@@ -165,6 +168,9 @@ process.stdin.on("data", chunk => {
       respond({});
     }
     if (request.type === "prompt") {
+      if (Array.isArray(request.images)) {
+        process.stdout.write(JSON.stringify({ type: "image_received", count: request.images.length }) + "\n");
+      }
       process.stdout.write(JSON.stringify({ type: "agent_start" }) + "\n");
       process.stdout.write(JSON.stringify({
         type: "message_update",

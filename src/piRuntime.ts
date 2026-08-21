@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { PiRpcClient, type PiRpcClientOptions, type PiRpcEvent } from "./piRpcClient";
+import { PiRpcClient, type PiRpcClientOptions, type PiRpcEvent, type PiRpcImage } from "./piRpcClient";
 import { getRuntimeProfile, normalizeMode, type PiAgentMode } from "./runtimeProfiles";
 import { readPiInvocationOptions } from "./vscodePi";
 
@@ -66,7 +66,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     }
   }
 
-  public async prompt(message: string, resource?: vscode.Uri): Promise<void> {
+  public async prompt(message: string, resource?: vscode.Uri, images?: readonly PiRpcImage[]): Promise<void> {
     await this.ensureStarted(resource);
     const client = this.requireClient();
     if (this.state.busy) {
@@ -76,7 +76,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     const settled = this.createSettledWaiter();
     this.updateState({ busy: true });
     try {
-      await client.prompt(message);
+      await client.prompt(message, images);
       await settled.promise;
     } catch (error) {
       this.updateState({ busy: false });
@@ -153,6 +153,11 @@ export class PiRuntimeManager implements vscode.Disposable {
 
   public sendExtensionUiResponse(id: string, fields: Record<string, unknown>): void {
     this.client?.sendExtensionUiResponse(id, fields);
+  }
+
+  public async exportSession(outputPath?: string): Promise<string> {
+    await this.ensureStarted(this.resource);
+    return this.requireClient().exportHtml(outputPath);
   }
 
   public async openInTerminal(): Promise<void> {

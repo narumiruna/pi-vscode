@@ -74,6 +74,8 @@ export function getSidebarHtml(maxInputCharacters: number): string {
       <button id="resume-session" class="secondary" type="button" title="Resume a Pi session">Resume</button>
       <button id="name-session" class="secondary" type="button" title="Name this Pi session">Name</button>
       <button id="compact" class="secondary" type="button" title="Compact Pi context">Compact</button>
+      <button id="commands" class="secondary" type="button" title="Insert a Pi command, prompt template, or skill">Commands…</button>
+      <button id="export" class="secondary" type="button" title="Export this Pi session to HTML">Export</button>
       <button id="terminal" class="secondary" type="button" title="Open this Pi session in a terminal">Terminal</button>
       <button id="handoff-agent" type="button" title="Continue this Plan session in Agent mode" hidden>Implement Plan</button>
     </div>
@@ -96,6 +98,8 @@ export function getSidebarHtml(maxInputCharacters: number): string {
           <button id="attach-current" class="secondary" type="button" title="Attach the current file">Current file</button>
           <button id="attach-file" class="secondary" type="button" title="Choose files to attach">Files…</button>
           <button id="attach-diagnostics" class="secondary" type="button" title="Attach current-file diagnostics">Problems</button>
+          <button id="attach-image" class="secondary" type="button" title="Attach images">Images…</button>
+          <button id="attach-terminal" class="secondary" type="button" title="Attach selected terminal output">Terminal text</button>
           <button id="clear-context" class="secondary" type="button" title="Clear attached context">Clear context</button>
         </div>
         <div class="right-actions">
@@ -305,7 +309,7 @@ export function getSidebarHtml(maxInputCharacters: number): string {
       const context = stats.contextUsage || {};
       $('usage').textContent = typeof context.percent === 'number' ? Math.round(context.percent) + '% context' : '';
       send.disabled = busy || !state.runtime.connected;
-      for (const id of ['attach', 'attach-current', 'attach-file', 'attach-diagnostics', 'clear-context']) $(id).disabled = busy;
+      for (const id of ['attach', 'attach-current', 'attach-file', 'attach-diagnostics', 'attach-image', 'attach-terminal', 'clear-context']) $(id).disabled = busy;
       cancel.hidden = !busy;
       send.textContent = busy ? 'Working…' : 'Send';
       for (const id of ['new-session', 'resume-session', 'compact']) $(id).disabled = busy;
@@ -338,11 +342,15 @@ export function getSidebarHtml(maxInputCharacters: number): string {
     $('attach-current').addEventListener('click', () => vscode.postMessage({ type: 'attachCurrentFile' }));
     $('attach-file').addEventListener('click', () => vscode.postMessage({ type: 'attachFile' }));
     $('attach-diagnostics').addEventListener('click', () => vscode.postMessage({ type: 'attachDiagnostics' }));
+    $('attach-image').addEventListener('click', () => vscode.postMessage({ type: 'attachImage' }));
+    $('attach-terminal').addEventListener('click', () => vscode.postMessage({ type: 'attachTerminal' }));
     $('clear-context').addEventListener('click', () => vscode.postMessage({ type: 'clearAttachments' }));
     $('new-session').addEventListener('click', () => vscode.postMessage({ type: 'newSession' }));
     $('resume-session').addEventListener('click', () => vscode.postMessage({ type: 'resumeSession' }));
     $('name-session').addEventListener('click', () => vscode.postMessage({ type: 'nameSession' }));
     $('compact').addEventListener('click', () => vscode.postMessage({ type: 'compact' }));
+    $('commands').addEventListener('click', () => vscode.postMessage({ type: 'pickCommand' }));
+    $('export').addEventListener('click', () => vscode.postMessage({ type: 'exportSession' }));
     $('terminal').addEventListener('click', () => vscode.postMessage({ type: 'openTerminal' }));
     $('handoff-agent').addEventListener('click', () => vscode.postMessage({ type: 'handoffAgent' }));
     $('source-control').addEventListener('click', () => vscode.postMessage({ type: 'openSourceControl' }));

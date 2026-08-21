@@ -10,7 +10,7 @@
 - 支援 Ask、Edit、Plan 與 Agent 模式，並為每個模式設定明確的工具權限。
 - 支援取消要求、新建／命名／恢復 session、context compaction，以及在終端機接續目前 session。
 - 可直接選擇 Pi model 與 thinking level。
-- 可附加目前選取內容、目前檔案、Problems diagnostics，或從檔案選擇器加入多個 bounded context items。
+- 可附加目前選取內容、目前檔案、Problems diagnostics、selected terminal output、PNG/JPEG/GIF/WebP images，或從檔案選擇器加入多個 bounded context items。
 - 可手動觸發或選擇啟用 cancellable、debounced、cached inline ghost-text completions。
 - 提供 Inline Edit、Explain、Fix、Review、Document 與 Generate Tests editor actions。
 - 所有 focused generated edits 都先在 VS Code diff view 預覽，只有明確選擇 **Apply Edit** 才會套用。
@@ -18,6 +18,8 @@
 - 可同時執行多個 independent background Agent tasks，查看串流狀態、取消，並恢復完成後的 Pi session。
 - Background task 可選擇從目前 `HEAD` 建立 detached Git worktree 隔離執行，完成後可開啟或移除 worktree；尚未 commit 的目前 workspace 變更不會複製過去。
 - Plan mode 可使用 **Implement Plan** 保留同一個 session context 並切換到 Agent mode。
+- **Commands…** 會列出 Pi discovered extension commands、prompt templates 與 skills，並插入對應 slash command。
+- Pi session 可 export 成 HTML、在 terminal 接續，或從 background/worktree task 恢復。
 - 可從 Pi session 恢復有限長度的對話紀錄。
 - 從 Command Palette 執行 **Pi: Open Chat** 可直接開啟專屬對話視窗。
 - 仍可在 VS Code 原生 Chat view 使用 `@pi`，並使用 `/explain`、`/review` 或 `/fix`。
@@ -61,9 +63,10 @@ code --install-extension ./pi-coding-agent.vsix --force
 3. 在 **Chat** view 輸入訊息並按 Enter 或 **Send**。
 4. 若要加入程式碼，先在編輯器選取內容，再按 **Attach selection**。
 5. 使用 **Cancel** 停止目前要求。
-6. 使用 **New**、**Resume**、**Name**、**Compact** 與 **Terminal** 管理 Pi session。
-7. 使用 **Background** 平行執行 Agent，或使用 **Worktree** 在 isolated detached worktree 執行。
-8. Agent/Edit 完成後，可從 **Pi changes** review diff、open 或安全 revert captured files。
+6. 使用 **New**、**Resume**、**Name**、**Compact**、**Export** 與 **Terminal** 管理 Pi session。
+7. 使用 **Commands…** 選擇 Pi command、prompt template 或 skill。
+8. 使用 **Background** 平行執行 Agent，或使用 **Worktree** 在 isolated detached worktree 執行。
+9. Agent/Edit 完成後，可從 **Pi changes** review diff、open 或安全 revert captured files。
 
 ### Native Chat Participant
 
@@ -102,6 +105,22 @@ code --install-extension ./pi-coding-agent.vsix --force
 
 空白的 override 會沿用 Pi 自己的設定。
 
+## Pi Customization
+
+- Pi 會依照自己的規則載入 global authentication、models、settings、AGENTS.md、extensions、skills 與 prompt templates。
+- Project-local Pi resources 預設不會由 extension 自動信任。
+- 只有在確認 workspace 可信任後，才將 `piCodingAgent.approveProjectResources` 設成 `true`。
+- 啟用後，Pi RPC process 會使用 `--approve` 載入 project-local `.pi` resources。
+- MCP 並非 Pi core 內建功能；若已安裝提供 MCP tools 的 Pi extension，Agent mode 會照常載入並使用它。
+- **Commands…** 的內容直接來自 Pi RPC `get_commands`，因此會反映目前可用的 extension commands、prompts 與 skills。
+
+## Context and Privacy
+
+- Text context 每個 item 上限 200,000 characters，合計上限 400,000 characters，最多 8 個 items。
+- Image context 最多 5 張，每張上限 5 MiB。
+- Terminal context 只會在使用者按 **Terminal text** 時複製目前選取內容。
+- Prompt、context 與 image payload 都透過 Pi process stdin 傳送，不會放進 command-line arguments。
+
 ## Development
 
 ```bash
@@ -116,7 +135,7 @@ npm run package
 
 ## Current Scope
 
-目前版本提供持久 streaming Pi runtime、四種操作模式、session/model controls、專屬 conversation view、原生 Chat participant、inline completions、focused editor actions、change checkpoints，以及平行 background/worktree agents。
+目前版本提供持久 streaming Pi runtime、四種操作模式、session/model controls、Pi customization discovery、text/image/terminal context、session export、專屬 conversation view、原生 Chat participant、inline completions、focused editor actions、change checkpoints，以及平行 background/worktree agents。
 Checkpoint revert 僅涵蓋 Pi edit/write tools 明確觸及且小於 2 MiB 的 workspace files。
 Shell commands 造成的額外變更仍會顯示在 VS Code Source Control，但不會自動建立可 revert checkpoint。
 尚未包含 Markdown rich rendering、next-edit prediction、cloud-hosted agent service，以及跨機器 session synchronization。

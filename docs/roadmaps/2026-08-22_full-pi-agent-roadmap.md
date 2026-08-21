@@ -18,7 +18,8 @@ Provide a Pi-native VS Code experience with the interactive editing, completion,
 - [x] Version `0.4.0` replaces sidebar one-shot calls with a persistent streaming Pi RPC runtime, explicit Ask/Edit/Plan/Agent tool profiles, tool activity, model/thinking controls, and session new/name/resume/compact/terminal actions.
 - [x] Version `0.5.0` adds manual/opt-in automatic inline ghost-text completions, focused editor actions with diff preview and explicit apply, and bounded selection/file/diagnostics context attachments.
 - [x] Version `0.6.0` adds bounded edit/write checkpoints with diff/open/stale-safe revert actions, explicit Plan-to-Agent handoff, concurrent background agents, and optional detached Git worktree isolation.
-- Cloud-hosted delegation and cross-machine synchronization still require an external execution target.
+- [x] Version `0.7.0` exposes Pi commands/prompts/skills, project trust, text/image/terminal context, HTML export, and terminal/background/worktree handoffs.
+- Cloud-hosted delegation and cross-machine synchronization still require a separately configured external execution service.
 - Pi RPC mode provides persistent sessions, streaming events, model control, compaction, session switching/forking, tool activity, and extension UI requests.
 
 ## Roadmap
@@ -48,9 +49,9 @@ Provide a Pi-native VS Code experience with the interactive editing, completion,
 
 ### Phase 4: Customization and handoff
 
-- [ ] Pi skills, prompt templates, extension commands, project instructions, and model choices are discoverable and selectable in the UI.
-- [ ] Image/file context, terminal context, and supported external-service integrations are available through the conversation composer.
-- [ ] Sessions can be exported, opened in a terminal, or handed off to configured remote/background execution targets without losing task context.
+- [x] Pi skills, prompt templates, extension commands, project instructions, trust behavior, and model choices are discoverable or selectable in the UI and documented.
+- [x] Bounded image/file/selection/diagnostics/terminal context and Pi-extension-provided external-service tools are available through the conversation composer.
+- [x] Sessions can be exported, opened in a terminal, resumed from background tasks, or handed off to local/background/worktree execution without losing Pi session or explicit attachment context.
 
 **Outcome:** The extension exposes Pi's customization ecosystem and supports workflows analogous to Claude Code, Codex, and Copilot harness switching.
 

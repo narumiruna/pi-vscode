@@ -2,7 +2,7 @@
   "name": "pi-coding-agent",
   "displayName": "Pi Coding Agent",
   "description": "Chat with Pi in VS Code, ask about selected code, and apply focused modifications.",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "narumitw",
   "license": "MIT",
   "engines": {
@@ -277,7 +277,7 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "npm run compile && node --test out/test/changeState.test.js out/test/completion.test.js out/test/piClient.test.js out/test/piRpcClient.test.js out/test/prompts.test.js out/test/runtimeProfiles.test.js out/test/sidebarState.test.js",
+    "test": "npm run compile && node --test out/test/attachmentUtils.test.js out/test/changeState.test.js out/test/completion.test.js out/test/piClient.test.js out/test/piRpcClient.test.js out/test/prompts.test.js out/test/runtimeProfiles.test.js out/test/sidebarState.test.js",
     "package": "npm run test && vsce package --out pi-coding-agent.vsix",
     "prepare": "husky"
   },
