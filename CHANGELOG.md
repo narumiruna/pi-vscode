@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0
+
+- Replace one-shot sidebar requests with a persistent streaming Pi RPC runtime.
+- Add Ask, Edit, Plan, and Agent modes with explicit tool policies.
+- Stream assistant text, thinking status, retries, compaction, and tool activity.
+- Add model, thinking-level, session naming, new/resume session, compaction, and terminal controls.
+- Restore Pi session messages and recover from stale saved sessions or unexpected process exits.
+- Bridge Pi extension UI requests to native VS Code dialogs and notifications.
+
 ## 0.3.0
 
 - Add a dedicated Pi conversation view in the VS Code Activity Bar.

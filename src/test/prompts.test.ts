@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildAgentPrompt,
   buildAskPrompt,
   buildChatPrompt,
   buildModifyPrompt,
   extractReplacement,
   limitChatHistory,
   limitReferenceContent,
+  parseAgentPrompt,
   type SelectionContext,
 } from "../prompts";
 
@@ -33,6 +35,22 @@ test("buildModifyPrompt requests a tagged replacement", () => {
   assert.match(prompt, /Instruction: Use a named constant/);
   assert.match(prompt, /<<<PI_REPLACEMENT_START>>>/);
   assert.match(prompt, /Do not use Markdown code fences\./);
+});
+
+test("buildAgentPrompt round-trips the user request and context labels", () => {
+  const prompt = buildAgentPrompt("Fix the parser", [
+    { label: "src/parser.ts:2-5", content: "export function parse() {}" },
+  ]);
+
+  assert.match(prompt, /PI_VSCODE_CONTEXT_START: src\/parser\.ts:2-5/);
+  assert.deepEqual(parseAgentPrompt(prompt), {
+    request: "Fix the parser",
+    contextLabels: ["src/parser.ts:2-5"],
+  });
+  assert.deepEqual(parseAgentPrompt("plain prompt"), {
+    request: "plain prompt",
+    contextLabels: [],
+  });
 });
 
 test("buildChatPrompt includes history, references, and command intent", () => {

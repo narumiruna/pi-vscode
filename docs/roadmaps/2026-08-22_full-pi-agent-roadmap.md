@@ -1,0 +1,76 @@
+# Full Pi Agent Experience Roadmap
+
+## Vision
+
+Provide a Pi-native VS Code experience with the interactive editing, completion, chat, autonomous-agent, session-management, and extensibility outcomes users expect from Codex, GitHub Copilot, GitHub Copilot Chat, and Claude Code.
+
+## Objectives
+
+- **Fast pair programming** — Success: users can receive cancellable inline completions and perform focused inline edits without leaving the editor.
+- **Full agent loop** — Success: Pi streams reasoning-visible status, text, and tool activity while it explores, edits, runs commands, and self-corrects in the workspace.
+- **Controlled changes** — Success: users can choose ask, edit, plan, or agent behavior, inspect changed files, and cancel or undo work.
+- **Durable sessions** — Success: users can create, name, resume, fork, compact, and monitor multiple Pi sessions from VS Code.
+- **Pi ecosystem compatibility** — Success: existing Pi authentication, models, settings, AGENTS.md files, skills, prompt templates, extensions, and supported external tools work without separate credentials.
+
+## Current State
+
+- [x] A packaged `0.3.0` extension provides a dedicated Activity Bar conversation view, native `@pi` participant, selected-code ask/modify actions, bounded local chat history, configurable Pi executable/model overrides, and Husky verification.
+- [x] Version `0.4.0` replaces sidebar one-shot calls with a persistent streaming Pi RPC runtime, explicit Ask/Edit/Plan/Agent tool profiles, tool activity, model/thinking controls, and session new/name/resume/compact/terminal actions.
+- Inline completions, inline editor chat, change review, and parallel background session management are not yet implemented.
+- Pi RPC mode provides persistent sessions, streaming events, model control, compaction, session switching/forking, tool activity, and extension UI requests.
+
+## Roadmap
+
+### Phase 1: Persistent streaming Pi runtime
+
+- [x] The sidebar runs a persistent Pi RPC session with token streaming, tool activity, cancellation, Ask/Edit/Plan/Agent modes, model and thinking controls, and recoverable process lifecycle behavior; verified by 23 tests and a real Pi streaming smoke test.
+- [x] Pi sessions can be created, named, resumed, compacted, restored, and opened in a terminal from the conversation UI; verified in packaged `0.4.0`.
+
+**Outcome:** VS Code becomes a complete front end for the Pi agent loop rather than a one-shot prompt wrapper.
+
+### Phase 2: Editor-native assistance
+
+- [ ] Users can invoke inline editor chat for explain, fix, refactor, document, test, and free-form edits with preview, accept, reject, and undo behavior.
+- [ ] Cancellable, debounced inline code completions provide ghost-text suggestions with language and nearby-code context.
+- [ ] Diagnostics, current file, selected code, and explicit file references can be added to chat and editor requests.
+
+**Outcome:** Pi supports Copilot-style flow inside the editor for both proactive suggestions and focused changes.
+
+### Phase 3: Controlled autonomous coding
+
+- [ ] Ask, Edit, Plan, and Agent modes have explicit tool policies and clear UI status.
+- [ ] Agent activity exposes file changes, commands, tool results, errors, and completion status, with change review and revert support.
+- [ ] Multiple local/background sessions can run independently and be resumed or opened in isolated Git worktrees.
+
+**Outcome:** Pi can complete multi-file tasks while users retain visibility and control comparable to modern coding-agent extensions.
+
+### Phase 4: Customization and handoff
+
+- [ ] Pi skills, prompt templates, extension commands, project instructions, and model choices are discoverable and selectable in the UI.
+- [ ] Image/file context, terminal context, and supported external-service integrations are available through the conversation composer.
+- [ ] Sessions can be exported, opened in a terminal, or handed off to configured remote/background execution targets without losing task context.
+
+**Outcome:** The extension exposes Pi's customization ecosystem and supports workflows analogous to Claude Code, Codex, and Copilot harness switching.
+
+### Phase 5: Product hardening and parity audit
+
+- [ ] Automated unit, subprocess, VS Code-host, and packaged-extension tests cover runtime framing, recovery, editor edits, completions, sessions, and security boundaries.
+- [ ] A checked feature matrix maps every advertised reference-extension capability to an implemented Pi workflow or documented external dependency, with no unresolved required gaps.
+- [ ] Installation, onboarding, privacy, permissions, troubleshooting, and upgrade documentation are verified from a clean VS Code profile.
+
+**Outcome:** The extension is installable, auditable, and demonstrably satisfies the requested reference feature set end to end.
+
+## Guiding Principles
+
+- Use Pi's own authentication, model registry, sessions, instructions, extensions, skills, and tools instead of duplicating provider infrastructure.
+- Keep source text and prompts off command-line arguments.
+- Default to visible, cancellable behavior and make autonomous tool access an explicit mode choice.
+- Use stable VS Code APIs for marketplace builds and isolate optional proposed-API integrations.
+- Bound persisted state, subprocess output, context attachments, and completion frequency.
+
+## Risks and Dependencies
+
+- Cloud-agent delegation requires a configured external execution target; local/background and worktree sessions remain available without one.
+- Inline completions through general coding models can have higher latency and cost than dedicated completion services; debounce, cancellation, caching, and opt-in settings mitigate this.
+- Pi tools execute with the extension host user's permissions; explicit Agent mode, workspace trust, activity visibility, and revert workflows mitigate accidental changes.
+- Proposed VS Code agent-session APIs cannot be required for marketplace compatibility; the dedicated Pi UI remains the stable fallback.

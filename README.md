@@ -6,8 +6,11 @@
 ## Features
 
 - Activity Bar 提供專屬 **Pi > Chat** 對話視窗。
-- 對話視窗支援多輪問答、取消要求、清除對話，以及明確附加目前選取的程式碼。
-- 對話紀錄會有限量地保存在目前 workspace，隱藏或重新開啟 view 後仍會保留。
+- 對話視窗透過持久 Pi RPC session 串流回覆、思考狀態、重試、壓縮與工具活動。
+- 支援 Ask、Edit、Plan 與 Agent 模式，並為每個模式設定明確的工具權限。
+- 支援取消要求、新建／命名／恢復 session、context compaction，以及在終端機接續目前 session。
+- 可直接選擇 Pi model 與 thinking level。
+- 可明確附加目前選取的程式碼，並從 Pi session 恢復有限長度的對話紀錄。
 - 從 Command Palette 執行 **Pi: Open Chat** 可直接開啟專屬對話視窗。
 - 仍可在 VS Code 原生 Chat view 使用 `@pi`，並使用 `/explain`、`/review` 或 `/fix`。
 - Native Chat request 會附帶有限長度的對話歷史，以及使用者加入的檔案或選取範圍 references。
@@ -15,12 +18,15 @@
 - **Ask About Selection** 會詢問問題，並在側邊開啟 Markdown 回覆。
 - **Modify Selection** 會要求 Pi 產生替代程式碼並套用到原本選取範圍。
 - 文件在等待期間若有變更，擴充功能不會套用過期的修改。
-- 可設定 Pi 執行檔、provider、model 與 thinking level。
-- 支援取消執行中的要求。
+- 可設定 Pi 執行檔、provider、model、thinking level 與 project resource trust。
+- 支援取消執行中的要求與非預期 process exit recovery。
 
 Prompt、對話內容與程式碼只會透過 subprocess stdin 傳給 Pi，不會放進 command-line arguments。
-每個動作都使用 `--no-session --no-tools`，因此不會建立 Pi session，也不允許代理程式自行執行工具。
-連續對話由擴充功能將有限長度的對話 history 加入下一個 prompt。
+專屬 conversation view 使用 Pi 自己的持久 session、authentication、model registry、AGENTS.md、skills、prompt templates 與 extensions。
+Ask 與 Plan 模式只允許 read、grep、find、ls。
+Edit 模式可讀寫檔案但不能執行 shell command。
+Agent 模式必須由使用者確認啟用，並允許 Pi 使用完整 coding tools。
+原生 `@pi` 與 selection actions 仍使用隔離的 one-shot、no-tools request。
 
 ## Requirements
 
@@ -43,9 +49,11 @@ code --install-extension ./pi-coding-agent.vsix --force
 ### Pi Conversation View
 
 1. 從 Activity Bar 選擇 **Pi**，或從 Command Palette 執行 **Pi: Open Chat**。
-2. 在 **Chat** view 輸入訊息並按 Enter 或 **Send**。
-3. 若要加入程式碼，先在編輯器選取內容，再按 **Attach selection**。
-4. 使用 **Cancel** 停止目前要求，或使用 **New chat** 清除 workspace 對話紀錄。
+2. 從上方選擇 Ask、Edit、Plan 或 Agent mode。
+3. 在 **Chat** view 輸入訊息並按 Enter 或 **Send**。
+4. 若要加入程式碼，先在編輯器選取內容，再按 **Attach selection**。
+5. 使用 **Cancel** 停止目前要求。
+6. 使用 **New**、**Resume**、**Name**、**Compact** 與 **Terminal** 管理 Pi session。
 
 ### Native Chat Participant
 
@@ -67,6 +75,8 @@ code --install-extension ./pi-coding-agent.vsix --force
 
 | Setting | Default | Description |
 | --- | --- | --- |
+| `piCodingAgent.defaultMode` | `ask` | 新 conversation runtime 的預設 Ask、Edit、Plan 或 Agent mode。 |
+| `piCodingAgent.approveProjectResources` | `false` | 是否信任並載入 project-local Pi settings、extensions、skills 與 prompts。 |
 | `piCodingAgent.executablePath` | `pi` | Pi CLI 的命令或完整路徑。 |
 | `piCodingAgent.provider` | empty | 選用的 provider override。 |
 | `piCodingAgent.model` | empty | 選用的 model override。 |
@@ -88,9 +98,8 @@ npm run package
 
 ## Current Scope
 
-目前版本提供專屬 conversation view、原生 Chat participant 與選取程式碼 actions。
-對話訊息會保存在 workspace state，但每次要求仍是獨立的 Pi subprocess。
-持久 Pi session、token streaming、Markdown rich rendering、工具執行審核、程式碼自動完成與背景 agent session 尚未包含。
+目前版本提供持久 streaming Pi runtime、四種操作模式、session/model controls、專屬 conversation view、原生 Chat participant 與選取程式碼 actions。
+尚未包含 Markdown rich rendering、inline completions、inline editor chat、完整 change review／revert UI，以及多個平行 background agent sessions。
 
 ## License
 

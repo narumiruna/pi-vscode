@@ -86,6 +86,34 @@ export function limitReferenceContent(content: string, remainingCharacters: numb
   return content.slice(0, Math.max(0, Math.min(remainingCharacters, maxCharacters)));
 }
 
+export function buildAgentPrompt(
+  request: string,
+  references: readonly ChatReferenceContext[],
+): string {
+  const sections: string[] = [];
+  for (const reference of references) {
+    sections.push(
+      `<<<PI_VSCODE_CONTEXT_START: ${reference.label.replace(/[\r\n]+/g, " ")}>>>`,
+      reference.content,
+      "<<<PI_VSCODE_CONTEXT_END>>>",
+    );
+  }
+  sections.push("<<<PI_VSCODE_REQUEST_START>>>", request, "<<<PI_VSCODE_REQUEST_END>>>");
+  return sections.join("\n");
+}
+
+export function parseAgentPrompt(prompt: string): { request: string; contextLabels: string[] } {
+  const requestMatch = /<<<PI_VSCODE_REQUEST_START>>>\n([\s\S]*?)\n<<<PI_VSCODE_REQUEST_END>>>\s*$/.exec(prompt);
+  const contextLabels = Array.from(
+    prompt.matchAll(/<<<PI_VSCODE_CONTEXT_START: ([^\r\n>]*)>>>/g),
+    match => match[1],
+  );
+  return {
+    request: requestMatch?.[1] ?? prompt,
+    contextLabels,
+  };
+}
+
 export function buildChatPrompt(
   question: string,
   command: string | undefined,
