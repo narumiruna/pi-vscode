@@ -13,7 +13,11 @@
 - 可附加目前選取內容、目前檔案、Problems diagnostics，或從檔案選擇器加入多個 bounded context items。
 - 可手動觸發或選擇啟用 cancellable、debounced、cached inline ghost-text completions。
 - 提供 Inline Edit、Explain、Fix、Review、Document 與 Generate Tests editor actions。
-- 所有 generated edits 都先在 VS Code diff view 預覽，只有明確選擇 **Apply Edit** 才會套用。
+- 所有 focused generated edits 都先在 VS Code diff view 預覽，只有明確選擇 **Apply Edit** 才會套用。
+- Foreground Agent/Edit mode 會追蹤 Pi edit/write tool 的檔案，並提供 Diff、Open、stale-safe Revert 與 Source Control actions。
+- 可同時執行多個 independent background Agent tasks，查看串流狀態、取消，並恢復完成後的 Pi session。
+- Background task 可選擇從目前 `HEAD` 建立 detached Git worktree 隔離執行，完成後可開啟或移除 worktree；尚未 commit 的目前 workspace 變更不會複製過去。
+- Plan mode 可使用 **Implement Plan** 保留同一個 session context 並切換到 Agent mode。
 - 可從 Pi session 恢復有限長度的對話紀錄。
 - 從 Command Palette 執行 **Pi: Open Chat** 可直接開啟專屬對話視窗。
 - 仍可在 VS Code 原生 Chat view 使用 `@pi`，並使用 `/explain`、`/review` 或 `/fix`。
@@ -58,6 +62,8 @@ code --install-extension ./pi-coding-agent.vsix --force
 4. 若要加入程式碼，先在編輯器選取內容，再按 **Attach selection**。
 5. 使用 **Cancel** 停止目前要求。
 6. 使用 **New**、**Resume**、**Name**、**Compact** 與 **Terminal** 管理 Pi session。
+7. 使用 **Background** 平行執行 Agent，或使用 **Worktree** 在 isolated detached worktree 執行。
+8. Agent/Edit 完成後，可從 **Pi changes** review diff、open 或安全 revert captured files。
 
 ### Native Chat Participant
 
@@ -110,8 +116,10 @@ npm run package
 
 ## Current Scope
 
-目前版本提供持久 streaming Pi runtime、四種操作模式、session/model controls、專屬 conversation view、原生 Chat participant、inline completions、focused editor actions 與 diff preview。
-尚未包含 Markdown rich rendering、next-edit prediction、完整 multi-file change review／revert UI，以及多個平行 background agent sessions。
+目前版本提供持久 streaming Pi runtime、四種操作模式、session/model controls、專屬 conversation view、原生 Chat participant、inline completions、focused editor actions、change checkpoints，以及平行 background/worktree agents。
+Checkpoint revert 僅涵蓋 Pi edit/write tools 明確觸及且小於 2 MiB 的 workspace files。
+Shell commands 造成的額外變更仍會顯示在 VS Code Source Control，但不會自動建立可 revert checkpoint。
+尚未包含 Markdown rich rendering、next-edit prediction、cloud-hosted agent service，以及跨機器 session synchronization。
 
 ## License
 

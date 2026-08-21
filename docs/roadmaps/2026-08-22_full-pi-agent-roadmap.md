@@ -17,7 +17,8 @@ Provide a Pi-native VS Code experience with the interactive editing, completion,
 - [x] A packaged `0.3.0` extension provides a dedicated Activity Bar conversation view, native `@pi` participant, selected-code ask/modify actions, bounded local chat history, configurable Pi executable/model overrides, and Husky verification.
 - [x] Version `0.4.0` replaces sidebar one-shot calls with a persistent streaming Pi RPC runtime, explicit Ask/Edit/Plan/Agent tool profiles, tool activity, model/thinking controls, and session new/name/resume/compact/terminal actions.
 - [x] Version `0.5.0` adds manual/opt-in automatic inline ghost-text completions, focused editor actions with diff preview and explicit apply, and bounded selection/file/diagnostics context attachments.
-- Complete multi-file change review/revert and parallel background session management are not yet implemented.
+- [x] Version `0.6.0` adds bounded edit/write checkpoints with diff/open/stale-safe revert actions, explicit Plan-to-Agent handoff, concurrent background agents, and optional detached Git worktree isolation.
+- Cloud-hosted delegation and cross-machine synchronization still require an external execution target.
 - Pi RPC mode provides persistent sessions, streaming events, model control, compaction, session switching/forking, tool activity, and extension UI requests.
 
 ## Roadmap
@@ -39,9 +40,9 @@ Provide a Pi-native VS Code experience with the interactive editing, completion,
 
 ### Phase 3: Controlled autonomous coding
 
-- [ ] Ask, Edit, Plan, and Agent modes have explicit tool policies and clear UI status.
-- [ ] Agent activity exposes file changes, commands, tool results, errors, and completion status, with change review and revert support.
-- [ ] Multiple local/background sessions can run independently and be resumed or opened in isolated Git worktrees.
+- [x] Ask, Edit, Plan, and Agent modes have explicit tested tool policies, visible UI status, modal Agent confirmation, and Plan-to-Agent handoff.
+- [x] Agent activity exposes streamed file tools, command/tool status and results, errors, completion status, checkpointed file changes, diff review, and stale-safe revert support.
+- [x] Multiple local/background sessions run through independent Pi RPC clients and can be cancelled, resumed, or opened in isolated detached Git worktrees; verified by concurrent-client and real-worktree smoke tests.
 
 **Outcome:** Pi can complete multi-file tasks while users retain visibility and control comparable to modern coding-agent extensions.
 
