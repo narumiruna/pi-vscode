@@ -2,7 +2,7 @@
   "name": "pi-coding-agent",
   "displayName": "Pi Coding Agent",
   "description": "Chat with Pi in VS Code, ask about selected code, and apply focused modifications.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "narumitw",
   "license": "MIT",
   "engines": {
@@ -120,6 +120,22 @@
     "configuration": {
       "title": "Pi Coding Agent",
       "properties": {
+        "piCodingAgent.defaultMode": {
+          "type": "string",
+          "default": "ask",
+          "enum": [
+            "ask",
+            "edit",
+            "plan",
+            "agent"
+          ],
+          "description": "Default mode for new Pi conversation runtimes. Ask and Plan are read-only; Edit can change files; Agent can also run commands."
+        },
+        "piCodingAgent.approveProjectResources": {
+          "type": "boolean",
+          "default": false,
+          "description": "Trust and load project-local Pi settings, extensions, skills, and prompts for RPC sessions. Enable only for workspaces you trust."
+        },
         "piCodingAgent.executablePath": {
           "type": "string",
           "default": "pi",
@@ -156,7 +172,7 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "npm run compile && node --test out/test/piClient.test.js out/test/prompts.test.js out/test/sidebarState.test.js",
+    "test": "npm run compile && node --test out/test/piClient.test.js out/test/piRpcClient.test.js out/test/prompts.test.js out/test/runtimeProfiles.test.js out/test/sidebarState.test.js",
     "package": "npm run test && vsce package --out pi-coding-agent.vsix",
     "prepare": "husky"
   },
