@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0
+
+- Add cancellable, debounced, cached Pi inline ghost-text completions.
+- Add focused Inline Edit, Explain, Fix, Review, Document, and Generate Tests commands.
+- Preview all generated edits in VS Code diff UI and require explicit Apply confirmation.
+- Add bounded current-file, selected-code, diagnostics, and file-picker context attachments.
+- Add editor keybindings and inline-completion configuration.
+
 ## 0.4.0
 
 - Replace one-shot sidebar requests with a persistent streaming Pi RPC runtime.

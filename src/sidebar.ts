@@ -14,11 +14,13 @@ const maxMessages = 100;
 const maxStoredCharacters = 250_000;
 const maxInputCharacters = 100_000;
 const maxAttachedCharacters = 200_000;
+const maxTotalContextCharacters = 400_000;
+const maxAttachments = 8;
 const maxToolActivities = 30;
 const maxToolOutputCharacters = 8_000;
 
-interface AttachedSelection extends ChatReferenceContext {
-  readonly uri: vscode.Uri;
+interface AttachedContext extends ChatReferenceContext {
+  readonly uri?: vscode.Uri;
 }
 
 interface ToolActivity {
@@ -49,7 +51,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   private view: vscode.WebviewView | undefined;
   private messages: SidebarMessage[];
   private tools: ToolActivity[] = [];
-  private attachment: AttachedSelection | undefined;
+  private attachments: AttachedContext[] = [];
   private status = "Ready";
   private streamingAssistantId: string | undefined;
   private renderTimer: NodeJS.Timeout | undefined;
@@ -134,6 +136,19 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         case "attachSelection":
           this.attachSelection();
           break;
+        case "attachFile":
+          await this.attachFile();
+          break;
+        case "attachCurrentFile":
+          await this.attachCurrentFile();
+          break;
+        case "attachDiagnostics":
+          this.attachDiagnostics();
+          break;
+        case "clearAttachments":
+          this.attachments = [];
+          this.postState();
+          break;
         case "setMode":
           await this.setMode(message.mode);
           break;
@@ -175,8 +190,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       return;
     }
 
-    const attachment = this.attachment;
-    this.attachment = undefined;
+    const attachments = this.attachments;
+    this.attachments = [];
     this.messages = limitSidebarMessages(
       [
         ...this.messages,
@@ -184,7 +199,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           id: randomUUID(),
           role: "user",
           content: text,
-          contextLabel: attachment?.label,
+          contextLabel: attachments.map(context => context.label).join(", ") || undefined,
         },
       ],
       maxMessages,
@@ -197,7 +212,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.postState();
 
     try {
-      await this.runtime.prompt(buildAgentPrompt(text, attachment ? [attachment] : []), attachment?.uri);
+      await this.runtime.prompt(buildAgentPrompt(text, attachments), attachments.find(context => context.uri)?.uri);
       await this.syncMessagesFromPi();
       this.status = "Ready";
     } catch (error) {
@@ -215,7 +230,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     await this.runtime.newSession();
     this.messages = [];
     this.tools = [];
-    this.attachment = undefined;
+    this.attachments = [];
     await this.persistMessages();
     this.status = "New Pi session";
     this.postState();
@@ -296,23 +311,99 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.postNotice("Select code in an editor before attaching it.", "warning");
       return;
     }
-
     const range = new vscode.Range(editor.selection.start, editor.selection.end);
-    const workspaceFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
-    const file = workspaceFolder
-      ? path.relative(workspaceFolder.uri.fsPath, editor.document.uri.fsPath)
-      : editor.document.uri.scheme === "file"
-        ? path.basename(editor.document.uri.fsPath)
-        : editor.document.uri.toString();
-    const selectedText = editor.document.getText(range);
-    const truncated = selectedText.length > maxAttachedCharacters;
-    this.attachment = {
+    this.addAttachment({
       uri: editor.document.uri,
-      label: `${file}:${range.start.line + 1}-${range.end.line + 1}${truncated ? " (truncated)" : ""}`,
-      content: limitReferenceContent(selectedText, maxAttachedCharacters, maxAttachedCharacters),
-    };
+      label: `${relativeDocumentPath(editor.document)}:${range.start.line + 1}-${range.end.line + 1}`,
+      content: editor.document.getText(range),
+    });
+  }
+
+  private async attachCurrentFile(): Promise<void> {
+    const document = vscode.window.activeTextEditor?.document;
+    if (!document) {
+      this.postNotice("Open a text editor before attaching the current file.", "warning");
+      return;
+    }
+    this.addAttachment({
+      uri: document.uri,
+      label: relativeDocumentPath(document),
+      content: document.getText(),
+    });
+  }
+
+  private async attachFile(): Promise<void> {
+    const selected = await vscode.window.showOpenDialog({
+      title: "Attach Files to Pi",
+      defaultUri: vscode.workspace.workspaceFolders?.[0]?.uri,
+      canSelectFiles: true,
+      canSelectFolders: false,
+      canSelectMany: true,
+      openLabel: "Attach",
+    });
+    for (const uri of selected ?? []) {
+      if (this.attachments.length >= maxAttachments) {
+        this.postNotice(`A maximum of ${maxAttachments} context items can be attached.`, "warning");
+        break;
+      }
+      try {
+        const document = await vscode.workspace.openTextDocument(uri);
+        this.addAttachment({
+          uri,
+          label: relativeDocumentPath(document),
+          content: document.getText(),
+        });
+      } catch (error) {
+        this.postNotice(`Could not attach ${uri.fsPath}: ${formatError(error)}`, "warning");
+      }
+    }
+  }
+
+  private attachDiagnostics(): void {
+    const document = vscode.window.activeTextEditor?.document;
+    if (!document) {
+      this.postNotice("Open a text editor before attaching diagnostics.", "warning");
+      return;
+    }
+    const diagnostics = vscode.languages.getDiagnostics(document.uri);
+    if (diagnostics.length === 0) {
+      this.postNotice("The current file has no diagnostics.", "info");
+      return;
+    }
+    const content = diagnostics
+      .map(diagnostic => {
+        const severity = ["Error", "Warning", "Information", "Hint"][diagnostic.severity] ?? "Diagnostic";
+        const source = diagnostic.source ? ` (${diagnostic.source})` : "";
+        return `${severity}${source} at ${diagnostic.range.start.line + 1}:${diagnostic.range.start.character + 1}: ${diagnostic.message}`;
+      })
+      .join("\n");
+    this.addAttachment({
+      uri: document.uri,
+      label: `Diagnostics: ${relativeDocumentPath(document)}`,
+      content,
+    });
+  }
+
+  private addAttachment(context: AttachedContext): void {
+    const existing = this.attachments.filter(item => item.label !== context.label);
+    if (existing.length >= maxAttachments) {
+      this.postNotice(`A maximum of ${maxAttachments} context items can be attached.`, "warning");
+      return;
+    }
+    const usedCharacters = existing.reduce((total, item) => total + item.content.length, 0);
+    const remainingCharacters = maxTotalContextCharacters - usedCharacters;
+    if (remainingCharacters <= 0) {
+      this.postNotice("The context attachment limit has been reached.", "warning");
+      return;
+    }
+    const content = limitReferenceContent(context.content, remainingCharacters, maxAttachedCharacters);
+    const truncated = content.length < context.content.length;
+    this.attachments = [...existing, {
+      ...context,
+      content,
+    }];
     if (truncated) {
-      this.postNotice(`The attached selection was limited to ${maxAttachedCharacters.toLocaleString()} characters.`, "warning");
+      this.postNotice("The attached context was truncated to fit the context limit.", "warning");
     }
     this.postState();
   }
@@ -487,7 +578,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       messages: this.messages,
       tools: this.tools,
       status: this.status,
-      attachment: this.attachment ? { label: this.attachment.label } : undefined,
+      attachments: this.attachments.map(context => ({ label: context.label })),
       runtime: this.runtime.currentState,
     });
   }
@@ -502,7 +593,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
 }
 
 type WebviewMessage =
-  | { readonly type: "ready" | "cancel" | "newSession" | "attachSelection" | "compact" | "nameSession" | "resumeSession" | "openTerminal" }
+  | { readonly type: "ready" | "cancel" | "newSession" | "attachSelection" | "attachFile" | "attachCurrentFile" | "attachDiagnostics" | "clearAttachments" | "compact" | "nameSession" | "resumeSession" | "openTerminal" }
   | { readonly type: "send"; readonly text: string }
   | { readonly type: "setMode"; readonly mode: PiAgentMode }
   | { readonly type: "setModel"; readonly provider: string; readonly modelId: string }
@@ -529,6 +620,10 @@ function isWebviewMessage(value: unknown): value is WebviewMessage {
     "cancel",
     "newSession",
     "attachSelection",
+    "attachFile",
+    "attachCurrentFile",
+    "attachDiagnostics",
+    "clearAttachments",
     "compact",
     "nameSession",
     "resumeSession",
@@ -621,6 +716,14 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function relativeDocumentPath(document: vscode.TextDocument): string {
+  const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+  if (workspaceFolder) {
+    return path.relative(workspaceFolder.uri.fsPath, document.uri.fsPath);
+  }
+  return document.uri.scheme === "file" ? path.basename(document.uri.fsPath) : document.uri.toString();
+}
+
 function modeLabel(mode: PiAgentMode): string {
   return mode.charAt(0).toUpperCase() + mode.slice(1);
 }
@@ -674,12 +777,12 @@ function getWebviewHtml(): string {
     .tool.running summary { color: var(--vscode-progressBar-background); }
     .tool.error summary { color: var(--vscode-errorForeground); }
     .tool pre { max-height: 120px; overflow: auto; margin: 0; padding: 7px; border-top: 1px solid var(--vscode-sideBar-border, transparent); white-space: pre-wrap; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); }
-    #attachment { display: none; margin: 0 8px 6px; padding: 5px 8px; border-radius: 3px; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #attachments { display: none; margin: 0 8px 6px; padding: 5px 8px; border-radius: 3px; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #composer { padding: 8px; border-top: 1px solid var(--vscode-sideBar-border, transparent); }
     textarea { display: block; width: 100%; min-height: 72px; max-height: 220px; resize: vertical; padding: 8px; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; font: inherit; }
     textarea:focus { border-color: var(--vscode-focusBorder); outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
-    .actions { display: flex; justify-content: space-between; gap: 6px; margin-top: 7px; }
-    .right-actions { display: flex; gap: 6px; }
+    .actions { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; margin-top: 7px; }
+    .context-actions, .right-actions { display: flex; flex-wrap: wrap; gap: 4px; }
     #notice { min-height: 20px; padding: 0 8px 5px; color: var(--vscode-descriptionForeground); font-size: .85em; }
     #notice.error { color: var(--vscode-errorForeground); }
     #notice.warning { color: var(--vscode-editorWarning-foreground); }
@@ -702,12 +805,18 @@ function getWebviewHtml(): string {
     <div id="runtime"><span id="status">Connecting…</span><span id="session"></span><span id="usage"></span></div>
     <section id="messages" aria-live="polite"><div class="empty">Ask Pi about your workspace, or switch to Agent mode for autonomous coding.</div></section>
     <section id="tools" aria-label="Pi tool activity"></section>
-    <div id="attachment" title="Attached to the next message"></div>
+    <div id="attachments" title="Attached to the next message"></div>
     <section id="composer">
       <label for="input" class="role">Message Pi</label>
       <textarea id="input" maxlength="${maxInputCharacters}" placeholder="Ask Pi…" aria-label="Message Pi"></textarea>
       <div class="actions">
-        <button id="attach" class="secondary" type="button" title="Attach the current editor selection">Attach selection</button>
+        <div class="context-actions">
+          <button id="attach" class="secondary" type="button" title="Attach the current editor selection">Selection</button>
+          <button id="attach-current" class="secondary" type="button" title="Attach the current file">Current file</button>
+          <button id="attach-file" class="secondary" type="button" title="Choose files to attach">Files…</button>
+          <button id="attach-diagnostics" class="secondary" type="button" title="Attach current-file diagnostics">Problems</button>
+          <button id="clear-context" class="secondary" type="button" title="Clear attached context">Clear context</button>
+        </div>
         <div class="right-actions">
           <button id="cancel" class="secondary" type="button" hidden>Cancel</button>
           <button id="send" type="button">Send</button>
@@ -725,7 +834,7 @@ function getWebviewHtml(): string {
     const send = $('send');
     const cancel = $('cancel');
     const attach = $('attach');
-    const attachment = $('attachment');
+    const attachments = $('attachments');
     const notice = $('notice');
     const mode = $('mode');
     const model = $('model');
@@ -833,16 +942,16 @@ function getWebviewHtml(): string {
       const context = stats.contextUsage || {};
       $('usage').textContent = typeof context.percent === 'number' ? Math.round(context.percent) + '% context' : '';
       send.disabled = busy || !state.runtime.connected;
-      attach.disabled = busy;
+      for (const id of ['attach', 'attach-current', 'attach-file', 'attach-diagnostics', 'clear-context']) $(id).disabled = busy;
       cancel.hidden = !busy;
       send.textContent = busy ? 'Working…' : 'Send';
       for (const id of ['new-session', 'resume-session', 'compact']) $(id).disabled = busy;
-      if (state.attachment) {
-        attachment.style.display = 'block';
-        attachment.textContent = 'Attached: ' + state.attachment.label;
+      if (state.attachments && state.attachments.length) {
+        attachments.style.display = 'block';
+        attachments.textContent = 'Attached: ' + state.attachments.map(item => item.label).join(' · ');
       } else {
-        attachment.style.display = 'none';
-        attachment.textContent = '';
+        attachments.style.display = 'none';
+        attachments.textContent = '';
       }
     }
 
@@ -861,6 +970,10 @@ function getWebviewHtml(): string {
     send.addEventListener('click', submit);
     cancel.addEventListener('click', () => vscode.postMessage({ type: 'cancel' }));
     attach.addEventListener('click', () => vscode.postMessage({ type: 'attachSelection' }));
+    $('attach-current').addEventListener('click', () => vscode.postMessage({ type: 'attachCurrentFile' }));
+    $('attach-file').addEventListener('click', () => vscode.postMessage({ type: 'attachFile' }));
+    $('attach-diagnostics').addEventListener('click', () => vscode.postMessage({ type: 'attachDiagnostics' }));
+    $('clear-context').addEventListener('click', () => vscode.postMessage({ type: 'clearAttachments' }));
     $('new-session').addEventListener('click', () => vscode.postMessage({ type: 'newSession' }));
     $('resume-session').addEventListener('click', () => vscode.postMessage({ type: 'resumeSession' }));
     $('name-session').addEventListener('click', () => vscode.postMessage({ type: 'nameSession' }));

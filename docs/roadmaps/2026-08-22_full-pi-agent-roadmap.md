@@ -16,7 +16,8 @@ Provide a Pi-native VS Code experience with the interactive editing, completion,
 
 - [x] A packaged `0.3.0` extension provides a dedicated Activity Bar conversation view, native `@pi` participant, selected-code ask/modify actions, bounded local chat history, configurable Pi executable/model overrides, and Husky verification.
 - [x] Version `0.4.0` replaces sidebar one-shot calls with a persistent streaming Pi RPC runtime, explicit Ask/Edit/Plan/Agent tool profiles, tool activity, model/thinking controls, and session new/name/resume/compact/terminal actions.
-- Inline completions, inline editor chat, change review, and parallel background session management are not yet implemented.
+- [x] Version `0.5.0` adds manual/opt-in automatic inline ghost-text completions, focused editor actions with diff preview and explicit apply, and bounded selection/file/diagnostics context attachments.
+- Complete multi-file change review/revert and parallel background session management are not yet implemented.
 - Pi RPC mode provides persistent sessions, streaming events, model control, compaction, session switching/forking, tool activity, and extension UI requests.
 
 ## Roadmap
@@ -30,9 +31,9 @@ Provide a Pi-native VS Code experience with the interactive editing, completion,
 
 ### Phase 2: Editor-native assistance
 
-- [ ] Users can invoke inline editor chat for explain, fix, refactor, document, test, and free-form edits with preview, accept, reject, and undo behavior.
-- [ ] Cancellable, debounced inline code completions provide ghost-text suggestions with language and nearby-code context.
-- [ ] Diagnostics, current file, selected code, and explicit file references can be added to chat and editor requests.
+- [x] Users can invoke focused editor assistance for explain, fix, review, document, test, and free-form edits with diff preview, explicit accept/reject, stale-version protection, and undo behavior.
+- [x] Cancellable, debounced, cached inline code completions provide ghost-text suggestions with language and bounded nearby-code context; verified by unit tests and a real Pi completion smoke test.
+- [x] Diagnostics, current file, selected code, and explicit file references can be added to Pi requests with per-item, total-size, and item-count bounds.
 
 **Outcome:** Pi supports Copilot-style flow inside the editor for both proactive suggestions and focused changes.
 
