@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0
+
+- Add Pi-discovered extension command, prompt-template, and skill picker.
+- Add bounded PNG, JPEG, GIF, and WebP image attachments through native Pi RPC image transport.
+- Add explicit terminal-selection context attachment.
+- Add Pi session HTML export and open workflow.
+- Document project trust, AGENTS.md, skills, prompts, extensions, and MCP-through-Pi-extension behavior.
+
 ## 0.6.0
 
 - Track Pi edit/write tool changes with bounded before/after checkpoints.

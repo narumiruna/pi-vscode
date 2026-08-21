@@ -8,6 +8,12 @@ const defaultRequestTimeoutMs = 30_000;
 
 export type PiRpcEvent = Record<string, unknown> & { readonly type: string };
 
+export interface PiRpcImage {
+  readonly type: "image";
+  readonly data: string;
+  readonly mimeType: string;
+}
+
 export interface PiRpcClientOptions {
   readonly executablePath: string;
   readonly executableArgs?: readonly string[];
@@ -188,8 +194,8 @@ export class PiRpcClient {
     };
   }
 
-  public async prompt(message: string): Promise<void> {
-    await this.command("prompt", { message });
+  public async prompt(message: string, images?: readonly PiRpcImage[]): Promise<void> {
+    await this.command("prompt", { message, images });
   }
 
   public async abort(): Promise<void> {
@@ -243,6 +249,14 @@ export class PiRpcClient {
 
   public async switchSession(sessionPath: string): Promise<unknown> {
     return this.commandData("switch_session", { sessionPath });
+  }
+
+  public async exportHtml(outputPath?: string): Promise<string> {
+    const data = await this.commandData("export_html", { outputPath });
+    if (typeof data.path !== "string") {
+      throw new Error("Pi did not return an exported session path.");
+    }
+    return data.path;
   }
 
   public async getCommands(): Promise<unknown[]> {

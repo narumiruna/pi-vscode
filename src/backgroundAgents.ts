@@ -3,7 +3,7 @@ import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import * as vscode from "vscode";
 import { buildAgentPrompt, type ChatReferenceContext } from "./prompts";
-import { PiRpcClient, type PiRpcEvent } from "./piRpcClient";
+import { PiRpcClient, type PiRpcEvent, type PiRpcImage } from "./piRpcClient";
 import { getRuntimeProfile } from "./runtimeProfiles";
 import { readPiInvocationOptions } from "./vscodePi";
 
@@ -52,6 +52,7 @@ export class BackgroundAgentManager implements vscode.Disposable {
   public async start(
     request: string,
     contexts: readonly ChatReferenceContext[],
+    images: readonly PiRpcImage[],
     cwd: string,
     isolatedWorktree: boolean,
   ): Promise<string> {
@@ -92,7 +93,7 @@ export class BackgroundAgentManager implements vscode.Disposable {
       await client.start();
       await client.setSessionName(title);
       this.patchTask(id, { status: "running" });
-      await client.prompt(buildAgentPrompt(request, contexts));
+      await client.prompt(buildAgentPrompt(request, contexts), images);
     } catch (error) {
       this.failTask(id, error);
       await this.stopActive(id);

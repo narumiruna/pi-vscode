@@ -2,12 +2,13 @@ import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
 import * as vscode from "vscode";
+import { imageMimeType, isImageSizeAllowed } from "./attachmentUtils";
 import { BackgroundAgentManager } from "./backgroundAgents";
 import { WorkspaceChangeTracker, type TrackedFileChange } from "./changeTracker";
 import { getSidebarHtml } from "./sidebarHtml";
-import { buildAgentPrompt, limitReferenceContent, parseAgentPrompt, type ChatReferenceContext } from "./prompts";
+import { buildAgentPrompt, limitReferenceContent, parseAgentPrompt } from "./prompts";
 import { PiRuntimeManager } from "./piRuntime";
-import type { PiRpcEvent } from "./piRpcClient";
+import type { PiRpcEvent, PiRpcImage } from "./piRpcClient";
 import type { PiAgentMode } from "./runtimeProfiles";
 import { limitSidebarMessages, type SidebarMessage } from "./sidebarState";
 
@@ -19,11 +20,16 @@ const maxInputCharacters = 100_000;
 const maxAttachedCharacters = 200_000;
 const maxTotalContextCharacters = 400_000;
 const maxAttachments = 8;
+const maxImageAttachments = 5;
+const maxImageBytes = 5 * 1024 * 1024;
 const maxToolActivities = 30;
 const maxToolOutputCharacters = 8_000;
 
-interface AttachedContext extends ChatReferenceContext {
+interface AttachedContext {
+  readonly label: string;
   readonly uri?: vscode.Uri;
+  readonly content?: string;
+  readonly image?: PiRpcImage;
 }
 
 interface ToolActivity {
@@ -157,6 +163,18 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         case "attachDiagnostics":
           this.attachDiagnostics();
           break;
+        case "attachImage":
+          await this.attachImage();
+          break;
+        case "attachTerminal":
+          await this.attachTerminalSelection();
+          break;
+        case "pickCommand":
+          await this.pickPiCommand();
+          break;
+        case "exportSession":
+          await this.exportSession();
+          break;
         case "clearAttachments":
           this.attachments = [];
           this.postState();
@@ -256,7 +274,15 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.postState();
 
     try {
-      await this.runtime.prompt(buildAgentPrompt(text, attachments), attachments.find(context => context.uri)?.uri);
+      const textContexts = attachments
+        .filter((context): context is AttachedContext & { content: string } => typeof context.content === "string")
+        .map(context => ({ label: context.label, content: context.content }));
+      const images = attachments.flatMap(context => context.image ? [context.image] : []);
+      await this.runtime.prompt(
+        buildAgentPrompt(text, textContexts),
+        attachments.find(context => context.uri)?.uri,
+        images,
+      );
       await this.syncMessagesFromPi();
       this.status = "Ready";
     } catch (error) {
@@ -284,9 +310,13 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     if (!confirmation) {
       return;
     }
-    const contexts = this.attachments;
+    const attachments = this.attachments;
     this.attachments = [];
-    await this.backgroundAgents.start(text, contexts, this.runtime.currentCwd, isolated);
+    const contexts = attachments
+      .filter((context): context is AttachedContext & { content: string } => typeof context.content === "string")
+      .map(context => ({ label: context.label, content: context.content }));
+    const images = attachments.flatMap(context => context.image ? [context.image] : []);
+    await this.backgroundAgents.start(text, contexts, images, this.runtime.currentCwd, isolated);
     this.postNotice(isolated ? "Started an isolated worktree agent." : "Started a background agent.", "info");
     this.postState();
   }
@@ -494,13 +524,111 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     });
   }
 
-  private addAttachment(context: AttachedContext): void {
+  private async attachImage(): Promise<void> {
+    if (this.attachments.filter(context => context.image).length >= maxImageAttachments) {
+      this.postNotice(`A maximum of ${maxImageAttachments} images can be attached.`, "warning");
+      return;
+    }
+    const selected = await vscode.window.showOpenDialog({
+      title: "Attach Images to Pi",
+      canSelectFiles: true,
+      canSelectFolders: false,
+      canSelectMany: true,
+      openLabel: "Attach Images",
+      filters: { Images: ["png", "jpg", "jpeg", "gif", "webp"] },
+    });
+    for (const uri of selected ?? []) {
+      if (this.attachments.length >= maxAttachments) {
+        this.postNotice(`A maximum of ${maxAttachments} context items can be attached.`, "warning");
+        break;
+      }
+      const bytes = await vscode.workspace.fs.readFile(uri);
+      if (!isImageSizeAllowed(bytes.byteLength, maxImageBytes)) {
+        this.postNotice(`${path.basename(uri.fsPath)} is larger than 5 MiB and was not attached.`, "warning");
+        continue;
+      }
+      const mimeType = imageMimeType(uri.fsPath);
+      if (!mimeType) {
+        this.postNotice(`${path.basename(uri.fsPath)} is not a supported image type.`, "warning");
+        continue;
+      }
+      this.attachments = [...this.attachments, {
+        uri,
+        label: `Image: ${path.basename(uri.fsPath)}`,
+        image: { type: "image", data: Buffer.from(bytes).toString("base64"), mimeType },
+      }];
+    }
+    this.postState();
+  }
+
+  private async attachTerminalSelection(): Promise<void> {
+    if (!vscode.window.activeTerminal) {
+      this.postNotice("Focus a terminal and select output before attaching it.", "warning");
+      return;
+    }
+    const previousClipboard = await vscode.env.clipboard.readText();
+    await vscode.env.clipboard.writeText("");
+    await vscode.commands.executeCommand("workbench.action.terminal.copySelection");
+    const selection = await vscode.env.clipboard.readText();
+    if (!selection) {
+      await vscode.env.clipboard.writeText(previousClipboard);
+      this.postNotice("The active terminal has no selected text.", "warning");
+      return;
+    }
+    this.addAttachment({ label: "Terminal selection", content: selection });
+  }
+
+  private async pickPiCommand(): Promise<void> {
+    const commands = this.runtime.currentState.commands
+      .map(command => ({
+        name: typeof command.name === "string" ? command.name : undefined,
+        description: typeof command.description === "string" ? command.description : undefined,
+        source: typeof command.source === "string" ? command.source : undefined,
+      }))
+      .filter((command): command is { name: string; description: string | undefined; source: string | undefined } => Boolean(command.name));
+    if (commands.length === 0) {
+      this.postNotice("Pi did not discover any extension commands, prompt templates, or skills.", "info");
+      return;
+    }
+    const selected = await vscode.window.showQuickPick(
+      commands.map(command => ({
+        label: `/${command.name}`,
+        description: command.source,
+        detail: command.description,
+        command: command.name,
+      })),
+      { title: "Pi Commands, Prompts, and Skills", matchOnDescription: true, matchOnDetail: true },
+    );
+    if (selected) {
+      this.postMessage({ type: "setInput", text: `/${selected.command} ` });
+    }
+  }
+
+  private async exportSession(): Promise<void> {
+    const defaultName = `${this.runtime.currentState.sessionName ?? "pi-session"}.html`;
+    const target = await vscode.window.showSaveDialog({
+      title: "Export Pi Session",
+      defaultUri: vscode.Uri.joinPath(vscode.workspace.workspaceFolders?.[0]?.uri ?? vscode.Uri.file(homedir()), defaultName),
+      filters: { HTML: ["html"] },
+      saveLabel: "Export",
+    });
+    if (!target) {
+      return;
+    }
+    const exportedPath = await this.runtime.exportSession(target.fsPath);
+    const action = await vscode.window.showInformationMessage(`Pi session exported to ${exportedPath}.`, "Open Export");
+    if (action === "Open Export") {
+      await vscode.env.openExternal(vscode.Uri.file(exportedPath));
+    }
+  }
+
+  private addAttachment(context: AttachedContext & { content: string }): void {
     const existing = this.attachments.filter(item => item.label !== context.label);
     if (existing.length >= maxAttachments) {
       this.postNotice(`A maximum of ${maxAttachments} context items can be attached.`, "warning");
       return;
     }
-    const usedCharacters = existing.reduce((total, item) => total + item.content.length, 0);
+    const usedCharacters = existing.reduce((total, item) => total + (item.content?.length ?? 0), 0);
     const remainingCharacters = maxTotalContextCharacters - usedCharacters;
     if (remainingCharacters <= 0) {
       this.postNotice("The context attachment limit has been reached.", "warning");
@@ -707,7 +835,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
 }
 
 type WebviewMessage =
-  | { readonly type: "ready" | "cancel" | "newSession" | "attachSelection" | "attachFile" | "attachCurrentFile" | "attachDiagnostics" | "clearAttachments" | "compact" | "nameSession" | "resumeSession" | "openTerminal" | "openSourceControl" | "handoffAgent" }
+  | { readonly type: "ready" | "cancel" | "newSession" | "attachSelection" | "attachFile" | "attachCurrentFile" | "attachDiagnostics" | "attachImage" | "attachTerminal" | "clearAttachments" | "compact" | "nameSession" | "resumeSession" | "exportSession" | "openTerminal" | "openSourceControl" | "handoffAgent" | "pickCommand" }
   | { readonly type: "send"; readonly text: string }
   | { readonly type: "setMode"; readonly mode: PiAgentMode }
   | { readonly type: "setModel"; readonly provider: string; readonly modelId: string }
@@ -745,13 +873,17 @@ function isWebviewMessage(value: unknown): value is WebviewMessage {
     "attachFile",
     "attachCurrentFile",
     "attachDiagnostics",
+    "attachImage",
+    "attachTerminal",
     "clearAttachments",
     "compact",
     "nameSession",
     "resumeSession",
+    "exportSession",
     "openTerminal",
     "openSourceControl",
     "handoffAgent",
+    "pickCommand",
   ].includes(value.type);
 }
 
