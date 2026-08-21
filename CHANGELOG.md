@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0
+
+- Track Pi edit/write tool changes with bounded before/after checkpoints.
+- Add changed-file Diff, Open, stale-safe Revert, and Source Control actions.
+- Add multiple independent streaming background Agent tasks with cancellation and resumable Pi sessions.
+- Add optional detached Git worktree isolation with open and cleanup controls.
+- Add Plan-to-Agent handoff and foreground-composer Background/Worktree actions.
+
 ## 0.5.0
 
 - Add cancellable, debounced, cached Pi inline ghost-text completions.

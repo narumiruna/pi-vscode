@@ -46,6 +46,10 @@ export class PiRuntimeManager implements vscode.Disposable {
     return this.state;
   }
 
+  public get currentCwd(): string {
+    return readPiInvocationOptions(this.resource).cwd;
+  }
+
   public async ensureStarted(resource?: vscode.Uri): Promise<void> {
     if (this.client?.isRunning) {
       return;

@@ -79,6 +79,28 @@ test("PiRpcClient correlates responses and streams events", async () => {
   });
 });
 
+test("multiple PiRpcClient sessions stream independently", async () => {
+  await withFakePi(async options => {
+    const first = new PiRpcClient(options);
+    const second = new PiRpcClient(options);
+    const firstEvents: PiRpcEvent[] = [];
+    const secondEvents: PiRpcEvent[] = [];
+    first.onEvent(event => firstEvents.push(event));
+    second.onEvent(event => secondEvents.push(event));
+
+    await Promise.all([first.start(), second.start()]);
+    await Promise.all([first.prompt("first"), second.prompt("second")]);
+    await Promise.all([
+      waitForEvent(firstEvents, "agent_settled"),
+      waitForEvent(secondEvents, "agent_settled"),
+    ]);
+
+    assert.equal(firstEvents.some(event => event.type === "message_update"), true);
+    assert.equal(secondEvents.some(event => event.type === "message_update"), true);
+    await Promise.all([first.stop(), second.stop()]);
+  });
+});
+
 test("PiRpcClient rejects pending commands when the process exits", async () => {
   await withFakePi(async options => {
     const client = new PiRpcClient(options);
