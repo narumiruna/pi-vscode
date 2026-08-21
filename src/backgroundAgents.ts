@@ -84,7 +84,11 @@ export class BackgroundAgentManager implements vscode.Disposable {
       thinkingLevel: invocation.thinkingLevel,
       tools: profile.tools,
       appendSystemPrompt: `${profile.systemPrompt} This is an independent background task. Work only in the provided working directory.`,
+      extensions: [path.join(this.context.extensionUri.fsPath, "resources", "pi-vscode-permission-gate.ts")],
       approveProjectResources: configuration.get<boolean>("approveProjectResources", false),
+      env: {
+        PI_VSCODE_PERMISSION_MODE: configuration.get<string>("agent.confirmToolCalls", "dangerous"),
+      },
     });
     const subscription = client.onEvent(event => this.handleEvent(id, event));
     this.active.set(id, { client, subscription, cancelRequested: false });
@@ -172,9 +176,39 @@ export class BackgroundAgentManager implements vscode.Disposable {
       this.patchTask(id, { tool: undefined });
     } else if (event.type === "agent_settled") {
       void this.completeTask(id);
+    } else if (event.type === "extension_ui_request") {
+      void this.handleExtensionUi(id, event).catch(error => this.failTask(id, error));
     } else if (event.type === "process_exit" && !event.expected && this.active.has(id)) {
       this.failTask(id, new Error("The background Pi process exited unexpectedly."));
       void this.stopActive(id);
+    }
+  }
+
+  private async handleExtensionUi(taskId: string, event: PiRpcEvent): Promise<void> {
+    const active = this.active.get(taskId);
+    const id = typeof event.id === "string" ? event.id : undefined;
+    const method = typeof event.method === "string" ? event.method : undefined;
+    if (!active || !id || !method) {
+      return;
+    }
+    if (method === "confirm") {
+      const title = typeof event.title === "string" ? event.title : "Allow background Pi action?";
+      const message = typeof event.message === "string" ? event.message : title;
+      const choice = await vscode.window.showWarningMessage(`${title}\n${message}`, { modal: true }, "Allow");
+      active.client.sendExtensionUiResponse(id, { confirmed: choice === "Allow" });
+    } else if (method === "select") {
+      const options = Array.isArray(event.options) ? event.options.filter(value => typeof value === "string") : [];
+      const value = await vscode.window.showQuickPick(options, { title: typeof event.title === "string" ? event.title : "Pi" });
+      active.client.sendExtensionUiResponse(id, value === undefined ? { cancelled: true } : { value });
+    } else if (method === "input" || method === "editor") {
+      const value = await vscode.window.showInputBox({
+        title: typeof event.title === "string" ? event.title : "Pi Input",
+        value: typeof event.prefill === "string" ? event.prefill : undefined,
+      });
+      active.client.sendExtensionUiResponse(id, value === undefined ? { cancelled: true } : { value });
+    } else if (method === "notify") {
+      const message = typeof event.message === "string" ? event.message : "Pi notification";
+      await vscode.window.showInformationMessage(message);
     }
   }
 

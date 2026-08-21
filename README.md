@@ -14,6 +14,7 @@
 - 可手動觸發或選擇啟用 cancellable、debounced、cached inline ghost-text completions。
 - 提供 Inline Edit、Explain、Fix、Review、Document 與 Generate Tests editor actions。
 - 所有 focused generated edits 都先在 VS Code diff view 預覽，只有明確選擇 **Apply Edit** 才會套用。
+- `Pi: Suggest Next Edit` 會根據 cursor、current file 與 diagnostics 預測一個 focused whole-file change，並開啟 diff preview。
 - Foreground Agent/Edit mode 會追蹤 Pi edit/write tool 的檔案，並提供 Diff、Open、stale-safe Revert 與 Source Control actions。
 - 可同時執行多個 independent background Agent tasks，查看串流狀態、取消，並恢復完成後的 Pi session。
 - Background task 可選擇從目前 `HEAD` 建立 detached Git worktree 隔離執行，完成後可開啟或移除 worktree；尚未 commit 的目前 workspace 變更不會複製過去。
@@ -36,6 +37,7 @@ Prompt、對話內容與程式碼只會透過 subprocess stdin 傳給 Pi，不�
 Ask 與 Plan 模式只允許 read、grep、find、ls。
 Edit 模式可讀寫檔案但不能執行 shell command。
 Agent 模式必須由使用者確認啟用，並允許 Pi 使用完整 coding tools。
+Packaged Pi permission gate 可在 dangerous mutating tools 或每個 bash/edit/write call 執行前要求 VS Code modal approval。
 原生 `@pi` 與 selection actions 仍使用隔離的 one-shot、no-tools request。
 
 ## Requirements
@@ -53,6 +55,14 @@ code --install-extension ./pi-coding-agent.vsix --force
 ```
 
 更新既有安裝後，請執行 **Developer: Reload Window** 載入新版本。
+
+## Quick Start
+
+1. 在 terminal 執行 `pi`，使用 `/login` 或 API key 確認 Pi 可以正常回覆。
+2. 安裝 VSIX 並執行 **Developer: Reload Window**。
+3. 從 Activity Bar 開啟 **Pi**。
+4. 先使用預設 Ask mode 測試問題，再視需要切換 Edit、Plan 或 Agent。
+5. Agent mode、Background 與 Worktree 都會在取得明確確認後才啟用 mutating tools。
 
 ## Usage
 
@@ -85,6 +95,7 @@ code --install-extension ./pi-coding-agent.vsix --force
 ### Inline Completions
 
 - 使用 `Alt+]` 手動觸發一次 Pi ghost-text completion。
+- 使用 `Ctrl+Alt+N`，macOS 使用 `Cmd+Alt+N`，預覽 Pi predicted next edit。
 - 將 `piCodingAgent.inlineCompletions.enabled` 設成 `true` 可在停止輸入後自動要求 completion。
 - 新的編輯會取消舊 request；短時間內相同 context 會使用 bounded cache。
 
@@ -96,6 +107,7 @@ code --install-extension ./pi-coding-agent.vsix --force
 | `piCodingAgent.inlineCompletions.debounceMilliseconds` | `650` | Automatic completion debounce。 |
 | `piCodingAgent.inlineCompletions.minimumPrefixLength` | `3` | Automatic request 所需的 current-line prefix 長度。 |
 | `piCodingAgent.inlineCompletions.excludedLanguages` | `plaintext`, `scminput` | 不要求 completion 的 language IDs。 |
+| `piCodingAgent.agent.confirmToolCalls` | `dangerous` | Per-tool policy：`off`、`dangerous` 或 `all`。 |
 | `piCodingAgent.defaultMode` | `ask` | 新 conversation runtime 的預設 Ask、Edit、Plan 或 Agent mode。 |
 | `piCodingAgent.approveProjectResources` | `false` | 是否信任並載入 project-local Pi settings、extensions、skills 與 prompts。 |
 | `piCodingAgent.executablePath` | `pi` | Pi CLI 的命令或完整路徑。 |
@@ -121,6 +133,17 @@ code --install-extension ./pi-coding-agent.vsix --force
 - Terminal context 只會在使用者按 **Terminal text** 時複製目前選取內容。
 - Prompt、context 與 image payload 都透過 Pi process stdin 傳送，不會放進 command-line arguments。
 
+## Troubleshooting
+
+- **Pi icon does not appear:** Confirm `narumitw.pi-coding-agent` is installed, then run **Developer: Reload Window**.
+- **Disconnected:** Run `pi --version` in the same VS Code environment and set `piCodingAgent.executablePath` to the full executable path when needed.
+- **No model or authentication error:** Run `pi`, complete `/login`, and verify the model works in the workspace terminal.
+- **Project skills or prompts missing:** Trust the workspace first, then enable `piCodingAgent.approveProjectResources` and start a new Pi session.
+- **No automatic completion:** Automatic requests are opt-in; enable `piCodingAgent.inlineCompletions.enabled` or use `Alt+]` manually.
+- **Tool stays blocked:** Review the permission dialog and `piCodingAgent.agent.confirmToolCalls`; gated tools fail closed when no permission UI is available.
+- **Worktree misses current edits:** Worktrees start from committed `HEAD`; commit intended changes before launching an isolated task.
+- **Changes made by shell are not revertible:** Review them through Source Control and use Git recovery instead of checkpoint revert.
+
 ## Development
 
 ```bash
@@ -138,7 +161,8 @@ npm run package
 目前版本提供持久 streaming Pi runtime、四種操作模式、session/model controls、Pi customization discovery、text/image/terminal context、session export、專屬 conversation view、原生 Chat participant、inline completions、focused editor actions、change checkpoints，以及平行 background/worktree agents。
 Checkpoint revert 僅涵蓋 Pi edit/write tools 明確觸及且小於 2 MiB 的 workspace files。
 Shell commands 造成的額外變更仍會顯示在 VS Code Source Control，但不會自動建立可 revert checkpoint。
-尚未包含 Markdown rich rendering、next-edit prediction、cloud-hosted agent service，以及跨機器 session synchronization。
+Assistant responses support safe headings, lists, emphasis, inline code, and fenced code blocks.
+Vendor-hosted cloud execution and cross-machine synchronization require the corresponding external service; local background/worktree agents, Git/`gh`, session export, and terminal handoff provide the local workflow.
 
 ## License
 

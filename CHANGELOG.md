@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.0
+
+- Add packaged Pi per-tool permission gate with off, dangerous, and all-mutating policies.
+- Add `Pi: Suggest Next Edit` with whole-file diff preview and stale-safe explicit apply.
+- Add safe Markdown rendering for headings, lists, emphasis, inline code, and fenced code blocks.
+- Add complete reference-extension feature matrix, security guidance, onboarding, and troubleshooting.
+- Complete packaged-extension, real Pi, concurrent-session, worktree, security, and clean-install audits.
+
 ## 0.7.0
 
 - Add Pi-discovered extension command, prompt-template, and skill picker.

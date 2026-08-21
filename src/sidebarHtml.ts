@@ -31,7 +31,13 @@ export function getSidebarHtml(maxInputCharacters: number): string {
     .empty { margin: 16vh 18px 0; text-align: center; color: var(--vscode-descriptionForeground); }
     .message { margin: 0 0 12px; }
     .role { margin-bottom: 3px; color: var(--vscode-descriptionForeground); font-size: .8em; font-weight: 600; text-transform: uppercase; }
-    .content { padding: 8px 10px; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+    .content { padding: 8px 10px; border-radius: 6px; overflow-wrap: anywhere; user-select: text; }
+    .content p { margin: 0 0 7px; }
+    .content p:last-child { margin-bottom: 0; }
+    .content pre { overflow: auto; margin: 7px 0; padding: 7px; background: var(--vscode-textCodeBlock-background); border-radius: 3px; white-space: pre; }
+    .content code { font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); }
+    .content :not(pre) > code { padding: 1px 3px; background: var(--vscode-textCodeBlock-background); border-radius: 2px; }
+    .content ul { margin: 5px 0; padding-left: 22px; }
     .user .content { background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); }
     .assistant .content { background: var(--vscode-editor-background); border: 1px solid var(--vscode-sideBar-border, transparent); }
     .context { display: inline-block; max-width: 100%; margin-top: 5px; padding: 2px 6px; border-radius: 10px; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); font-size: .8em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -192,7 +198,7 @@ export function getSidebarHtml(maxInputCharacters: number): string {
           role.textContent = message.role === 'user' ? 'You' : 'Pi';
           const content = document.createElement('div');
           content.className = 'content';
-          content.textContent = message.content || (message.role === 'assistant' ? '…' : '');
+          content.innerHTML = message.html || (message.role === 'assistant' ? '…' : '');
           wrapper.append(role, content);
           if (message.contextLabel) {
             const context = document.createElement('div');
