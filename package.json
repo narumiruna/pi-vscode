@@ -1,0 +1,151 @@
+{
+  "name": "pi-coding-agent",
+  "displayName": "Pi Coding Agent",
+  "description": "Ask Pi about selected code or replace a selection with a Pi-generated modification.",
+  "version": "0.2.0",
+  "publisher": "narumitw",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "pi",
+    "coding agent",
+    "ai",
+    "code review",
+    "refactor"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onChatParticipant:piCodingAgent.chat",
+    "onCommand:piCodingAgent.openChat",
+    "onCommand:piCodingAgent.askSelection",
+    "onCommand:piCodingAgent.modifySelection"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "piCodingAgent.openChat",
+        "title": "Open Chat",
+        "category": "Pi",
+        "icon": "$(chat-sparkle)"
+      },
+      {
+        "command": "piCodingAgent.askSelection",
+        "title": "Ask About Selection",
+        "category": "Pi",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "piCodingAgent.modifySelection",
+        "title": "Modify Selection",
+        "category": "Pi",
+        "icon": "$(wand)"
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "piCodingAgent.chat",
+        "name": "pi",
+        "fullName": "Pi Coding Agent",
+        "description": "Ask Pi about code and programming tasks using your local Pi configuration.",
+        "isSticky": true,
+        "commands": [
+          {
+            "name": "explain",
+            "description": "Explain code or a programming concept"
+          },
+          {
+            "name": "review",
+            "description": "Review code for bugs and improvements"
+          },
+          {
+            "name": "fix",
+            "description": "Suggest a fix for a problem"
+          }
+        ]
+      }
+    ],
+    "submenus": [
+      {
+        "id": "piCodingAgent.selectionMenu",
+        "label": "Pi"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "submenu": "piCodingAgent.selectionMenu",
+          "group": "1_modification@50",
+          "when": "editorHasSelection"
+        }
+      ],
+      "piCodingAgent.selectionMenu": [
+        {
+          "command": "piCodingAgent.askSelection",
+          "group": "1_query@10"
+        },
+        {
+          "command": "piCodingAgent.modifySelection",
+          "group": "1_query@20"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Pi Coding Agent",
+      "properties": {
+        "piCodingAgent.executablePath": {
+          "type": "string",
+          "default": "pi",
+          "description": "Path or command used to start the Pi CLI."
+        },
+        "piCodingAgent.provider": {
+          "type": "string",
+          "default": "",
+          "description": "Optional Pi provider override. Leave empty to use Pi settings."
+        },
+        "piCodingAgent.model": {
+          "type": "string",
+          "default": "",
+          "description": "Optional Pi model override. Leave empty to use Pi settings."
+        },
+        "piCodingAgent.thinkingLevel": {
+          "type": "string",
+          "default": "default",
+          "enum": [
+            "default",
+            "off",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "description": "Pi thinking-level override."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && node --test out/test/piClient.test.js out/test/prompts.test.js",
+    "package": "npm run test && vsce package --out pi-coding-agent.vsix",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.95.0",
+    "@vscode/vsce": "^3.6.2",
+    "husky": "^9.1.7",
+    "typescript": "^5.7.0"
+  }
+}
