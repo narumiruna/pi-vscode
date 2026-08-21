@@ -2,22 +2,28 @@
   "name": "pi-coding-agent",
   "displayName": "Pi Coding Agent",
   "description": "Chat with Pi in VS Code, ask about selected code, and apply focused modifications.",
-  "version": "0.7.0",
+  "version": "1.0.0",
   "publisher": "narumitw",
   "license": "MIT",
   "engines": {
     "vscode": "^1.95.0"
   },
   "categories": [
-    "Other",
-    "Programming Languages"
+    "AI",
+    "Chat",
+    "Programming Languages",
+    "Machine Learning"
   ],
   "keywords": [
     "pi",
     "coding agent",
     "ai",
     "code review",
-    "refactor"
+    "refactor",
+    "autocomplete",
+    "inline completion",
+    "agent",
+    "chat"
   ],
   "extensionKind": [
     "workspace"
@@ -30,7 +36,8 @@
     "onCommand:piCodingAgent.askSelection",
     "onCommand:piCodingAgent.modifySelection",
     "onCommand:piCodingAgent.inlineEdit",
-    "onCommand:piCodingAgent.triggerInlineCompletion"
+    "onCommand:piCodingAgent.triggerInlineCompletion",
+    "onCommand:piCodingAgent.suggestNextEdit"
   ],
   "contributes": {
     "viewsContainers": {
@@ -111,6 +118,12 @@
         "title": "Trigger Inline Completion",
         "category": "Pi",
         "icon": "$(sparkle)"
+      },
+      {
+        "command": "piCodingAgent.suggestNextEdit",
+        "title": "Suggest Next Edit (Preview)",
+        "category": "Pi",
+        "icon": "$(lightbulb-sparkle)"
       }
     ],
     "chatParticipants": [
@@ -192,6 +205,12 @@
         "command": "piCodingAgent.triggerInlineCompletion",
         "key": "alt+]",
         "when": "editorTextFocus && !editorReadonly"
+      },
+      {
+        "command": "piCodingAgent.suggestNextEdit",
+        "key": "ctrl+alt+n",
+        "mac": "cmd+alt+n",
+        "when": "editorTextFocus && !editorReadonly"
       }
     ],
     "configuration": {
@@ -224,6 +243,21 @@
             "scminput"
           ],
           "description": "Language IDs excluded from Pi inline completions."
+        },
+        "piCodingAgent.agent.confirmToolCalls": {
+          "type": "string",
+          "default": "dangerous",
+          "enum": [
+            "off",
+            "dangerous",
+            "all"
+          ],
+          "enumDescriptions": [
+            "Do not ask for per-tool approval after entering Agent/Edit mode.",
+            "Confirm dangerous shell commands and writes to sensitive or out-of-workspace paths.",
+            "Confirm every bash, edit, and write tool call."
+          ],
+          "description": "Per-tool confirmation policy for foreground and background Pi Agent/Edit sessions."
         },
         "piCodingAgent.defaultMode": {
           "type": "string",
@@ -277,7 +311,7 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "npm run compile && node --test out/test/attachmentUtils.test.js out/test/changeState.test.js out/test/completion.test.js out/test/piClient.test.js out/test/piRpcClient.test.js out/test/prompts.test.js out/test/runtimeProfiles.test.js out/test/sidebarState.test.js",
+    "test": "npm run compile && node --test out/test/attachmentUtils.test.js out/test/changeState.test.js out/test/completion.test.js out/test/markdown.test.js out/test/piClient.test.js out/test/piRpcClient.test.js out/test/prompts.test.js out/test/runtimeProfiles.test.js out/test/sidebarState.test.js",
     "package": "npm run test && vsce package --out pi-coding-agent.vsix",
     "prepare": "husky"
   },

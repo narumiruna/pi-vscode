@@ -28,6 +28,7 @@ export function registerEditorActions(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("piCodingAgent.generateTests", () =>
       previewPreset(previews, "Keep the selected code and append comprehensive idiomatic tests that cover normal behavior and important edge cases."),
     ),
+    vscode.commands.registerCommand("piCodingAgent.suggestNextEdit", () => suggestNextEdit(previews)),
   );
 }
 
@@ -90,6 +91,31 @@ async function inlineEdit(previews: EditPreviewProvider): Promise<void> {
   if (instruction?.trim()) {
     await previewEdit(previews, snapshot, instruction.trim());
   }
+}
+
+async function suggestNextEdit(previews: EditPreviewProvider): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    await vscode.window.showWarningMessage("Open a text editor before requesting a next edit suggestion.");
+    return;
+  }
+  const document = editor.document;
+  if (document.getText().length > 200_000) {
+    await vscode.window.showWarningMessage("Next edit suggestions are limited to files under 200,000 characters.");
+    return;
+  }
+  const range = new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length));
+  const diagnostics = vscode.languages.getDiagnostics(document.uri)
+    .slice(0, 20)
+    .map(diagnostic => `Line ${diagnostic.range.start.line + 1}: ${diagnostic.message}`)
+    .join("\n");
+  const snapshot = selectionSnapshot(document, range);
+  const instruction = [
+    `Predict and implement the next logical edit for this file based on the cursor at line ${editor.selection.active.line + 1}, column ${editor.selection.active.character + 1}.`,
+    "Make one focused, useful change and preserve unrelated code.",
+    diagnostics ? `Current diagnostics:\n${diagnostics}` : "",
+  ].filter(Boolean).join("\n");
+  await previewEdit(previews, snapshot, instruction);
 }
 
 async function previewPreset(previews: EditPreviewProvider, instruction: string): Promise<void> {
@@ -163,6 +189,10 @@ function captureSelection(): SelectionSnapshot | undefined {
   }
   const document = editor.document;
   const range = new vscode.Range(editor.selection.start, editor.selection.end);
+  return selectionSnapshot(document, range);
+}
+
+function selectionSnapshot(document: vscode.TextDocument, range: vscode.Range): SelectionSnapshot {
   const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
   const file = workspaceFolder
     ? path.relative(workspaceFolder.uri.fsPath, document.uri.fsPath)

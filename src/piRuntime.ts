@@ -1,3 +1,4 @@
+import path from "node:path";
 import * as vscode from "vscode";
 import { PiRpcClient, type PiRpcClientOptions, type PiRpcEvent, type PiRpcImage } from "./piRpcClient";
 import { getRuntimeProfile, normalizeMode, type PiAgentMode } from "./runtimeProfiles";
@@ -229,8 +230,12 @@ export class PiRuntimeManager implements vscode.Disposable {
       thinkingLevel: invocation.thinkingLevel,
       tools: profile.tools,
       appendSystemPrompt: profile.systemPrompt,
+      extensions: [path.join(this.context.extensionUri.fsPath, "resources", "pi-vscode-permission-gate.ts")],
       sessionPath,
       approveProjectResources: configuration.get<boolean>("approveProjectResources", false),
+      env: {
+        PI_VSCODE_PERMISSION_MODE: configuration.get<string>("agent.confirmToolCalls", "dangerous"),
+      },
     };
   }
 

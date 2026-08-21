@@ -6,6 +6,7 @@ import { imageMimeType, isImageSizeAllowed } from "./attachmentUtils";
 import { BackgroundAgentManager } from "./backgroundAgents";
 import { WorkspaceChangeTracker, type TrackedFileChange } from "./changeTracker";
 import { getSidebarHtml } from "./sidebarHtml";
+import { renderSafeMarkdown } from "./markdown";
 import { buildAgentPrompt, limitReferenceContent, parseAgentPrompt } from "./prompts";
 import { PiRuntimeManager } from "./piRuntime";
 import type { PiRpcEvent, PiRpcImage } from "./piRpcClient";
@@ -815,7 +816,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   private postState(): void {
     this.postMessage({
       type: "state",
-      messages: this.messages,
+      messages: this.messages.map(message => ({ ...message, html: renderSafeMarkdown(message.content) })),
       tools: this.tools,
       changes: this.changes,
       backgroundTasks: this.backgroundAgents.states,
