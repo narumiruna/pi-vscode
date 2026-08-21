@@ -10,7 +10,11 @@
 - 支援 Ask、Edit、Plan 與 Agent 模式，並為每個模式設定明確的工具權限。
 - 支援取消要求、新建／命名／恢復 session、context compaction，以及在終端機接續目前 session。
 - 可直接選擇 Pi model 與 thinking level。
-- 可明確附加目前選取的程式碼，並從 Pi session 恢復有限長度的對話紀錄。
+- 可附加目前選取內容、目前檔案、Problems diagnostics，或從檔案選擇器加入多個 bounded context items。
+- 可手動觸發或選擇啟用 cancellable、debounced、cached inline ghost-text completions。
+- 提供 Inline Edit、Explain、Fix、Review、Document 與 Generate Tests editor actions。
+- 所有 generated edits 都先在 VS Code diff view 預覽，只有明確選擇 **Apply Edit** 才會套用。
+- 可從 Pi session 恢復有限長度的對話紀錄。
 - 從 Command Palette 執行 **Pi: Open Chat** 可直接開啟專屬對話視窗。
 - 仍可在 VS Code 原生 Chat view 使用 `@pi`，並使用 `/explain`、`/review` 或 `/fix`。
 - Native Chat request 會附帶有限長度的對話歷史，以及使用者加入的檔案或選取範圍 references。
@@ -62,19 +66,27 @@ code --install-extension ./pi-coding-agent.vsix --force
 3. 使用 Chat 的 **Add Context** 加入檔案或選取範圍。
 4. 視需要使用 `/explain`、`/review` 或 `/fix`。
 
-### Selection Actions
+### Editor Actions
 
 1. 在編輯器中選取一段程式碼。
-2. 按右鍵並選擇 **Pi > Ask About Selection** 或 **Pi > Modify Selection**。
-3. 輸入問題或修改指示。
-4. 修改後可使用 VS Code 的 Undo 復原。
+2. 按右鍵並從 **Pi** 選擇 Ask、Modify、Explain、Fix、Review、Document 或 Generate Tests。
+3. Inline Edit 可使用 `Ctrl+Alt+I`，macOS 使用 `Cmd+Alt+I`。
+4. 修改會先開啟 diff preview；選擇 **Apply Edit** 才會套用，之後仍可使用 Undo。
 
-也可以從 Command Palette 執行 `Pi: Ask About Selection` 與 `Pi: Modify Selection`。
+### Inline Completions
+
+- 使用 `Alt+]` 手動觸發一次 Pi ghost-text completion。
+- 將 `piCodingAgent.inlineCompletions.enabled` 設成 `true` 可在停止輸入後自動要求 completion。
+- 新的編輯會取消舊 request；短時間內相同 context 會使用 bounded cache。
 
 ## Settings
 
 | Setting | Default | Description |
 | --- | --- | --- |
+| `piCodingAgent.inlineCompletions.enabled` | `false` | 是否在 typing pause 後自動要求 inline completion；manual trigger 不受影響。 |
+| `piCodingAgent.inlineCompletions.debounceMilliseconds` | `650` | Automatic completion debounce。 |
+| `piCodingAgent.inlineCompletions.minimumPrefixLength` | `3` | Automatic request 所需的 current-line prefix 長度。 |
+| `piCodingAgent.inlineCompletions.excludedLanguages` | `plaintext`, `scminput` | 不要求 completion 的 language IDs。 |
 | `piCodingAgent.defaultMode` | `ask` | 新 conversation runtime 的預設 Ask、Edit、Plan 或 Agent mode。 |
 | `piCodingAgent.approveProjectResources` | `false` | 是否信任並載入 project-local Pi settings、extensions、skills 與 prompts。 |
 | `piCodingAgent.executablePath` | `pi` | Pi CLI 的命令或完整路徑。 |
@@ -98,8 +110,8 @@ npm run package
 
 ## Current Scope
 
-目前版本提供持久 streaming Pi runtime、四種操作模式、session/model controls、專屬 conversation view、原生 Chat participant 與選取程式碼 actions。
-尚未包含 Markdown rich rendering、inline completions、inline editor chat、完整 change review／revert UI，以及多個平行 background agent sessions。
+目前版本提供持久 streaming Pi runtime、四種操作模式、session/model controls、專屬 conversation view、原生 Chat participant、inline completions、focused editor actions 與 diff preview。
+尚未包含 Markdown rich rendering、next-edit prediction、完整 multi-file change review／revert UI，以及多個平行 background agent sessions。
 
 ## License
 
