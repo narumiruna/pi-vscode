@@ -2,6 +2,10 @@
 .github/**
 .vscode/**
 .husky/**
+.pi/**
+.aru/**
+aru.lock
+aru.toml
 docs/**
 references/**
 src/**
