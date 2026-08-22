@@ -6,7 +6,7 @@
   "publisher": "narumitw",
   "license": "MIT",
   "engines": {
-    "vscode": "^1.95.0"
+    "vscode": "^1.106.0"
   },
   "categories": [
     "AI",
@@ -41,7 +41,7 @@
   ],
   "contributes": {
     "viewsContainers": {
-      "activitybar": [
+      "secondarySidebar": [
         {
           "id": "piCodingAgent",
           "title": "Pi",
@@ -63,7 +63,7 @@
         "command": "piCodingAgent.openChat",
         "title": "Open Chat",
         "category": "Pi",
-        "icon": "$(chat-sparkle)"
+        "icon": "resources/pi.svg"
       },
       {
         "command": "piCodingAgent.askSelection",
@@ -156,6 +156,12 @@
       }
     ],
     "menus": {
+      "editor/title": [
+        {
+          "command": "piCodingAgent.openChat",
+          "group": "navigation@50"
+        }
+      ],
       "editor/context": [
         {
           "submenu": "piCodingAgent.selectionMenu",
@@ -317,7 +323,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "@types/vscode": "^1.95.0",
+    "@types/vscode": "^1.106.0",
     "@vscode/vsce": "^3.6.2",
     "husky": "^9.1.7",
     "typescript": "^5.7.0"
