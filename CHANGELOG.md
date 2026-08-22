@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Move the Pi Chat view's default location to the Secondary Sidebar.
+- Add a Pi button to the editor title toolbar for opening Chat.
+- Require VS Code 1.106 or newer for Secondary Sidebar view contributions.
+
 ## 1.0.0
 
 - Add packaged Pi per-tool permission gate with off, dangerous, and all-mutating policies.
