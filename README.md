@@ -157,7 +157,7 @@ npm test
 npm run package
 ```
 
-`just dev` 會先編譯 extension，再開啟新的 Extension Development Host 視窗。
+`just dev` 會先編譯 extension，再用目前目錄開啟新的 Extension Development Host 視窗。
 也可按 `F5` 手動測試 Pi conversation view、`@pi` 與右鍵選單。
 `npm install` 會設定 Husky，pre-commit hook 會執行 `npm test`。
 `npm run package` 會建立 `pi-coding-agent.vsix`。
