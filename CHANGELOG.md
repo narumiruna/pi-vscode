@@ -1,5 +1,46 @@
 # Changelog
 
+## 1.0.0
+
+- Add packaged Pi per-tool permission gate with off, dangerous, and all-mutating policies.
+- Add `Pi: Suggest Next Edit` with whole-file diff preview and stale-safe explicit apply.
+- Add safe Markdown rendering for headings, lists, emphasis, inline code, and fenced code blocks.
+- Add complete reference-extension feature matrix, security guidance, onboarding, and troubleshooting.
+- Complete packaged-extension, real Pi, concurrent-session, worktree, security, and clean-install audits.
+
+## 0.7.0
+
+- Add Pi-discovered extension command, prompt-template, and skill picker.
+- Add bounded PNG, JPEG, GIF, and WebP image attachments through native Pi RPC image transport.
+- Add explicit terminal-selection context attachment.
+- Add Pi session HTML export and open workflow.
+- Document project trust, AGENTS.md, skills, prompts, extensions, and MCP-through-Pi-extension behavior.
+
+## 0.6.0
+
+- Track Pi edit/write tool changes with bounded before/after checkpoints.
+- Add changed-file Diff, Open, stale-safe Revert, and Source Control actions.
+- Add multiple independent streaming background Agent tasks with cancellation and resumable Pi sessions.
+- Add optional detached Git worktree isolation with open and cleanup controls.
+- Add Plan-to-Agent handoff and foreground-composer Background/Worktree actions.
+
+## 0.5.0
+
+- Add cancellable, debounced, cached Pi inline ghost-text completions.
+- Add focused Inline Edit, Explain, Fix, Review, Document, and Generate Tests commands.
+- Preview all generated edits in VS Code diff UI and require explicit Apply confirmation.
+- Add bounded current-file, selected-code, diagnostics, and file-picker context attachments.
+- Add editor keybindings and inline-completion configuration.
+
+## 0.4.0
+
+- Replace one-shot sidebar requests with a persistent streaming Pi RPC runtime.
+- Add Ask, Edit, Plan, and Agent modes with explicit tool policies.
+- Stream assistant text, thinking status, retries, compaction, and tool activity.
+- Add model, thinking-level, session naming, new/resume session, compaction, and terminal controls.
+- Restore Pi session messages and recover from stale saved sessions or unexpected process exits.
+- Bridge Pi extension UI requests to native VS Code dialogs and notifications.
+
 ## 0.3.0
 
 - Add a dedicated Pi conversation view in the VS Code Activity Bar.
