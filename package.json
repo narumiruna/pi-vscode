@@ -2,22 +2,28 @@
   "name": "pi-coding-agent",
   "displayName": "Pi Coding Agent",
   "description": "Chat with Pi in VS Code, ask about selected code, and apply focused modifications.",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "publisher": "narumitw",
   "license": "MIT",
   "engines": {
     "vscode": "^1.95.0"
   },
   "categories": [
-    "Other",
-    "Programming Languages"
+    "AI",
+    "Chat",
+    "Programming Languages",
+    "Machine Learning"
   ],
   "keywords": [
     "pi",
     "coding agent",
     "ai",
     "code review",
-    "refactor"
+    "refactor",
+    "autocomplete",
+    "inline completion",
+    "agent",
+    "chat"
   ],
   "extensionKind": [
     "workspace"
@@ -28,7 +34,10 @@
     "onView:piCodingAgent.chatView",
     "onCommand:piCodingAgent.openChat",
     "onCommand:piCodingAgent.askSelection",
-    "onCommand:piCodingAgent.modifySelection"
+    "onCommand:piCodingAgent.modifySelection",
+    "onCommand:piCodingAgent.inlineEdit",
+    "onCommand:piCodingAgent.triggerInlineCompletion",
+    "onCommand:piCodingAgent.suggestNextEdit"
   ],
   "contributes": {
     "viewsContainers": {
@@ -64,9 +73,57 @@
       },
       {
         "command": "piCodingAgent.modifySelection",
-        "title": "Modify Selection",
+        "title": "Modify Selection (Preview)",
         "category": "Pi",
         "icon": "$(wand)"
+      },
+      {
+        "command": "piCodingAgent.inlineEdit",
+        "title": "Inline Edit (Preview)",
+        "category": "Pi",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "piCodingAgent.explainSelection",
+        "title": "Explain Selection",
+        "category": "Pi",
+        "icon": "$(info)"
+      },
+      {
+        "command": "piCodingAgent.fixSelection",
+        "title": "Fix Selection (Preview)",
+        "category": "Pi",
+        "icon": "$(wrench)"
+      },
+      {
+        "command": "piCodingAgent.reviewSelection",
+        "title": "Review Selection",
+        "category": "Pi",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "piCodingAgent.documentSelection",
+        "title": "Document Selection (Preview)",
+        "category": "Pi",
+        "icon": "$(book)"
+      },
+      {
+        "command": "piCodingAgent.generateTests",
+        "title": "Generate Tests (Preview)",
+        "category": "Pi",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "piCodingAgent.triggerInlineCompletion",
+        "title": "Trigger Inline Completion",
+        "category": "Pi",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "piCodingAgent.suggestNextEdit",
+        "title": "Suggest Next Edit (Preview)",
+        "category": "Pi",
+        "icon": "$(lightbulb-sparkle)"
       }
     ],
     "chatParticipants": [
@@ -114,12 +171,110 @@
         {
           "command": "piCodingAgent.modifySelection",
           "group": "1_query@20"
+        },
+        {
+          "command": "piCodingAgent.explainSelection",
+          "group": "2_actions@10"
+        },
+        {
+          "command": "piCodingAgent.fixSelection",
+          "group": "2_actions@20"
+        },
+        {
+          "command": "piCodingAgent.reviewSelection",
+          "group": "2_actions@30"
+        },
+        {
+          "command": "piCodingAgent.documentSelection",
+          "group": "2_actions@40"
+        },
+        {
+          "command": "piCodingAgent.generateTests",
+          "group": "2_actions@50"
         }
       ]
     },
+    "keybindings": [
+      {
+        "command": "piCodingAgent.inlineEdit",
+        "key": "ctrl+alt+i",
+        "mac": "cmd+alt+i",
+        "when": "editorTextFocus && editorHasSelection && !editorReadonly"
+      },
+      {
+        "command": "piCodingAgent.triggerInlineCompletion",
+        "key": "alt+]",
+        "when": "editorTextFocus && !editorReadonly"
+      },
+      {
+        "command": "piCodingAgent.suggestNextEdit",
+        "key": "ctrl+alt+n",
+        "mac": "cmd+alt+n",
+        "when": "editorTextFocus && !editorReadonly"
+      }
+    ],
     "configuration": {
       "title": "Pi Coding Agent",
       "properties": {
+        "piCodingAgent.inlineCompletions.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Request automatic Pi inline completions after a typing pause. Disabled by default to avoid unexpected model usage; manual trigger remains available."
+        },
+        "piCodingAgent.inlineCompletions.debounceMilliseconds": {
+          "type": "number",
+          "default": 650,
+          "minimum": 100,
+          "maximum": 5000,
+          "description": "Delay before an automatic inline completion request."
+        },
+        "piCodingAgent.inlineCompletions.minimumPrefixLength": {
+          "type": "number",
+          "default": 3,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Minimum non-whitespace characters on the current line before automatic completion."
+        },
+        "piCodingAgent.inlineCompletions.excludedLanguages": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [
+            "plaintext",
+            "scminput"
+          ],
+          "description": "Language IDs excluded from Pi inline completions."
+        },
+        "piCodingAgent.agent.confirmToolCalls": {
+          "type": "string",
+          "default": "dangerous",
+          "enum": [
+            "off",
+            "dangerous",
+            "all"
+          ],
+          "enumDescriptions": [
+            "Do not ask for per-tool approval after entering Agent/Edit mode.",
+            "Confirm dangerous shell commands and writes to sensitive or out-of-workspace paths.",
+            "Confirm every bash, edit, and write tool call."
+          ],
+          "description": "Per-tool confirmation policy for foreground and background Pi Agent/Edit sessions."
+        },
+        "piCodingAgent.defaultMode": {
+          "type": "string",
+          "default": "ask",
+          "enum": [
+            "ask",
+            "edit",
+            "plan",
+            "agent"
+          ],
+          "description": "Default mode for new Pi conversation runtimes. Ask and Plan are read-only; Edit can change files; Agent can also run commands."
+        },
+        "piCodingAgent.approveProjectResources": {
+          "type": "boolean",
+          "default": false,
+          "description": "Trust and load project-local Pi settings, extensions, skills, and prompts for RPC sessions. Enable only for workspaces you trust."
+        },
         "piCodingAgent.executablePath": {
           "type": "string",
           "default": "pi",
@@ -156,7 +311,7 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "npm run compile && node --test out/test/piClient.test.js out/test/prompts.test.js out/test/sidebarState.test.js",
+    "test": "npm run compile && node --test out/test/attachmentUtils.test.js out/test/changeState.test.js out/test/completion.test.js out/test/markdown.test.js out/test/piClient.test.js out/test/piRpcClient.test.js out/test/prompts.test.js out/test/runtimeProfiles.test.js out/test/sidebarState.test.js",
     "package": "npm run test && vsce package --out pi-coding-agent.vsix",
     "prepare": "husky"
   },
