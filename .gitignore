@@ -4,3 +4,4 @@ references/
 *.vsix
 .DS_Store
 references/
+.aru/
