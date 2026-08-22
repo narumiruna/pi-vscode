@@ -1,0 +1,15 @@
+.git/**
+.github/**
+.vscode/**
+.husky/**
+docs/**
+references/**
+src/**
+.gitignore
+tsconfig.json
+node_modules/@types/**
+node_modules/typescript/**
+node_modules/@vscode/**
+node_modules/.bin/**
+out/test/**
+**/*.map

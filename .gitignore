@@ -1,0 +1,6 @@
+node_modules/
+out/
+references/
+*.vsix
+.DS_Store
+references/
