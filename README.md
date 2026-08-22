@@ -1,11 +1,12 @@
 # Pi Coding Agent for VS Code
 
-在 VS Code Activity Bar 的專屬對話視窗使用 Pi，也能直接詢問或修改編輯器中選取的程式碼。
+在 VS Code 右側的 Secondary Sidebar 使用 Pi，也能直接詢問或修改編輯器中選取的程式碼。
 介面以 Copilot 的 Chat view、Chat participant、inline chat 與 smart actions 為參考。
 
 ## Features
 
-- Activity Bar 提供專屬 **Pi > Chat** 對話視窗。
+- Secondary Sidebar 預設提供專屬 **Pi > Chat** 對話視窗。
+- 編輯器標題列提供 Pi 圖示按鈕，可隨時開啟 Chat。
 - 對話視窗透過持久 Pi RPC session 串流回覆、思考狀態、重試、壓縮與工具活動。
 - 支援 Ask、Edit、Plan 與 Agent 模式，並為每個模式設定明確的工具權限。
 - 支援取消要求、新建／命名／恢復 session、context compaction，以及在終端機接續目前 session。
@@ -42,9 +43,10 @@ Packaged Pi permission gate 可在 dangerous mutating tools 或每個 bash/edit/
 
 ## Requirements
 
-1. 安裝 [Pi coding agent](https://pi.dev)。
-2. 在終端機執行 `pi`，並使用 `/login` 完成驗證，或設定 provider 所需的 API key。
-3. 確認 `pi --version` 可在 VS Code extension host 的環境中執行。
+1. 使用 VS Code 1.106 或更新版本，以支援 Secondary Sidebar view contribution。
+2. 安裝 [Pi coding agent](https://pi.dev)。
+3. 在終端機執行 `pi`，並使用 `/login` 完成驗證，或設定 provider 所需的 API key。
+4. 確認 `pi --version` 可在 VS Code extension host 的環境中執行。
 
 如果 VS Code 找不到 `pi`，請把 `piCodingAgent.executablePath` 設成完整路徑。
 
@@ -60,7 +62,7 @@ code --install-extension ./pi-coding-agent.vsix --force
 
 1. 在 terminal 執行 `pi`，使用 `/login` 或 API key 確認 Pi 可以正常回覆。
 2. 安裝 VSIX 並執行 **Developer: Reload Window**。
-3. 從 Activity Bar 開啟 **Pi**。
+3. 按編輯器標題列的 Pi 圖示，或從 Secondary Sidebar 開啟 **Pi**。
 4. 先使用預設 Ask mode 測試問題，再視需要切換 Edit、Plan 或 Agent。
 5. Agent mode、Background 與 Worktree 都會在取得明確確認後才啟用 mutating tools。
 
@@ -68,7 +70,7 @@ code --install-extension ./pi-coding-agent.vsix --force
 
 ### Pi Conversation View
 
-1. 從 Activity Bar 選擇 **Pi**，或從 Command Palette 執行 **Pi: Open Chat**。
+1. 按編輯器標題列的 Pi 圖示、從 Secondary Sidebar 選擇 **Pi**，或從 Command Palette 執行 **Pi: Open Chat**。
 2. 從上方選擇 Ask、Edit、Plan 或 Agent mode。
 3. 在 **Chat** view 輸入訊息並按 Enter 或 **Send**。
 4. 若要加入程式碼，先在編輯器選取內容，再按 **Attach selection**。
