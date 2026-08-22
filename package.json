@@ -2,7 +2,7 @@
   "name": "pi-coding-agent",
   "displayName": "Pi Coding Agent",
   "description": "Chat with Pi in VS Code, ask about selected code, and apply focused modifications.",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "publisher": "narumitw",
   "license": "MIT",
   "engines": {
