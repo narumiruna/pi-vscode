@@ -139,7 +139,8 @@ async function previewEdit(
   instruction: string,
 ): Promise<void> {
   try {
-    const response = await conversation.sendRequest(instruction, [buildSelectionReference(snapshot.context)], {
+    let responseError: unknown;
+    await conversation.sendRequest(instruction, [buildSelectionReference(snapshot.context)], {
       instructions: [
         "Rewrite only the selected code according to the user's request.",
         "The replacement must fit in the same location and preserve surrounding behavior unless requested otherwise.",
@@ -149,44 +150,62 @@ async function previewEdit(
       ].join(" "),
       resource: snapshot.document.uri,
       policy: "read-only",
-    });
-    const replacement = extractReplacement(response);
-    if (replacement === undefined) {
-      throw new Error("Pi returned an unexpected edit format. No changes were applied.");
-    }
-    assertSnapshotCurrent(snapshot, "The document changed while Pi was working. Regenerate the edit before previewing it.");
-
-    const convertedReplacement = convertLineEndings(replacement, snapshot.document.eol);
-    const originalText = snapshot.document.getText();
-    const startOffset = snapshot.document.offsetAt(snapshot.range.start);
-    const endOffset = snapshot.document.offsetAt(snapshot.range.end);
-    const previewText = originalText.slice(0, startOffset) + convertedReplacement + originalText.slice(endOffset);
-    const previewUri = previews.create(snapshot.document.uri, previewText);
-    conversation.addEditProposal({
-      label: `${path.basename(snapshot.document.uri.fsPath)}:${snapshot.range.start.line + 1}-${snapshot.range.end.line + 1}`,
-      onPreview: async () => {
-        assertSnapshotCurrent(snapshot, "The document changed after Pi generated the proposal. Regenerate the edit before previewing it.");
-        await vscode.commands.executeCommand(
-          "vscode.diff",
-          snapshot.document.uri,
-          previewUri,
-          `Pi Edit Preview: ${path.basename(snapshot.document.uri.fsPath)}`,
-          { preview: true },
-        );
-      },
-      onApply: async () => {
-        assertSnapshotCurrent(snapshot, "The document changed after Pi generated the proposal. Regenerate the edit before applying it.");
-        const edit = new vscode.WorkspaceEdit();
-        edit.replace(snapshot.document.uri, snapshot.range, convertedReplacement);
-        if (!(await vscode.workspace.applyEdit(edit))) {
-          throw new Error("VS Code could not apply the Pi edit.");
+      onResponse: response => {
+        try {
+          createEditProposal(previews, conversation, snapshot, response);
+        } catch (error) {
+          responseError = error;
         }
       },
-      onDispose: () => previews.delete(previewUri),
     });
+    if (responseError) {
+      throw responseError;
+    }
   } catch (error) {
     await reportError(error);
   }
+}
+
+function createEditProposal(
+  previews: EditPreviewProvider,
+  conversation: PiConversationController,
+  snapshot: SelectionSnapshot,
+  response: string,
+): void {
+  const replacement = extractReplacement(response);
+  if (replacement === undefined) {
+    throw new Error("Pi returned an unexpected edit format. No changes were applied.");
+  }
+  assertSnapshotCurrent(snapshot, "The document changed while Pi was working. Regenerate the edit before previewing it.");
+
+  const convertedReplacement = convertLineEndings(replacement, snapshot.document.eol);
+  const originalText = snapshot.document.getText();
+  const startOffset = snapshot.document.offsetAt(snapshot.range.start);
+  const endOffset = snapshot.document.offsetAt(snapshot.range.end);
+  const previewText = originalText.slice(0, startOffset) + convertedReplacement + originalText.slice(endOffset);
+  const previewUri = previews.create(snapshot.document.uri, previewText);
+  conversation.addEditProposal({
+    label: `${path.basename(snapshot.document.uri.fsPath)}:${snapshot.range.start.line + 1}-${snapshot.range.end.line + 1}`,
+    onPreview: async () => {
+      assertSnapshotCurrent(snapshot, "The document changed after Pi generated the proposal. Regenerate the edit before previewing it.");
+      await vscode.commands.executeCommand(
+        "vscode.diff",
+        snapshot.document.uri,
+        previewUri,
+        `Pi Edit Preview: ${path.basename(snapshot.document.uri.fsPath)}`,
+        { preview: true },
+      );
+    },
+    onApply: async () => {
+      assertSnapshotCurrent(snapshot, "The document changed after Pi generated the proposal. Regenerate the edit before applying it.");
+      const edit = new vscode.WorkspaceEdit();
+      edit.replace(snapshot.document.uri, snapshot.range, convertedReplacement);
+      if (!(await vscode.workspace.applyEdit(edit))) {
+        throw new Error("VS Code could not apply the Pi edit.");
+      }
+    },
+    onDispose: () => previews.delete(previewUri),
+  });
 }
 
 function captureSelection(): SelectionSnapshot | undefined {

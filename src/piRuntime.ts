@@ -1,6 +1,6 @@
 import path from "node:path";
 import * as vscode from "vscode";
-import { assistantTextAfter } from "./conversationController";
+import { ConversationResponseCapture } from "./conversationController";
 import { PiRpcClient, type PiRpcClientOptions, type PiRpcEvent, type PiRpcImage } from "./piRpcClient";
 import { getRuntimeProfile, normalizeMode, type PiAgentMode } from "./runtimeProfiles";
 import { readPiInvocationOptions } from "./vscodePi";
@@ -75,21 +75,19 @@ export class PiRuntimeManager implements vscode.Disposable {
     resource?: vscode.Uri,
     images?: readonly PiRpcImage[],
     onAccepted?: () => void,
-  ): Promise<number> {
+  ): Promise<string | undefined> {
     await this.ensureStarted(resource);
     const client = this.requireClient();
     if (this.state.busy) {
       throw new Error("Pi is already working. Send a steering message or cancel the active request first.");
     }
 
-    const messageBoundary = (await client.getMessages()).length;
     const settled = this.createSettledWaiter();
     this.updateState({ busy: true });
     try {
       await client.prompt(message, images);
       onAccepted?.();
-      await settled.promise;
-      return messageBoundary;
+      return await settled.promise;
     } catch (error) {
       this.updateState({ busy: false });
       throw error;
@@ -161,10 +159,6 @@ export class PiRuntimeManager implements vscode.Disposable {
   public async getMessages(): Promise<unknown[]> {
     await this.ensureStarted(this.resource);
     return this.requireClient().getMessages();
-  }
-
-  public async getLastAssistantText(messageBoundary: number): Promise<string> {
-    return assistantTextAfter(await this.getMessages(), messageBoundary);
   }
 
   public sendExtensionUiResponse(id: string, fields: Record<string, unknown>): void {
@@ -319,23 +313,27 @@ export class PiRuntimeManager implements vscode.Disposable {
     }
   }
 
-  private createSettledWaiter(timeoutMs = 30 * 60 * 1_000): { promise: Promise<void>; dispose: () => void } {
+  private createSettledWaiter(
+    timeoutMs = 30 * 60 * 1_000,
+  ): { promise: Promise<string | undefined>; dispose: () => void } {
+    const response = new ConversationResponseCapture();
     let finish: (() => void) | undefined;
     let subscription: vscode.Disposable | undefined;
     let timeout: NodeJS.Timeout | undefined;
-    const promise = new Promise<void>((resolve, reject) => {
-      finish = resolve;
+    const promise = new Promise<string | undefined>((resolve, reject) => {
+      finish = () => resolve(undefined);
       timeout = setTimeout(() => {
         subscription?.dispose();
         reject(new Error("Timed out waiting for Pi to settle."));
       }, timeoutMs);
       subscription = this.onEvent(event => {
+        response.accept(event);
         if (event.type === "agent_settled") {
           if (timeout) {
             clearTimeout(timeout);
           }
           subscription?.dispose();
-          resolve();
+          resolve(response.response);
         } else if (event.type === "process_exit") {
           if (timeout) {
             clearTimeout(timeout);

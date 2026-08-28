@@ -8,7 +8,7 @@
 - Add in-chat edit proposal cards that enforce structurally trusted read-only generation, retain live previews, release terminal callbacks, bound terminal history, require Preview before Apply, reject stale document versions, and serialize Apply across all live proposals.
 - Add an authenticated local bridge with fail-closed bounded framing and Pi tools for reading VS Code editor context, opening files, and showing requested notifications.
 - Load the bridge in foreground chat runtimes and Pi terminal handoffs while keeping bridge-only tools out of independent background profiles.
-- Scope assistant-result lookup to the completed request so an earlier response cannot become a new edit proposal.
+- Capture each request's authoritative assistant response from its event stream across compaction, and keep session actions locked through history synchronization and edit-proposal creation.
 - Move the Pi Chat view's default location to the Secondary Sidebar.
 - Add a Pi button to the editor title toolbar for opening Chat.
 - Require VS Code 1.106 or newer for Secondary Sidebar view contributions.
