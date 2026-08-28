@@ -1,3 +1,14 @@
+export interface HistorySyncFailureState {
+  readonly status: string;
+  readonly historyRecoveryAvailable: boolean;
+}
+
+export function historySyncFailureState(connected: boolean): HistorySyncFailureState {
+  return connected
+    ? { status: "History unavailable · Refresh available", historyRecoveryAvailable: true }
+    : { status: "Disconnected · Reconnect available", historyRecoveryAvailable: false };
+}
+
 export interface SidebarMessage {
   readonly id: string;
   readonly role: "user" | "assistant";

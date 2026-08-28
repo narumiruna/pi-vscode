@@ -27,6 +27,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .header { display: grid; grid-template-columns: minmax(72px, auto) minmax(0, 1fr) auto auto; gap: 5px; padding: 7px 8px; border-bottom: 1px solid var(--vscode-sideBar-border, transparent); }
     .header select, .header button { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #model-picker { text-align: left; }
+    #new-session { grid-column: 3; grid-row: 1; }
+    #more { grid-column: 4; grid-row: 1; }
+    #handoff-agent { grid-column: 1 / -1; }
     #runtime { display: flex; min-width: 0; gap: 8px; align-items: center; padding: 4px 9px; color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-sideBar-border, transparent); font-size: .82em; }
     #runtime span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #runtime #status { flex: 1; }
@@ -74,7 +77,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     #notice { min-height: 22px; padding: 0 8px 5px; color: var(--vscode-descriptionForeground); font-size: .85em; overflow-wrap: anywhere; }
     #notice.error { color: var(--vscode-errorForeground); }
     #notice.warning { color: var(--vscode-editorWarning-foreground); }
-    @media (max-width: 340px) { .header { grid-template-columns: minmax(66px, 1fr) auto auto; } #model-picker { grid-column: 1 / -1; grid-row: 2; } .composer-actions { grid-template-columns: auto 1fr auto; } #composer-hint { display: none; } }
+    @media (max-width: 340px) { .header { grid-template-columns: minmax(66px, 1fr) auto auto; } #model-picker { grid-column: 1 / -1; grid-row: 2; } #new-session { grid-column: 2; grid-row: 1; } #more { grid-column: 3; grid-row: 1; } #handoff-agent { grid-column: 1 / -1; } .composer-actions { grid-template-columns: auto 1fr auto; } #composer-hint { display: none; } }
   </style>
 </head>
 <body>
@@ -83,6 +86,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       <select id="mode" aria-label="Pi mode" title="Choose how Pi may work"><option value="ask">Ask</option><option value="edit">Edit</option><option value="plan">Plan</option><option value="agent">Agent</option></select>
       <button id="model-picker" class="secondary" type="button" aria-label="Change Pi model">Model…</button>
       <button id="new-session" class="secondary" type="button" title="Start a new Pi conversation" aria-label="New Pi conversation">New</button>
+      <button id="handoff-agent" type="button" title="Continue this Plan session in Agent mode" hidden>Implement Plan</button>
       <button id="more" class="secondary" type="button" title="Session and advanced actions" aria-label="More Pi actions">More…</button>
     </header>
     <div id="runtime"><span id="status" role="status" aria-live="polite">Connecting…</span><span id="session"></span><span id="usage"></span><button id="retry" class="secondary" type="button" hidden>Retry</button><button id="refresh-history" class="secondary" type="button" hidden>Refresh history</button><button id="reconnect" class="secondary" type="button" hidden>Reconnect</button></div>
@@ -126,12 +130,13 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let attachedImages = false;
     let pendingImageReads = 0;
     let submissionPending = false;
+    let backgroundSubmissionPending = false;
     let composerRevision = 0;
     let updatingControls = false;
 
     function submit() {
       const text = input.value.trim();
-      if (!text || busy || !connected || pendingImageReads > 0 || submissionPending || (attachedImages && !imageSupported)) return;
+      if (!text || busy || !connected || pendingImageReads > 0 || submissionPending || backgroundSubmissionPending || (attachedImages && !imageSupported)) return;
       submissionPending = true;
       updateSendState();
       vscode.postMessage({ type: 'send', text });
@@ -326,10 +331,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     function updateSendState() {
       const imageBlocked = attachedImages && !imageSupported;
       const imageLoading = pendingImageReads > 0;
-      const interactionLocked = busy || submissionPending || imageLoading;
+      const interactionLocked = busy || submissionPending || backgroundSubmissionPending || imageLoading;
       mode.disabled = interactionLocked;
       $('model-picker').disabled = interactionLocked || !connected;
       $('new-session').disabled = interactionLocked;
+      $('handoff-agent').disabled = interactionLocked || !connected;
       $('more').disabled = interactionLocked || !connected;
       $('add-context').disabled = interactionLocked;
       sendButton.disabled = interactionLocked || !connected || !input.value.trim() || imageBlocked;
@@ -337,18 +343,23 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         ? 'Wait for pasted images to finish loading.'
         : submissionPending
           ? 'Waiting for Pi to accept this message.'
-          : imageBlocked
-            ? 'The current model does not support image attachments.'
-            : !connected ? 'Reconnect to Pi before sending.' : '';
+          : backgroundSubmissionPending
+            ? 'Wait for the background agent to finish starting.'
+            : imageBlocked
+              ? 'The current model does not support image attachments.'
+              : !connected ? 'Reconnect to Pi before sending.' : '';
       $('composer-hint').textContent = imageLoading
         ? 'Loading pasted image…'
-        : imageBlocked ? 'Choose an image-capable model or remove images' : 'Enter to send · Shift+Enter for newline';
+        : backgroundSubmissionPending
+          ? 'Starting background agent…'
+          : imageBlocked ? 'Choose an image-capable model or remove images' : 'Enter to send · Shift+Enter for newline';
     }
 
     function render(state) {
       busy = Boolean(state.runtime.busy);
       connected = Boolean(state.runtime.connected);
       imageSupported = Boolean(state.imageSupported);
+      backgroundSubmissionPending = Boolean(state.backgroundSubmissionPending);
       renderMessages(state.messages || []);
       renderProposals(state.proposals || []);
       renderTools(state.tools || []);
@@ -364,6 +375,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('model-picker').title = currentModel.provider && currentModel.id ? currentModel.provider + '/' + currentModel.id : 'Choose Pi model';
       $('model-picker').disabled = busy || !connected;
       $('new-session').disabled = busy;
+      $('handoff-agent').hidden = state.runtime.mode !== 'plan';
+      $('handoff-agent').disabled = busy || !connected;
       $('more').disabled = busy || !connected;
       $('status').textContent = state.status + (connected ? '' : ' · disconnected');
       $('session').textContent = state.runtime.sessionName || (state.runtime.sessionId ? 'Session ' + state.runtime.sessionId.slice(0, 8) : '');
@@ -454,6 +467,10 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     $('add-context').addEventListener('click', () => vscode.postMessage({ type: 'pickContext' }));
     $('model-picker').addEventListener('click', () => vscode.postMessage({ type: 'pickModel' }));
     $('new-session').addEventListener('click', () => vscode.postMessage({ type: 'newSession' }));
+    $('handoff-agent').addEventListener('click', () => {
+      $('handoff-agent').disabled = true;
+      vscode.postMessage({ type: 'handoffAgent' });
+    });
     $('more').addEventListener('click', () => vscode.postMessage({ type: 'showMoreActions', text: input.value, revision: composerRevision }));
     $('source-control').addEventListener('click', () => vscode.postMessage({ type: 'openSourceControl' }));
     mode.addEventListener('change', () => { if (!updatingControls) vscode.postMessage({ type: 'setMode', mode: mode.value }); });
