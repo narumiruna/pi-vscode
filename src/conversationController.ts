@@ -6,6 +6,7 @@ export interface ConversationRequestOptions {
   readonly instructions?: string;
   readonly resource?: vscode.Uri;
   readonly policy?: AgentRequestPolicy;
+  readonly onResponse?: (response: string) => Promise<void> | void;
 }
 
 export interface EditProposalInput {
@@ -27,6 +28,10 @@ export interface PiConversationController {
 
 export class ConversationRequestGate {
   private pending = false;
+
+  public get isPending(): boolean {
+    return this.pending;
+  }
 
   public acquire(): () => void {
     if (this.pending) {
@@ -57,22 +62,22 @@ export function conversationRequestBehavior(origin: ConversationRequestOrigin): 
   };
 }
 
-export function assistantTextAfter(messages: readonly unknown[], boundary: number): string {
-  for (const message of messages.slice(boundary).reverse()) {
-    if (!isRecord(message) || message.role !== "assistant") {
-      continue;
+export class ConversationResponseCapture {
+  private assistantText: string | undefined;
+
+  public accept(event: unknown): void {
+    if (!isRecord(event) || event.type !== "message_end") {
+      return;
     }
-    if (typeof message.content === "string") {
-      return message.content;
-    }
-    if (Array.isArray(message.content)) {
-      return message.content
-        .filter(part => isRecord(part) && part.type === "text" && typeof part.text === "string")
-        .map(part => String(part.text))
-        .join("\n");
+    const text = assistantMessageText(event.message);
+    if (text !== undefined) {
+      this.assistantText = text;
     }
   }
-  throw new Error("Pi completed without an assistant response for this request.");
+
+  public get response(): string | undefined {
+    return this.assistantText;
+  }
 }
 
 export class ConversationRequestLifecycle {
@@ -103,6 +108,22 @@ export class ConversationRequestLifecycle {
   public completeExecution(): void {
     this.completed = true;
   }
+}
+
+function assistantMessageText(message: unknown): string | undefined {
+  if (!isRecord(message) || message.role !== "assistant") {
+    return undefined;
+  }
+  if (typeof message.content === "string") {
+    return message.content;
+  }
+  if (!Array.isArray(message.content)) {
+    return "";
+  }
+  return message.content
+    .filter(part => isRecord(part) && part.type === "text" && typeof part.text === "string")
+    .map(part => String(part.text))
+    .join("\n");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

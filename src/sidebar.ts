@@ -171,7 +171,16 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     options: ConversationRequestOptions = {},
   ): Promise<string> {
     await vscode.commands.executeCommand(`${viewId}.focus`);
-    return this.runRequest(request, contexts, [], options.resource, options.instructions, options.policy);
+    return this.runRequest(
+      request,
+      contexts,
+      [],
+      options.resource,
+      options.instructions,
+      options.policy,
+      "editor",
+      options.onResponse,
+    );
   }
 
   public addEditProposal(input: EditProposalInput): string {
@@ -460,12 +469,13 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     instructions?: string,
     policy?: AgentRequestPolicy,
     origin: ConversationRequestOrigin = "editor",
+    onResponse?: (response: string) => Promise<void> | void,
   ): Promise<string> {
     const text = request.trim();
     if (!text) {
       throw new Error("Enter a message for Pi.");
     }
-    if (this.runtime.currentState.busy) {
+    if (this.isForegroundRequestActive()) {
       throw new Error("Pi is already working. Cancel or wait for the active request before starting another one.");
     }
     if (text.length > maxInputCharacters) {
@@ -506,7 +516,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       }
       this.postState();
 
-      const messageBoundary = await this.runtime.prompt(
+      const response = await this.runtime.prompt(
         buildAgentPrompt(text, contexts, instructions, policy),
         resource,
         images,
@@ -522,8 +532,11 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       }
       this.requestLifecycle.completeExecution();
       this.retryRequest = undefined;
-      const response = await this.runtime.getLastAssistantText(messageBoundary);
+      if (response === undefined) {
+        throw new Error("Pi completed without an assistant response for this request.");
+      }
       await this.syncMessagesFromPi();
+      await onResponse?.(response);
       this.status = "Ready";
       this.postState();
       return response;
@@ -560,7 +573,12 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       throw error;
     } finally {
       releaseRequest();
+      this.postState();
     }
+  }
+
+  private isForegroundRequestActive(): boolean {
+    return this.requestGate.isPending || this.runtime.currentState.busy;
   }
 
   private async runBackground(rawText: string, isolated: boolean): Promise<void> {
@@ -602,8 +620,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async resumeBackground(id: string): Promise<void> {
-    if (this.runtime.currentState.busy) {
-      throw new Error("Cancel the foreground request before resuming a background session.");
+    if (this.isForegroundRequestActive()) {
+      throw new Error("Cancel or wait for the foreground request before resuming a background session.");
     }
     const sessionFile = await this.backgroundAgents.openSession(id);
     await this.runtime.switchSession(sessionFile);
@@ -615,8 +633,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async newSession(): Promise<void> {
-    if (this.runtime.currentState.busy) {
-      this.postNotice("Cancel the active request before starting a new session.", "warning");
+    if (this.isForegroundRequestActive()) {
+      this.postNotice("Cancel or wait for the active request before starting a new session.", "warning");
       return;
     }
     await this.runtime.newSession();
@@ -633,6 +651,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async setMode(mode: PiAgentMode): Promise<void> {
+    if (this.isForegroundRequestActive()) {
+      throw new Error("Cancel or wait for the active request before changing Pi mode.");
+    }
     if (mode === "agent") {
       const choice = await vscode.window.showWarningMessage(
         "Agent mode allows Pi to edit files and run shell commands with your user permissions.",
@@ -651,8 +672,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async compact(): Promise<void> {
-    if (this.runtime.currentState.busy) {
-      this.postNotice("Cancel the active request before compacting the session.", "warning");
+    if (this.isForegroundRequestActive()) {
+      this.postNotice("Cancel or wait for the active request before compacting the session.", "warning");
       return;
     }
     this.status = "Compacting context…";
@@ -694,8 +715,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async resumeSession(): Promise<void> {
-    if (this.runtime.currentState.busy) {
-      this.postNotice("Cancel the active request before switching sessions.", "warning");
+    if (this.isForegroundRequestActive()) {
+      this.postNotice("Cancel or wait for the active request before switching sessions.", "warning");
       return;
     }
     const selection = await vscode.window.showOpenDialog({
@@ -812,7 +833,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     } else if (event.type === "auto_retry_start") {
       this.status = "Retrying Pi request…";
     } else if (event.type === "agent_settled") {
-      this.status = this.requestLifecycle.wasCancelled ? "Cancelled · Ready to retry" : "Ready";
+      this.status = this.requestLifecycle.wasCancelled ? "Cancelling Pi request…" : "Finishing Pi response…";
       this.streamingAssistantId = undefined;
       if (this.trackCurrentRequestChanges) {
         this.changes = this.changeTracker.finishRequest();
@@ -939,6 +960,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private postState(): void {
+    const requestBusy = this.isForegroundRequestActive();
     this.postMessage({
       type: "state",
       messages: this.messages.map(message => ({ ...message, html: renderSafeMarkdown(message.content) })),
@@ -949,9 +971,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       status: this.status,
       attachments: this.attachments.summaries,
       imageSupported: modelSupportsImages(this.runtime.currentState.model),
-      retryAvailable: Boolean(this.retryRequest) && !this.runtime.currentState.busy,
-      historyRecoveryAvailable: this.historyRecoveryAvailable && !this.runtime.currentState.busy,
-      runtime: this.runtime.currentState,
+      retryAvailable: Boolean(this.retryRequest) && !requestBusy,
+      historyRecoveryAvailable: this.historyRecoveryAvailable && !requestBusy,
+      runtime: { ...this.runtime.currentState, busy: requestBusy },
     });
   }
 

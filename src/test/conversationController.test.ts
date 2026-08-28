@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   ConversationRequestGate,
   ConversationRequestLifecycle,
-  assistantTextAfter,
+  ConversationResponseCapture,
   conversationRequestBehavior,
   shouldTrackConversationChanges,
 } from "../conversationController";
@@ -12,10 +12,12 @@ test("conversation request gate rejects overlap and releases idempotently", () =
   const gate = new ConversationRequestGate();
   const release = gate.acquire();
 
+  assert.equal(gate.isPending, true);
   assert.throws(() => gate.acquire(), /Pi is already working/);
 
   release();
   release();
+  assert.equal(gate.isPending, false);
   assert.doesNotThrow(() => gate.acquire()());
 });
 
@@ -34,15 +36,21 @@ test("request origins preserve retry drafts and clear only newly accepted compos
   });
 });
 
-test("assistant lookup is scoped to messages after the request boundary", () => {
-  const messages = [
-    { role: "assistant", content: "old replacement" },
-    { role: "user", content: "new request" },
-    { role: "assistant", content: [{ type: "text", text: "new" }, { type: "text", text: "response" }] },
-  ];
+test("assistant capture follows request events across compaction without history indices", () => {
+  const capture = new ConversationResponseCapture();
+  capture.accept({ type: "message_end", message: { role: "user", content: "new request" } });
+  capture.accept({
+    type: "message_end",
+    message: { role: "assistant", content: [{ type: "text", text: "first" }, { type: "text", text: "response" }] },
+  });
+  capture.accept({ type: "compaction_start" });
+  capture.accept({ type: "compaction_end" });
 
-  assert.equal(assistantTextAfter(messages, 1), "new\nresponse");
-  assert.throws(() => assistantTextAfter(messages.slice(0, 2), 1), /for this request/);
+  assert.equal(capture.response, "first\nresponse");
+
+  capture.accept({ type: "message_end", message: { role: "assistant", content: "final response" } });
+  assert.equal(capture.response, "final response");
+  assert.equal(new ConversationResponseCapture().response, undefined);
 });
 
 test("request lifecycle preserves cancellation until the next request and records completion", () => {
