@@ -204,6 +204,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         const actions = document.createElement('div');
         actions.className = 'proposal-actions';
         const terminal = ['applied', 'rejected', 'stale'].includes(proposal.status);
+        const transitioning = ['previewing', 'applying', 'rejecting'].includes(proposal.status);
         for (const definition of [['preview', 'Preview'], ['apply', 'Apply'], ['reject', 'Reject']]) {
           const button = document.createElement('button');
           button.className = definition[0] === 'apply' ? '' : 'secondary';
@@ -211,7 +212,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           button.textContent = definition[1];
           button.dataset.proposalAction = definition[0];
           button.dataset.id = proposal.id;
-          button.disabled = busy || terminal || (definition[0] === 'apply' && proposal.status !== 'previewed');
+          button.disabled = busy || terminal || transitioning || (definition[0] === 'apply' && proposal.status !== 'previewed');
           actions.appendChild(button);
         }
         card.appendChild(actions);
@@ -317,6 +318,13 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       }
     }
 
+    function updateSendState() {
+      const imageBlocked = attachedImages && !imageSupported;
+      sendButton.disabled = busy || !connected || !input.value.trim() || imageBlocked;
+      sendButton.title = imageBlocked ? 'The current model does not support image attachments.' : !connected ? 'Reconnect to Pi before sending.' : '';
+      $('composer-hint').textContent = imageBlocked ? 'Choose an image-capable model or remove images' : 'Enter to send · Shift+Enter for newline';
+    }
+
     function render(state) {
       busy = Boolean(state.runtime.busy);
       connected = Boolean(state.runtime.connected);
@@ -347,10 +355,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('add-context').disabled = busy;
       cancelButton.hidden = !busy;
       sendButton.textContent = busy ? 'Working…' : 'Send';
-      const imageBlocked = attachedImages && !imageSupported;
-      sendButton.disabled = busy || !connected || !input.value.trim() || imageBlocked;
-      sendButton.title = imageBlocked ? 'The current model does not support image attachments.' : !connected ? 'Reconnect to Pi before sending.' : '';
-      $('composer-hint').textContent = imageBlocked ? 'Choose an image-capable model or remove images' : 'Enter to send · Shift+Enter for newline';
+      updateSendState();
     }
 
     function attachPastedImages(event) {
@@ -394,8 +399,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const message = event.data;
       if (message.type === 'state') render(message);
       else if (message.type === 'notice') { notice.textContent = message.message; notice.className = message.level; }
-      else if (message.type === 'setInput') { input.value = message.text; input.focus(); }
-      else if (message.type === 'clearInput') { input.value = ''; input.focus(); }
+      else if (message.type === 'setInput') { input.value = message.text; updateSendState(); input.focus(); }
+      else if (message.type === 'clearInput') { input.value = ''; updateSendState(); input.focus(); }
     });
     sendButton.addEventListener('click', submit);
     cancelButton.addEventListener('click', () => vscode.postMessage({ type: 'cancel' }));
@@ -407,7 +412,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     $('more').addEventListener('click', () => vscode.postMessage({ type: 'showMoreActions', text: input.value }));
     $('source-control').addEventListener('click', () => vscode.postMessage({ type: 'openSourceControl' }));
     mode.addEventListener('change', () => { if (!updatingControls) vscode.postMessage({ type: 'setMode', mode: mode.value }); });
-    input.addEventListener('input', () => { sendButton.disabled = busy || !connected || !input.value.trim() || (attachedImages && !imageSupported); });
+    input.addEventListener('input', updateSendState);
     input.addEventListener('paste', attachPastedImages);
     input.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); submit(); } });
     messagesElement.addEventListener('click', event => {

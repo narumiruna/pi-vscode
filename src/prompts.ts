@@ -16,6 +16,8 @@ export interface ChatReferenceContext {
   readonly content: string;
 }
 
+export type AgentRequestPolicy = "read-only";
+
 const replacementStart = "<<<PI_REPLACEMENT_START>>>";
 const replacementEnd = "<<<PI_REPLACEMENT_END>>>";
 
@@ -90,6 +92,7 @@ export function buildAgentPrompt(
   request: string,
   references: readonly ChatReferenceContext[],
   instructions?: string,
+  policy?: AgentRequestPolicy,
 ): string {
   const sections: string[] = [];
   for (const reference of references) {
@@ -101,6 +104,9 @@ export function buildAgentPrompt(
   }
   if (instructions) {
     sections.push("<<<PI_VSCODE_INSTRUCTIONS_START>>>", instructions, "<<<PI_VSCODE_INSTRUCTIONS_END>>>");
+  }
+  if (policy) {
+    sections.push(`<<<PI_VSCODE_POLICY: ${policy}>>>`);
   }
   sections.push("<<<PI_VSCODE_REQUEST_START>>>", request, "<<<PI_VSCODE_REQUEST_END>>>");
   return sections.join("\n");

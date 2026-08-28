@@ -1,9 +1,10 @@
 import type * as vscode from "vscode";
-import type { ChatReferenceContext } from "./prompts";
+import type { AgentRequestPolicy, ChatReferenceContext } from "./prompts";
 
 export interface ConversationRequestOptions {
   readonly instructions?: string;
   readonly resource?: vscode.Uri;
+  readonly policy?: AgentRequestPolicy;
 }
 
 export interface EditProposalInput {
@@ -11,6 +12,7 @@ export interface EditProposalInput {
   readonly onPreview: () => Promise<void>;
   readonly onApply: () => Promise<void>;
   readonly onReject?: () => Promise<void> | void;
+  readonly onDispose?: () => Promise<void> | void;
 }
 
 export interface PiConversationController {
