@@ -2,6 +2,13 @@ import { execFile } from "node:child_process";
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import * as vscode from "vscode";
+import {
+  assertBackgroundTaskCapacity,
+  backgroundTaskIdsToEvict,
+  countOccupiedBackgroundTaskSlots,
+  isBackgroundTaskActive,
+  launchBackgroundExecution,
+} from "./backgroundAgentLifecycle";
 import { buildAgentPrompt, type ChatReferenceContext } from "./prompts";
 import { PiRpcClient, type PiRpcEvent, type PiRpcImage } from "./piRpcClient";
 import { getRuntimeProfile } from "./runtimeProfiles";
@@ -56,6 +63,13 @@ export class BackgroundAgentManager implements vscode.Disposable {
     cwd: string,
     isolatedWorktree: boolean,
   ): Promise<string> {
+    assertBackgroundTaskCapacity(
+      countOccupiedBackgroundTaskSlots(
+        [...this.tasks].map(([id, task]) => [id, task.status] as const),
+        this.active.keys(),
+      ),
+      maxTasks,
+    );
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const title = request.length > 60 ? `${request.slice(0, 57)}…` : request;
     this.setTask({ id, title, status: "starting", output: "" });
@@ -94,10 +108,15 @@ export class BackgroundAgentManager implements vscode.Disposable {
     this.active.set(id, { client, subscription, cancelRequested: false });
 
     try {
-      await client.start();
-      await client.setSessionName(title);
+      await launchBackgroundExecution(
+        async () => {
+          await client.start();
+          await client.setSessionName(title);
+        },
+        // Pi RPC resolves prompt commands after acceptance; task events continue asynchronously.
+        () => client.prompt(buildAgentPrompt(request, contexts), images),
+      );
       this.patchTask(id, { status: "running" });
-      await client.prompt(buildAgentPrompt(request, contexts), images);
     } catch (error) {
       this.failTask(id, error);
       await this.stopActive(id);
@@ -252,12 +271,11 @@ export class BackgroundAgentManager implements vscode.Disposable {
 
   private setTask(task: BackgroundTaskState): void {
     this.tasks.set(task.id, task);
-    while (this.tasks.size > maxTasks) {
-      const oldest = this.tasks.keys().next().value;
-      if (!oldest) {
-        break;
-      }
-      this.tasks.delete(oldest);
+    const protectedTasks = {
+      has: (id: string) => this.active.has(id) || isBackgroundTaskActive(this.tasks.get(id)?.status),
+    };
+    for (const id of backgroundTaskIdsToEvict(this.tasks.keys(), protectedTasks, maxTasks)) {
+      this.tasks.delete(id);
     }
     this.publish();
   }
