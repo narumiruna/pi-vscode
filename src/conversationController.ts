@@ -163,6 +163,8 @@ export function requestMayHaveProducedSideEffects(
 export class ConversationSideEffectTracker {
   private detected = false;
 
+  public constructor(private readonly lifecycle: ConversationRequestLifecycle) {}
+
   public get mayHaveSideEffects(): boolean {
     return this.detected;
   }
@@ -173,5 +175,8 @@ export class ConversationSideEffectTracker {
 
   public record(policy: AgentRequestPolicy | undefined, mode: PiAgentMode, toolName: string): void {
     this.detected ||= requestMayHaveProducedSideEffects(policy, mode, [toolName]);
+    if (this.detected) {
+      this.lifecycle.completeExecution();
+    }
   }
 }
