@@ -43,6 +43,38 @@ export class ConversationRequestGate {
   }
 }
 
+export type ConversationRequestOrigin = "editor" | "composer" | "retry";
+
+export interface ConversationRequestBehavior {
+  readonly retryable: boolean;
+  readonly clearComposerOnAccepted: boolean;
+}
+
+export function conversationRequestBehavior(origin: ConversationRequestOrigin): ConversationRequestBehavior {
+  return {
+    retryable: origin !== "editor",
+    clearComposerOnAccepted: origin === "composer",
+  };
+}
+
+export function assistantTextAfter(messages: readonly unknown[], boundary: number): string {
+  for (const message of messages.slice(boundary).reverse()) {
+    if (!isRecord(message) || message.role !== "assistant") {
+      continue;
+    }
+    if (typeof message.content === "string") {
+      return message.content;
+    }
+    if (Array.isArray(message.content)) {
+      return message.content
+        .filter(part => isRecord(part) && part.type === "text" && typeof part.text === "string")
+        .map(part => String(part.text))
+        .join("\n");
+    }
+  }
+  throw new Error("Pi completed without an assistant response for this request.");
+}
+
 export class ConversationRequestLifecycle {
   private cancellationRequested = false;
   private completed = false;
@@ -71,6 +103,10 @@ export class ConversationRequestLifecycle {
   public completeExecution(): void {
     this.completed = true;
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 export function shouldTrackConversationChanges(

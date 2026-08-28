@@ -5,6 +5,7 @@ import {
   buildAskPrompt,
   buildChatPrompt,
   buildModifyPrompt,
+  buildSelectionReference,
   extractReplacement,
   limitChatHistory,
   limitReferenceContent,
@@ -27,6 +28,16 @@ test("buildAskPrompt includes the question and selected code context", () => {
   assert.match(prompt, /File: src\/example\.ts/);
   assert.match(prompt, /const answer = 40 \+ 2;/);
   assert.match(prompt, /Do not modify files\./);
+});
+
+test("selection references preserve an unambiguous absolute editor resource", () => {
+  const reference = buildSelectionReference({
+    ...selection,
+    file: "/workspace-b/src/example.ts",
+  });
+
+  assert.equal(reference.label, "/workspace-b/src/example.ts:3-5");
+  assert.match(reference.content, /^File: \/workspace-b\/src\/example\.ts$/m);
 });
 
 test("buildModifyPrompt requests a tagged replacement", () => {

@@ -21,6 +21,19 @@ export type AgentRequestPolicy = "read-only";
 const replacementStart = "<<<PI_REPLACEMENT_START>>>";
 const replacementEnd = "<<<PI_REPLACEMENT_END>>>";
 
+export function buildSelectionReference(context: SelectionContext): ChatReferenceContext {
+  return {
+    label: `${context.file}:${context.startLine}-${context.endLine}`,
+    content: [
+      `File: ${context.file}`,
+      `Language: ${context.languageId}`,
+      `Lines: ${context.startLine}-${context.endLine}`,
+      "",
+      context.code,
+    ].join("\n"),
+  };
+}
+
 function describeSelection(context: SelectionContext): string {
   return [
     `File: ${context.file}`,

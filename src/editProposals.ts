@@ -29,6 +29,7 @@ const maxTerminalProposals = 20;
 
 export class EditProposalStore {
   private readonly proposals = new Map<string, EditProposalEntry>();
+  private applyInProgress = false;
 
   public constructor(
     private readonly onChange: () => void,
@@ -54,6 +55,9 @@ export class EditProposalStore {
     const proposal = this.proposals.get(id);
     if (!proposal) {
       throw new Error("This edit proposal is no longer available. Regenerate it from the conversation.");
+    }
+    if (action === "apply" && this.applyInProgress) {
+      throw new Error("Wait for the current edit Apply operation to finish.");
     }
     if (["previewing", "applying", "rejecting"].includes(proposal.state.status)) {
       throw new Error(`Wait for the current ${proposal.state.status} operation to finish.`);
@@ -104,6 +108,7 @@ export class EditProposalStore {
     if (proposal.state.status !== "previewed") {
       throw new Error("Preview the edit before applying it.");
     }
+    this.applyInProgress = true;
     proposal.state = { ...proposal.state, status: "applying", error: undefined };
     this.onChange();
     try {
@@ -121,8 +126,10 @@ export class EditProposalStore {
         this.pruneTerminalStates();
       }
       this.onNotice(message, "error");
+    } finally {
+      this.applyInProgress = false;
+      this.onChange();
     }
-    this.onChange();
   }
 
   public clear(): void {

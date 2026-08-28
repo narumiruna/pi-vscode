@@ -1,5 +1,6 @@
 import path from "node:path";
 import * as vscode from "vscode";
+import { assistantTextAfter } from "./conversationController";
 import { PiRpcClient, type PiRpcClientOptions, type PiRpcEvent, type PiRpcImage } from "./piRpcClient";
 import { getRuntimeProfile, normalizeMode, type PiAgentMode } from "./runtimeProfiles";
 import { readPiInvocationOptions } from "./vscodePi";
@@ -74,19 +75,21 @@ export class PiRuntimeManager implements vscode.Disposable {
     resource?: vscode.Uri,
     images?: readonly PiRpcImage[],
     onAccepted?: () => void,
-  ): Promise<void> {
+  ): Promise<number> {
     await this.ensureStarted(resource);
     const client = this.requireClient();
     if (this.state.busy) {
       throw new Error("Pi is already working. Send a steering message or cancel the active request first.");
     }
 
+    const messageBoundary = (await client.getMessages()).length;
     const settled = this.createSettledWaiter();
     this.updateState({ busy: true });
     try {
       await client.prompt(message, images);
       onAccepted?.();
       await settled.promise;
+      return messageBoundary;
     } catch (error) {
       this.updateState({ busy: false });
       throw error;
@@ -160,23 +163,8 @@ export class PiRuntimeManager implements vscode.Disposable {
     return this.requireClient().getMessages();
   }
 
-  public async getLastAssistantText(): Promise<string> {
-    const messages = await this.getMessages();
-    for (const message of messages.slice().reverse()) {
-      if (!isRecord(message) || message.role !== "assistant") {
-        continue;
-      }
-      if (typeof message.content === "string") {
-        return message.content;
-      }
-      if (Array.isArray(message.content)) {
-        return message.content
-          .filter(part => isRecord(part) && part.type === "text" && typeof part.text === "string")
-          .map(part => String(part.text))
-          .join("\n");
-      }
-    }
-    throw new Error("Pi completed without an assistant response.");
+  public async getLastAssistantText(messageBoundary: number): Promise<string> {
+    return assistantTextAfter(await this.getMessages(), messageBoundary);
   }
 
   public sendExtensionUiResponse(id: string, fields: Record<string, unknown>): void {

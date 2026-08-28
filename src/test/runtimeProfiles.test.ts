@@ -34,6 +34,15 @@ test("Edit excludes shell execution and Agent enables the complete coding toolse
     "vscode_open_file",
     "vscode_notify",
   ]);
+  assert.deepEqual(getRuntimeProfile("agent", { includeVscodeBridge: false }).tools, [
+    "read",
+    "bash",
+    "edit",
+    "write",
+    "grep",
+    "find",
+    "ls",
+  ]);
 });
 
 test("normalizeMode falls back to Ask for invalid persisted values", () => {
