@@ -23,6 +23,9 @@ test("sidebar keeps primary controls compact and exposes recovery and proposal a
 
   assert.match(html, /id="model-picker"/);
   assert.match(html, /id="more"/);
+  assert.match(html, /id="handoff-agent"[^>]*hidden>Implement Plan<\/button>/);
+  assert.match(html, /state\.runtime\.mode !== 'plan'/);
+  assert.match(html, /handoff-agent'\)\.disabled = true;\s+vscode\.postMessage\(\{ type: 'handoffAgent'/);
   assert.match(html, /id="reconnect"/);
   assert.match(html, /id="retry"/);
   assert.match(html, /id="refresh-history"/);
@@ -37,5 +40,10 @@ test("sidebar keeps primary controls compact and exposes recovery and proposal a
   assert.match(html, /let submissionPending = false/);
   assert.match(html, /submissionPending = true;\s+updateSendState\(\);\s+vscode\.postMessage/);
   assert.match(html, /message\.type === 'sendRejected'[\s\S]*submissionPending = false/);
+  assert.match(html, /let backgroundSubmissionPending = false/);
+  assert.match(html, /submissionPending \|\| backgroundSubmissionPending \|\| \(attachedImages/);
+  assert.match(html, /backgroundSubmissionPending = Boolean\(state\.backgroundSubmissionPending\)/);
+  assert.match(html, /busy \|\| submissionPending \|\| backgroundSubmissionPending \|\| imageLoading/);
+  assert.match(html, /Starting background agent/);
   assert.doesNotMatch(html, /id="resume-session"/);
 });
