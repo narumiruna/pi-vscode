@@ -3,7 +3,12 @@ import { homedir } from "node:os";
 import path from "node:path";
 import * as vscode from "vscode";
 import { BackgroundAgentManager } from "./backgroundAgents";
-import type { ConversationRequestOptions, EditProposalInput, PiConversationController } from "./conversationController";
+import {
+  ConversationRequestGate,
+  type ConversationRequestOptions,
+  type EditProposalInput,
+  type PiConversationController,
+} from "./conversationController";
 import { EditProposalStore } from "./editProposals";
 import { WorkspaceChangeTracker, type TrackedFileChange } from "./changeTracker";
 import { getSidebarHtml } from "./sidebarHtml";
@@ -79,6 +84,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   private changes: TrackedFileChange[] = [];
   private readonly proposals: EditProposalStore;
   private readonly attachments: SidebarAttachmentManager;
+  private readonly requestGate = new ConversationRequestGate();
   private status = "Ready";
   private cancelRequested = false;
   private retryRequest: {
@@ -306,6 +312,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           break;
       }
     } catch (error) {
+      if (message.type === "send") {
+        this.postMessage({ type: "sendRejected" });
+      }
       this.postNotice(formatError(error), "error");
       this.postState();
     }
@@ -452,31 +461,32 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       throw new Error(`Messages are limited to ${maxInputCharacters.toLocaleString()} characters.`);
     }
 
-    this.retryRequest = retryable
-      ? { request: text, contexts: [...contexts], images: [...images], resource, instructions, policy }
-      : undefined;
-    this.messages = limitSidebarMessages(
-      [
-        ...this.messages,
-        {
-          id: randomUUID(),
-          role: "user",
-          content: text,
-          contextLabel: contexts.map(context => context.label).join(", ") || undefined,
-        },
-      ],
-      maxMessages,
-      maxStoredCharacters,
-    );
-    this.tools = [];
-    this.changes = [];
-    this.changeTracker.startRequest(this.runtime.currentCwd);
-    this.streamingAssistantId = undefined;
-    this.status = "Sending to Pi…";
-    await this.persistMessages();
-    this.postState();
-
+    const releaseRequest = this.requestGate.acquire();
     try {
+      this.retryRequest = retryable
+        ? { request: text, contexts: [...contexts], images: [...images], resource, instructions, policy }
+        : undefined;
+      this.messages = limitSidebarMessages(
+        [
+          ...this.messages,
+          {
+            id: randomUUID(),
+            role: "user",
+            content: text,
+            contextLabel: contexts.map(context => context.label).join(", ") || undefined,
+          },
+        ],
+        maxMessages,
+        maxStoredCharacters,
+      );
+      this.tools = [];
+      this.changes = [];
+      this.changeTracker.startRequest(this.runtime.currentCwd);
+      this.streamingAssistantId = undefined;
+      this.status = "Sending to Pi…";
+      await this.persistMessages();
+      this.postState();
+
       await this.runtime.prompt(buildAgentPrompt(text, contexts, instructions, policy), resource, images, onAccepted);
       if (this.cancelRequested) {
         throw new Error("Pi request was cancelled.");
@@ -507,6 +517,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.cancelRequested = false;
       this.postState();
       throw error;
+    } finally {
+      releaseRequest();
     }
   }
 
