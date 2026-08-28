@@ -16,8 +16,23 @@ export interface ChatReferenceContext {
   readonly content: string;
 }
 
+export type AgentRequestPolicy = "read-only";
+
 const replacementStart = "<<<PI_REPLACEMENT_START>>>";
 const replacementEnd = "<<<PI_REPLACEMENT_END>>>";
+
+export function buildSelectionReference(context: SelectionContext): ChatReferenceContext {
+  return {
+    label: `${context.file}:${context.startLine}-${context.endLine}`,
+    content: [
+      `File: ${context.file}`,
+      `Language: ${context.languageId}`,
+      `Lines: ${context.startLine}-${context.endLine}`,
+      "",
+      context.code,
+    ].join("\n"),
+  };
+}
 
 function describeSelection(context: SelectionContext): string {
   return [
@@ -89,14 +104,22 @@ export function limitReferenceContent(content: string, remainingCharacters: numb
 export function buildAgentPrompt(
   request: string,
   references: readonly ChatReferenceContext[],
+  instructions?: string,
+  policy?: AgentRequestPolicy,
 ): string {
   const sections: string[] = [];
+  if (policy) {
+    sections.push(`<<<PI_VSCODE_POLICY: ${policy}>>>`);
+  }
   for (const reference of references) {
     sections.push(
       `<<<PI_VSCODE_CONTEXT_START: ${reference.label.replace(/[\r\n]+/g, " ")}>>>`,
       reference.content,
       "<<<PI_VSCODE_CONTEXT_END>>>",
     );
+  }
+  if (instructions) {
+    sections.push("<<<PI_VSCODE_INSTRUCTIONS_START>>>", instructions, "<<<PI_VSCODE_INSTRUCTIONS_END>>>");
   }
   sections.push("<<<PI_VSCODE_REQUEST_START>>>", request, "<<<PI_VSCODE_REQUEST_END>>>");
   return sections.join("\n");

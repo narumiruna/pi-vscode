@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Redesign Pi Chat around a compact header, native Quick Pick secondary actions, attachment chips, explicit reconnect, cancellation, history-recovery states, serialized submission, retry-safe composer drafts, and narrow Sidebar layouts.
+- Route editor context-menu questions and edit requests through the persistent Pi Chat session for continuous follow-up, with absolute editor-resource context for multi-root workspaces.
+- Add safe Ctrl/Cmd+V image attachment with client and extension-host MIME, Base64, count, size, and model-capability checks, and hold submission until pasted images finish loading.
+- Add in-chat edit proposal cards that enforce structurally trusted read-only generation, retain live previews, release terminal callbacks, bound terminal history, require Preview before Apply, reject stale document versions, and serialize Apply across all live proposals.
+- Add an authenticated local bridge with fail-closed bounded framing and Pi tools for reading VS Code editor context, opening files, and showing requested notifications.
+- Load the bridge in foreground chat runtimes and Pi terminal handoffs while keeping bridge-only tools out of independent background profiles.
+- Capture each request's authoritative assistant response from its event stream across compaction, keep session actions locked through post-processing, and honor cancellation before delayed startup submits a prompt.
+- Preserve composer edits and attachments added while a background or worktree agent starts.
 - Move the Pi Chat view's default location to the Secondary Sidebar.
 - Add a Pi button to the editor title toolbar for opening Chat.
 - Require VS Code 1.106 or newer for Secondary Sidebar view contributions.
