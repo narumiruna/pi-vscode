@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { launchBackgroundExecution } from "../backgroundAgentLifecycle";
 import {
   ConversationRequestGate,
   ConversationRequestLifecycle,
@@ -29,37 +28,6 @@ test("exclusive operation gates reject overlap and release idempotently", () => 
   assert.throws(() => backgroundGate.acquire(), /background agent is already starting/);
   releaseBackground();
   assert.equal(backgroundGate.isPending, false);
-});
-
-test("background startup returns after dispatch and reports later execution failures", async () => {
-  let rejectExecution: ((error: Error) => void) | undefined;
-  const execution = new Promise<void>((_resolve, reject) => {
-    rejectExecution = reject;
-  });
-  let initialized = false;
-  let dispatched = false;
-  let observedError: unknown;
-
-  await launchBackgroundExecution(
-    async () => {
-      initialized = true;
-    },
-    () => {
-      dispatched = true;
-      return execution;
-    },
-    error => {
-      observedError = error;
-    },
-  );
-
-  assert.equal(initialized, true);
-  assert.equal(dispatched, true);
-  assert.equal(observedError, undefined);
-  const failure = new Error("background task failed");
-  rejectExecution?.(failure);
-  await Promise.resolve();
-  assert.equal(observedError, failure);
 });
 
 test("request origins preserve retry drafts and clear only newly accepted composer input", () => {

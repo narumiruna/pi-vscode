@@ -85,6 +85,23 @@ test("PiRpcClient correlates responses and streams events", async () => {
   });
 });
 
+test("PiRpcClient prompt resolves after acceptance and before task settlement", async () => {
+  await withFakePi(async options => {
+    const client = new PiRpcClient(options);
+    const events: PiRpcEvent[] = [];
+    client.onEvent(event => events.push(event));
+
+    await client.start();
+    await client.prompt("delayed-settlement");
+
+    assert.equal(events.some(event => event.type === "agent_settled"), false);
+    await waitForEvent(events, "agent_start");
+    await client.getState();
+    await waitForEvent(events, "agent_settled");
+    await client.stop();
+  });
+});
+
 test("multiple PiRpcClient sessions stream independently", async () => {
   await withFakePi(async options => {
     const first = new PiRpcClient(options);
@@ -144,6 +161,8 @@ async function waitForEvent(events: readonly PiRpcEvent[], type: string): Promis
 
 const fakePiScript = String.raw`
 let buffer = "";
+let delayedSettlementPending = false;
+const settle = () => process.stdout.write(JSON.stringify({ type: "agent_settled" }) + "\n");
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", chunk => {
   buffer += chunk;
@@ -185,7 +204,14 @@ process.stdin.on("data", chunk => {
         toolName: "read",
         args: { path: "README.md" },
       }) + "\n");
-      process.stdout.write(JSON.stringify({ type: "agent_settled" }) + "\n");
+      if (request.message === "delayed-settlement") {
+        delayedSettlementPending = true;
+      } else {
+        settle();
+      }
+    } else if (request.type === "get_state" && delayedSettlementPending) {
+      delayedSettlementPending = false;
+      settle();
     }
   }
 });
