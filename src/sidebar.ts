@@ -233,7 +233,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           await this.attachments.pickContext();
           break;
         case "showMoreActions":
-          await this.showMoreActions(message.text);
+          await this.showMoreActions(message.text, message.revision);
           break;
         case "pickModel":
           await this.pickModel();
@@ -314,7 +314,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           await this.proposals.handleAction(message.id, message.action);
           break;
         case "runBackground":
-          await this.runBackground(message.text, message.isolated);
+          await this.runBackground(message.text, message.isolated, message.revision);
           break;
         case "cancelBackground":
           await this.backgroundAgents.cancel(message.id);
@@ -361,7 +361,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.postState();
   }
 
-  private async showMoreActions(composerText: string): Promise<void> {
+  private async showMoreActions(composerText: string, composerRevision: number): Promise<void> {
     const selected = await vscode.window.showQuickPick(
       [
         { label: "$(history) Resume Session", action: "resume" },
@@ -386,8 +386,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     else if (selected.action === "compact") await this.compact();
     else if (selected.action === "export") await this.exportSession();
     else if (selected.action === "terminal") await this.runtime.openInTerminal();
-    else if (selected.action === "background") await this.runBackground(composerText, false);
-    else await this.runBackground(composerText, true);
+    else if (selected.action === "background") await this.runBackground(composerText, false, composerRevision);
+    else await this.runBackground(composerText, true, composerRevision);
   }
 
   private async pickModel(): Promise<void> {
@@ -526,6 +526,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
               this.postMessage({ type: "clearInput" });
             }
           : undefined,
+        () => this.requestLifecycle.throwIfCancelled(),
       );
       if (this.requestLifecycle.wasCancelled) {
         throw new Error("Pi request was cancelled.");
@@ -581,7 +582,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     return this.requestGate.isPending || this.runtime.currentState.busy;
   }
 
-  private async runBackground(rawText: string, isolated: boolean): Promise<void> {
+  private async runBackground(rawText: string, isolated: boolean, composerRevision: number): Promise<void> {
     const text = rawText.trim();
     if (!text) {
       throw new Error("Enter a message before starting a background or worktree agent.");
@@ -599,11 +600,12 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     if (!confirmation) {
       return;
     }
+    const submittedAttachmentIds = this.attachments.values.map(attachment => attachment.id);
     const contexts = this.attachments.textContexts;
     const images = this.attachments.images;
     await this.backgroundAgents.start(text, contexts, images, this.runtime.currentCwd, isolated);
-    this.attachments.clear();
-    this.postMessage({ type: "clearInput" });
+    this.attachments.removeMany(submittedAttachmentIds);
+    this.postMessage({ type: "clearInput", expectedText: rawText, expectedRevision: composerRevision });
     this.postNotice(isolated ? "Started an isolated worktree agent." : "Started a background agent.", "info");
     this.postState();
   }

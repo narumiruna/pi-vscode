@@ -57,12 +57,15 @@ test("request lifecycle preserves cancellation until the next request and record
   const lifecycle = new ConversationRequestLifecycle();
 
   lifecycle.begin();
+  assert.doesNotThrow(() => lifecycle.throwIfCancelled());
   lifecycle.cancel();
   assert.equal(lifecycle.wasCancelled, true);
   assert.equal(lifecycle.executionCompleted, false);
+  assert.throws(() => lifecycle.throwIfCancelled(), /Pi request was cancelled/);
 
   lifecycle.begin();
   assert.equal(lifecycle.wasCancelled, false);
+  assert.doesNotThrow(() => lifecycle.throwIfCancelled());
   lifecycle.completeExecution();
   assert.equal(lifecycle.executionCompleted, true);
   assert.equal(lifecycle.canRetry, false);

@@ -5,6 +5,7 @@ import {
   imageMimeType,
   isImageSizeAllowed,
   isSupportedImageMimeType,
+  withoutAttachmentIds,
 } from "../attachmentUtils";
 
 test("imageMimeType accepts only Pi-supported image formats", () => {
@@ -34,4 +35,14 @@ test("image size bounds include the exact maximum", () => {
   assert.equal(isImageSizeAllowed(100, 100), true);
   assert.equal(isImageSizeAllowed(101, 100), false);
   assert.equal(isImageSizeAllowed(-1, 100), false);
+});
+
+test("submitted attachment cleanup preserves items added during startup", () => {
+  const submitted = [{ id: "context-1" }, { id: "image-1" }];
+  const addedLater = { id: "context-2" };
+
+  assert.deepEqual(
+    withoutAttachmentIds([...submitted, addedLater], submitted.map(attachment => attachment.id)),
+    [addedLater],
+  );
 });

@@ -75,12 +75,14 @@ export class PiRuntimeManager implements vscode.Disposable {
     resource?: vscode.Uri,
     images?: readonly PiRpcImage[],
     onAccepted?: () => void,
+    beforeSubmit?: () => void,
   ): Promise<string | undefined> {
     await this.ensureStarted(resource);
     const client = this.requireClient();
     if (this.state.busy) {
       throw new Error("Pi is already working. Send a steering message or cancel the active request first.");
     }
+    beforeSubmit?.();
 
     const settled = this.createSettledWaiter();
     this.updateState({ busy: true });

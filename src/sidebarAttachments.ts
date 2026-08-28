@@ -6,6 +6,7 @@ import {
   imageMimeType,
   isImageSizeAllowed,
   isSupportedImageMimeType,
+  withoutAttachmentIds,
 } from "./attachmentUtils";
 import type { PiRpcImage } from "./piRpcClient";
 import { limitReferenceContent, type ChatReferenceContext } from "./prompts";
@@ -62,7 +63,15 @@ export class SidebarAttachmentManager {
   }
 
   public remove(id: string): void {
-    this.attachments = this.attachments.filter(attachment => attachment.id !== id);
+    this.removeMany([id]);
+  }
+
+  public removeMany(ids: readonly string[]): void {
+    const remaining = withoutAttachmentIds(this.attachments, ids);
+    if (remaining.length === this.attachments.length) {
+      return;
+    }
+    this.attachments = remaining;
     this.options.onChange();
   }
 
