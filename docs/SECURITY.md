@@ -7,6 +7,7 @@ Prompts, source code, terminal text, and image payloads are written to Pi over s
 Pi provider authentication remains in Pi's credential store or provider environment variables.
 The packaged Pi bridge listens on a random loopback TCP port in the same extension-host environment.
 Each bridge request requires a random per-window token passed to Pi processes started from the extension.
+Oversized or malformed bridge frames fail closed and terminate their socket.
 Pi child processes can inherit that token, so the bridge intentionally exposes no arbitrary command execution or file mutation method.
 The bridge exposes bounded editor context, file opening, and notifications.
 
@@ -34,7 +35,7 @@ Pi extensions execute with the extension-host user's permissions and must be rev
 ## Change Safety
 
 Focused editor edits enter the persistent Pi Chat session as edit proposals.
-A packaged read-only policy gate narrows active tools and blocks every non-read-only tool while Pi generates a proposal, regardless of the current Chat mode.
+A packaged read-only policy gate recognizes only extension-controlled prompt-prefix metadata, narrows active tools, and blocks every non-read-only tool while Pi generates a proposal, regardless of the current Chat mode.
 Apply remains disabled until the user opens Preview, and document-version checks reject stale proposals before both Preview and Apply.
 The original document version is checked before preview and again before apply.
 Foreground Pi edit/write tools checkpoint bounded files before execution.

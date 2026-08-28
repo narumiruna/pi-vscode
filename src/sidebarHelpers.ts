@@ -5,7 +5,7 @@ import type { PiAgentMode } from "./runtimeProfiles";
 import { limitSidebarMessages, type SidebarMessage } from "./sidebarState";
 
 export type WebviewMessage =
-  | { readonly type: "ready" | "cancel" | "reconnect" | "retry" | "newSession" | "pickContext" | "pickModel" | "attachSelection" | "attachFile" | "attachCurrentFile" | "attachDiagnostics" | "attachImage" | "attachTerminal" | "clearAttachments" | "compact" | "nameSession" | "resumeSession" | "exportSession" | "openTerminal" | "openSourceControl" | "handoffAgent" | "pickCommand" }
+  | { readonly type: "ready" | "cancel" | "reconnect" | "refreshHistory" | "retry" | "newSession" | "pickContext" | "pickModel" | "attachSelection" | "attachFile" | "attachCurrentFile" | "attachDiagnostics" | "attachImage" | "attachTerminal" | "clearAttachments" | "compact" | "nameSession" | "resumeSession" | "exportSession" | "openTerminal" | "openSourceControl" | "handoffAgent" | "pickCommand" }
   | { readonly type: "send"; readonly text: string }
   | { readonly type: "showMoreActions"; readonly text: string }
   | { readonly type: "pasteImage"; readonly data: string; readonly mimeType: string; readonly fileName?: string }
@@ -38,7 +38,7 @@ export function isWebviewMessage(value: unknown, maxImageBytes: number): value i
     return typeof value.id === "string";
   }
   return [
-    "ready", "cancel", "reconnect", "retry", "newSession", "pickContext", "pickModel", "attachSelection", "attachFile",
+    "ready", "cancel", "reconnect", "refreshHistory", "retry", "newSession", "pickContext", "pickModel", "attachSelection", "attachFile",
     "attachCurrentFile", "attachDiagnostics", "attachImage", "attachTerminal", "clearAttachments", "compact",
     "nameSession", "resumeSession", "exportSession", "openTerminal", "openSourceControl", "handoffAgent", "pickCommand",
   ].includes(value.type);

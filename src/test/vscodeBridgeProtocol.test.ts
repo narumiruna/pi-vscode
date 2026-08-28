@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  maxBridgeLineBytes,
   parseVscodeBridgeRequest,
   VscodeBridgeLineDecoder,
 } from "../vscodeBridgeProtocol";
@@ -17,6 +18,28 @@ test("VscodeBridgeLineDecoder uses strict LF framing across UTF-8 chunks", () =>
   decoder.end();
 
   assert.deepEqual(lines, [firstLine, '{"next":true}']);
+});
+
+test("VscodeBridgeLineDecoder fails closed for oversized partial, framed, and EOF input", () => {
+  const partialLines: string[] = [];
+  const partial = new VscodeBridgeLineDecoder(line => partialLines.push(line));
+  assert.throws(() => partial.push(Buffer.alloc(maxBridgeLineBytes + 1, "a")), /exceeded 1 MiB/);
+  assert.throws(() => partial.end(), /no longer usable/);
+  assert.deepEqual(partialLines, []);
+
+  const framedLines: string[] = [];
+  const framed = new VscodeBridgeLineDecoder(line => framedLines.push(line));
+  assert.throws(
+    () => framed.push(Buffer.from(`${"a".repeat(maxBridgeLineBytes + 1)}\n`)),
+    /exceeded 1 MiB/,
+  );
+  assert.deepEqual(framedLines, []);
+
+  const eofLines: string[] = [];
+  const eof = new VscodeBridgeLineDecoder(line => eofLines.push(line));
+  eof.push(Buffer.concat([Buffer.alloc(maxBridgeLineBytes, "a"), Buffer.from([0xe2])]));
+  assert.throws(() => eof.end(), /exceeded 1 MiB/);
+  assert.deepEqual(eofLines, []);
 });
 
 test("parseVscodeBridgeRequest validates and normalizes requests", () => {

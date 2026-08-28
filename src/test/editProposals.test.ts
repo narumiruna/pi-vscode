@@ -40,6 +40,27 @@ test("edit proposals retain content until terminal state and reject concurrent a
   assert.equal(changes.some(statuses => statuses.includes("applying")), true);
 });
 
+test("terminal proposals release callbacks and retain only bounded lightweight states", async () => {
+  let disposed = 0;
+  const store = new EditProposalStore(() => {}, () => {});
+
+  for (let index = 0; index < 25; index += 1) {
+    const id = store.add({
+      label: `src/app.ts:${index + 1}`,
+      onPreview: async () => {},
+      onApply: async () => {},
+      onDispose: () => {
+        disposed += 1;
+      },
+    });
+    await store.handleAction(id, "reject");
+  }
+
+  assert.equal(disposed, 25);
+  assert.equal(store.states.length, 20);
+  assert.equal(store.states.every(proposal => proposal.status === "rejected"), true);
+});
+
 test("stale preview failures release retained content and become terminal", async () => {
   let disposed = 0;
   const notices: string[] = [];

@@ -95,6 +95,9 @@ export function buildAgentPrompt(
   policy?: AgentRequestPolicy,
 ): string {
   const sections: string[] = [];
+  if (policy) {
+    sections.push(`<<<PI_VSCODE_POLICY: ${policy}>>>`);
+  }
   for (const reference of references) {
     sections.push(
       `<<<PI_VSCODE_CONTEXT_START: ${reference.label.replace(/[\r\n]+/g, " ")}>>>`,
@@ -104,9 +107,6 @@ export function buildAgentPrompt(
   }
   if (instructions) {
     sections.push("<<<PI_VSCODE_INSTRUCTIONS_START>>>", instructions, "<<<PI_VSCODE_INSTRUCTIONS_END>>>");
-  }
-  if (policy) {
-    sections.push(`<<<PI_VSCODE_POLICY: ${policy}>>>`);
   }
   sections.push("<<<PI_VSCODE_REQUEST_START>>>", request, "<<<PI_VSCODE_REQUEST_END>>>");
   return sections.join("\n");

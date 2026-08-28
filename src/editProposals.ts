@@ -21,9 +21,11 @@ export interface EditProposalState {
 
 interface EditProposalEntry {
   state: EditProposalState;
-  readonly input: EditProposalInput;
+  input?: EditProposalInput;
   disposed: boolean;
 }
+
+const maxTerminalProposals = 20;
 
 export class EditProposalStore {
   private readonly proposals = new Map<string, EditProposalEntry>();
@@ -59,14 +61,19 @@ export class EditProposalStore {
     if (["applied", "rejected", "stale"].includes(proposal.state.status)) {
       throw new Error(`This edit proposal is already ${proposal.state.status}.`);
     }
+    const input = proposal.input;
+    if (!input) {
+      throw new Error("This edit proposal is no longer available. Regenerate it from the conversation.");
+    }
 
     if (action === "reject") {
       proposal.state = { ...proposal.state, status: "rejecting", error: undefined };
       this.onChange();
       try {
-        await proposal.input.onReject?.();
+        await input.onReject?.();
         proposal.state = { ...proposal.state, status: "rejected" };
         this.release(proposal);
+        this.pruneTerminalStates();
       } catch (error) {
         proposal.state = { ...proposal.state, status: "failed", error: formatError(error) };
       }
@@ -78,13 +85,16 @@ export class EditProposalStore {
       proposal.state = { ...proposal.state, status: "previewing", error: undefined };
       this.onChange();
       try {
-        await proposal.input.onPreview();
+        await input.onPreview();
         proposal.state = { ...proposal.state, status: "previewed" };
       } catch (error) {
         const message = formatError(error);
         const stale = isStaleError(message);
         proposal.state = { ...proposal.state, status: stale ? "stale" : "failed", error: message };
-        if (stale) this.release(proposal);
+        if (stale) {
+          this.release(proposal);
+          this.pruneTerminalStates();
+        }
         this.onNotice(message, "error");
       }
       this.onChange();
@@ -97,15 +107,19 @@ export class EditProposalStore {
     proposal.state = { ...proposal.state, status: "applying", error: undefined };
     this.onChange();
     try {
-      await proposal.input.onApply();
+      await input.onApply();
       proposal.state = { ...proposal.state, status: "applied" };
       this.release(proposal);
+      this.pruneTerminalStates();
       this.onNotice("Pi edit applied. Use Undo to revert it.", "info");
     } catch (error) {
       const message = formatError(error);
       const stale = isStaleError(message);
       proposal.state = { ...proposal.state, status: stale ? "stale" : "failed", error: message };
-      if (stale) this.release(proposal);
+      if (stale) {
+        this.release(proposal);
+        this.pruneTerminalStates();
+      }
       this.onNotice(message, "error");
     }
     this.onChange();
@@ -120,13 +134,24 @@ export class EditProposalStore {
   }
 
   private release(proposal: EditProposalEntry): void {
-    if (proposal.disposed) return;
+    const input = proposal.input;
+    proposal.input = undefined;
+    if (proposal.disposed || !input) return;
     proposal.disposed = true;
     try {
-      const result = proposal.input.onDispose?.();
+      const result = input.onDispose?.();
       if (result) void result.catch(error => this.onNotice(formatError(error), "warning"));
     } catch (error) {
       this.onNotice(formatError(error), "warning");
+    }
+  }
+
+  private pruneTerminalStates(): void {
+    const terminalIds = [...this.proposals.values()]
+      .filter(proposal => ["applied", "rejected", "stale"].includes(proposal.state.status))
+      .map(proposal => proposal.state.id);
+    for (const id of terminalIds.slice(0, -maxTerminalProposals)) {
+      this.proposals.delete(id);
     }
   }
 }

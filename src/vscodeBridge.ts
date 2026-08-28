@@ -82,6 +82,7 @@ export class VscodeBridgeServer implements vscode.Disposable {
     this.sockets.add(socket);
     socket.setTimeout(10_000);
     let received = false;
+    let framingFailed = false;
     const decoder = new VscodeBridgeLineDecoder(line => {
       if (received) {
         socket.destroy(new Error("VS Code bridge accepts one request per connection."));
@@ -93,18 +94,21 @@ export class VscodeBridgeServer implements vscode.Disposable {
     });
 
     socket.on("data", (chunk: Buffer) => {
+      if (framingFailed) return;
       try {
         decoder.push(chunk);
       } catch (error) {
-        this.writeResponse(socket, { id: "unknown", ok: false, error: formatError(error) });
+        framingFailed = true;
+        socket.destroy(error instanceof Error ? error : new Error(formatError(error)));
       }
     });
     socket.on("end", () => {
-      if (!received) {
+      if (!received && !framingFailed) {
         try {
           decoder.end();
         } catch (error) {
-          this.writeResponse(socket, { id: "unknown", ok: false, error: formatError(error) });
+          framingFailed = true;
+          socket.destroy(error instanceof Error ? error : new Error(formatError(error)));
         }
       }
     });

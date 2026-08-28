@@ -85,7 +85,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       <button id="new-session" class="secondary" type="button" title="Start a new Pi conversation" aria-label="New Pi conversation">New</button>
       <button id="more" class="secondary" type="button" title="Session and advanced actions" aria-label="More Pi actions">More…</button>
     </header>
-    <div id="runtime"><span id="status" role="status" aria-live="polite">Connecting…</span><span id="session"></span><span id="usage"></span><button id="retry" class="secondary" type="button" hidden>Retry</button><button id="reconnect" class="secondary" type="button" hidden>Reconnect</button></div>
+    <div id="runtime"><span id="status" role="status" aria-live="polite">Connecting…</span><span id="session"></span><span id="usage"></span><button id="retry" class="secondary" type="button" hidden>Retry</button><button id="refresh-history" class="secondary" type="button" hidden>Refresh history</button><button id="reconnect" class="secondary" type="button" hidden>Reconnect</button></div>
     <section id="messages" aria-live="off" aria-label="Pi conversation"></section>
     <section id="activity">
       <div id="proposals-heading" class="section-heading" hidden><span>Edit proposals</span></div><section id="proposals" aria-label="Pi edit proposals"></section>
@@ -371,6 +371,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('reconnect').hidden = connected;
       $('retry').hidden = !state.retryAvailable;
       $('retry').disabled = busy || !connected;
+      $('refresh-history').hidden = !state.historyRecoveryAvailable;
+      $('refresh-history').disabled = busy || !connected;
       $('add-context').disabled = busy;
       cancelButton.hidden = !busy;
       sendButton.textContent = busy ? 'Working…' : 'Send';
@@ -432,6 +434,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     cancelButton.addEventListener('click', () => vscode.postMessage({ type: 'cancel' }));
     $('reconnect').addEventListener('click', () => vscode.postMessage({ type: 'reconnect' }));
     $('retry').addEventListener('click', () => vscode.postMessage({ type: 'retry' }));
+    $('refresh-history').addEventListener('click', () => vscode.postMessage({ type: 'refreshHistory' }));
     $('add-context').addEventListener('click', () => vscode.postMessage({ type: 'pickContext' }));
     $('model-picker').addEventListener('click', () => vscode.postMessage({ type: 'pickModel' }));
     $('new-session').addEventListener('click', () => vscode.postMessage({ type: 'newSession' }));
