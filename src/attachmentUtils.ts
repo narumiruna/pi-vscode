@@ -39,3 +39,11 @@ export function decodeBoundedBase64Image(data: string, maxBytes: number): Buffer
 export function isImageSizeAllowed(byteLength: number, maxBytes: number): boolean {
   return byteLength >= 0 && byteLength <= maxBytes;
 }
+
+export function withoutAttachmentIds<T extends { readonly id: string }>(
+  attachments: readonly T[],
+  removedIds: readonly string[],
+): T[] {
+  const removed = new Set(removedIds);
+  return attachments.filter(attachment => !removed.has(attachment.id));
+}

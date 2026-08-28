@@ -105,6 +105,12 @@ export class ConversationRequestLifecycle {
     this.cancellationRequested = true;
   }
 
+  public throwIfCancelled(): void {
+    if (this.cancellationRequested) {
+      throw new Error("Pi request was cancelled.");
+    }
+  }
+
   public completeExecution(): void {
     this.completed = true;
   }

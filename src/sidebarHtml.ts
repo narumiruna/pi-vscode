@@ -126,6 +126,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let attachedImages = false;
     let pendingImageReads = 0;
     let submissionPending = false;
+    let composerRevision = 0;
     let updatingControls = false;
 
     function submit() {
@@ -426,8 +427,23 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const message = event.data;
       if (message.type === 'state') render(message);
       else if (message.type === 'notice') { notice.textContent = message.message; notice.className = message.level; }
-      else if (message.type === 'setInput') { input.value = message.text; updateSendState(); input.focus(); }
-      else if (message.type === 'clearInput') { submissionPending = false; input.value = ''; updateSendState(); input.focus(); }
+      else if (message.type === 'setInput') {
+        input.value = message.text;
+        composerRevision += 1;
+        updateSendState();
+        input.focus();
+      }
+      else if (message.type === 'clearInput') {
+        submissionPending = false;
+        const revisionMatches = message.expectedRevision === undefined || composerRevision === message.expectedRevision;
+        const textMatches = message.expectedText === undefined || input.value === message.expectedText;
+        if (revisionMatches && textMatches) {
+          input.value = '';
+          composerRevision += 1;
+          input.focus();
+        }
+        updateSendState();
+      }
       else if (message.type === 'sendRejected') { submissionPending = false; updateSendState(); input.focus(); }
     });
     sendButton.addEventListener('click', submit);
@@ -438,10 +454,10 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     $('add-context').addEventListener('click', () => vscode.postMessage({ type: 'pickContext' }));
     $('model-picker').addEventListener('click', () => vscode.postMessage({ type: 'pickModel' }));
     $('new-session').addEventListener('click', () => vscode.postMessage({ type: 'newSession' }));
-    $('more').addEventListener('click', () => vscode.postMessage({ type: 'showMoreActions', text: input.value }));
+    $('more').addEventListener('click', () => vscode.postMessage({ type: 'showMoreActions', text: input.value, revision: composerRevision }));
     $('source-control').addEventListener('click', () => vscode.postMessage({ type: 'openSourceControl' }));
     mode.addEventListener('change', () => { if (!updatingControls) vscode.postMessage({ type: 'setMode', mode: mode.value }); });
-    input.addEventListener('input', updateSendState);
+    input.addEventListener('input', () => { composerRevision += 1; updateSendState(); });
     input.addEventListener('paste', attachPastedImages);
     input.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); submit(); } });
     messagesElement.addEventListener('click', event => {

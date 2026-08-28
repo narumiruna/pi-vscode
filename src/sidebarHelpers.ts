@@ -7,18 +7,21 @@ import { limitSidebarMessages, type SidebarMessage } from "./sidebarState";
 export type WebviewMessage =
   | { readonly type: "ready" | "cancel" | "reconnect" | "refreshHistory" | "retry" | "newSession" | "pickContext" | "pickModel" | "attachSelection" | "attachFile" | "attachCurrentFile" | "attachDiagnostics" | "attachImage" | "attachTerminal" | "clearAttachments" | "compact" | "nameSession" | "resumeSession" | "exportSession" | "openTerminal" | "openSourceControl" | "handoffAgent" | "pickCommand" }
   | { readonly type: "send"; readonly text: string }
-  | { readonly type: "showMoreActions"; readonly text: string }
+  | { readonly type: "showMoreActions"; readonly text: string; readonly revision: number }
   | { readonly type: "pasteImage"; readonly data: string; readonly mimeType: string; readonly fileName?: string }
   | { readonly type: "setMode"; readonly mode: PiAgentMode }
   | { readonly type: "setModel"; readonly provider: string; readonly modelId: string }
   | { readonly type: "setThinking"; readonly level: string }
   | { readonly type: "reviewChange" | "openChange" | "revertChange" | "cancelBackground" | "resumeBackground" | "openWorktree" | "cleanupWorktree" | "removeAttachment"; readonly id: string }
   | { readonly type: "proposalAction"; readonly id: string; readonly action: "preview" | "apply" | "reject" }
-  | { readonly type: "runBackground"; readonly text: string; readonly isolated: boolean };
+  | { readonly type: "runBackground"; readonly text: string; readonly isolated: boolean; readonly revision: number };
 
 export function isWebviewMessage(value: unknown, maxImageBytes: number): value is WebviewMessage {
   if (!isRecord(value) || typeof value.type !== "string") return false;
-  if (value.type === "send" || value.type === "showMoreActions") return typeof value.text === "string";
+  if (value.type === "send") return typeof value.text === "string";
+  if (value.type === "showMoreActions") {
+    return typeof value.text === "string" && isComposerRevision(value.revision);
+  }
   if (value.type === "pasteImage") {
     return (
       typeof value.data === "string" &&
@@ -30,7 +33,9 @@ export function isWebviewMessage(value: unknown, maxImageBytes: number): value i
   if (value.type === "setMode") return ["ask", "edit", "plan", "agent"].includes(String(value.mode));
   if (value.type === "setModel") return typeof value.provider === "string" && typeof value.modelId === "string";
   if (value.type === "setThinking") return typeof value.level === "string";
-  if (value.type === "runBackground") return typeof value.text === "string" && typeof value.isolated === "boolean";
+  if (value.type === "runBackground") {
+    return typeof value.text === "string" && typeof value.isolated === "boolean" && isComposerRevision(value.revision);
+  }
   if (value.type === "proposalAction") {
     return typeof value.id === "string" && ["preview", "apply", "reject"].includes(String(value.action));
   }
@@ -119,6 +124,10 @@ export function formatError(error: unknown): string {
 
 export function modelSupportsImages(model: Record<string, unknown> | undefined): boolean {
   return Array.isArray(model?.input) && model.input.includes("image");
+}
+
+function isComposerRevision(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 0;
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

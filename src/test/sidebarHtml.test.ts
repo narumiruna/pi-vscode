@@ -30,8 +30,10 @@ test("sidebar keeps primary controls compact and exposes recovery and proposal a
   assert.match(html, /type: 'proposalAction'/);
   assert.match(html, /proposal\.status !== 'previewed'/);
   assert.match(html, /\['previewing', 'applying', 'rejecting'\]\.includes\(proposal\.status\)/);
-  assert.match(html, /setInput'[\s\S]*updateSendState\(\)/);
-  assert.match(html, /clearInput'[\s\S]*updateSendState\(\)/);
+  assert.match(html, /setInput'[\s\S]*composerRevision \+= 1[\s\S]*updateSendState\(\)/);
+  assert.match(html, /clearInput'[\s\S]*composerRevision === message\.expectedRevision[\s\S]*input\.value === message\.expectedText[\s\S]*updateSendState\(\)/);
+  assert.match(html, /showMoreActions', text: input\.value, revision: composerRevision/);
+  assert.match(html, /input\.addEventListener\('input', \(\) => \{ composerRevision \+= 1/);
   assert.match(html, /let submissionPending = false/);
   assert.match(html, /submissionPending = true;\s+updateSendState\(\);\s+vscode\.postMessage/);
   assert.match(html, /message\.type === 'sendRejected'[\s\S]*submissionPending = false/);
