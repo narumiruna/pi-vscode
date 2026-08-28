@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   ConversationRequestGate,
   ConversationRequestLifecycle,
+  assistantTextAfter,
+  conversationRequestBehavior,
   shouldTrackConversationChanges,
 } from "../conversationController";
 
@@ -15,6 +17,32 @@ test("conversation request gate rejects overlap and releases idempotently", () =
   release();
   release();
   assert.doesNotThrow(() => gate.acquire()());
+});
+
+test("request origins preserve retry drafts and clear only newly accepted composer input", () => {
+  assert.deepEqual(conversationRequestBehavior("composer"), {
+    retryable: true,
+    clearComposerOnAccepted: true,
+  });
+  assert.deepEqual(conversationRequestBehavior("retry"), {
+    retryable: true,
+    clearComposerOnAccepted: false,
+  });
+  assert.deepEqual(conversationRequestBehavior("editor"), {
+    retryable: false,
+    clearComposerOnAccepted: false,
+  });
+});
+
+test("assistant lookup is scoped to messages after the request boundary", () => {
+  const messages = [
+    { role: "assistant", content: "old replacement" },
+    { role: "user", content: "new request" },
+    { role: "assistant", content: [{ type: "text", text: "new" }, { type: "text", text: "response" }] },
+  ];
+
+  assert.equal(assistantTextAfter(messages, 1), "new\nresponse");
+  assert.throws(() => assistantTextAfter(messages.slice(0, 2), 1), /for this request/);
 });
 
 test("request lifecycle preserves cancellation until the next request and records completion", () => {

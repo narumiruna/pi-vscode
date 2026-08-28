@@ -1,7 +1,7 @@
 import path from "node:path";
 import * as vscode from "vscode";
 import type { PiConversationController } from "./conversationController";
-import { extractReplacement, type ChatReferenceContext, type SelectionContext } from "./prompts";
+import { buildSelectionReference, extractReplacement, type SelectionContext } from "./prompts";
 
 const previewScheme = "pi-edit-preview";
 
@@ -64,7 +64,7 @@ async function showAnswer(
   question: string,
 ): Promise<void> {
   try {
-    await conversation.sendRequest(question, [selectionReference(snapshot.context)], {
+    await conversation.sendRequest(question, [buildSelectionReference(snapshot.context)], {
       instructions: "Answer the user's question about the selected code. Be concrete and concise. Use Markdown when useful. Do not modify files.",
       resource: snapshot.document.uri,
       policy: "read-only",
@@ -139,7 +139,7 @@ async function previewEdit(
   instruction: string,
 ): Promise<void> {
   try {
-    const response = await conversation.sendRequest(instruction, [selectionReference(snapshot.context)], {
+    const response = await conversation.sendRequest(instruction, [buildSelectionReference(snapshot.context)], {
       instructions: [
         "Rewrite only the selected code according to the user's request.",
         "The replacement must fit in the same location and preserve surrounding behavior unless requested otherwise.",
@@ -207,12 +207,7 @@ function assertSnapshotCurrent(snapshot: SelectionSnapshot, message: string): vo
 }
 
 function selectionSnapshot(document: vscode.TextDocument, range: vscode.Range): SelectionSnapshot {
-  const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-  const file = workspaceFolder
-    ? path.relative(workspaceFolder.uri.fsPath, document.uri.fsPath)
-    : document.uri.scheme === "file"
-      ? path.basename(document.uri.fsPath)
-      : document.uri.toString();
+  const file = document.uri.scheme === "file" ? document.uri.fsPath : document.uri.toString();
   return {
     document,
     version: document.version,
@@ -224,18 +219,6 @@ function selectionSnapshot(document: vscode.TextDocument, range: vscode.Range): 
       endLine: range.end.line + 1,
       code: document.getText(range),
     },
-  };
-}
-
-function selectionReference(context: SelectionContext): ChatReferenceContext {
-  return {
-    label: `${context.file}:${context.startLine}-${context.endLine}`,
-    content: [
-      `Language: ${context.languageId}`,
-      `Lines: ${context.startLine}-${context.endLine}`,
-      "",
-      context.code,
-    ].join("\n"),
   };
 }
 

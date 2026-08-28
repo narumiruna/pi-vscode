@@ -6,8 +6,10 @@ import { BackgroundAgentManager } from "./backgroundAgents";
 import {
   ConversationRequestGate,
   ConversationRequestLifecycle,
+  conversationRequestBehavior,
   shouldTrackConversationChanges,
   type ConversationRequestOptions,
+  type ConversationRequestOrigin,
   type EditProposalInput,
   type PiConversationController,
 } from "./conversationController";
@@ -425,8 +427,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       retry.resource,
       retry.instructions,
       retry.policy,
-      () => this.postMessage({ type: "clearInput" }),
-      true,
+      "retry",
     );
   }
 
@@ -447,11 +448,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.attachments.resource,
       undefined,
       undefined,
-      () => {
-        this.attachments.clear();
-        this.postMessage({ type: "clearInput" });
-      },
-      true,
+      "composer",
     );
   }
 
@@ -462,8 +459,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     resource?: vscode.Uri,
     instructions?: string,
     policy?: AgentRequestPolicy,
-    onAccepted?: () => void,
-    retryable = false,
+    origin: ConversationRequestOrigin = "editor",
   ): Promise<string> {
     const text = request.trim();
     if (!text) {
@@ -476,6 +472,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       throw new Error(`Messages are limited to ${maxInputCharacters.toLocaleString()} characters.`);
     }
 
+    const behavior = conversationRequestBehavior(origin);
+    const retryable = behavior.retryable;
     const releaseRequest = this.requestGate.acquire();
     this.requestLifecycle.begin();
     this.trackCurrentRequestChanges = false;
@@ -508,13 +506,23 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       }
       this.postState();
 
-      await this.runtime.prompt(buildAgentPrompt(text, contexts, instructions, policy), resource, images, onAccepted);
+      const messageBoundary = await this.runtime.prompt(
+        buildAgentPrompt(text, contexts, instructions, policy),
+        resource,
+        images,
+        behavior.clearComposerOnAccepted
+          ? () => {
+              this.attachments.clear();
+              this.postMessage({ type: "clearInput" });
+            }
+          : undefined,
+      );
       if (this.requestLifecycle.wasCancelled) {
         throw new Error("Pi request was cancelled.");
       }
       this.requestLifecycle.completeExecution();
       this.retryRequest = undefined;
-      const response = await this.runtime.getLastAssistantText();
+      const response = await this.runtime.getLastAssistantText(messageBoundary);
       await this.syncMessagesFromPi();
       this.status = "Ready";
       this.postState();

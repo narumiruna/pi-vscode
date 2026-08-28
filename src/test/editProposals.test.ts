@@ -40,6 +40,34 @@ test("edit proposals retain content until terminal state and reject concurrent a
   assert.equal(changes.some(statuses => statuses.includes("applying")), true);
 });
 
+test("applies are serialized across separate live proposals", async () => {
+  let finishFirstApply: (() => void) | undefined;
+  const store = new EditProposalStore(() => {}, () => {});
+  const first = store.add({
+    label: "src/app.ts:1",
+    onPreview: async () => {},
+    onApply: () => new Promise<void>(resolve => {
+      finishFirstApply = resolve;
+    }),
+  });
+  const second = store.add({
+    label: "src/app.ts:2",
+    onPreview: async () => {},
+    onApply: async () => {},
+  });
+  await store.handleAction(first, "preview");
+  await store.handleAction(second, "preview");
+
+  const applying = store.handleAction(first, "apply");
+  await assert.rejects(store.handleAction(second, "apply"), /current edit Apply operation/);
+  assert.equal(store.states.find(proposal => proposal.id === second)?.status, "previewed");
+
+  finishFirstApply?.();
+  await applying;
+  await store.handleAction(second, "apply");
+  assert.equal(store.states.find(proposal => proposal.id === second)?.status, "applied");
+});
+
 test("terminal proposals release callbacks and retain only bounded lightweight states", async () => {
   let disposed = 0;
   const store = new EditProposalStore(() => {}, () => {});

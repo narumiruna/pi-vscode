@@ -5,7 +5,12 @@ export interface PiRuntimeProfile {
   readonly systemPrompt: string;
 }
 
+export interface PiRuntimeProfileOptions {
+  readonly includeVscodeBridge?: boolean;
+}
+
 const vscodeBridgeTools = ["vscode_context", "vscode_open_file", "vscode_notify"] as const;
+const vscodeBridgeToolSet = new Set<string>(vscodeBridgeTools);
 
 const profiles: Record<PiAgentMode, PiRuntimeProfile> = {
   ask: {
@@ -26,8 +31,14 @@ const profiles: Record<PiAgentMode, PiRuntimeProfile> = {
   },
 };
 
-export function getRuntimeProfile(mode: PiAgentMode): PiRuntimeProfile {
-  return profiles[mode];
+export function getRuntimeProfile(
+  mode: PiAgentMode,
+  options: PiRuntimeProfileOptions = {},
+): PiRuntimeProfile {
+  const profile = profiles[mode];
+  return options.includeVscodeBridge === false
+    ? { ...profile, tools: profile.tools.filter(tool => !vscodeBridgeToolSet.has(tool)) }
+    : profile;
 }
 
 export function normalizeMode(value: string): PiAgentMode {
