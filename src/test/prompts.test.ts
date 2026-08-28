@@ -42,10 +42,12 @@ test("buildAgentPrompt round-trips the user request and context labels", () => {
     "Fix the parser",
     [{ label: "src/parser.ts:2-5", content: "export function parse() {}" }],
     "Return a focused proposal.",
+    "read-only",
   );
 
   assert.match(prompt, /PI_VSCODE_CONTEXT_START: src\/parser\.ts:2-5/);
   assert.match(prompt, /PI_VSCODE_INSTRUCTIONS_START>>>\nReturn a focused proposal\./);
+  assert.match(prompt, /<<<PI_VSCODE_POLICY: read-only>>>/);
   assert.deepEqual(parseAgentPrompt(prompt), {
     request: "Fix the parser",
     contextLabels: ["src/parser.ts:2-5"],

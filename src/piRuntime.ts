@@ -266,6 +266,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       appendSystemPrompt: profile.systemPrompt,
       extensions: [
         path.join(this.context.extensionUri.fsPath, "resources", "pi-vscode-permission-gate.ts"),
+        path.join(this.context.extensionUri.fsPath, "resources", "pi-vscode-read-only-gate.ts"),
         this.bridgeExtensionPath(),
       ],
       sessionPath,

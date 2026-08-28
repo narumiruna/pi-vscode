@@ -23,5 +23,8 @@ test("sidebar keeps primary controls compact and exposes recovery and proposal a
   assert.match(html, /id="retry"/);
   assert.match(html, /type: 'proposalAction'/);
   assert.match(html, /proposal\.status !== 'previewed'/);
+  assert.match(html, /\['previewing', 'applying', 'rejecting'\]\.includes\(proposal\.status\)/);
+  assert.match(html, /setInput'[\s\S]*updateSendState\(\)/);
+  assert.match(html, /clearInput'[\s\S]*updateSendState\(\)/);
   assert.doesNotMatch(html, /id="resume-session"/);
 });

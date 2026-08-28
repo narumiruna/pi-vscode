@@ -67,6 +67,7 @@ async function showAnswer(
     await conversation.sendRequest(question, [selectionReference(snapshot.context)], {
       instructions: "Answer the user's question about the selected code. Be concrete and concise. Use Markdown when useful. Do not modify files.",
       resource: snapshot.document.uri,
+      policy: "read-only",
     });
   } catch (error) {
     await reportError(error);
@@ -147,14 +148,13 @@ async function previewEdit(
         "Do not use Markdown code fences.",
       ].join(" "),
       resource: snapshot.document.uri,
+      policy: "read-only",
     });
     const replacement = extractReplacement(response);
     if (replacement === undefined) {
       throw new Error("Pi returned an unexpected edit format. No changes were applied.");
     }
-    if (snapshot.document.isClosed || snapshot.document.version !== snapshot.version) {
-      throw new Error("The document changed while Pi was working, so the stale edit was not previewed.");
-    }
+    assertSnapshotCurrent(snapshot, "The document changed while Pi was working. Regenerate the edit before previewing it.");
 
     const convertedReplacement = convertLineEndings(replacement, snapshot.document.eol);
     const originalText = snapshot.document.getText();
@@ -165,6 +165,7 @@ async function previewEdit(
     conversation.addEditProposal({
       label: `${path.basename(snapshot.document.uri.fsPath)}:${snapshot.range.start.line + 1}-${snapshot.range.end.line + 1}`,
       onPreview: async () => {
+        assertSnapshotCurrent(snapshot, "The document changed after Pi generated the proposal. Regenerate the edit before previewing it.");
         await vscode.commands.executeCommand(
           "vscode.diff",
           snapshot.document.uri,
@@ -174,15 +175,14 @@ async function previewEdit(
         );
       },
       onApply: async () => {
-        if (snapshot.document.isClosed || snapshot.document.version !== snapshot.version) {
-          throw new Error("The document changed after Pi generated the proposal. Regenerate the edit before applying it.");
-        }
+        assertSnapshotCurrent(snapshot, "The document changed after Pi generated the proposal. Regenerate the edit before applying it.");
         const edit = new vscode.WorkspaceEdit();
         edit.replace(snapshot.document.uri, snapshot.range, convertedReplacement);
         if (!(await vscode.workspace.applyEdit(edit))) {
           throw new Error("VS Code could not apply the Pi edit.");
         }
       },
+      onDispose: () => previews.delete(previewUri),
     });
   } catch (error) {
     await reportError(error);
@@ -198,6 +198,12 @@ function captureSelection(): SelectionSnapshot | undefined {
   const document = editor.document;
   const range = new vscode.Range(editor.selection.start, editor.selection.end);
   return selectionSnapshot(document, range);
+}
+
+function assertSnapshotCurrent(snapshot: SelectionSnapshot, message: string): void {
+  if (snapshot.document.isClosed || snapshot.document.version !== snapshot.version) {
+    throw new Error(message);
+  }
 }
 
 function selectionSnapshot(document: vscode.TextDocument, range: vscode.Range): SelectionSnapshot {
@@ -260,14 +266,11 @@ class EditPreviewProvider implements vscode.TextDocumentContentProvider, vscode.
       query: randomId(),
     });
     this.contents.set(uri.toString(), content);
-    while (this.contents.size > 20) {
-      const oldest = this.contents.keys().next().value;
-      if (oldest === undefined) {
-        break;
-      }
-      this.contents.delete(oldest);
-    }
     return uri;
+  }
+
+  public delete(uri: vscode.Uri): void {
+    this.contents.delete(uri.toString());
   }
 
   public provideTextDocumentContent(uri: vscode.Uri): string {

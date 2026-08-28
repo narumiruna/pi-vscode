@@ -34,7 +34,8 @@ Pi extensions execute with the extension-host user's permissions and must be rev
 ## Change Safety
 
 Focused editor edits enter the persistent Pi Chat session as edit proposals.
-Apply remains disabled until the user opens Preview, and document-version checks reject stale proposals.
+A packaged read-only policy gate narrows active tools and blocks every non-read-only tool while Pi generates a proposal, regardless of the current Chat mode.
+Apply remains disabled until the user opens Preview, and document-version checks reject stale proposals before both Preview and Apply.
 The original document version is checked before preview and again before apply.
 Foreground Pi edit/write tools checkpoint bounded files before execution.
 Revert is refused when current content differs from the recorded post-agent hash.

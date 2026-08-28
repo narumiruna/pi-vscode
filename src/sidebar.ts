@@ -3,11 +3,12 @@ import { homedir } from "node:os";
 import path from "node:path";
 import * as vscode from "vscode";
 import { BackgroundAgentManager } from "./backgroundAgents";
-import type { EditProposalInput, PiConversationController } from "./conversationController";
+import type { ConversationRequestOptions, EditProposalInput, PiConversationController } from "./conversationController";
+import { EditProposalStore } from "./editProposals";
 import { WorkspaceChangeTracker, type TrackedFileChange } from "./changeTracker";
 import { getSidebarHtml } from "./sidebarHtml";
 import { renderSafeMarkdown } from "./markdown";
-import { buildAgentPrompt, type ChatReferenceContext } from "./prompts";
+import { buildAgentPrompt, type AgentRequestPolicy, type ChatReferenceContext } from "./prompts";
 import { PiRuntimeManager } from "./piRuntime";
 import type { PiRpcEvent, PiRpcImage } from "./piRpcClient";
 import type { PiAgentMode } from "./runtimeProfiles";
@@ -48,18 +49,6 @@ interface ToolActivity {
   readonly output?: string;
 }
 
-interface EditProposalState {
-  readonly id: string;
-  readonly label: string;
-  readonly status: "ready" | "previewed" | "applying" | "applied" | "rejected" | "stale" | "failed";
-  readonly error?: string;
-}
-
-interface EditProposalEntry {
-  state: EditProposalState;
-  readonly input: EditProposalInput;
-}
-
 export function registerPiSidebar(
   context: vscode.ExtensionContext,
   runtime: PiRuntimeManager,
@@ -88,7 +77,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   private messages: SidebarMessage[];
   private tools: ToolActivity[] = [];
   private changes: TrackedFileChange[] = [];
-  private readonly proposals = new Map<string, EditProposalEntry>();
+  private readonly proposals: EditProposalStore;
   private readonly attachments: SidebarAttachmentManager;
   private status = "Ready";
   private cancelRequested = false;
@@ -98,6 +87,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     readonly images: readonly PiRpcImage[];
     readonly resource?: vscode.Uri;
     readonly instructions?: string;
+    readonly policy?: AgentRequestPolicy;
   } | undefined;
   private streamingAssistantId: string | undefined;
   private renderTimer: NodeJS.Timeout | undefined;
@@ -108,6 +98,10 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     private readonly changeTracker: WorkspaceChangeTracker,
     private readonly backgroundAgents: BackgroundAgentManager,
   ) {
+    this.proposals = new EditProposalStore(
+      () => this.postState(),
+      (message, level) => this.postNotice(message, level),
+    );
     this.attachments = new SidebarAttachmentManager({
       maxAttachments,
       maxImageAttachments,
@@ -162,20 +156,14 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   public async sendRequest(
     request: string,
     contexts: readonly ChatReferenceContext[],
-    options: { readonly instructions?: string; readonly resource?: vscode.Uri } = {},
+    options: ConversationRequestOptions = {},
   ): Promise<string> {
     await vscode.commands.executeCommand(`${viewId}.focus`);
-    return this.runRequest(request, contexts, [], options.resource, options.instructions);
+    return this.runRequest(request, contexts, [], options.resource, options.instructions, options.policy);
   }
 
   public addEditProposal(input: EditProposalInput): string {
-    const id = randomUUID();
-    this.proposals.set(id, {
-      state: { id, label: input.label, status: "ready" },
-      input,
-    });
-    this.postState();
-    return id;
+    return this.proposals.add(input);
   }
 
   private async initializeRuntime(): Promise<void> {
@@ -299,7 +287,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           await vscode.commands.executeCommand("workbench.view.scm");
           break;
         case "proposalAction":
-          await this.handleProposalAction(message.id, message.action);
+          await this.proposals.handleAction(message.id, message.action);
           break;
         case "runBackground":
           await this.runBackground(message.text, message.isolated);
@@ -412,6 +400,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       retry.images,
       retry.resource,
       retry.instructions,
+      retry.policy,
       () => this.postMessage({ type: "clearInput" }),
       true,
     );
@@ -433,6 +422,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       images,
       this.attachments.resource,
       undefined,
+      undefined,
       () => {
         this.attachments.clear();
         this.postMessage({ type: "clearInput" });
@@ -447,6 +437,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     images: readonly PiRpcImage[],
     resource?: vscode.Uri,
     instructions?: string,
+    policy?: AgentRequestPolicy,
     onAccepted?: () => void,
     retryable = false,
   ): Promise<string> {
@@ -462,7 +453,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     }
 
     this.retryRequest = retryable
-      ? { request: text, contexts: [...contexts], images: [...images], resource, instructions }
+      ? { request: text, contexts: [...contexts], images: [...images], resource, instructions, policy }
       : undefined;
     this.messages = limitSidebarMessages(
       [
@@ -486,7 +477,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.postState();
 
     try {
-      await this.runtime.prompt(buildAgentPrompt(text, contexts, instructions), resource, images, onAccepted);
+      await this.runtime.prompt(buildAgentPrompt(text, contexts, instructions, policy), resource, images, onAccepted);
       if (this.cancelRequested) {
         throw new Error("Pi request was cancelled.");
       }
@@ -517,44 +508,6 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.postState();
       throw error;
     }
-  }
-
-  private async handleProposalAction(id: string, action: "preview" | "apply" | "reject"): Promise<void> {
-    const proposal = this.proposals.get(id);
-    if (!proposal) {
-      throw new Error("This edit proposal is no longer available. Regenerate it from the conversation.");
-    }
-    if (action === "reject") {
-      await proposal.input.onReject?.();
-      proposal.state = { ...proposal.state, status: "rejected", error: undefined };
-      this.postState();
-      return;
-    }
-    if (action === "preview") {
-      await proposal.input.onPreview();
-      proposal.state = { ...proposal.state, status: "previewed", error: undefined };
-      this.postState();
-      return;
-    }
-    if (proposal.state.status !== "previewed") {
-      throw new Error("Preview the edit before applying it.");
-    }
-    proposal.state = { ...proposal.state, status: "applying", error: undefined };
-    this.postState();
-    try {
-      await proposal.input.onApply();
-      proposal.state = { ...proposal.state, status: "applied" };
-      this.postNotice("Pi edit applied. Use Undo to revert it.", "info");
-    } catch (error) {
-      const message = formatError(error);
-      proposal.state = {
-        ...proposal.state,
-        status: /changed|stale|regenerate/i.test(message) ? "stale" : "failed",
-        error: message,
-      };
-      this.postNotice(message, "error");
-    }
-    this.postState();
   }
 
   private async runBackground(rawText: string, isolated: boolean): Promise<void> {
@@ -601,6 +554,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     }
     const sessionFile = await this.backgroundAgents.openSession(id);
     await this.runtime.switchSession(sessionFile);
+    this.proposals.clear();
+    this.retryRequest = undefined;
     await this.syncMessagesFromPi();
     this.status = "Background Pi session resumed";
     this.postState();
@@ -703,10 +658,11 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       return;
     }
     await this.runtime.switchSession(session.fsPath);
+    this.proposals.clear();
+    this.retryRequest = undefined;
     await this.syncMessagesFromPi();
     this.tools = [];
     this.changes = [];
-    this.proposals.clear();
     this.status = "Pi session resumed";
     this.postState();
   }
@@ -930,7 +886,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       messages: this.messages.map(message => ({ ...message, html: renderSafeMarkdown(message.content) })),
       tools: this.tools,
       changes: this.changes,
-      proposals: [...this.proposals.values()].map(proposal => proposal.state),
+      proposals: this.proposals.states,
       backgroundTasks: this.backgroundAgents.states,
       status: this.status,
       attachments: this.attachments.summaries,
