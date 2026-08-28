@@ -1,8 +1,10 @@
 import path from "node:path";
 import * as vscode from "vscode";
+import { ConversationResponseCapture } from "./conversationController";
 import { PiRpcClient, type PiRpcClientOptions, type PiRpcEvent, type PiRpcImage } from "./piRpcClient";
 import { getRuntimeProfile, normalizeMode, type PiAgentMode } from "./runtimeProfiles";
 import { readPiInvocationOptions } from "./vscodePi";
+import { VscodeBridgeServer } from "./vscodeBridge";
 
 const sessionPathKey = "piCodingAgent.rpc.sessionPath.v1";
 const modeKey = "piCodingAgent.rpc.mode.v1";
@@ -25,6 +27,7 @@ export interface PiRuntimeState {
 export class PiRuntimeManager implements vscode.Disposable {
   private readonly eventEmitter = new vscode.EventEmitter<PiRpcEvent>();
   private readonly stateEmitter = new vscode.EventEmitter<PiRuntimeState>();
+  private readonly bridge = new VscodeBridgeServer();
   private client: PiRpcClient | undefined;
   private clientSubscription: vscode.Disposable | undefined;
   private startPromise: Promise<void> | undefined;
@@ -67,18 +70,26 @@ export class PiRuntimeManager implements vscode.Disposable {
     }
   }
 
-  public async prompt(message: string, resource?: vscode.Uri, images?: readonly PiRpcImage[]): Promise<void> {
+  public async prompt(
+    message: string,
+    resource?: vscode.Uri,
+    images?: readonly PiRpcImage[],
+    onAccepted?: () => void,
+    beforeSubmit?: () => void,
+  ): Promise<string | undefined> {
     await this.ensureStarted(resource);
     const client = this.requireClient();
     if (this.state.busy) {
       throw new Error("Pi is already working. Send a steering message or cancel the active request first.");
     }
+    beforeSubmit?.();
 
     const settled = this.createSettledWaiter();
     this.updateState({ busy: true });
     try {
       await client.prompt(message, images);
-      await settled.promise;
+      onAccepted?.();
+      return await settled.promise;
     } catch (error) {
       this.updateState({ busy: false });
       throw error;
@@ -165,12 +176,17 @@ export class PiRuntimeManager implements vscode.Disposable {
     await this.ensureStarted(this.resource);
     const sessionFile = this.state.sessionFile;
     const invocation = readPiInvocationOptions(this.resource);
-    const shellArgs = sessionFile ? ["--session", sessionFile] : [];
+    const bridgeEnvironment = await this.bridge.start();
+    const shellArgs = ["--extension", this.bridgeExtensionPath()];
+    if (sessionFile) {
+      shellArgs.push("--session", sessionFile);
+    }
     const terminal = vscode.window.createTerminal({
       name: "Pi Agent",
       cwd: invocation.cwd,
       shellPath: invocation.executablePath,
       shellArgs,
+      env: bridgeEnvironment,
     });
     terminal.show();
   }
@@ -179,6 +195,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     this.clientSubscription?.dispose();
     this.clientSubscription = undefined;
     void this.stopClient();
+    this.bridge.dispose();
     this.eventEmitter.dispose();
     this.stateEmitter.dispose();
   }
@@ -201,7 +218,8 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   private async createAndStartClient(sessionPath: string | undefined): Promise<void> {
-    const options = this.buildClientOptions(sessionPath);
+    const bridgeEnvironment = await this.bridge.start();
+    const options = this.buildClientOptions(sessionPath, bridgeEnvironment);
     const client = new PiRpcClient(options);
     this.clientSubscription?.dispose();
     this.clientSubscription = client.onEvent(event => this.handleEvent(event));
@@ -218,7 +236,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     }
   }
 
-  private buildClientOptions(sessionPath: string | undefined): PiRpcClientOptions {
+  private buildClientOptions(sessionPath: string | undefined, bridgeEnvironment: NodeJS.ProcessEnv): PiRpcClientOptions {
     const invocation = readPiInvocationOptions(this.resource);
     const configuration = vscode.workspace.getConfiguration("piCodingAgent");
     const profile = getRuntimeProfile(this.mode);
@@ -230,13 +248,22 @@ export class PiRuntimeManager implements vscode.Disposable {
       thinkingLevel: invocation.thinkingLevel,
       tools: profile.tools,
       appendSystemPrompt: profile.systemPrompt,
-      extensions: [path.join(this.context.extensionUri.fsPath, "resources", "pi-vscode-permission-gate.ts")],
+      extensions: [
+        path.join(this.context.extensionUri.fsPath, "resources", "pi-vscode-permission-gate.ts"),
+        path.join(this.context.extensionUri.fsPath, "resources", "pi-vscode-read-only-gate.ts"),
+        this.bridgeExtensionPath(),
+      ],
       sessionPath,
       approveProjectResources: configuration.get<boolean>("approveProjectResources", false),
       env: {
+        ...bridgeEnvironment,
         PI_VSCODE_PERMISSION_MODE: configuration.get<string>("agent.confirmToolCalls", "dangerous"),
       },
     };
+  }
+
+  private bridgeExtensionPath(): string {
+    return path.join(this.context.extensionUri.fsPath, "resources", "pi-vscode-bridge.ts");
   }
 
   private async refreshState(includeCatalogs: boolean): Promise<void> {
@@ -288,23 +315,27 @@ export class PiRuntimeManager implements vscode.Disposable {
     }
   }
 
-  private createSettledWaiter(timeoutMs = 30 * 60 * 1_000): { promise: Promise<void>; dispose: () => void } {
+  private createSettledWaiter(
+    timeoutMs = 30 * 60 * 1_000,
+  ): { promise: Promise<string | undefined>; dispose: () => void } {
+    const response = new ConversationResponseCapture();
     let finish: (() => void) | undefined;
     let subscription: vscode.Disposable | undefined;
     let timeout: NodeJS.Timeout | undefined;
-    const promise = new Promise<void>((resolve, reject) => {
-      finish = resolve;
+    const promise = new Promise<string | undefined>((resolve, reject) => {
+      finish = () => resolve(undefined);
       timeout = setTimeout(() => {
         subscription?.dispose();
         reject(new Error("Timed out waiting for Pi to settle."));
       }, timeoutMs);
       subscription = this.onEvent(event => {
+        response.accept(event);
         if (event.type === "agent_settled") {
           if (timeout) {
             clearTimeout(timeout);
           }
           subscription?.dispose();
-          resolve();
+          resolve(response.response);
         } else if (event.type === "process_exit") {
           if (timeout) {
             clearTimeout(timeout);

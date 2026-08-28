@@ -74,7 +74,7 @@ export class BackgroundAgentManager implements vscode.Disposable {
     }
 
     const invocation = readPiInvocationOptions(vscode.Uri.file(taskCwd));
-    const profile = getRuntimeProfile("agent");
+    const profile = getRuntimeProfile("agent", { includeVscodeBridge: false });
     const configuration = vscode.workspace.getConfiguration("piCodingAgent");
     const client = new PiRpcClient({
       executablePath: invocation.executablePath,
