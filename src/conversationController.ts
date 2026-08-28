@@ -26,8 +26,10 @@ export interface PiConversationController {
   addEditProposal(input: EditProposalInput): string;
 }
 
-export class ConversationRequestGate {
+export class ExclusiveOperationGate {
   private pending = false;
+
+  public constructor(private readonly conflictMessage: string) {}
 
   public get isPending(): boolean {
     return this.pending;
@@ -35,7 +37,7 @@ export class ConversationRequestGate {
 
   public acquire(): () => void {
     if (this.pending) {
-      throw new Error("Pi is already working. Cancel or wait for the active request before starting another one.");
+      throw new Error(this.conflictMessage);
     }
     this.pending = true;
     let released = false;
@@ -45,6 +47,12 @@ export class ConversationRequestGate {
         this.pending = false;
       }
     };
+  }
+}
+
+export class ConversationRequestGate extends ExclusiveOperationGate {
+  public constructor() {
+    super("Pi is already working. Cancel or wait for the active request before starting another one.");
   }
 }
 
@@ -141,4 +149,29 @@ export function shouldTrackConversationChanges(
   mode: PiAgentMode,
 ): boolean {
   return policy !== "read-only" && (mode === "edit" || mode === "agent");
+}
+
+export function requestMayHaveProducedSideEffects(
+  policy: AgentRequestPolicy | undefined,
+  mode: PiAgentMode,
+  toolNames: readonly string[],
+): boolean {
+  return shouldTrackConversationChanges(policy, mode)
+    && toolNames.some(name => name === "bash" || name === "edit" || name === "write");
+}
+
+export class ConversationSideEffectTracker {
+  private detected = false;
+
+  public get mayHaveSideEffects(): boolean {
+    return this.detected;
+  }
+
+  public reset(): void {
+    this.detected = false;
+  }
+
+  public record(policy: AgentRequestPolicy | undefined, mode: PiAgentMode, toolName: string): void {
+    this.detected ||= requestMayHaveProducedSideEffects(policy, mode, [toolName]);
+  }
 }

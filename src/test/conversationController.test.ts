@@ -4,11 +4,14 @@ import {
   ConversationRequestGate,
   ConversationRequestLifecycle,
   ConversationResponseCapture,
+  ConversationSideEffectTracker,
+  ExclusiveOperationGate,
   conversationRequestBehavior,
+  requestMayHaveProducedSideEffects,
   shouldTrackConversationChanges,
 } from "../conversationController";
 
-test("conversation request gate rejects overlap and releases idempotently", () => {
+test("exclusive operation gates reject overlap and release idempotently", () => {
   const gate = new ConversationRequestGate();
   const release = gate.acquire();
 
@@ -19,6 +22,12 @@ test("conversation request gate rejects overlap and releases idempotently", () =
   release();
   assert.equal(gate.isPending, false);
   assert.doesNotThrow(() => gate.acquire()());
+
+  const backgroundGate = new ExclusiveOperationGate("A background agent is already starting.");
+  const releaseBackground = backgroundGate.acquire();
+  assert.throws(() => backgroundGate.acquire(), /background agent is already starting/);
+  releaseBackground();
+  assert.equal(backgroundGate.isPending, false);
 });
 
 test("request origins preserve retry drafts and clear only newly accepted composer input", () => {
@@ -77,4 +86,21 @@ test("change checkpoints are captured only for effective mutating requests", () 
   assert.equal(shouldTrackConversationChanges("read-only", "agent"), false);
   assert.equal(shouldTrackConversationChanges(undefined, "ask"), false);
   assert.equal(shouldTrackConversationChanges(undefined, "plan"), false);
+});
+
+test("missing responses are non-retryable only when a mutating tool may have run", () => {
+  assert.equal(requestMayHaveProducedSideEffects(undefined, "agent", ["bash"]), true);
+  assert.equal(requestMayHaveProducedSideEffects(undefined, "edit", ["write"]), true);
+  assert.equal(requestMayHaveProducedSideEffects(undefined, "agent", ["read", "grep"]), false);
+  assert.equal(requestMayHaveProducedSideEffects(undefined, "agent", []), false);
+  assert.equal(requestMayHaveProducedSideEffects("read-only", "agent", ["bash"]), false);
+  assert.equal(requestMayHaveProducedSideEffects(undefined, "ask", ["read"]), false);
+  assert.equal(requestMayHaveProducedSideEffects(undefined, "plan", ["find"]), false);
+
+  const tracker = new ConversationSideEffectTracker();
+  tracker.record(undefined, "agent", "bash");
+  for (let index = 0; index < 31; index += 1) tracker.record(undefined, "agent", "read");
+  assert.equal(tracker.mayHaveSideEffects, true);
+  tracker.reset();
+  assert.equal(tracker.mayHaveSideEffects, false);
 });
