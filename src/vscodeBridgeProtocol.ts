@@ -12,19 +12,21 @@ export interface VscodeBridgeRequest {
 export class VscodeBridgeLineDecoder {
   private readonly decoder = new StringDecoder("utf8");
   private buffer = "";
+  private failed = false;
 
   public constructor(private readonly onLine: (line: string) => void) {}
 
   public push(chunk: Buffer): void {
+    this.assertUsable();
     this.buffer += this.decoder.write(chunk);
     this.drain();
-    if (Buffer.byteLength(this.buffer, "utf8") > maxBridgeLineBytes) {
-      throw new Error("VS Code bridge request exceeded 1 MiB.");
-    }
+    this.assertWithinLimit(this.buffer);
   }
 
   public end(): void {
+    this.assertUsable();
     this.buffer += this.decoder.end();
+    this.assertWithinLimit(this.buffer);
     if (this.buffer.length > 0) {
       this.onLine(stripCarriageReturn(this.buffer));
       this.buffer = "";
@@ -38,9 +40,25 @@ export class VscodeBridgeLineDecoder {
         return;
       }
       const line = this.buffer.slice(0, newlineIndex);
+      this.assertWithinLimit(line);
       this.buffer = this.buffer.slice(newlineIndex + 1);
       this.onLine(stripCarriageReturn(line));
     }
+  }
+
+  private assertUsable(): void {
+    if (this.failed) {
+      throw new Error("VS Code bridge decoder is no longer usable after a framing error.");
+    }
+  }
+
+  private assertWithinLimit(value: string): void {
+    if (Buffer.byteLength(value, "utf8") <= maxBridgeLineBytes) {
+      return;
+    }
+    this.failed = true;
+    this.buffer = "";
+    throw new Error("VS Code bridge request exceeded 1 MiB.");
   }
 }
 

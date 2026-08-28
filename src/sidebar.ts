@@ -5,6 +5,8 @@ import * as vscode from "vscode";
 import { BackgroundAgentManager } from "./backgroundAgents";
 import {
   ConversationRequestGate,
+  ConversationRequestLifecycle,
+  shouldTrackConversationChanges,
   type ConversationRequestOptions,
   type EditProposalInput,
   type PiConversationController,
@@ -85,8 +87,10 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   private readonly proposals: EditProposalStore;
   private readonly attachments: SidebarAttachmentManager;
   private readonly requestGate = new ConversationRequestGate();
+  private readonly requestLifecycle = new ConversationRequestLifecycle();
   private status = "Ready";
-  private cancelRequested = false;
+  private trackCurrentRequestChanges = false;
+  private historyRecoveryAvailable = false;
   private retryRequest: {
     readonly request: string;
     readonly contexts: readonly ChatReferenceContext[];
@@ -200,13 +204,16 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           await this.send(message.text);
           break;
         case "cancel":
-          this.cancelRequested = true;
+          this.requestLifecycle.cancel();
           await this.runtime.abort();
           this.status = "Cancelled · Ready to retry";
           this.postState();
           break;
         case "reconnect":
           await this.reconnect();
+          break;
+        case "refreshHistory":
+          await this.refreshHistory();
           break;
         case "retry":
           await this.retryLastRequest();
@@ -326,12 +333,20 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     try {
       await this.runtime.ensureStarted(vscode.window.activeTextEditor?.document.uri);
       await this.syncMessagesFromPi();
+      this.historyRecoveryAvailable = false;
       this.status = "Ready";
     } catch (error) {
       this.status = "Disconnected · Reconnect available";
       this.postState();
       throw error;
     }
+    this.postState();
+  }
+
+  private async refreshHistory(): Promise<void> {
+    await this.syncMessagesFromPi();
+    this.historyRecoveryAvailable = false;
+    this.status = "Ready";
     this.postState();
   }
 
@@ -462,6 +477,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     }
 
     const releaseRequest = this.requestGate.acquire();
+    this.requestLifecycle.begin();
+    this.trackCurrentRequestChanges = false;
+    this.historyRecoveryAvailable = false;
     try {
       this.retryRequest = retryable
         ? { request: text, contexts: [...contexts], images: [...images], resource, instructions, policy }
@@ -480,26 +498,42 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         maxStoredCharacters,
       );
       this.tools = [];
-      this.changes = [];
-      this.changeTracker.startRequest(this.runtime.currentCwd);
       this.streamingAssistantId = undefined;
       this.status = "Sending to Pi…";
       await this.persistMessages();
+      if (shouldTrackConversationChanges(policy, this.runtime.currentState.mode)) {
+        this.changes = [];
+        this.changeTracker.startRequest(this.runtime.currentCwd);
+        this.trackCurrentRequestChanges = true;
+      }
       this.postState();
 
       await this.runtime.prompt(buildAgentPrompt(text, contexts, instructions, policy), resource, images, onAccepted);
-      if (this.cancelRequested) {
+      if (this.requestLifecycle.wasCancelled) {
         throw new Error("Pi request was cancelled.");
       }
+      this.requestLifecycle.completeExecution();
+      this.retryRequest = undefined;
       const response = await this.runtime.getLastAssistantText();
       await this.syncMessagesFromPi();
       this.status = "Ready";
-      this.retryRequest = undefined;
       this.postState();
       return response;
     } catch (error) {
+      if (this.trackCurrentRequestChanges) {
+        this.changes = this.changeTracker.finishRequest();
+        this.trackCurrentRequestChanges = false;
+      }
       const message = formatError(error);
-      if (/cancelled/i.test(message)) {
+      if (!this.requestLifecycle.canRetry) {
+        this.retryRequest = undefined;
+        this.historyRecoveryAvailable = true;
+        this.status = "Pi completed · History refresh failed";
+        this.postNotice(
+          `${message} Pi completed the request, so it will not be retried. Refresh history after resolving the connection problem.`,
+          "warning",
+        );
+      } else if (this.requestLifecycle.wasCancelled || /cancelled/i.test(message)) {
         this.status = retryable ? "Cancelled · Ready to retry" : "Cancelled · Run the action again to retry";
         this.postNotice(
           retryable
@@ -514,7 +548,6 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           "error",
         );
       }
-      this.cancelRequested = false;
       this.postState();
       throw error;
     } finally {
@@ -584,6 +617,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.changes = [];
     this.proposals.clear();
     this.retryRequest = undefined;
+    this.historyRecoveryAvailable = false;
     this.attachments.clear();
     await this.persistMessages();
     this.status = "New Pi session";
@@ -725,7 +759,6 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
 
   private handleRuntimeEvent(event: PiRpcEvent): void {
     if (event.type === "agent_start") {
-      this.cancelRequested = false;
       this.status = "Pi is working…";
       this.tools = [];
     } else if (event.type === "message_start") {
@@ -743,7 +776,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     } else if (event.type === "message_end") {
       this.streamingAssistantId = undefined;
     } else if (event.type === "tool_execution_start") {
-      this.changeTracker.captureToolEvent(event);
+      if (this.trackCurrentRequestChanges) {
+        this.changeTracker.captureToolEvent(event);
+      }
       this.upsertTool({
         id: stringValue(event.toolCallId) ?? randomUUID(),
         name: stringValue(event.toolName) ?? "tool",
@@ -769,10 +804,12 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     } else if (event.type === "auto_retry_start") {
       this.status = "Retrying Pi request…";
     } else if (event.type === "agent_settled") {
-      this.status = this.cancelRequested ? "Cancelled · Ready to retry" : "Ready";
+      this.status = this.requestLifecycle.wasCancelled ? "Cancelled · Ready to retry" : "Ready";
       this.streamingAssistantId = undefined;
-      this.changes = this.changeTracker.finishRequest();
-      void this.syncMessagesFromPi();
+      if (this.trackCurrentRequestChanges) {
+        this.changes = this.changeTracker.finishRequest();
+        this.trackCurrentRequestChanges = false;
+      }
     } else if (event.type === "process_exit") {
       this.status = "Disconnected · Reconnect available";
     } else if (event.type === "runtime_warning" || event.type === "protocol_error") {
@@ -871,6 +908,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.messages = limitSidebarMessages(messages, maxMessages, maxStoredCharacters);
       await this.persistMessages();
     }
+    this.historyRecoveryAvailable = false;
     this.postState();
   }
 
@@ -904,6 +942,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       attachments: this.attachments.summaries,
       imageSupported: modelSupportsImages(this.runtime.currentState.model),
       retryAvailable: Boolean(this.retryRequest) && !this.runtime.currentState.busy,
+      historyRecoveryAvailable: this.historyRecoveryAvailable && !this.runtime.currentState.busy,
       runtime: this.runtime.currentState,
     });
   }

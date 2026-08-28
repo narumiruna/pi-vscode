@@ -25,6 +25,8 @@ test("sidebar keeps primary controls compact and exposes recovery and proposal a
   assert.match(html, /id="more"/);
   assert.match(html, /id="reconnect"/);
   assert.match(html, /id="retry"/);
+  assert.match(html, /id="refresh-history"/);
+  assert.match(html, /type: 'refreshHistory'/);
   assert.match(html, /type: 'proposalAction'/);
   assert.match(html, /proposal\.status !== 'previewed'/);
   assert.match(html, /\['previewing', 'applying', 'rejecting'\]\.includes\(proposal\.status\)/);

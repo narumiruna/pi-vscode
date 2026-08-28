@@ -1,5 +1,6 @@
 import type * as vscode from "vscode";
 import type { AgentRequestPolicy, ChatReferenceContext } from "./prompts";
+import type { PiAgentMode } from "./runtimeProfiles";
 
 export interface ConversationRequestOptions {
   readonly instructions?: string;
@@ -40,4 +41,41 @@ export class ConversationRequestGate {
       }
     };
   }
+}
+
+export class ConversationRequestLifecycle {
+  private cancellationRequested = false;
+  private completed = false;
+
+  public get wasCancelled(): boolean {
+    return this.cancellationRequested;
+  }
+
+  public get executionCompleted(): boolean {
+    return this.completed;
+  }
+
+  public get canRetry(): boolean {
+    return !this.completed;
+  }
+
+  public begin(): void {
+    this.cancellationRequested = false;
+    this.completed = false;
+  }
+
+  public cancel(): void {
+    this.cancellationRequested = true;
+  }
+
+  public completeExecution(): void {
+    this.completed = true;
+  }
+}
+
+export function shouldTrackConversationChanges(
+  policy: AgentRequestPolicy | undefined,
+  mode: PiAgentMode,
+): boolean {
+  return policy !== "read-only" && (mode === "edit" || mode === "agent");
 }

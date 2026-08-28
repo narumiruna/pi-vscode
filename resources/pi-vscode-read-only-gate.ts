@@ -16,7 +16,7 @@ export default function (pi: ExtensionAPI) {
   };
 
   pi.on("before_agent_start", event => {
-    if (!event.prompt.includes(readOnlyPolicyMarker)) {
+    if (!event.prompt.startsWith(`${readOnlyPolicyMarker}\n`)) {
       return;
     }
     if (!policyActive) {
