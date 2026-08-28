@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { launchBackgroundExecution } from "../backgroundAgentLifecycle";
 import {
   ConversationRequestGate,
   ConversationRequestLifecycle,
@@ -28,6 +29,37 @@ test("exclusive operation gates reject overlap and release idempotently", () => 
   assert.throws(() => backgroundGate.acquire(), /background agent is already starting/);
   releaseBackground();
   assert.equal(backgroundGate.isPending, false);
+});
+
+test("background startup returns after dispatch and reports later execution failures", async () => {
+  let rejectExecution: ((error: Error) => void) | undefined;
+  const execution = new Promise<void>((_resolve, reject) => {
+    rejectExecution = reject;
+  });
+  let initialized = false;
+  let dispatched = false;
+  let observedError: unknown;
+
+  await launchBackgroundExecution(
+    async () => {
+      initialized = true;
+    },
+    () => {
+      dispatched = true;
+      return execution;
+    },
+    error => {
+      observedError = error;
+    },
+  );
+
+  assert.equal(initialized, true);
+  assert.equal(dispatched, true);
+  assert.equal(observedError, undefined);
+  const failure = new Error("background task failed");
+  rejectExecution?.(failure);
+  await Promise.resolve();
+  assert.equal(observedError, failure);
 });
 
 test("request origins preserve retry drafts and clear only newly accepted composer input", () => {
@@ -97,8 +129,13 @@ test("missing responses are non-retryable only when a mutating tool may have run
   assert.equal(requestMayHaveProducedSideEffects(undefined, "ask", ["read"]), false);
   assert.equal(requestMayHaveProducedSideEffects(undefined, "plan", ["find"]), false);
 
-  const tracker = new ConversationSideEffectTracker();
+  const lifecycle = new ConversationRequestLifecycle();
+  const tracker = new ConversationSideEffectTracker(lifecycle);
+  lifecycle.begin();
+  tracker.record(undefined, "agent", "read");
+  assert.equal(lifecycle.canRetry, true);
   tracker.record(undefined, "agent", "bash");
+  assert.equal(lifecycle.canRetry, false);
   for (let index = 0; index < 31; index += 1) tracker.record(undefined, "agent", "read");
   assert.equal(tracker.mayHaveSideEffects, true);
   tracker.reset();

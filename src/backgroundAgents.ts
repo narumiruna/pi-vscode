@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import * as vscode from "vscode";
+import { launchBackgroundExecution } from "./backgroundAgentLifecycle";
 import { buildAgentPrompt, type ChatReferenceContext } from "./prompts";
 import { PiRpcClient, type PiRpcEvent, type PiRpcImage } from "./piRpcClient";
 import { getRuntimeProfile } from "./runtimeProfiles";
@@ -94,10 +95,15 @@ export class BackgroundAgentManager implements vscode.Disposable {
     this.active.set(id, { client, subscription, cancelRequested: false });
 
     try {
-      await client.start();
-      await client.setSessionName(title);
-      this.patchTask(id, { status: "running" });
-      await client.prompt(buildAgentPrompt(request, contexts), images);
+      await launchBackgroundExecution(
+        async () => {
+          await client.start();
+          await client.setSessionName(title);
+          this.patchTask(id, { status: "running" });
+        },
+        () => client.prompt(buildAgentPrompt(request, contexts), images),
+        error => this.handlePromptFailure(id, error),
+      );
     } catch (error) {
       this.failTask(id, error);
       await this.stopActive(id);
@@ -182,6 +188,14 @@ export class BackgroundAgentManager implements vscode.Disposable {
       this.failTask(id, new Error("The background Pi process exited unexpectedly."));
       void this.stopActive(id);
     }
+  }
+
+  private handlePromptFailure(id: string, error: unknown): void {
+    if (!this.active.has(id)) {
+      return;
+    }
+    this.failTask(id, error);
+    void this.stopActive(id).catch(stopError => this.failTask(id, stopError));
   }
 
   private async handleExtensionUi(taskId: string, event: PiRpcEvent): Promise<void> {

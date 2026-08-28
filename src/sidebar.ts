@@ -97,7 +97,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   private readonly requestLifecycle = new ConversationRequestLifecycle();
   private status = "Ready";
   private trackCurrentRequestChanges = false;
-  private readonly currentRequestSideEffects = new ConversationSideEffectTracker();
+  private readonly currentRequestSideEffects = new ConversationSideEffectTracker(this.requestLifecycle);
   private historyRecoveryAvailable = false;
   private retryRequest: {
     readonly request: string;
@@ -569,6 +569,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.postState();
       return response;
     } catch (error) {
+      if (this.currentRequestSideEffects.mayHaveSideEffects) {
+        this.requestLifecycle.completeExecution();
+      }
       if (this.trackCurrentRequestChanges) {
         this.changes = this.changeTracker.finishRequest();
         this.trackCurrentRequestChanges = false;
