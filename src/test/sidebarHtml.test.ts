@@ -11,6 +11,10 @@ test("sidebar composer forwards pasted clipboard images with client-side bounds"
   assert.match(html, /image\/png/);
   assert.match(html, /image\/webp/);
   assert.match(html, /type: 'removeAttachment'/);
+  assert.match(html, /let pendingImageReads = 0/);
+  assert.match(html, /pendingImageReads > 0/);
+  assert.match(html, /reader\.addEventListener\('loadend'/);
+  assert.match(html, /Wait for pasted images to finish loading/);
   assert.match(html, /current model does not support image attachments/i);
 });
 
@@ -26,5 +30,8 @@ test("sidebar keeps primary controls compact and exposes recovery and proposal a
   assert.match(html, /\['previewing', 'applying', 'rejecting'\]\.includes\(proposal\.status\)/);
   assert.match(html, /setInput'[\s\S]*updateSendState\(\)/);
   assert.match(html, /clearInput'[\s\S]*updateSendState\(\)/);
+  assert.match(html, /let submissionPending = false/);
+  assert.match(html, /submissionPending = true;\s+updateSendState\(\);\s+vscode\.postMessage/);
+  assert.match(html, /message\.type === 'sendRejected'[\s\S]*submissionPending = false/);
   assert.doesNotMatch(html, /id="resume-session"/);
 });

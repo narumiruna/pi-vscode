@@ -124,11 +124,15 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let connected = false;
     let imageSupported = true;
     let attachedImages = false;
+    let pendingImageReads = 0;
+    let submissionPending = false;
     let updatingControls = false;
 
     function submit() {
       const text = input.value.trim();
-      if (!text || busy || !connected || (attachedImages && !imageSupported)) return;
+      if (!text || busy || !connected || pendingImageReads > 0 || submissionPending || (attachedImages && !imageSupported)) return;
+      submissionPending = true;
+      updateSendState();
       vscode.postMessage({ type: 'send', text });
       notice.textContent = '';
     }
@@ -320,9 +324,24 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
 
     function updateSendState() {
       const imageBlocked = attachedImages && !imageSupported;
-      sendButton.disabled = busy || !connected || !input.value.trim() || imageBlocked;
-      sendButton.title = imageBlocked ? 'The current model does not support image attachments.' : !connected ? 'Reconnect to Pi before sending.' : '';
-      $('composer-hint').textContent = imageBlocked ? 'Choose an image-capable model or remove images' : 'Enter to send · Shift+Enter for newline';
+      const imageLoading = pendingImageReads > 0;
+      const interactionLocked = busy || submissionPending || imageLoading;
+      mode.disabled = interactionLocked;
+      $('model-picker').disabled = interactionLocked || !connected;
+      $('new-session').disabled = interactionLocked;
+      $('more').disabled = interactionLocked || !connected;
+      $('add-context').disabled = interactionLocked;
+      sendButton.disabled = interactionLocked || !connected || !input.value.trim() || imageBlocked;
+      sendButton.title = imageLoading
+        ? 'Wait for pasted images to finish loading.'
+        : submissionPending
+          ? 'Waiting for Pi to accept this message.'
+          : imageBlocked
+            ? 'The current model does not support image attachments.'
+            : !connected ? 'Reconnect to Pi before sending.' : '';
+      $('composer-hint').textContent = imageLoading
+        ? 'Loading pasted image…'
+        : imageBlocked ? 'Choose an image-capable model or remove images' : 'Enter to send · Shift+Enter for newline';
     }
 
     function render(state) {
@@ -379,6 +398,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           notice.className = 'warning';
           continue;
         }
+        pendingImageReads += 1;
+        updateSendState();
         const reader = new FileReader();
         reader.addEventListener('load', () => {
           const result = typeof reader.result === 'string' ? reader.result : '';
@@ -391,6 +412,10 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           vscode.postMessage({ type: 'pasteImage', data: result.slice(separator + 1), mimeType: file.type, fileName: file.name || 'pasted-image' });
         });
         reader.addEventListener('error', () => { notice.textContent = 'Could not read the pasted image.'; notice.className = 'error'; });
+        reader.addEventListener('loadend', () => {
+          pendingImageReads = Math.max(0, pendingImageReads - 1);
+          updateSendState();
+        });
         reader.readAsDataURL(file);
       }
     }
@@ -400,7 +425,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       if (message.type === 'state') render(message);
       else if (message.type === 'notice') { notice.textContent = message.message; notice.className = message.level; }
       else if (message.type === 'setInput') { input.value = message.text; updateSendState(); input.focus(); }
-      else if (message.type === 'clearInput') { input.value = ''; updateSendState(); input.focus(); }
+      else if (message.type === 'clearInput') { submissionPending = false; input.value = ''; updateSendState(); input.focus(); }
+      else if (message.type === 'sendRejected') { submissionPending = false; updateSendState(); input.focus(); }
     });
     sendButton.addEventListener('click', submit);
     cancelButton.addEventListener('click', () => vscode.postMessage({ type: 'cancel' }));

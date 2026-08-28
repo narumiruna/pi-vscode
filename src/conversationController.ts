@@ -23,3 +23,21 @@ export interface PiConversationController {
   ): Promise<string>;
   addEditProposal(input: EditProposalInput): string;
 }
+
+export class ConversationRequestGate {
+  private pending = false;
+
+  public acquire(): () => void {
+    if (this.pending) {
+      throw new Error("Pi is already working. Cancel or wait for the active request before starting another one.");
+    }
+    this.pending = true;
+    let released = false;
+    return () => {
+      if (!released) {
+        released = true;
+        this.pending = false;
+      }
+    };
+  }
+}
