@@ -89,6 +89,7 @@ export function limitReferenceContent(content: string, remainingCharacters: numb
 export function buildAgentPrompt(
   request: string,
   references: readonly ChatReferenceContext[],
+  instructions?: string,
 ): string {
   const sections: string[] = [];
   for (const reference of references) {
@@ -97,6 +98,9 @@ export function buildAgentPrompt(
       reference.content,
       "<<<PI_VSCODE_CONTEXT_END>>>",
     );
+  }
+  if (instructions) {
+    sections.push("<<<PI_VSCODE_INSTRUCTIONS_START>>>", instructions, "<<<PI_VSCODE_INSTRUCTIONS_END>>>");
   }
   sections.push("<<<PI_VSCODE_REQUEST_START>>>", request, "<<<PI_VSCODE_REQUEST_END>>>");
   return sections.join("\n");

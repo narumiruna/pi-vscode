@@ -2,15 +2,29 @@ import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
 import * as vscode from "vscode";
-import { imageMimeType, isImageSizeAllowed } from "./attachmentUtils";
 import { BackgroundAgentManager } from "./backgroundAgents";
+import type { EditProposalInput, PiConversationController } from "./conversationController";
 import { WorkspaceChangeTracker, type TrackedFileChange } from "./changeTracker";
 import { getSidebarHtml } from "./sidebarHtml";
 import { renderSafeMarkdown } from "./markdown";
-import { buildAgentPrompt, limitReferenceContent, parseAgentPrompt } from "./prompts";
+import { buildAgentPrompt, type ChatReferenceContext } from "./prompts";
 import { PiRuntimeManager } from "./piRuntime";
 import type { PiRpcEvent, PiRpcImage } from "./piRpcClient";
 import type { PiAgentMode } from "./runtimeProfiles";
+import { SidebarAttachmentManager } from "./sidebarAttachments";
+import {
+  convertPiMessages,
+  extractToolText,
+  formatError,
+  isRecord,
+  isWebviewMessage,
+  modeLabel,
+  modelSupportsImages,
+  restoreMessages,
+  safeJson,
+  stringValue,
+  type WebviewMessage,
+} from "./sidebarHelpers";
 import { limitSidebarMessages, type SidebarMessage } from "./sidebarState";
 
 const viewId = "piCodingAgent.chatView";
@@ -26,13 +40,6 @@ const maxImageBytes = 5 * 1024 * 1024;
 const maxToolActivities = 30;
 const maxToolOutputCharacters = 8_000;
 
-interface AttachedContext {
-  readonly label: string;
-  readonly uri?: vscode.Uri;
-  readonly content?: string;
-  readonly image?: PiRpcImage;
-}
-
 interface ToolActivity {
   readonly id: string;
   readonly name: string;
@@ -41,13 +48,26 @@ interface ToolActivity {
   readonly output?: string;
 }
 
-export function registerPiSidebar(context: vscode.ExtensionContext): void {
-  const runtime = new PiRuntimeManager(context);
+interface EditProposalState {
+  readonly id: string;
+  readonly label: string;
+  readonly status: "ready" | "previewed" | "applying" | "applied" | "rejected" | "stale" | "failed";
+  readonly error?: string;
+}
+
+interface EditProposalEntry {
+  state: EditProposalState;
+  readonly input: EditProposalInput;
+}
+
+export function registerPiSidebar(
+  context: vscode.ExtensionContext,
+  runtime: PiRuntimeManager,
+): PiConversationController {
   const backgroundAgents = new BackgroundAgentManager(context);
   const changeTracker = new WorkspaceChangeTracker();
   const provider = new PiChatViewProvider(context, runtime, changeTracker, backgroundAgents);
   context.subscriptions.push(
-    runtime,
     backgroundAgents,
     changeTracker,
     provider,
@@ -59,16 +79,26 @@ export function registerPiSidebar(context: vscode.ExtensionContext): void {
       await vscode.commands.executeCommand(`${viewId}.focus`);
     }),
   );
+  return provider;
 }
 
-class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
+class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable, PiConversationController {
   private readonly disposables: vscode.Disposable[] = [];
   private view: vscode.WebviewView | undefined;
   private messages: SidebarMessage[];
   private tools: ToolActivity[] = [];
   private changes: TrackedFileChange[] = [];
-  private attachments: AttachedContext[] = [];
+  private readonly proposals = new Map<string, EditProposalEntry>();
+  private readonly attachments: SidebarAttachmentManager;
   private status = "Ready";
+  private cancelRequested = false;
+  private retryRequest: {
+    readonly request: string;
+    readonly contexts: readonly ChatReferenceContext[];
+    readonly images: readonly PiRpcImage[];
+    readonly resource?: vscode.Uri;
+    readonly instructions?: string;
+  } | undefined;
   private streamingAssistantId: string | undefined;
   private renderTimer: NodeJS.Timeout | undefined;
 
@@ -78,7 +108,16 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     private readonly changeTracker: WorkspaceChangeTracker,
     private readonly backgroundAgents: BackgroundAgentManager,
   ) {
-    this.messages = restoreMessages(context.workspaceState.get<unknown>(storageKey));
+    this.attachments = new SidebarAttachmentManager({
+      maxAttachments,
+      maxImageAttachments,
+      maxImageBytes,
+      maxAttachedCharacters,
+      maxTotalContextCharacters,
+      onChange: () => this.postState(),
+      onNotice: (message, level) => this.postNotice(message, level),
+    });
+    this.messages = restoreMessages(context.workspaceState.get<unknown>(storageKey), maxMessages, maxStoredCharacters);
     this.disposables.push(
       runtime.onEvent(event => this.handleRuntimeEvent(event)),
       runtime.onDidChangeState(() => this.scheduleState()),
@@ -92,7 +131,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       enableScripts: true,
       localResourceRoots: [],
     };
-    webviewView.webview.html = getSidebarHtml(maxInputCharacters);
+    webviewView.webview.html = getSidebarHtml(maxInputCharacters, maxImageBytes);
 
     const messageListener = webviewView.webview.onDidReceiveMessage(message => {
       void this.handleMessage(message);
@@ -117,6 +156,26 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     for (const disposable of this.disposables.splice(0)) {
       disposable.dispose();
     }
+    this.proposals.clear();
+  }
+
+  public async sendRequest(
+    request: string,
+    contexts: readonly ChatReferenceContext[],
+    options: { readonly instructions?: string; readonly resource?: vscode.Uri } = {},
+  ): Promise<string> {
+    await vscode.commands.executeCommand(`${viewId}.focus`);
+    return this.runRequest(request, contexts, [], options.resource, options.instructions);
+  }
+
+  public addEditProposal(input: EditProposalInput): string {
+    const id = randomUUID();
+    this.proposals.set(id, {
+      state: { id, label: input.label, status: "ready" },
+      input,
+    });
+    this.postState();
+    return id;
   }
 
   private async initializeRuntime(): Promise<void> {
@@ -134,7 +193,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async handleMessage(message: unknown): Promise<void> {
-    if (!isWebviewMessage(message)) {
+    if (!isWebviewMessage(message, maxImageBytes)) {
       return;
     }
 
@@ -147,28 +206,49 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           await this.send(message.text);
           break;
         case "cancel":
+          this.cancelRequested = true;
           await this.runtime.abort();
+          this.status = "Cancelled · Ready to retry";
+          this.postState();
+          break;
+        case "reconnect":
+          await this.reconnect();
+          break;
+        case "retry":
+          await this.retryLastRequest();
+          break;
+        case "pickContext":
+          await this.attachments.pickContext();
+          break;
+        case "showMoreActions":
+          await this.showMoreActions(message.text);
+          break;
+        case "pickModel":
+          await this.pickModel();
           break;
         case "newSession":
           await this.newSession();
           break;
         case "attachSelection":
-          this.attachSelection();
+          this.attachments.attachSelection();
           break;
         case "attachFile":
-          await this.attachFile();
+          await this.attachments.attachFile();
           break;
         case "attachCurrentFile":
-          await this.attachCurrentFile();
+          await this.attachments.attachCurrentFile();
           break;
         case "attachDiagnostics":
-          this.attachDiagnostics();
+          this.attachments.attachDiagnostics();
           break;
         case "attachImage":
-          await this.attachImage();
+          await this.attachments.attachImage();
+          break;
+        case "pasteImage":
+          this.attachments.attachPastedImage(message);
           break;
         case "attachTerminal":
-          await this.attachTerminalSelection();
+          await this.attachments.attachTerminalSelection();
           break;
         case "pickCommand":
           await this.pickPiCommand();
@@ -177,8 +257,10 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           await this.exportSession();
           break;
         case "clearAttachments":
-          this.attachments = [];
-          this.postState();
+          this.attachments.clear();
+          break;
+        case "removeAttachment":
+          this.attachments.remove(message.id);
           break;
         case "setMode":
           await this.setMode(message.mode);
@@ -216,6 +298,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         case "openSourceControl":
           await vscode.commands.executeCommand("workbench.view.scm");
           break;
+        case "proposalAction":
+          await this.handleProposalAction(message.id, message.action);
+          break;
         case "runBackground":
           await this.runBackground(message.text, message.isolated);
           break;
@@ -238,21 +323,147 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     }
   }
 
+  private async reconnect(): Promise<void> {
+    this.status = "Connecting to Pi…";
+    this.postState();
+    try {
+      await this.runtime.ensureStarted(vscode.window.activeTextEditor?.document.uri);
+      await this.syncMessagesFromPi();
+      this.status = "Ready";
+    } catch (error) {
+      this.status = "Disconnected · Reconnect available";
+      this.postState();
+      throw error;
+    }
+    this.postState();
+  }
+
+  private async showMoreActions(composerText: string): Promise<void> {
+    const selected = await vscode.window.showQuickPick(
+      [
+        { label: "$(history) Resume Session", action: "resume" },
+        { label: "$(edit) Rename Session", action: "rename" },
+        { label: "$(symbol-method) Change Model", action: "model" },
+        { label: "$(lightbulb) Change Thinking Level", action: "thinking" },
+        { label: "$(list-selection) Commands and Skills", action: "commands" },
+        { label: "$(fold) Compact Context", action: "compact" },
+        { label: "$(export) Export Session", action: "export" },
+        { label: "$(terminal) Open in Terminal", action: "terminal" },
+        { label: "$(run) Run Message in Background", action: "background" },
+        { label: "$(workspace-trusted) Run Message in Worktree", action: "worktree" },
+      ],
+      { title: "Pi Chat Actions", placeHolder: "Choose a session or advanced action" },
+    );
+    if (!selected) return;
+    if (selected.action === "resume") await this.resumeSession();
+    else if (selected.action === "rename") await this.nameSession();
+    else if (selected.action === "model") await this.pickModel();
+    else if (selected.action === "thinking") await this.pickThinkingLevel();
+    else if (selected.action === "commands") await this.pickPiCommand();
+    else if (selected.action === "compact") await this.compact();
+    else if (selected.action === "export") await this.exportSession();
+    else if (selected.action === "terminal") await this.runtime.openInTerminal();
+    else if (selected.action === "background") await this.runBackground(composerText, false);
+    else await this.runBackground(composerText, true);
+  }
+
+  private async pickModel(): Promise<void> {
+    const models = this.runtime.currentState.availableModels;
+    const selected = await vscode.window.showQuickPick(
+      models.flatMap(model => {
+        const provider = stringValue(model.provider);
+        const id = stringValue(model.id);
+        if (!provider || !id) return [];
+        return [{
+          label: stringValue(model.name) ?? `${provider}/${id}`,
+          description: `${provider}/${id}`,
+          provider,
+          id,
+        }];
+      }),
+      { title: "Choose Pi Model", matchOnDescription: true },
+    );
+    if (selected) {
+      await this.runtime.setModel(selected.provider, selected.id);
+    }
+  }
+
+  private async pickThinkingLevel(): Promise<void> {
+    const selected = await vscode.window.showQuickPick(
+      this.runtime.currentState.availableThinkingLevels,
+      { title: "Choose Pi Thinking Level" },
+    );
+    if (selected) {
+      await this.runtime.setThinkingLevel(selected);
+    }
+  }
+
+  private async retryLastRequest(): Promise<void> {
+    const retry = this.retryRequest;
+    if (!retry) {
+      throw new Error("There is no failed or cancelled Pi request to retry.");
+    }
+    if (retry.images.length > 0 && !modelSupportsImages(this.runtime.currentState.model)) {
+      throw new Error("The current model does not support the images in this request. Change the model before retrying.");
+    }
+    await this.runRequest(
+      retry.request,
+      retry.contexts,
+      retry.images,
+      retry.resource,
+      retry.instructions,
+      () => this.postMessage({ type: "clearInput" }),
+      true,
+    );
+  }
+
   private async send(rawText: string): Promise<void> {
     const text = rawText.trim();
-    if (!text || this.runtime.currentState.busy) {
-      if (this.runtime.currentState.busy) {
-        this.postNotice("Pi is already working. Cancel the active request before sending another message.", "warning");
-      }
+    if (!text) {
       return;
+    }
+    const textContexts = this.attachments.textContexts;
+    const images = this.attachments.images;
+    if (images.length > 0 && !modelSupportsImages(this.runtime.currentState.model)) {
+      throw new Error("The current model does not support images. Change the model or remove image attachments before sending.");
+    }
+    await this.runRequest(
+      text,
+      textContexts,
+      images,
+      this.attachments.resource,
+      undefined,
+      () => {
+        this.attachments.clear();
+        this.postMessage({ type: "clearInput" });
+      },
+      true,
+    );
+  }
+
+  private async runRequest(
+    request: string,
+    contexts: readonly ChatReferenceContext[],
+    images: readonly PiRpcImage[],
+    resource?: vscode.Uri,
+    instructions?: string,
+    onAccepted?: () => void,
+    retryable = false,
+  ): Promise<string> {
+    const text = request.trim();
+    if (!text) {
+      throw new Error("Enter a message for Pi.");
+    }
+    if (this.runtime.currentState.busy) {
+      throw new Error("Pi is already working. Cancel or wait for the active request before starting another one.");
     }
     if (text.length > maxInputCharacters) {
-      this.postNotice(`Messages are limited to ${maxInputCharacters.toLocaleString()} characters.`, "error");
-      return;
+      throw new Error(`Messages are limited to ${maxInputCharacters.toLocaleString()} characters.`);
     }
 
-    const attachments = this.attachments;
-    this.attachments = [];
+    this.retryRequest = retryable
+      ? { request: text, contexts: [...contexts], images: [...images], resource, instructions }
+      : undefined;
     this.messages = limitSidebarMessages(
       [
         ...this.messages,
@@ -260,7 +471,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           id: randomUUID(),
           role: "user",
           content: text,
-          contextLabel: attachments.map(context => context.label).join(", ") || undefined,
+          contextLabel: contexts.map(context => context.label).join(", ") || undefined,
         },
       ],
       maxMessages,
@@ -275,20 +486,73 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.postState();
 
     try {
-      const textContexts = attachments
-        .filter((context): context is AttachedContext & { content: string } => typeof context.content === "string")
-        .map(context => ({ label: context.label, content: context.content }));
-      const images = attachments.flatMap(context => context.image ? [context.image] : []);
-      await this.runtime.prompt(
-        buildAgentPrompt(text, textContexts),
-        attachments.find(context => context.uri)?.uri,
-        images,
-      );
+      await this.runtime.prompt(buildAgentPrompt(text, contexts, instructions), resource, images, onAccepted);
+      if (this.cancelRequested) {
+        throw new Error("Pi request was cancelled.");
+      }
+      const response = await this.runtime.getLastAssistantText();
       await this.syncMessagesFromPi();
       this.status = "Ready";
+      this.retryRequest = undefined;
+      this.postState();
+      return response;
     } catch (error) {
-      this.status = "Request failed";
-      this.postNotice(formatError(error), "error");
+      const message = formatError(error);
+      if (/cancelled/i.test(message)) {
+        this.status = retryable ? "Cancelled · Ready to retry" : "Cancelled · Run the action again to retry";
+        this.postNotice(
+          retryable
+            ? "Pi request cancelled. The message remains in the conversation and can be retried."
+            : "Pi request cancelled. Run the editor action again to retry with a fresh document snapshot.",
+          "info",
+        );
+      } else {
+        this.status = retryable ? "Request failed · Retry available" : "Request failed · Run the action again";
+        this.postNotice(
+          retryable ? `${message} Retry the message after resolving the problem.` : `${message} Run the editor action again to retry.`,
+          "error",
+        );
+      }
+      this.cancelRequested = false;
+      this.postState();
+      throw error;
+    }
+  }
+
+  private async handleProposalAction(id: string, action: "preview" | "apply" | "reject"): Promise<void> {
+    const proposal = this.proposals.get(id);
+    if (!proposal) {
+      throw new Error("This edit proposal is no longer available. Regenerate it from the conversation.");
+    }
+    if (action === "reject") {
+      await proposal.input.onReject?.();
+      proposal.state = { ...proposal.state, status: "rejected", error: undefined };
+      this.postState();
+      return;
+    }
+    if (action === "preview") {
+      await proposal.input.onPreview();
+      proposal.state = { ...proposal.state, status: "previewed", error: undefined };
+      this.postState();
+      return;
+    }
+    if (proposal.state.status !== "previewed") {
+      throw new Error("Preview the edit before applying it.");
+    }
+    proposal.state = { ...proposal.state, status: "applying", error: undefined };
+    this.postState();
+    try {
+      await proposal.input.onApply();
+      proposal.state = { ...proposal.state, status: "applied" };
+      this.postNotice("Pi edit applied. Use Undo to revert it.", "info");
+    } catch (error) {
+      const message = formatError(error);
+      proposal.state = {
+        ...proposal.state,
+        status: /changed|stale|regenerate/i.test(message) ? "stale" : "failed",
+        error: message,
+      };
+      this.postNotice(message, "error");
     }
     this.postState();
   }
@@ -296,7 +560,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   private async runBackground(rawText: string, isolated: boolean): Promise<void> {
     const text = rawText.trim();
     if (!text) {
-      return;
+      throw new Error("Enter a message before starting a background or worktree agent.");
     }
     if (text.length > maxInputCharacters) {
       throw new Error(`Messages are limited to ${maxInputCharacters.toLocaleString()} characters.`);
@@ -311,13 +575,11 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     if (!confirmation) {
       return;
     }
-    const attachments = this.attachments;
-    this.attachments = [];
-    const contexts = attachments
-      .filter((context): context is AttachedContext & { content: string } => typeof context.content === "string")
-      .map(context => ({ label: context.label, content: context.content }));
-    const images = attachments.flatMap(context => context.image ? [context.image] : []);
+    const contexts = this.attachments.textContexts;
+    const images = this.attachments.images;
     await this.backgroundAgents.start(text, contexts, images, this.runtime.currentCwd, isolated);
+    this.attachments.clear();
+    this.postMessage({ type: "clearInput" });
     this.postNotice(isolated ? "Started an isolated worktree agent." : "Started a background agent.", "info");
     this.postState();
   }
@@ -353,7 +615,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.messages = [];
     this.tools = [];
     this.changes = [];
-    this.attachments = [];
+    this.proposals.clear();
+    this.retryRequest = undefined;
+    this.attachments.clear();
     await this.persistMessages();
     this.status = "New Pi session";
     this.postState();
@@ -442,141 +706,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     await this.syncMessagesFromPi();
     this.tools = [];
     this.changes = [];
+    this.proposals.clear();
     this.status = "Pi session resumed";
     this.postState();
-  }
-
-  private attachSelection(): void {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor || editor.selection.isEmpty) {
-      this.postNotice("Select code in an editor before attaching it.", "warning");
-      return;
-    }
-    const range = new vscode.Range(editor.selection.start, editor.selection.end);
-    this.addAttachment({
-      uri: editor.document.uri,
-      label: `${relativeDocumentPath(editor.document)}:${range.start.line + 1}-${range.end.line + 1}`,
-      content: editor.document.getText(range),
-    });
-  }
-
-  private async attachCurrentFile(): Promise<void> {
-    const document = vscode.window.activeTextEditor?.document;
-    if (!document) {
-      this.postNotice("Open a text editor before attaching the current file.", "warning");
-      return;
-    }
-    this.addAttachment({
-      uri: document.uri,
-      label: relativeDocumentPath(document),
-      content: document.getText(),
-    });
-  }
-
-  private async attachFile(): Promise<void> {
-    const selected = await vscode.window.showOpenDialog({
-      title: "Attach Files to Pi",
-      defaultUri: vscode.workspace.workspaceFolders?.[0]?.uri,
-      canSelectFiles: true,
-      canSelectFolders: false,
-      canSelectMany: true,
-      openLabel: "Attach",
-    });
-    for (const uri of selected ?? []) {
-      if (this.attachments.length >= maxAttachments) {
-        this.postNotice(`A maximum of ${maxAttachments} context items can be attached.`, "warning");
-        break;
-      }
-      try {
-        const document = await vscode.workspace.openTextDocument(uri);
-        this.addAttachment({
-          uri,
-          label: relativeDocumentPath(document),
-          content: document.getText(),
-        });
-      } catch (error) {
-        this.postNotice(`Could not attach ${uri.fsPath}: ${formatError(error)}`, "warning");
-      }
-    }
-  }
-
-  private attachDiagnostics(): void {
-    const document = vscode.window.activeTextEditor?.document;
-    if (!document) {
-      this.postNotice("Open a text editor before attaching diagnostics.", "warning");
-      return;
-    }
-    const diagnostics = vscode.languages.getDiagnostics(document.uri);
-    if (diagnostics.length === 0) {
-      this.postNotice("The current file has no diagnostics.", "info");
-      return;
-    }
-    const content = diagnostics
-      .map(diagnostic => {
-        const severity = ["Error", "Warning", "Information", "Hint"][diagnostic.severity] ?? "Diagnostic";
-        const source = diagnostic.source ? ` (${diagnostic.source})` : "";
-        return `${severity}${source} at ${diagnostic.range.start.line + 1}:${diagnostic.range.start.character + 1}: ${diagnostic.message}`;
-      })
-      .join("\n");
-    this.addAttachment({
-      uri: document.uri,
-      label: `Diagnostics: ${relativeDocumentPath(document)}`,
-      content,
-    });
-  }
-
-  private async attachImage(): Promise<void> {
-    if (this.attachments.filter(context => context.image).length >= maxImageAttachments) {
-      this.postNotice(`A maximum of ${maxImageAttachments} images can be attached.`, "warning");
-      return;
-    }
-    const selected = await vscode.window.showOpenDialog({
-      title: "Attach Images to Pi",
-      canSelectFiles: true,
-      canSelectFolders: false,
-      canSelectMany: true,
-      openLabel: "Attach Images",
-      filters: { Images: ["png", "jpg", "jpeg", "gif", "webp"] },
-    });
-    for (const uri of selected ?? []) {
-      if (this.attachments.length >= maxAttachments) {
-        this.postNotice(`A maximum of ${maxAttachments} context items can be attached.`, "warning");
-        break;
-      }
-      const bytes = await vscode.workspace.fs.readFile(uri);
-      if (!isImageSizeAllowed(bytes.byteLength, maxImageBytes)) {
-        this.postNotice(`${path.basename(uri.fsPath)} is larger than 5 MiB and was not attached.`, "warning");
-        continue;
-      }
-      const mimeType = imageMimeType(uri.fsPath);
-      if (!mimeType) {
-        this.postNotice(`${path.basename(uri.fsPath)} is not a supported image type.`, "warning");
-        continue;
-      }
-      this.attachments = [...this.attachments, {
-        uri,
-        label: `Image: ${path.basename(uri.fsPath)}`,
-        image: { type: "image", data: Buffer.from(bytes).toString("base64"), mimeType },
-      }];
-    }
-    this.postState();
-  }
-
-  private async attachTerminalSelection(): Promise<void> {
-    if (!vscode.window.activeTerminal) {
-      this.postNotice("Focus a terminal and select output before attaching it.", "warning");
-      return;
-    }
-    const previousClipboard = await vscode.env.clipboard.readText();
-    await vscode.env.clipboard.writeText("");
-    await vscode.commands.executeCommand("workbench.action.terminal.copySelection");
-    const selection = await vscode.env.clipboard.readText();
-    if (!selection) {
-      await vscode.env.clipboard.writeText(previousClipboard);
-      this.postNotice("The active terminal has no selected text.", "warning");
-      return;
-    }
-    this.addAttachment({ label: "Terminal selection", content: selection });
   }
 
   private async pickPiCommand(): Promise<void> {
@@ -623,32 +755,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     }
   }
 
-  private addAttachment(context: AttachedContext & { content: string }): void {
-    const existing = this.attachments.filter(item => item.label !== context.label);
-    if (existing.length >= maxAttachments) {
-      this.postNotice(`A maximum of ${maxAttachments} context items can be attached.`, "warning");
-      return;
-    }
-    const usedCharacters = existing.reduce((total, item) => total + (item.content?.length ?? 0), 0);
-    const remainingCharacters = maxTotalContextCharacters - usedCharacters;
-    if (remainingCharacters <= 0) {
-      this.postNotice("The context attachment limit has been reached.", "warning");
-      return;
-    }
-    const content = limitReferenceContent(context.content, remainingCharacters, maxAttachedCharacters);
-    const truncated = content.length < context.content.length;
-    this.attachments = [...existing, {
-      ...context,
-      content,
-    }];
-    if (truncated) {
-      this.postNotice("The attached context was truncated to fit the context limit.", "warning");
-    }
-    this.postState();
-  }
-
   private handleRuntimeEvent(event: PiRpcEvent): void {
     if (event.type === "agent_start") {
+      this.cancelRequested = false;
       this.status = "Pi is working…";
       this.tools = [];
     } else if (event.type === "message_start") {
@@ -671,20 +780,20 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         id: stringValue(event.toolCallId) ?? randomUUID(),
         name: stringValue(event.toolName) ?? "tool",
         status: "running",
-        input: safeJson(event.args),
+        input: safeJson(event.args, maxToolOutputCharacters),
       });
       this.status = `Running ${stringValue(event.toolName) ?? "tool"}…`;
     } else if (event.type === "tool_execution_update") {
       const id = stringValue(event.toolCallId);
       if (id) {
-        this.updateTool(id, { output: extractToolText(event.partialResult) });
+        this.updateTool(id, { output: extractToolText(event.partialResult, maxToolOutputCharacters) });
       }
     } else if (event.type === "tool_execution_end") {
       const id = stringValue(event.toolCallId);
       if (id) {
         this.updateTool(id, {
           status: event.isError ? "error" : "success",
-          output: extractToolText(event.result),
+          output: extractToolText(event.result, maxToolOutputCharacters),
         });
       }
     } else if (event.type === "compaction_start") {
@@ -692,10 +801,12 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     } else if (event.type === "auto_retry_start") {
       this.status = "Retrying Pi request…";
     } else if (event.type === "agent_settled") {
-      this.status = "Ready";
+      this.status = this.cancelRequested ? "Cancelled · Ready to retry" : "Ready";
       this.streamingAssistantId = undefined;
       this.changes = this.changeTracker.finishRequest();
       void this.syncMessagesFromPi();
+    } else if (event.type === "process_exit") {
+      this.status = "Disconnected · Reconnect available";
     } else if (event.type === "runtime_warning" || event.type === "protocol_error") {
       this.postNotice(stringValue(event.message) ?? "Pi runtime warning.", "warning");
     } else if (event.type === "extension_ui_request") {
@@ -819,9 +930,12 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       messages: this.messages.map(message => ({ ...message, html: renderSafeMarkdown(message.content) })),
       tools: this.tools,
       changes: this.changes,
+      proposals: [...this.proposals.values()].map(proposal => proposal.state),
       backgroundTasks: this.backgroundAgents.states,
       status: this.status,
-      attachments: this.attachments.map(context => ({ label: context.label })),
+      attachments: this.attachments.summaries,
+      imageSupported: modelSupportsImages(this.runtime.currentState.model),
+      retryAvailable: Boolean(this.retryRequest) && !this.runtime.currentState.busy,
       runtime: this.runtime.currentState,
     });
   }
@@ -833,162 +947,4 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   private postMessage(message: Record<string, unknown>): void {
     void this.view?.webview.postMessage(message);
   }
-}
-
-type WebviewMessage =
-  | { readonly type: "ready" | "cancel" | "newSession" | "attachSelection" | "attachFile" | "attachCurrentFile" | "attachDiagnostics" | "attachImage" | "attachTerminal" | "clearAttachments" | "compact" | "nameSession" | "resumeSession" | "exportSession" | "openTerminal" | "openSourceControl" | "handoffAgent" | "pickCommand" }
-  | { readonly type: "send"; readonly text: string }
-  | { readonly type: "setMode"; readonly mode: PiAgentMode }
-  | { readonly type: "setModel"; readonly provider: string; readonly modelId: string }
-  | { readonly type: "setThinking"; readonly level: string }
-  | { readonly type: "reviewChange" | "openChange" | "revertChange" | "cancelBackground" | "resumeBackground" | "openWorktree" | "cleanupWorktree"; readonly id: string }
-  | { readonly type: "runBackground"; readonly text: string; readonly isolated: boolean };
-
-function isWebviewMessage(value: unknown): value is WebviewMessage {
-  if (!isRecord(value) || typeof value.type !== "string") {
-    return false;
-  }
-  if (value.type === "send") {
-    return typeof value.text === "string";
-  }
-  if (value.type === "setMode") {
-    return value.mode === "ask" || value.mode === "edit" || value.mode === "plan" || value.mode === "agent";
-  }
-  if (value.type === "setModel") {
-    return typeof value.provider === "string" && typeof value.modelId === "string";
-  }
-  if (value.type === "setThinking") {
-    return typeof value.level === "string";
-  }
-  if (value.type === "runBackground") {
-    return typeof value.text === "string" && typeof value.isolated === "boolean";
-  }
-  if (["reviewChange", "openChange", "revertChange", "cancelBackground", "resumeBackground", "openWorktree", "cleanupWorktree"].includes(value.type)) {
-    return typeof value.id === "string";
-  }
-  return [
-    "ready",
-    "cancel",
-    "newSession",
-    "attachSelection",
-    "attachFile",
-    "attachCurrentFile",
-    "attachDiagnostics",
-    "attachImage",
-    "attachTerminal",
-    "clearAttachments",
-    "compact",
-    "nameSession",
-    "resumeSession",
-    "exportSession",
-    "openTerminal",
-    "openSourceControl",
-    "handoffAgent",
-    "pickCommand",
-  ].includes(value.type);
-}
-
-function restoreMessages(value: unknown): SidebarMessage[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  const messages = value.filter((message): message is SidebarMessage => {
-    if (!isRecord(message)) {
-      return false;
-    }
-    return (
-      typeof message.id === "string" &&
-      (message.role === "user" || message.role === "assistant") &&
-      typeof message.content === "string" &&
-      (message.contextLabel === undefined || typeof message.contextLabel === "string")
-    );
-  });
-  return limitSidebarMessages(messages, maxMessages, maxStoredCharacters);
-}
-
-function convertPiMessages(values: readonly unknown[]): SidebarMessage[] {
-  const messages: SidebarMessage[] = [];
-  for (const [index, value] of values.entries()) {
-    if (!isRecord(value) || (value.role !== "user" && value.role !== "assistant")) {
-      continue;
-    }
-    const text = extractMessageText(value.content);
-    if (!text) {
-      continue;
-    }
-    if (value.role === "user") {
-      const parsed = parseAgentPrompt(text);
-      messages.push({
-        id: `pi-user-${String(value.timestamp ?? index)}-${index}`,
-        role: "user",
-        content: parsed.request,
-        contextLabel: parsed.contextLabels.join(", ") || undefined,
-      });
-    } else {
-      messages.push({
-        id: `pi-assistant-${String(value.timestamp ?? index)}-${index}`,
-        role: "assistant",
-        content: text,
-      });
-    }
-  }
-  return messages;
-}
-
-function extractMessageText(content: unknown): string {
-  if (typeof content === "string") {
-    return content;
-  }
-  if (!Array.isArray(content)) {
-    return "";
-  }
-  return content
-    .filter(part => isRecord(part) && part.type === "text" && typeof part.text === "string")
-    .map(part => String(part.text))
-    .join("\n");
-}
-
-function extractToolText(value: unknown): string {
-  if (!isRecord(value)) {
-    return safeJson(value).slice(-maxToolOutputCharacters);
-  }
-  const content = Array.isArray(value.content)
-    ? value.content
-        .filter(part => isRecord(part) && part.type === "text" && typeof part.text === "string")
-        .map(part => String(part.text))
-        .join("\n")
-    : safeJson(value);
-  return content.slice(-maxToolOutputCharacters);
-}
-
-function safeJson(value: unknown): string {
-  try {
-    return JSON.stringify(value, undefined, 2).slice(0, maxToolOutputCharacters);
-  } catch {
-    return String(value).slice(0, maxToolOutputCharacters);
-  }
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
-function relativeDocumentPath(document: vscode.TextDocument): string {
-  const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-  if (workspaceFolder) {
-    return path.relative(workspaceFolder.uri.fsPath, document.uri.fsPath);
-  }
-  return document.uri.scheme === "file" ? path.basename(document.uri.fsPath) : document.uri.toString();
-}
-
-function modeLabel(mode: PiAgentMode): string {
-  return mode.charAt(0).toUpperCase() + mode.slice(1);
-}
-
-function formatError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }

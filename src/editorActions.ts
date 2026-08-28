@@ -1,8 +1,7 @@
 import path from "node:path";
 import * as vscode from "vscode";
-import { PiInvocationError } from "./piClient";
-import { buildAskPrompt, buildModifyPrompt, extractReplacement, type SelectionContext } from "./prompts";
-import { invokePiWithCancellation } from "./vscodePi";
+import type { PiConversationController } from "./conversationController";
+import { extractReplacement, type ChatReferenceContext, type SelectionContext } from "./prompts";
 
 const previewScheme = "pi-edit-preview";
 
@@ -13,26 +12,29 @@ interface SelectionSnapshot {
   readonly context: SelectionContext;
 }
 
-export function registerEditorActions(context: vscode.ExtensionContext): void {
+export function registerEditorActions(
+  context: vscode.ExtensionContext,
+  conversation: PiConversationController,
+): void {
   const previews = new EditPreviewProvider();
   context.subscriptions.push(
     previews,
     vscode.workspace.registerTextDocumentContentProvider(previewScheme, previews),
-    vscode.commands.registerCommand("piCodingAgent.askSelection", () => askSelection()),
-    vscode.commands.registerCommand("piCodingAgent.modifySelection", () => inlineEdit(previews)),
-    vscode.commands.registerCommand("piCodingAgent.inlineEdit", () => inlineEdit(previews)),
-    vscode.commands.registerCommand("piCodingAgent.explainSelection", () => answerPreset("Explain this code, including its behavior and assumptions.")),
-    vscode.commands.registerCommand("piCodingAgent.reviewSelection", () => answerPreset("Review this code for correctness, security, maintainability, performance, and missing tests. Prioritize actionable findings.")),
-    vscode.commands.registerCommand("piCodingAgent.fixSelection", () => previewPreset(previews, "Fix bugs and diagnostics in this code while preserving intended behavior.")),
-    vscode.commands.registerCommand("piCodingAgent.documentSelection", () => previewPreset(previews, "Add or improve idiomatic documentation for this code without changing its behavior.")),
+    vscode.commands.registerCommand("piCodingAgent.askSelection", () => askSelection(conversation)),
+    vscode.commands.registerCommand("piCodingAgent.modifySelection", () => inlineEdit(previews, conversation)),
+    vscode.commands.registerCommand("piCodingAgent.inlineEdit", () => inlineEdit(previews, conversation)),
+    vscode.commands.registerCommand("piCodingAgent.explainSelection", () => answerPreset(conversation, "Explain this code, including its behavior and assumptions.")),
+    vscode.commands.registerCommand("piCodingAgent.reviewSelection", () => answerPreset(conversation, "Review this code for correctness, security, maintainability, performance, and missing tests. Prioritize actionable findings.")),
+    vscode.commands.registerCommand("piCodingAgent.fixSelection", () => previewPreset(previews, conversation, "Fix bugs and diagnostics in this code while preserving intended behavior.")),
+    vscode.commands.registerCommand("piCodingAgent.documentSelection", () => previewPreset(previews, conversation, "Add or improve idiomatic documentation for this code without changing its behavior.")),
     vscode.commands.registerCommand("piCodingAgent.generateTests", () =>
-      previewPreset(previews, "Keep the selected code and append comprehensive idiomatic tests that cover normal behavior and important edge cases."),
+      previewPreset(previews, conversation, "Keep the selected code and append comprehensive idiomatic tests that cover normal behavior and important edge cases."),
     ),
-    vscode.commands.registerCommand("piCodingAgent.suggestNextEdit", () => suggestNextEdit(previews)),
+    vscode.commands.registerCommand("piCodingAgent.suggestNextEdit", () => suggestNextEdit(previews, conversation)),
   );
 }
 
-async function askSelection(): Promise<void> {
+async function askSelection(conversation: PiConversationController): Promise<void> {
   const snapshot = captureSelection();
   if (!snapshot) {
     return;
@@ -46,38 +48,35 @@ async function askSelection(): Promise<void> {
   if (!question?.trim()) {
     return;
   }
-  await showAnswer(snapshot, question.trim());
+  await showAnswer(conversation, snapshot, question.trim());
 }
 
-async function answerPreset(question: string): Promise<void> {
+async function answerPreset(conversation: PiConversationController, question: string): Promise<void> {
   const snapshot = captureSelection();
   if (snapshot) {
-    await showAnswer(snapshot, question);
+    await showAnswer(conversation, snapshot, question);
   }
 }
 
-async function showAnswer(snapshot: SelectionSnapshot, question: string): Promise<void> {
+async function showAnswer(
+  conversation: PiConversationController,
+  snapshot: SelectionSnapshot,
+  question: string,
+): Promise<void> {
   try {
-    const response = await runWithProgress(
-      "Pi is analyzing the selected code…",
-      buildAskPrompt(snapshot.context, question),
-      snapshot.document.uri,
-    );
-    const result = await vscode.workspace.openTextDocument({
-      language: "markdown",
-      content: `# Pi response\n\n**Question:** ${question}\n\n${response.trim()}\n`,
-    });
-    await vscode.window.showTextDocument(result, {
-      viewColumn: vscode.ViewColumn.Beside,
-      preview: true,
-      preserveFocus: false,
+    await conversation.sendRequest(question, [selectionReference(snapshot.context)], {
+      instructions: "Answer the user's question about the selected code. Be concrete and concise. Use Markdown when useful. Do not modify files.",
+      resource: snapshot.document.uri,
     });
   } catch (error) {
     await reportError(error);
   }
 }
 
-async function inlineEdit(previews: EditPreviewProvider): Promise<void> {
+async function inlineEdit(
+  previews: EditPreviewProvider,
+  conversation: PiConversationController,
+): Promise<void> {
   const snapshot = captureSelection();
   if (!snapshot) {
     return;
@@ -89,11 +88,14 @@ async function inlineEdit(previews: EditPreviewProvider): Promise<void> {
     ignoreFocusOut: true,
   });
   if (instruction?.trim()) {
-    await previewEdit(previews, snapshot, instruction.trim());
+    await previewEdit(previews, conversation, snapshot, instruction.trim());
   }
 }
 
-async function suggestNextEdit(previews: EditPreviewProvider): Promise<void> {
+async function suggestNextEdit(
+  previews: EditPreviewProvider,
+  conversation: PiConversationController,
+): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
     await vscode.window.showWarningMessage("Open a text editor before requesting a next edit suggestion.");
@@ -115,27 +117,37 @@ async function suggestNextEdit(previews: EditPreviewProvider): Promise<void> {
     "Make one focused, useful change and preserve unrelated code.",
     diagnostics ? `Current diagnostics:\n${diagnostics}` : "",
   ].filter(Boolean).join("\n");
-  await previewEdit(previews, snapshot, instruction);
+  await previewEdit(previews, conversation, snapshot, instruction);
 }
 
-async function previewPreset(previews: EditPreviewProvider, instruction: string): Promise<void> {
+async function previewPreset(
+  previews: EditPreviewProvider,
+  conversation: PiConversationController,
+  instruction: string,
+): Promise<void> {
   const snapshot = captureSelection();
   if (snapshot) {
-    await previewEdit(previews, snapshot, instruction);
+    await previewEdit(previews, conversation, snapshot, instruction);
   }
 }
 
 async function previewEdit(
   previews: EditPreviewProvider,
+  conversation: PiConversationController,
   snapshot: SelectionSnapshot,
   instruction: string,
 ): Promise<void> {
   try {
-    const response = await runWithProgress(
-      "Pi is preparing an edit preview…",
-      buildModifyPrompt(snapshot.context, instruction),
-      snapshot.document.uri,
-    );
+    const response = await conversation.sendRequest(instruction, [selectionReference(snapshot.context)], {
+      instructions: [
+        "Rewrite only the selected code according to the user's request.",
+        "The replacement must fit in the same location and preserve surrounding behavior unless requested otherwise.",
+        "Do not modify files and do not explain the result.",
+        "Return exactly <<<PI_REPLACEMENT_START>>>, a newline, the replacement text, another newline, and <<<PI_REPLACEMENT_END>>>.",
+        "Do not use Markdown code fences.",
+      ].join(" "),
+      resource: snapshot.document.uri,
+    });
     const replacement = extractReplacement(response);
     if (replacement === undefined) {
       throw new Error("Pi returned an unexpected edit format. No changes were applied.");
@@ -150,32 +162,28 @@ async function previewEdit(
     const endOffset = snapshot.document.offsetAt(snapshot.range.end);
     const previewText = originalText.slice(0, startOffset) + convertedReplacement + originalText.slice(endOffset);
     const previewUri = previews.create(snapshot.document.uri, previewText);
-    await vscode.commands.executeCommand(
-      "vscode.diff",
-      snapshot.document.uri,
-      previewUri,
-      `Pi Edit Preview: ${path.basename(snapshot.document.uri.fsPath)}`,
-      { preview: true },
-    );
-
-    const action = await vscode.window.showInformationMessage(
-      "Review the Pi diff, then apply or reject it.",
-      "Apply Edit",
-      "Reject",
-    );
-    if (action !== "Apply Edit") {
-      return;
-    }
-    if (snapshot.document.isClosed || snapshot.document.version !== snapshot.version) {
-      throw new Error("The document changed after the preview opened, so the stale edit was not applied.");
-    }
-
-    const edit = new vscode.WorkspaceEdit();
-    edit.replace(snapshot.document.uri, snapshot.range, convertedReplacement);
-    if (!(await vscode.workspace.applyEdit(edit))) {
-      throw new Error("VS Code could not apply the Pi edit.");
-    }
-    await vscode.window.showInformationMessage("Pi edit applied. Use Undo to revert it.");
+    conversation.addEditProposal({
+      label: `${path.basename(snapshot.document.uri.fsPath)}:${snapshot.range.start.line + 1}-${snapshot.range.end.line + 1}`,
+      onPreview: async () => {
+        await vscode.commands.executeCommand(
+          "vscode.diff",
+          snapshot.document.uri,
+          previewUri,
+          `Pi Edit Preview: ${path.basename(snapshot.document.uri.fsPath)}`,
+          { preview: true },
+        );
+      },
+      onApply: async () => {
+        if (snapshot.document.isClosed || snapshot.document.version !== snapshot.version) {
+          throw new Error("The document changed after Pi generated the proposal. Regenerate the edit before applying it.");
+        }
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(snapshot.document.uri, snapshot.range, convertedReplacement);
+        if (!(await vscode.workspace.applyEdit(edit))) {
+          throw new Error("VS Code could not apply the Pi edit.");
+        }
+      },
+    });
   } catch (error) {
     await reportError(error);
   }
@@ -213,15 +221,16 @@ function selectionSnapshot(document: vscode.TextDocument, range: vscode.Range): 
   };
 }
 
-async function runWithProgress(title: string, prompt: string, uri: vscode.Uri): Promise<string> {
-  return vscode.window.withProgress(
-    {
-      location: vscode.ProgressLocation.Notification,
-      title,
-      cancellable: true,
-    },
-    async (_progress, token) => invokePiWithCancellation(prompt, token, uri),
-  );
+function selectionReference(context: SelectionContext): ChatReferenceContext {
+  return {
+    label: `${context.file}:${context.startLine}-${context.endLine}`,
+    content: [
+      `Language: ${context.languageId}`,
+      `Lines: ${context.startLine}-${context.endLine}`,
+      "",
+      context.code,
+    ].join("\n"),
+  };
 }
 
 function convertLineEndings(value: string, lineEnding: vscode.EndOfLine): string {
@@ -229,15 +238,11 @@ function convertLineEndings(value: string, lineEnding: vscode.EndOfLine): string
 }
 
 async function reportError(error: unknown): Promise<void> {
-  if (error instanceof PiInvocationError && error.kind === "aborted") {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/cancelled/i.test(message)) {
     return;
   }
-  const details = error instanceof PiInvocationError ? error.details?.trim() : undefined;
-  const message = error instanceof Error ? error.message : String(error);
-  const action = await vscode.window.showErrorMessage(
-    details ? `${message} ${details.slice(0, 1000)}` : message,
-    "Open Pi Settings",
-  );
+  const action = await vscode.window.showErrorMessage(message, "Open Pi Settings");
   if (action === "Open Pi Settings") {
     await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:narumitw.pi-coding-agent");
   }

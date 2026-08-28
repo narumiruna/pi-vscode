@@ -38,11 +38,14 @@ test("buildModifyPrompt requests a tagged replacement", () => {
 });
 
 test("buildAgentPrompt round-trips the user request and context labels", () => {
-  const prompt = buildAgentPrompt("Fix the parser", [
-    { label: "src/parser.ts:2-5", content: "export function parse() {}" },
-  ]);
+  const prompt = buildAgentPrompt(
+    "Fix the parser",
+    [{ label: "src/parser.ts:2-5", content: "export function parse() {}" }],
+    "Return a focused proposal.",
+  );
 
   assert.match(prompt, /PI_VSCODE_CONTEXT_START: src\/parser\.ts:2-5/);
+  assert.match(prompt, /PI_VSCODE_INSTRUCTIONS_START>>>\nReturn a focused proposal\./);
   assert.deepEqual(parseAgentPrompt(prompt), {
     request: "Fix the parser",
     contextLabels: ["src/parser.ts:2-5"],

@@ -19,6 +19,7 @@ test("limitSidebarMessages bounds total content and preserves metadata", () => {
       role: "user",
       content: "st-request",
       contextLabel: "src/app.ts:1-3",
+      truncated: true,
     },
   ]);
 });

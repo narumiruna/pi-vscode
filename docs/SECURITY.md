@@ -5,6 +5,10 @@
 The extension starts the configured Pi executable with `shell: false`.
 Prompts, source code, terminal text, and image payloads are written to Pi over stdin rather than process arguments.
 Pi provider authentication remains in Pi's credential store or provider environment variables.
+The packaged Pi bridge listens on a random loopback TCP port in the same extension-host environment.
+Each bridge request requires a random per-window token passed to Pi processes started from the extension.
+Pi child processes can inherit that token, so the bridge intentionally exposes no arbitrary command execution or file mutation method.
+The bridge exposes bounded editor context, file opening, and notifications.
 
 ## Modes and Tools
 
@@ -29,7 +33,8 @@ Pi extensions execute with the extension-host user's permissions and must be rev
 
 ## Change Safety
 
-Focused editor edits open a diff and require explicit Apply.
+Focused editor edits enter the persistent Pi Chat session as edit proposals.
+Apply remains disabled until the user opens Preview, and document-version checks reject stale proposals.
 The original document version is checked before preview and again before apply.
 Foreground Pi edit/write tools checkpoint bounded files before execution.
 Revert is refused when current content differs from the recorded post-agent hash.
@@ -44,8 +49,9 @@ User, model, tool, and persisted text cannot inject raw scripts or HTML.
 ## Data Bounds
 
 Text attachments are limited per item and in aggregate.
-Image attachments are limited by count, MIME type, and byte size.
-RPC JSON lines, diagnostics, tool output, persisted messages, completion context, change snapshots, and background-task output are bounded.
+Image attachments are limited by count, MIME type, canonical Base64 encoding, decoded byte size, and active-model capability.
+Clipboard images are validated in both the webview and Extension Host, and SVG payloads are rejected.
+RPC JSON lines, bridge requests and responses, editor selections, diagnostics, tool output, persisted messages, completion context, change snapshots, and background-task output are bounded.
 
 ## External Services
 

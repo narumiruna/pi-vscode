@@ -317,7 +317,7 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "npm run compile && node --test out/test/attachmentUtils.test.js out/test/changeState.test.js out/test/completion.test.js out/test/markdown.test.js out/test/piClient.test.js out/test/piRpcClient.test.js out/test/prompts.test.js out/test/runtimeProfiles.test.js out/test/sidebarState.test.js",
+    "test": "npm run compile && node --test out/test/attachmentUtils.test.js out/test/changeState.test.js out/test/completion.test.js out/test/markdown.test.js out/test/piClient.test.js out/test/piRpcClient.test.js out/test/prompts.test.js out/test/runtimeProfiles.test.js out/test/sidebarHtml.test.js out/test/sidebarState.test.js out/test/vscodeBridgeProtocol.test.js",
     "package": "npm run test && vsce package --out pi-coding-agent.vsix",
     "prepare": "husky"
   },
