@@ -3,6 +3,7 @@ export interface SidebarMessage {
   readonly role: "user" | "assistant";
   readonly content: string;
   readonly contextLabel?: string;
+  readonly truncated?: boolean;
 }
 
 export function limitSidebarMessages(
@@ -22,7 +23,8 @@ export function limitSidebarMessages(
       break;
     }
     const content = message.content.slice(-remainingCharacters);
-    limited.unshift({ ...message, content });
+    const truncated = message.truncated || content.length < message.content.length;
+    limited.unshift(truncated ? { ...message, content, truncated: true } : { ...message, content });
     remainingCharacters -= content.length;
   }
 

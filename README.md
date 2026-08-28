@@ -5,10 +5,12 @@ Use Pi in VS Code through a dedicated conversation view, the native `@pi` chat p
 ## Features
 
 - Stream persistent Pi sessions in Ask, Edit, Plan, or Agent mode.
-- Attach selections, files, diagnostics, terminal text, and images as bounded context.
-- Preview generated edits before applying them and safely review tracked file changes.
+- Attach selections, files, diagnostics, terminal text, and images as bounded context, including image paste with Ctrl/Cmd+V.
+- Send editor context-menu actions into the persistent Pi Chat session so follow-up questions retain the conversation.
+- Preview generated edits in Pi Chat before explicitly applying or rejecting them, and safely review tracked file changes.
 - Run inline completions, predicted next edits, and parallel background or worktree agents.
 - Use Pi models, thinking levels, commands, prompt templates, skills, and extensions.
+- Let Pi read the active VS Code editor context, open source locations, and show requested notifications through a local authenticated bridge.
 
 ## Requirements
 
@@ -33,9 +35,14 @@ Run **Developer: Reload Window** after installation or an update.
 
 1. Open **Pi: Open Chat** from the Command Palette or select **Pi** in the Secondary Sidebar.
 2. Choose Ask, Edit, Plan, or Agent mode.
-3. Add context, enter a request, and review any proposed changes.
-4. Use `@pi` in the native Chat view or select code and open the editor's **Pi** context menu.
+3. Use **Add context** or paste a supported image into the composer with Ctrl/Cmd+V.
+4. Enter a request and review any proposed changes before applying them.
+5. Select code and use the editor's **Pi** context menu; its request and result appear in Pi Chat for continued follow-up.
+6. Use `@pi` in the native Chat view when VS Code's native participant workflow is preferred; its history remains separate from the Pi Sidebar session.
+7. Ask Pi to inspect the active editor or open a file when the VS Code bridge tools are useful.
 
+Use **More…** for session resume, thinking level, commands, compaction, export, terminal handoff, and background or worktree agents.
+The packaged Pi extension exposes `vscode_context`, `vscode_open_file`, and `vscode_notify` to foreground chat sessions and terminal handoffs opened from the Pi view.
 Automatic inline completions are disabled by default and can be enabled with `piCodingAgent.inlineCompletions.enabled`.
 
 ## Key Settings

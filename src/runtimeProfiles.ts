@@ -5,21 +5,23 @@ export interface PiRuntimeProfile {
   readonly systemPrompt: string;
 }
 
+const vscodeBridgeTools = ["vscode_context", "vscode_open_file", "vscode_notify"] as const;
+
 const profiles: Record<PiAgentMode, PiRuntimeProfile> = {
   ask: {
-    tools: ["read", "grep", "find", "ls"],
+    tools: ["read", "grep", "find", "ls", ...vscodeBridgeTools],
     systemPrompt: "You are in Ask mode inside VS Code. Explore with read-only tools when useful. Never modify files or run shell commands.",
   },
   edit: {
-    tools: ["read", "edit", "write", "grep", "find", "ls"],
+    tools: ["read", "edit", "write", "grep", "find", "ls", ...vscodeBridgeTools],
     systemPrompt: "You are in Edit mode inside VS Code. Make requested file changes, but do not run shell commands. Keep edits focused and explain the result.",
   },
   plan: {
-    tools: ["read", "grep", "find", "ls"],
+    tools: ["read", "grep", "find", "ls", ...vscodeBridgeTools],
     systemPrompt: "You are in Plan mode inside VS Code. Investigate with read-only tools, ask needed questions, and produce an executable plan. Do not modify files or run shell commands.",
   },
   agent: {
-    tools: ["read", "bash", "edit", "write", "grep", "find", "ls"],
+    tools: ["read", "bash", "edit", "write", "grep", "find", "ls", ...vscodeBridgeTools],
     systemPrompt: "You are in Agent mode inside VS Code. Complete the task end to end, using tools to inspect, edit, execute, and verify the workspace. Report the completed outcome and checks.",
   },
 };

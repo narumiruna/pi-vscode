@@ -1,5 +1,7 @@
 import path from "node:path";
 
+const supportedImageMimeTypes = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
 export function imageMimeType(filePath: string): string | undefined {
   switch (path.extname(filePath).toLowerCase()) {
     case ".png":
@@ -14,6 +16,24 @@ export function imageMimeType(filePath: string): string | undefined {
     default:
       return undefined;
   }
+}
+
+export function isSupportedImageMimeType(value: string): boolean {
+  return supportedImageMimeTypes.has(value.toLowerCase());
+}
+
+export function decodeBoundedBase64Image(data: string, maxBytes: number): Buffer | undefined {
+  const maxCharacters = Math.ceil(maxBytes / 3) * 4 + 4;
+  if (
+    data.length === 0 ||
+    data.length > maxCharacters ||
+    data.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]*={0,2}$/.test(data)
+  ) {
+    return undefined;
+  }
+  const bytes = Buffer.from(data, "base64");
+  return bytes.byteLength <= maxBytes && bytes.toString("base64") === data ? bytes : undefined;
 }
 
 export function isImageSizeAllowed(byteLength: number, maxBytes: number): boolean {
