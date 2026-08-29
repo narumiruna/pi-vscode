@@ -3,8 +3,12 @@ import * as vscode from "vscode";
 import type { PiConversationController } from "./conversationController";
 import {
   buildDiagnosticFixInstruction,
+  diagnosticsMatch,
   filterFixableDiagnostics,
+  isDiagnosticCommandTarget,
   selectDiagnosticAtPosition,
+  serializeDiagnosticCommandTarget,
+  type DiagnosticIdentity,
 } from "./diagnosticQuickFix";
 import { buildSelectionReference, extractReplacement, type SelectionContext } from "./prompts";
 
@@ -16,11 +20,6 @@ interface SelectionSnapshot {
   readonly version: number;
   readonly range: vscode.Range;
   readonly context: SelectionContext;
-}
-
-interface DiagnosticCommandTarget {
-  readonly uri: vscode.Uri;
-  readonly diagnostic: vscode.Diagnostic;
 }
 
 export function registerEditorActions(
@@ -129,7 +128,7 @@ async function quickFix(
 
   const diagnostics = filterFixableDiagnostics(vscode.languages.getDiagnostics(editor.document.uri));
   const requestedTarget = isDiagnosticCommandTarget(target) ? target : undefined;
-  const requestedDiagnostic = requestedTarget?.uri.toString() === editor.document.uri.toString()
+  const requestedDiagnostic = requestedTarget?.uri === editor.document.uri.toString()
     ? findCurrentDiagnostic(diagnostics, requestedTarget.diagnostic)
     : undefined;
   const diagnostic = requestedDiagnostic
@@ -155,23 +154,11 @@ async function quickFix(
   );
 }
 
-function isDiagnosticCommandTarget(value: unknown): value is DiagnosticCommandTarget {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const candidate = value as Partial<DiagnosticCommandTarget>;
-  return candidate.uri instanceof vscode.Uri && candidate.diagnostic instanceof vscode.Diagnostic;
-}
-
 function findCurrentDiagnostic(
   diagnostics: readonly vscode.Diagnostic[],
-  requested: vscode.Diagnostic,
+  requested: DiagnosticIdentity,
 ): vscode.Diagnostic | undefined {
-  return diagnostics.find(diagnostic =>
-    diagnostic.severity === requested.severity
-    && diagnostic.message === requested.message
-    && diagnostic.range.isEqual(requested.range),
-  );
+  return diagnostics.find(diagnostic => diagnosticsMatch(diagnostic, requested));
 }
 
 async function suggestNextEdit(
@@ -368,7 +355,7 @@ class PiQuickFixProvider implements vscode.CodeActionProvider {
         action.command = {
           command: "piCodingAgent.quickFix",
           title: "Quick Fix with Pi",
-          arguments: [{ uri: document.uri, diagnostic } satisfies DiagnosticCommandTarget],
+          arguments: [serializeDiagnosticCommandTarget(document.uri.toString(), diagnostic)],
         };
         return action;
       });

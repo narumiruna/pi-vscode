@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildDiagnosticFixInstruction,
+  diagnosticsMatch,
   filterFixableDiagnostics,
+  isDiagnosticCommandTarget,
   selectDiagnosticAtPosition,
+  serializeDiagnosticCommandTarget,
   type DiagnosticLike,
 } from "../diagnosticQuickFix";
 
@@ -40,6 +43,23 @@ test("filterFixableDiagnostics keeps only errors and warnings", () => {
     selectDiagnosticAtPosition(filterFixableDiagnostics([information, hint]), { line: 5, character: 5 }),
     undefined,
   );
+});
+
+test("diagnostic command targets survive serialization and retain exact identity", () => {
+  const serialized: unknown = JSON.parse(JSON.stringify(
+    serializeDiagnosticCommandTarget("file:///workspace/package.json", warning),
+  ));
+
+  assert.ok(isDiagnosticCommandTarget(serialized));
+  assert.equal(serialized.uri, "file:///workspace/package.json");
+  assert.equal(diagnosticsMatch(warning, serialized.diagnostic), true);
+  assert.equal(diagnosticsMatch({ ...warning, source: "typescript" }, serialized.diagnostic), false);
+  assert.equal(diagnosticsMatch({ ...warning, code: "other-code" }, serialized.diagnostic), false);
+  assert.equal(isDiagnosticCommandTarget({ scheme: "file", path: "/workspace/package.json" }), false);
+  assert.equal(isDiagnosticCommandTarget({
+    uri: "file:///workspace/package.json",
+    diagnostic: { ...warning, range: { start: { line: -1, character: 0 }, end: warning.range.end } },
+  }), false);
 });
 
 test("buildDiagnosticFixInstruction includes actionable diagnostic details", () => {
