@@ -1,6 +1,11 @@
 import path from "node:path";
 import * as vscode from "vscode";
 import type { PiConversationController } from "./conversationController";
+import {
+  buildDiagnosticFixInstruction,
+  diagnosticLineWindow,
+  selectDiagnosticAtPosition,
+} from "./diagnosticQuickFix";
 import { buildSelectionReference, extractReplacement, type SelectionContext } from "./prompts";
 
 const previewScheme = "pi-edit-preview";
@@ -12,6 +17,11 @@ interface SelectionSnapshot {
   readonly context: SelectionContext;
 }
 
+interface DiagnosticCommandTarget {
+  readonly uri: vscode.Uri;
+  readonly diagnostic: vscode.Diagnostic;
+}
+
 export function registerEditorActions(
   context: vscode.ExtensionContext,
   conversation: PiConversationController,
@@ -20,9 +30,15 @@ export function registerEditorActions(
   context.subscriptions.push(
     previews,
     vscode.workspace.registerTextDocumentContentProvider(previewScheme, previews),
+    vscode.languages.registerCodeActionsProvider("*", new PiQuickFixProvider(), {
+      providedCodeActionKinds: [vscode.CodeActionKind.QuickFix],
+    }),
     vscode.commands.registerCommand("piCodingAgent.askSelection", () => askSelection(conversation)),
     vscode.commands.registerCommand("piCodingAgent.modifySelection", () => inlineEdit(previews, conversation)),
     vscode.commands.registerCommand("piCodingAgent.inlineEdit", () => inlineEdit(previews, conversation)),
+    vscode.commands.registerCommand("piCodingAgent.quickFix", (target?: DiagnosticCommandTarget) =>
+      quickFix(previews, conversation, target),
+    ),
     vscode.commands.registerCommand("piCodingAgent.explainSelection", () => answerPreset(conversation, "Explain this code, including its behavior and assumptions.")),
     vscode.commands.registerCommand("piCodingAgent.reviewSelection", () => answerPreset(conversation, "Review this code for correctness, security, maintainability, performance, and missing tests. Prioritize actionable findings.")),
     vscode.commands.registerCommand("piCodingAgent.fixSelection", () => previewPreset(previews, conversation, "Fix bugs and diagnostics in this code while preserving intended behavior.")),
@@ -93,6 +109,52 @@ async function inlineEdit(
   if (instruction?.trim()) {
     await previewEdit(previews, conversation, snapshot, instruction.trim());
   }
+}
+
+async function quickFix(
+  previews: EditPreviewProvider,
+  conversation: PiConversationController,
+  target?: DiagnosticCommandTarget,
+): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    await vscode.window.showWarningMessage("Open a text editor before requesting a Pi quick fix.");
+    return;
+  }
+
+  const diagnostics = vscode.languages.getDiagnostics(editor.document.uri);
+  const requestedDiagnostic = target && target.uri.toString() === editor.document.uri.toString()
+    ? findCurrentDiagnostic(diagnostics, target.diagnostic)
+    : undefined;
+  const diagnostic = requestedDiagnostic
+    ?? selectDiagnosticAtPosition(diagnostics, editor.selection.active);
+  if (!diagnostic) {
+    await inlineEdit(previews, conversation);
+    return;
+  }
+
+  const window = diagnosticLineWindow(editor.document.lineCount, diagnostic.range);
+  const range = new vscode.Range(
+    new vscode.Position(window.startLine, 0),
+    editor.document.lineAt(window.endLine).range.end,
+  );
+  await previewEdit(
+    previews,
+    conversation,
+    selectionSnapshot(editor.document, range),
+    buildDiagnosticFixInstruction(diagnostic),
+  );
+}
+
+function findCurrentDiagnostic(
+  diagnostics: readonly vscode.Diagnostic[],
+  requested: vscode.Diagnostic,
+): vscode.Diagnostic | undefined {
+  return diagnostics.find(diagnostic =>
+    diagnostic.severity === requested.severity
+    && diagnostic.message === requested.message
+    && diagnostic.range.isEqual(requested.range),
+  );
 }
 
 async function suggestNextEdit(
@@ -270,6 +332,27 @@ async function reportError(error: unknown): Promise<void> {
   }
 }
 
+class PiQuickFixProvider implements vscode.CodeActionProvider {
+  public provideCodeActions(
+    document: vscode.TextDocument,
+    _range: vscode.Range | vscode.Selection,
+    context: vscode.CodeActionContext,
+  ): vscode.CodeAction[] {
+    return context.diagnostics
+      .filter(diagnostic => diagnostic.severity <= vscode.DiagnosticSeverity.Warning)
+      .map(diagnostic => {
+        const action = new vscode.CodeAction(`Fix with Pi: ${truncate(diagnostic.message, 80)}`, vscode.CodeActionKind.QuickFix);
+        action.diagnostics = [diagnostic];
+        action.command = {
+          command: "piCodingAgent.quickFix",
+          title: "Quick Fix with Pi",
+          arguments: [{ uri: document.uri, diagnostic } satisfies DiagnosticCommandTarget],
+        };
+        return action;
+      });
+  }
+}
+
 class EditPreviewProvider implements vscode.TextDocumentContentProvider, vscode.Disposable {
   private readonly contents = new Map<string, string>();
   private readonly emitter = new vscode.EventEmitter<vscode.Uri>();
@@ -297,6 +380,10 @@ class EditPreviewProvider implements vscode.TextDocumentContentProvider, vscode.
     this.contents.clear();
     this.emitter.dispose();
   }
+}
+
+function truncate(value: string, maxLength: number): string {
+  return value.length <= maxLength ? value : `${value.slice(0, maxLength - 1)}…`;
 }
 
 function randomId(): string {
