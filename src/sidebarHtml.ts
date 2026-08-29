@@ -145,8 +145,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
 
     function renderMessages(messages) {
       const nearBottom = messagesElement.scrollHeight - messagesElement.scrollTop - messagesElement.clientHeight < 80;
+      const visibleMessages = messages.filter(message => message.role !== 'assistant' || Boolean(message.html));
       messagesElement.replaceChildren();
-      if (messages.length === 0) {
+      if (visibleMessages.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'empty';
         empty.innerHTML = '<h2>What do you want to do?</h2><div>Start with code context or choose a working mode.</div>';
@@ -163,7 +164,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         empty.appendChild(actions);
         messagesElement.appendChild(empty);
       } else {
-        for (const message of messages) {
+        for (const message of visibleMessages) {
           const wrapper = document.createElement('article');
           wrapper.className = 'message ' + message.role;
           const role = document.createElement('div');

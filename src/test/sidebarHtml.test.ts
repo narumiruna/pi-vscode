@@ -45,5 +45,7 @@ test("sidebar keeps primary controls compact and exposes recovery and proposal a
   assert.match(html, /backgroundSubmissionPending = Boolean\(state\.backgroundSubmissionPending\)/);
   assert.match(html, /busy \|\| submissionPending \|\| backgroundSubmissionPending \|\| imageLoading/);
   assert.match(html, /Starting background agent/);
+  assert.match(html, /messages\.filter\(message => message\.role !== 'assistant' \|\| Boolean\(message\.html\)\)/);
+  assert.match(html, /for \(const message of visibleMessages\)/);
   assert.doesNotMatch(html, /id="resume-session"/);
 });
