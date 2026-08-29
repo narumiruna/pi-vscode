@@ -8,6 +8,7 @@ Use Pi in VS Code through a dedicated conversation view, the native `@pi` chat p
 - Attach selections, files, diagnostics, terminal text, and images as bounded context, including image paste with Ctrl/Cmd+V.
 - Send editor context-menu actions into the persistent Pi Chat session so follow-up questions retain the conversation.
 - Preview generated edits in Pi Chat before explicitly applying or rejecting them, and safely review tracked file changes.
+- Fix error and warning diagnostics from the lightbulb menu, editor toolbar, or Ctrl/Cmd+I, with a diff preview before applying.
 - Run inline completions, predicted next edits, and parallel background or worktree agents.
 - Use Pi models, thinking levels, commands, prompt templates, skills, and extensions.
 - Let Pi read the active VS Code editor context, open source locations, and show requested notifications through a local authenticated bridge.
@@ -37,7 +38,7 @@ Run **Developer: Reload Window** after installation or an update.
 2. Choose Ask, Edit, Plan, or Agent mode.
 3. Use **Add context** or paste a supported image into the composer with Ctrl/Cmd+V.
 4. Enter a request and review any proposed changes before applying them.
-5. Press Ctrl/Cmd+I with a selection or cursor to request a focused inline edit, then preview and apply the proposal in Pi Chat.
+5. Place the cursor on a red or yellow diagnostic and press Ctrl/Cmd+I, choose **Fix with Pi** from the lightbulb menu, or select the Pi quick-fix toolbar button; then preview and apply the proposal in Pi Chat. With no diagnostic at the cursor, Ctrl/Cmd+I falls back to the focused inline-edit prompt.
 6. Select code and use the editor's **Pi** context menu; its request and result appear in Pi Chat for continued follow-up.
 7. Use `@pi` in the native Chat view when VS Code's native participant workflow is preferred; its history remains separate from the Pi Sidebar session.
 8. Ask Pi to inspect the active editor or open a file when the VS Code bridge tools are useful.

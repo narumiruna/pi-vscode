@@ -30,14 +30,7 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onChatParticipant:piCodingAgent.chat",
-    "onView:piCodingAgent.chatView",
-    "onCommand:piCodingAgent.openChat",
-    "onCommand:piCodingAgent.askSelection",
-    "onCommand:piCodingAgent.modifySelection",
-    "onCommand:piCodingAgent.inlineEdit",
-    "onCommand:piCodingAgent.triggerInlineCompletion",
-    "onCommand:piCodingAgent.suggestNextEdit"
+    "onStartupFinished"
   ],
   "contributes": {
     "viewsContainers": {
@@ -54,7 +47,8 @@
         {
           "id": "piCodingAgent.chatView",
           "name": "Chat",
-          "type": "webview"
+          "type": "webview",
+          "icon": "resources/pi.svg"
         }
       ]
     },
@@ -82,6 +76,12 @@
         "title": "Inline Edit (Preview)",
         "category": "Pi",
         "icon": "$(edit)"
+      },
+      {
+        "command": "piCodingAgent.quickFix",
+        "title": "Quick Fix with Pi (Preview)",
+        "category": "Pi",
+        "icon": "$(lightbulb-sparkle)"
       },
       {
         "command": "piCodingAgent.explainSelection",
@@ -158,11 +158,21 @@
     "menus": {
       "editor/title": [
         {
+          "command": "piCodingAgent.quickFix",
+          "group": "navigation@40",
+          "when": "!editorReadonly"
+        },
+        {
           "command": "piCodingAgent.openChat",
           "group": "navigation@50"
         }
       ],
       "editor/context": [
+        {
+          "command": "piCodingAgent.quickFix",
+          "group": "1_modification@40",
+          "when": "!editorReadonly"
+        },
         {
           "submenu": "piCodingAgent.selectionMenu",
           "group": "1_modification@50",
@@ -202,7 +212,7 @@
     },
     "keybindings": [
       {
-        "command": "piCodingAgent.inlineEdit",
+        "command": "piCodingAgent.quickFix",
         "key": "ctrl+i",
         "mac": "cmd+i",
         "when": "editorTextFocus && !editorReadonly && !suggestWidgetVisible"
@@ -317,7 +327,7 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "npm run compile && node --test out/test/attachmentUtils.test.js out/test/backgroundAgentLifecycle.test.js out/test/changeState.test.js out/test/completion.test.js out/test/conversationController.test.js out/test/editProposals.test.js out/test/markdown.test.js out/test/piClient.test.js out/test/piRpcClient.test.js out/test/prompts.test.js out/test/runtimeProfiles.test.js out/test/sidebarHtml.test.js out/test/sidebarState.test.js out/test/vscodeBridgeProtocol.test.js",
+    "test": "npm run compile && node --test out/test/attachmentUtils.test.js out/test/backgroundAgentLifecycle.test.js out/test/changeState.test.js out/test/completion.test.js out/test/conversationController.test.js out/test/diagnosticQuickFix.test.js out/test/editProposals.test.js out/test/manifest.test.js out/test/markdown.test.js out/test/piClient.test.js out/test/piRpcClient.test.js out/test/prompts.test.js out/test/runtimeProfiles.test.js out/test/sidebarHtml.test.js out/test/sidebarState.test.js out/test/vscodeBridgeProtocol.test.js",
     "package": "npm run test && vsce package --out pi-coding-agent.vsix",
     "prepare": "husky"
   },
