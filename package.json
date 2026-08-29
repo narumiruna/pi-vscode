@@ -203,9 +203,9 @@
     "keybindings": [
       {
         "command": "piCodingAgent.inlineEdit",
-        "key": "ctrl+alt+i",
-        "mac": "cmd+alt+i",
-        "when": "editorTextFocus && editorHasSelection && !editorReadonly"
+        "key": "ctrl+i",
+        "mac": "cmd+i",
+        "when": "editorTextFocus && !editorReadonly && !suggestWidgetVisible"
       },
       {
         "command": "piCodingAgent.triggerInlineCompletion",

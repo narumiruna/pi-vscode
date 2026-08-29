@@ -37,9 +37,10 @@ Run **Developer: Reload Window** after installation or an update.
 2. Choose Ask, Edit, Plan, or Agent mode.
 3. Use **Add context** or paste a supported image into the composer with Ctrl/Cmd+V.
 4. Enter a request and review any proposed changes before applying them.
-5. Select code and use the editor's **Pi** context menu; its request and result appear in Pi Chat for continued follow-up.
-6. Use `@pi` in the native Chat view when VS Code's native participant workflow is preferred; its history remains separate from the Pi Sidebar session.
-7. Ask Pi to inspect the active editor or open a file when the VS Code bridge tools are useful.
+5. Press Ctrl/Cmd+I with a selection or cursor to request a focused inline edit, then preview and apply the proposal in Pi Chat.
+6. Select code and use the editor's **Pi** context menu; its request and result appear in Pi Chat for continued follow-up.
+7. Use `@pi` in the native Chat view when VS Code's native participant workflow is preferred; its history remains separate from the Pi Sidebar session.
+8. Ask Pi to inspect the active editor or open a file when the VS Code bridge tools are useful.
 
 Use **More…** for session resume, thinking level, commands, compaction, export, terminal handoff, and background or worktree agents.
 The packaged Pi extension exposes `vscode_context`, `vscode_open_file`, and `vscode_notify` to foreground chat sessions and terminal handoffs opened from the Pi view.
