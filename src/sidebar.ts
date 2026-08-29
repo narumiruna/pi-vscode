@@ -848,7 +848,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     } else if (event.type === "message_start") {
       const message = isRecord(event.message) ? event.message : undefined;
       if (message?.role === "assistant") {
-        this.startStreamingAssistant();
+        this.streamingAssistantId = undefined;
       }
     } else if (event.type === "message_update") {
       const update = isRecord(event.assistantMessageEvent) ? event.assistantMessageEvent : undefined;
@@ -956,24 +956,21 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     }
   }
 
-  private startStreamingAssistant(): void {
-    const id = randomUUID();
-    this.streamingAssistantId = id;
-    this.messages = limitSidebarMessages(
-      [...this.messages, { id, role: "assistant", content: "" }],
-      maxMessages,
-      maxStoredCharacters,
-    );
-  }
-
   private appendAssistantText(delta: string): void {
-    if (!this.streamingAssistantId) {
-      this.startStreamingAssistant();
+    let id = this.streamingAssistantId;
+    if (!id) {
+      id = randomUUID();
+      this.streamingAssistantId = id;
+      this.messages = limitSidebarMessages(
+        [...this.messages, { id, role: "assistant", content: delta }],
+        maxMessages,
+        maxStoredCharacters,
+      );
+    } else {
+      this.messages = this.messages.map(message =>
+        message.id === id ? { ...message, content: message.content + delta } : message,
+      );
     }
-    const id = this.streamingAssistantId;
-    this.messages = this.messages.map(message =>
-      message.id === id ? { ...message, content: message.content + delta } : message,
-    );
     this.scheduleState();
   }
 

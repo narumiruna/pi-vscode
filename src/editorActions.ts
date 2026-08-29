@@ -1,15 +1,26 @@
 import path from "node:path";
 import * as vscode from "vscode";
 import type { PiConversationController } from "./conversationController";
+import {
+  buildDiagnosticFixInstruction,
+  filterFixableDiagnostics,
+  selectDiagnosticAtPosition,
+} from "./diagnosticQuickFix";
 import { buildSelectionReference, extractReplacement, type SelectionContext } from "./prompts";
 
 const previewScheme = "pi-edit-preview";
+const maxWholeDocumentEditCharacters = 200_000;
 
 interface SelectionSnapshot {
   readonly document: vscode.TextDocument;
   readonly version: number;
   readonly range: vscode.Range;
   readonly context: SelectionContext;
+}
+
+interface DiagnosticCommandTarget {
+  readonly uri: vscode.Uri;
+  readonly diagnostic: vscode.Diagnostic;
 }
 
 export function registerEditorActions(
@@ -20,9 +31,15 @@ export function registerEditorActions(
   context.subscriptions.push(
     previews,
     vscode.workspace.registerTextDocumentContentProvider(previewScheme, previews),
+    vscode.languages.registerCodeActionsProvider("*", new PiQuickFixProvider(), {
+      providedCodeActionKinds: [vscode.CodeActionKind.QuickFix],
+    }),
     vscode.commands.registerCommand("piCodingAgent.askSelection", () => askSelection(conversation)),
     vscode.commands.registerCommand("piCodingAgent.modifySelection", () => inlineEdit(previews, conversation)),
     vscode.commands.registerCommand("piCodingAgent.inlineEdit", () => inlineEdit(previews, conversation)),
+    vscode.commands.registerCommand("piCodingAgent.quickFix", (target?: unknown) =>
+      quickFix(previews, conversation, target),
+    ),
     vscode.commands.registerCommand("piCodingAgent.explainSelection", () => answerPreset(conversation, "Explain this code, including its behavior and assumptions.")),
     vscode.commands.registerCommand("piCodingAgent.reviewSelection", () => answerPreset(conversation, "Review this code for correctness, security, maintainability, performance, and missing tests. Prioritize actionable findings.")),
     vscode.commands.registerCommand("piCodingAgent.fixSelection", () => previewPreset(previews, conversation, "Fix bugs and diagnostics in this code while preserving intended behavior.")),
@@ -95,6 +112,68 @@ async function inlineEdit(
   }
 }
 
+async function quickFix(
+  previews: EditPreviewProvider,
+  conversation: PiConversationController,
+  target?: unknown,
+): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    await vscode.window.showWarningMessage("Open a text editor before requesting a Pi quick fix.");
+    return;
+  }
+  if (!(await isDocumentWritable(editor.document))) {
+    await vscode.window.showWarningMessage("Pi edits are unavailable for read-only documents.");
+    return;
+  }
+
+  const diagnostics = filterFixableDiagnostics(vscode.languages.getDiagnostics(editor.document.uri));
+  const requestedTarget = isDiagnosticCommandTarget(target) ? target : undefined;
+  const requestedDiagnostic = requestedTarget?.uri.toString() === editor.document.uri.toString()
+    ? findCurrentDiagnostic(diagnostics, requestedTarget.diagnostic)
+    : undefined;
+  const diagnostic = requestedDiagnostic
+    ?? selectDiagnosticAtPosition(diagnostics, editor.selection.active);
+  if (!diagnostic) {
+    await inlineEdit(previews, conversation);
+    return;
+  }
+
+  const documentText = editor.document.getText();
+  if (documentText.length > maxWholeDocumentEditCharacters) {
+    await vscode.window.showWarningMessage(
+      `Pi quick fixes are limited to files under ${maxWholeDocumentEditCharacters.toLocaleString()} characters.`,
+    );
+    return;
+  }
+  const range = new vscode.Range(editor.document.positionAt(0), editor.document.positionAt(documentText.length));
+  await previewEdit(
+    previews,
+    conversation,
+    selectionSnapshot(editor.document, range),
+    buildDiagnosticFixInstruction(diagnostic),
+  );
+}
+
+function isDiagnosticCommandTarget(value: unknown): value is DiagnosticCommandTarget {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const candidate = value as Partial<DiagnosticCommandTarget>;
+  return candidate.uri instanceof vscode.Uri && candidate.diagnostic instanceof vscode.Diagnostic;
+}
+
+function findCurrentDiagnostic(
+  diagnostics: readonly vscode.Diagnostic[],
+  requested: vscode.Diagnostic,
+): vscode.Diagnostic | undefined {
+  return diagnostics.find(diagnostic =>
+    diagnostic.severity === requested.severity
+    && diagnostic.message === requested.message
+    && diagnostic.range.isEqual(requested.range),
+  );
+}
+
 async function suggestNextEdit(
   previews: EditPreviewProvider,
   conversation: PiConversationController,
@@ -141,6 +220,9 @@ async function previewEdit(
   instruction: string,
 ): Promise<void> {
   try {
+    if (!(await isDocumentWritable(snapshot.document))) {
+      throw new Error("Pi edits are unavailable for read-only documents.");
+    }
     let responseError: unknown;
     await conversation.sendRequest(instruction, [buildSelectionReference(snapshot.context)], {
       instructions: [
@@ -270,6 +352,44 @@ async function reportError(error: unknown): Promise<void> {
   }
 }
 
+class PiQuickFixProvider implements vscode.CodeActionProvider {
+  public async provideCodeActions(
+    document: vscode.TextDocument,
+    _range: vscode.Range | vscode.Selection,
+    context: vscode.CodeActionContext,
+  ): Promise<vscode.CodeAction[]> {
+    if (!(await isDocumentWritable(document)) || document.getText().length > maxWholeDocumentEditCharacters) {
+      return [];
+    }
+    return filterFixableDiagnostics(context.diagnostics)
+      .map(diagnostic => {
+        const action = new vscode.CodeAction(`Fix with Pi: ${truncate(diagnostic.message, 80)}`, vscode.CodeActionKind.QuickFix);
+        action.diagnostics = [diagnostic];
+        action.command = {
+          command: "piCodingAgent.quickFix",
+          title: "Quick Fix with Pi",
+          arguments: [{ uri: document.uri, diagnostic } satisfies DiagnosticCommandTarget],
+        };
+        return action;
+      });
+  }
+}
+
+async function isDocumentWritable(document: vscode.TextDocument): Promise<boolean> {
+  if (document.isUntitled) {
+    return true;
+  }
+  if (vscode.workspace.fs.isWritableFileSystem(document.uri.scheme) !== true) {
+    return false;
+  }
+  try {
+    const stat = await vscode.workspace.fs.stat(document.uri);
+    return ((stat.permissions ?? 0) & vscode.FilePermission.Readonly) === 0;
+  } catch {
+    return false;
+  }
+}
+
 class EditPreviewProvider implements vscode.TextDocumentContentProvider, vscode.Disposable {
   private readonly contents = new Map<string, string>();
   private readonly emitter = new vscode.EventEmitter<vscode.Uri>();
@@ -297,6 +417,10 @@ class EditPreviewProvider implements vscode.TextDocumentContentProvider, vscode.
     this.contents.clear();
     this.emitter.dispose();
   }
+}
+
+function truncate(value: string, maxLength: number): string {
+  return value.length <= maxLength ? value : `${value.slice(0, maxLength - 1)}…`;
 }
 
 function randomId(): string {
