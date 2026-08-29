@@ -13,7 +13,7 @@ Vendor-owned hosted services cannot be reproduced by a local extension, so those
 | GitHub Copilot inline completion | Manual or opt-in automatic VS Code ghost-text completion | Implemented with cancellation, debounce, cache, and bounded context. |
 | GitHub Copilot next edit suggestion | `Pi: Suggest Next Edit` predicts one focused whole-file change and opens a diff preview | Implemented local equivalent; Copilot's proprietary ranking model is a GitHub service dependency. |
 | Copilot Chat conversational assistance | Dedicated Pi view plus native `@pi` Chat participant and slash commands | Implemented. |
-| Copilot inline chat | `Pi: Inline Edit` and selection smart actions route into persistent Pi Chat, preserve follow-up context, and preview edits | Implemented with `Ctrl/Cmd+Alt+I`. |
+| Copilot inline chat | `Pi: Inline Edit` targets the selection or current line, routes into persistent Pi Chat, preserves follow-up context, and previews edits | Implemented with `Ctrl/Cmd+I`. |
 | Copilot Ask/Edit/Plan/Agent modes | Four explicit Pi runtime profiles with tested tool allowlists | Implemented in `src/runtimeProfiles.ts`. |
 | Copilot autonomous multi-step agent | Persistent Pi RPC Agent mode reads, edits, runs commands, tests, retries, and self-corrects | Implemented using Pi's full coding toolset. |
 | Copilot central session management | New, name, resume, compact, export, terminal handoff, foreground, and background sessions | Implemented in the Pi conversation view. |

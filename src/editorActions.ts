@@ -78,13 +78,15 @@ async function inlineEdit(
   previews: EditPreviewProvider,
   conversation: PiConversationController,
 ): Promise<void> {
-  const snapshot = captureSelection();
+  const snapshot = captureEditTarget();
   if (!snapshot) {
     return;
   }
   const instruction = await vscode.window.showInputBox({
     title: "Inline Edit with Pi",
-    prompt: "How should Pi change the selected code?",
+    prompt: snapshot.range.isEmpty
+      ? "What should Pi add at the cursor?"
+      : "How should Pi change the selected code or current line?",
     placeHolder: "Make this easier to read without changing behavior",
     ignoreFocusOut: true,
   });
@@ -217,6 +219,18 @@ function captureSelection(): SelectionSnapshot | undefined {
   const document = editor.document;
   const range = new vscode.Range(editor.selection.start, editor.selection.end);
   return selectionSnapshot(document, range);
+}
+
+function captureEditTarget(): SelectionSnapshot | undefined {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    void vscode.window.showWarningMessage("Open a text editor before starting a Pi inline edit.");
+    return undefined;
+  }
+  const range = editor.selection.isEmpty
+    ? editor.document.lineAt(editor.selection.active.line).range
+    : new vscode.Range(editor.selection.start, editor.selection.end);
+  return selectionSnapshot(editor.document, range);
 }
 
 function assertSnapshotCurrent(snapshot: SelectionSnapshot, message: string): void {
