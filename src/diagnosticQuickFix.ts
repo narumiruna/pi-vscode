@@ -16,11 +16,6 @@ export interface DiagnosticLike {
   readonly code?: string | number | { readonly value: string | number };
 }
 
-export interface LineWindow {
-  readonly startLine: number;
-  readonly endLine: number;
-}
-
 export function selectDiagnosticAtPosition<T extends DiagnosticLike>(
   diagnostics: readonly T[],
   position: PositionLike,
@@ -30,16 +25,8 @@ export function selectDiagnosticAtPosition<T extends DiagnosticLike>(
     .sort((left, right) => left.severity - right.severity || rangeSize(left.range) - rangeSize(right.range))[0];
 }
 
-export function diagnosticLineWindow(
-  lineCount: number,
-  range: RangeLike,
-  surroundingLines = 2,
-): LineWindow {
-  const lastLine = Math.max(0, lineCount - 1);
-  return {
-    startLine: Math.max(0, range.start.line - surroundingLines),
-    endLine: Math.min(lastLine, range.end.line + surroundingLines),
-  };
+export function filterFixableDiagnostics<T extends DiagnosticLike>(diagnostics: readonly T[]): T[] {
+  return diagnostics.filter(diagnostic => diagnostic.severity === 0 || diagnostic.severity === 1);
 }
 
 export function buildDiagnosticFixInstruction(diagnostic: DiagnosticLike): string {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildDiagnosticFixInstruction,
-  diagnosticLineWindow,
+  filterFixableDiagnostics,
   selectDiagnosticAtPosition,
   type DiagnosticLike,
 } from "../diagnosticQuickFix";
@@ -30,9 +30,16 @@ test("selectDiagnosticAtPosition prefers the most severe matching diagnostic", (
   assert.equal(selectDiagnosticAtPosition([warning], { line: 9, character: 0 }), undefined);
 });
 
-test("diagnosticLineWindow adds bounded context around the diagnostic", () => {
-  assert.deepEqual(diagnosticLineWindow(20, warning.range), { startLine: 2, endLine: 10 });
-  assert.deepEqual(diagnosticLineWindow(6, warning.range), { startLine: 2, endLine: 5 });
+test("filterFixableDiagnostics keeps only errors and warnings", () => {
+  const error = { ...warning, severity: 0, message: "Invalid value" };
+  const information = { ...warning, severity: 2, message: "Consider extracting this" };
+  const hint = { ...warning, severity: 3, message: "Unused declaration" };
+
+  assert.deepEqual(filterFixableDiagnostics([hint, information, warning, error]), [warning, error]);
+  assert.equal(
+    selectDiagnosticAtPosition(filterFixableDiagnostics([information, hint]), { line: 5, character: 5 }),
+    undefined,
+  );
 });
 
 test("buildDiagnosticFixInstruction includes actionable diagnostic details", () => {
