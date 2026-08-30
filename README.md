@@ -113,8 +113,7 @@ npm test
 npm run package
 ```
 
-Use `just dev` to install the standalone Pi extension, compile the VS Code extension, and launch an Extension Development Host.
-Open a new integrated terminal in that window before starting Pi.
+Use `just dev` to compile the VS Code extension, launch an Extension Development Host, and run `pi -ne -e resources/pi-vscode-bridge.ts` in the invoking terminal.
 
 ## License
 
