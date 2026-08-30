@@ -16,6 +16,33 @@ const responseLimitBytes = 1024 * 1024;
 const requestTimeoutMilliseconds = 10_000;
 
 export default function (pi: ExtensionAPI) {
+  let subscription: net.Socket | undefined;
+
+  pi.events.on("vscode:request", (value: unknown) => {
+    if (!isRecord(value) || typeof value.method !== "string") {
+      return;
+    }
+    const id = typeof value.id === "string" ? value.id : randomUUID();
+    const params = isRecord(value.params) ? value.params : {};
+    void bridgeRequest(value.method, params).then(
+      result => pi.events.emit("vscode:response", { id, ok: true, result }),
+      error => pi.events.emit("vscode:response", { id, ok: false, error: formatError(error) }),
+    );
+  });
+
+  pi.on("session_start", (_event, ctx) => {
+    subscription?.destroy();
+    subscription = subscribeToBridgeEvents(pi, {
+      cwd: ctx.cwd,
+      sessionId: ctx.sessionManager.getSessionId(),
+    });
+  });
+
+  pi.on("session_shutdown", () => {
+    subscription?.destroy();
+    subscription = undefined;
+  });
+
   pi.registerTool({
     name: "vscode_context",
     label: "VS Code Context",
@@ -74,19 +101,18 @@ async function bridgeRequest(
   params: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<unknown> {
-  const port = Number.parseInt(process.env.PI_VSCODE_BRIDGE_PORT ?? "", 10);
-  const token = process.env.PI_VSCODE_BRIDGE_TOKEN;
-  if (!Number.isInteger(port) || port < 1 || port > 65_535 || !token) {
-    throw new Error("VS Code bridge is unavailable. Start this Pi session from the Pi VS Code extension.");
+  const connection = bridgeConnection();
+  if (!connection) {
+    throw new Error("VS Code bridge is unavailable. Start Pi from a VS Code integrated terminal.");
   }
   if (signal?.aborted) {
     throw new Error("VS Code bridge request was cancelled.");
   }
 
   const id = randomUUID();
-  const request = `${JSON.stringify({ id, token, method, params })}\n`;
+  const request = `${JSON.stringify({ id, token: connection.token, method, params })}\n`;
   return new Promise((resolve, reject) => {
-    const socket = net.createConnection({ host: "127.0.0.1", port });
+    const socket = net.createConnection({ host: "127.0.0.1", port: connection.port });
     const decoder = new StringDecoder("utf8");
     let buffer = "";
     let settled = false;
@@ -154,6 +180,92 @@ async function bridgeRequest(
   });
 }
 
+function subscribeToBridgeEvents(
+  pi: ExtensionAPI,
+  metadata: { cwd: string; sessionId: string },
+): net.Socket | undefined {
+  const connection = bridgeConnection();
+  if (!connection) {
+    return undefined;
+  }
+
+  const id = randomUUID();
+  const socket = net.createConnection({ host: "127.0.0.1", port: connection.port });
+  const decoder = new StringDecoder("utf8");
+  let buffer = "";
+  let authenticated = false;
+  let disconnectEmitted = false;
+
+  const processLine = (line: string) => {
+    let message: unknown;
+    try {
+      message = JSON.parse(line.endsWith("\r") ? line.slice(0, -1) : line);
+    } catch {
+      socket.destroy(new Error("VS Code bridge event stream returned invalid JSON."));
+      return;
+    }
+    if (!isRecord(message)) {
+      socket.destroy(new Error("VS Code bridge event stream returned an invalid message."));
+      return;
+    }
+    if (!authenticated) {
+      if (message.id !== id || message.ok !== true) {
+        socket.destroy(new Error("VS Code bridge event subscription was rejected."));
+        return;
+      }
+      authenticated = true;
+      pi.events.emit("vscode:connected", metadata);
+      return;
+    }
+    if (message.type === "event" && typeof message.event === "string") {
+      pi.events.emit("vscode:event", { event: message.event, data: message.data });
+    }
+  };
+
+  socket.once("connect", () => {
+    socket.write(`${JSON.stringify({
+      id,
+      token: connection.token,
+      method: "subscribe",
+      params: metadata,
+    })}\n`);
+  });
+  socket.on("data", (chunk: Buffer) => {
+    buffer += decoder.write(chunk);
+    if (Buffer.byteLength(buffer, "utf8") > responseLimitBytes) {
+      socket.destroy(new Error("VS Code bridge event stream exceeded 1 MiB."));
+      return;
+    }
+    while (true) {
+      const newline = buffer.indexOf("\n");
+      if (newline < 0) {
+        break;
+      }
+      const line = buffer.slice(0, newline);
+      buffer = buffer.slice(newline + 1);
+      processLine(line);
+    }
+  });
+  socket.once("error", error => {
+    disconnectEmitted = true;
+    pi.events.emit("vscode:disconnected", { error: error.message });
+  });
+  socket.once("close", () => {
+    if (authenticated && !disconnectEmitted) {
+      pi.events.emit("vscode:disconnected", {});
+    }
+  });
+  return socket;
+}
+
+function bridgeConnection(): { port: number; token: string } | undefined {
+  const port = Number.parseInt(process.env.PI_VSCODE_BRIDGE_PORT ?? "", 10);
+  const token = process.env.PI_VSCODE_BRIDGE_TOKEN;
+  return Number.isInteger(port) && port >= 1 && port <= 65_535 && token
+    ? { port, token }
+    : undefined;
+}
+
 function textResult(value: unknown): { content: Array<{ type: "text"; text: string }>; details: { truncated: boolean } } {
   const text = JSON.stringify(value, undefined, 2) ?? String(value);
   const truncation = truncateHead(text, {
@@ -171,4 +283,8 @@ function textResult(value: unknown): { content: Array<{ type: "text"; text: stri
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

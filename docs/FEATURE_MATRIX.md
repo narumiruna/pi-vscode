@@ -22,7 +22,7 @@ Vendor-owned hosted services cannot be reproduced by a local extension, so those
 | Copilot custom instructions | Pi global/project AGENTS.md and Pi system/settings resources | Implemented through normal Pi resource discovery and explicit project trust. |
 | Copilot skills and custom agents | Pi skills, prompt templates, extension commands, mode profiles, and background agents | Implemented and discoverable through `Commands…`. |
 | Copilot MCP and external tools | Tools supplied by installed Pi extensions, including third-party MCP bridges | Supported through Pi's extension system; each external server/bridge remains its own dependency. |
-| Claude Code editor awareness | Current file, selection, diagnostics, files, images, and terminal context, plus Pi-callable `vscode_context` and `vscode_open_file` bridge tools | Implemented through an authenticated loopback bridge. |
+| Claude Code editor awareness | Current file, selection, diagnostics, files, images, and terminal context, plus Pi-callable `vscode_context` and `vscode_open_file` bridge tools | Implemented through an authenticated loopback bridge and standalone Pi extension. |
 | Claude Code autonomous file/terminal work | Agent mode and background agents use Pi edit/write/bash tools | Implemented. |
 | Claude Code permission prompts | Packaged Pi tool-call gate supports off, dangerous, or all mutating confirmations | Implemented through RPC extension UI. |
 | Claude Code subagents | Multiple independent foreground/background/worktree Pi RPC clients | Implemented local equivalent. |

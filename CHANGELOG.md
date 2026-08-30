@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add a standalone global Pi extension with authenticated request/event communication, `pi.events` interoperability, and integrated-terminal discovery.
+- Export a same-host VS Code API for broadcasting bounded events to connected Pi sessions.
+- Install both the Pi extension and VSIX through `just install`.
 - Add **Fix with Pi** quick fixes for red and yellow diagnostics through VS Code's lightbulb menu, the editor toolbar, and Ctrl/Cmd+I, with contextual diff previews and inline-edit fallback away from diagnostics.
 - Support Pi Inline Edit for both selections and the current line at the cursor as the Ctrl/Cmd+I fallback when no diagnostic is targeted.
 - Redesign Pi Chat around a compact header, native Quick Pick secondary actions, attachment chips, explicit reconnect, cancellation, history-recovery states, serialized submission, retry-safe composer drafts, and narrow Sidebar layouts.

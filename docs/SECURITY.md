@@ -5,11 +5,11 @@
 The extension starts the configured Pi executable with `shell: false`.
 Prompts, source code, terminal text, and image payloads are written to Pi over stdin rather than process arguments.
 Pi provider authentication remains in Pi's credential store or provider environment variables.
-The packaged Pi bridge listens on a random loopback TCP port in the same extension-host environment.
-Each bridge request requires a random per-window token passed to Pi processes started from the extension.
+The VS Code bridge listens on a random loopback TCP port in the same extension-host environment.
+Each bridge request and event subscription requires a random per-window token passed to Pi processes and future integrated terminals.
 Oversized or malformed bridge frames fail closed and terminate their socket.
-Pi child processes can inherit that token, so the bridge intentionally exposes no arbitrary command execution or file mutation method.
-The bridge exposes bounded editor context, file opening, and notifications.
+Processes in an authenticated terminal can inherit that token, so requests remain allowlisted and expose no arbitrary command execution or file mutation method.
+The bridge exposes bounded editor context, file opening, notifications, and JSON-safe events from same-host VS Code extensions.
 
 ## Modes and Tools
 
@@ -30,7 +30,8 @@ A missing RPC permission UI blocks gated tools instead of allowing them.
 
 Project-local Pi settings, extensions, skills, and prompts are not approved by default.
 Enable `piCodingAgent.approveProjectResources` only for a trusted workspace.
-Pi extensions execute with the extension-host user's permissions and must be reviewed before installation.
+The standalone `pi-vscode` extension is installed globally and executes with the user's permissions.
+Pi extensions must be reviewed before installation.
 
 ## Change Safety
 

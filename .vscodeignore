@@ -6,8 +6,10 @@
 .aru/**
 aru.lock
 aru.toml
+justfile
 docs/**
 references/**
+scripts/**
 src/**
 .gitignore
 tsconfig.json

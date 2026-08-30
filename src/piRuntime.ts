@@ -5,6 +5,10 @@ import { PiRpcClient, type PiRpcClientOptions, type PiRpcEvent, type PiRpcImage 
 import { getRuntimeProfile, normalizeMode, type PiAgentMode } from "./runtimeProfiles";
 import { readPiInvocationOptions } from "./vscodePi";
 import { VscodeBridgeServer } from "./vscodeBridge";
+import {
+  vscodeBridgePortEnvironmentKey,
+  vscodeBridgeTokenEnvironmentKey,
+} from "./vscodeBridgeProtocol";
 
 const sessionPathKey = "piCodingAgent.rpc.sessionPath.v1";
 const modeKey = "piCodingAgent.rpc.mode.v1";
@@ -52,6 +56,24 @@ export class PiRuntimeManager implements vscode.Disposable {
 
   public get currentCwd(): string {
     return readPiInvocationOptions(this.resource).cwd;
+  }
+
+  public async initializeBridge(): Promise<void> {
+    const environment = await this.bridge.start();
+    this.context.environmentVariableCollection.description =
+      "Connects standalone Pi extensions to the active Pi VS Code window.";
+    this.context.environmentVariableCollection.replace(
+      vscodeBridgePortEnvironmentKey,
+      environment[vscodeBridgePortEnvironmentKey] ?? "",
+    );
+    this.context.environmentVariableCollection.replace(
+      vscodeBridgeTokenEnvironmentKey,
+      environment[vscodeBridgeTokenEnvironmentKey] ?? "",
+    );
+  }
+
+  public broadcastToPi(event: string, data: unknown): number {
+    return this.bridge.broadcast(event, data);
   }
 
   public async ensureStarted(resource?: vscode.Uri): Promise<void> {
@@ -177,7 +199,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     const sessionFile = this.state.sessionFile;
     const invocation = readPiInvocationOptions(this.resource);
     const bridgeEnvironment = await this.bridge.start();
-    const shellArgs = ["--extension", this.bridgeExtensionPath()];
+    const shellArgs: string[] = [];
     if (sessionFile) {
       shellArgs.push("--session", sessionFile);
     }
@@ -195,6 +217,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     this.clientSubscription?.dispose();
     this.clientSubscription = undefined;
     void this.stopClient();
+    this.context.environmentVariableCollection.clear();
     this.bridge.dispose();
     this.eventEmitter.dispose();
     this.stateEmitter.dispose();
@@ -251,7 +274,6 @@ export class PiRuntimeManager implements vscode.Disposable {
       extensions: [
         path.join(this.context.extensionUri.fsPath, "resources", "pi-vscode-permission-gate.ts"),
         path.join(this.context.extensionUri.fsPath, "resources", "pi-vscode-read-only-gate.ts"),
-        this.bridgeExtensionPath(),
       ],
       sessionPath,
       approveProjectResources: configuration.get<boolean>("approveProjectResources", false),
@@ -260,10 +282,6 @@ export class PiRuntimeManager implements vscode.Disposable {
         PI_VSCODE_PERMISSION_MODE: configuration.get<string>("agent.confirmToolCalls", "dangerous"),
       },
     };
-  }
-
-  private bridgeExtensionPath(): string {
-    return path.join(this.context.extensionUri.fsPath, "resources", "pi-vscode-bridge.ts");
   }
 
   private async refreshState(includeCatalogs: boolean): Promise<void> {

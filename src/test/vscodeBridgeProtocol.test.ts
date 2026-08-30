@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   maxBridgeLineBytes,
   parseVscodeBridgeRequest,
+  serializeVscodeBridgeEvent,
   VscodeBridgeLineDecoder,
 } from "../vscodeBridgeProtocol";
 
@@ -40,6 +41,20 @@ test("VscodeBridgeLineDecoder fails closed for oversized partial, framed, and EO
   eof.push(Buffer.concat([Buffer.alloc(maxBridgeLineBytes, "a"), Buffer.from([0xe2])]));
   assert.throws(() => eof.end(), /exceeded 1 MiB/);
   assert.deepEqual(eofLines, []);
+});
+
+test("serializeVscodeBridgeEvent validates names, JSON data, and size", () => {
+  assert.equal(
+    serializeVscodeBridgeEvent("editor.changed", { path: "/tmp/example.ts" }),
+    '{"type":"event","event":"editor.changed","data":{"path":"/tmp/example.ts"}}\n',
+  );
+  assert.throws(() => serializeVscodeBridgeEvent("", {}), /invalid name/);
+  assert.throws(() => serializeVscodeBridgeEvent("invalid event", {}), /invalid name/);
+  assert.throws(() => serializeVscodeBridgeEvent("event", 1n), /JSON-serializable/);
+  assert.throws(
+    () => serializeVscodeBridgeEvent("event", "a".repeat(maxBridgeLineBytes)),
+    /exceeded 1 MiB/,
+  );
 });
 
 test("parseVscodeBridgeRequest validates and normalizes requests", () => {
