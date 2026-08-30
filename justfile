@@ -1,7 +1,8 @@
-# Install the Pi extension, compile, and open a new Extension Development Host window.
-dev: install-pi-extension
+# Compile, open an Extension Development Host, and run Pi with the bridge extension.
+dev:
     npm run compile
     code --new-window --extensionDevelopmentPath="{{justfile_directory()}}" "{{invocation_directory()}}"
+    pi -ne -e "{{justfile_directory()}}/resources/pi-vscode-bridge.ts"
 
 # Package and install the Pi and VS Code extensions.
 install: install-pi-extension
