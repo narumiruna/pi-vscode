@@ -113,7 +113,8 @@ npm test
 npm run package
 ```
 
-Use `just dev` to compile and launch an Extension Development Host.
+Use `just dev` to install the standalone Pi extension, compile the VS Code extension, and launch an Extension Development Host.
+Open a new integrated terminal in that window before starting Pi.
 
 ## License
 
