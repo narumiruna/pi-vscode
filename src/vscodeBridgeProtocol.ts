@@ -1,12 +1,20 @@
 import { StringDecoder } from "node:string_decoder";
 
 export const maxBridgeLineBytes = 1024 * 1024;
+export const vscodeBridgePortEnvironmentKey = "PI_VSCODE_BRIDGE_PORT";
+export const vscodeBridgeTokenEnvironmentKey = "PI_VSCODE_BRIDGE_TOKEN";
 
 export interface VscodeBridgeRequest {
   readonly id: string;
   readonly token: string;
   readonly method: string;
   readonly params: Record<string, unknown>;
+}
+
+export interface VscodeBridgeEvent {
+  readonly type: "event";
+  readonly event: string;
+  readonly data: unknown;
 }
 
 export class VscodeBridgeLineDecoder {
@@ -60,6 +68,22 @@ export class VscodeBridgeLineDecoder {
     this.buffer = "";
     throw new Error("VS Code bridge request exceeded 1 MiB.");
   }
+}
+
+export function serializeVscodeBridgeEvent(event: string, data: unknown): string {
+  if (event.length === 0 || event.length > 100 || !/^[a-zA-Z0-9._:-]+$/.test(event)) {
+    throw new Error("VS Code bridge event has an invalid name.");
+  }
+  let line: string;
+  try {
+    line = JSON.stringify({ type: "event", event, data } satisfies VscodeBridgeEvent);
+  } catch {
+    throw new Error("VS Code bridge event data must be JSON-serializable.");
+  }
+  if (Buffer.byteLength(line, "utf8") > maxBridgeLineBytes) {
+    throw new Error("VS Code bridge event exceeded 1 MiB.");
+  }
+  return `${line}\n`;
 }
 
 export function parseVscodeBridgeRequest(line: string): VscodeBridgeRequest {

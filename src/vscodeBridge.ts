@@ -4,6 +4,9 @@ import path from "node:path";
 import * as vscode from "vscode";
 import {
   parseVscodeBridgeRequest,
+  serializeVscodeBridgeEvent,
+  vscodeBridgePortEnvironmentKey,
+  vscodeBridgeTokenEnvironmentKey,
   VscodeBridgeLineDecoder,
   type VscodeBridgeRequest,
 } from "./vscodeBridgeProtocol";
@@ -16,6 +19,7 @@ const maxDiagnosticMessageCharacters = 2_000;
 export class VscodeBridgeServer implements vscode.Disposable {
   private readonly token = randomBytes(32).toString("hex");
   private readonly sockets = new Set<Socket>();
+  private readonly subscribers = new Set<Socket>();
   private server: net.Server | undefined;
   private startPromise: Promise<NodeJS.ProcessEnv> | undefined;
   private environment: NodeJS.ProcessEnv | undefined;
@@ -35,6 +39,18 @@ export class VscodeBridgeServer implements vscode.Disposable {
     return this.startPromise;
   }
 
+  public broadcast(event: string, data: unknown): number {
+    const line = serializeVscodeBridgeEvent(event, data);
+    let delivered = 0;
+    for (const socket of this.subscribers) {
+      if (!socket.destroyed && socket.writable) {
+        socket.write(line);
+        delivered += 1;
+      }
+    }
+    return delivered;
+  }
+
   public dispose(): void {
     this.disposed = true;
     this.environment = undefined;
@@ -42,6 +58,7 @@ export class VscodeBridgeServer implements vscode.Disposable {
       socket.destroy();
     }
     this.sockets.clear();
+    this.subscribers.clear();
     this.server?.close();
     this.server = undefined;
   }
@@ -64,8 +81,8 @@ export class VscodeBridgeServer implements vscode.Disposable {
         throw new Error("VS Code bridge did not receive a TCP port.");
       }
       this.environment = {
-        PI_VSCODE_BRIDGE_PORT: String(address.port),
-        PI_VSCODE_BRIDGE_TOKEN: this.token,
+        [vscodeBridgePortEnvironmentKey]: String(address.port),
+        [vscodeBridgeTokenEnvironmentKey]: this.token,
       };
       return { ...this.environment };
     } catch (error) {
@@ -114,7 +131,10 @@ export class VscodeBridgeServer implements vscode.Disposable {
     });
     socket.on("timeout", () => socket.destroy());
     socket.on("error", () => {});
-    socket.on("close", () => this.sockets.delete(socket));
+    socket.on("close", () => {
+      this.sockets.delete(socket);
+      this.subscribers.delete(socket);
+    });
   }
 
   private async handleLine(socket: Socket, line: string): Promise<void> {
@@ -123,6 +143,13 @@ export class VscodeBridgeServer implements vscode.Disposable {
       request = parseVscodeBridgeRequest(line);
       if (!tokensMatch(request.token, this.token)) {
         throw new Error("VS Code bridge authentication failed.");
+      }
+      if (request.method === "subscribe") {
+        socket.setTimeout(0);
+        this.subscribers.add(socket);
+        this.writeResponse(socket, { id: request.id, ok: true, result: { connected: true } }, false);
+        socket.write(serializeVscodeBridgeEvent("bridge.connected", { connected: true }));
+        return;
       }
       const result = await this.dispatch(request.method, request.params);
       this.writeResponse(socket, { id: request.id, ok: true, result });
@@ -202,9 +229,15 @@ export class VscodeBridgeServer implements vscode.Disposable {
     return { shown: true };
   }
 
-  private writeResponse(socket: Socket, response: Record<string, unknown>): void {
-    if (!socket.destroyed) {
-      socket.end(`${JSON.stringify(response)}\n`);
+  private writeResponse(socket: Socket, response: Record<string, unknown>, close = true): void {
+    if (socket.destroyed) {
+      return;
+    }
+    const line = `${JSON.stringify(response)}\n`;
+    if (close) {
+      socket.end(line);
+    } else {
+      socket.write(line);
     }
   }
 }
