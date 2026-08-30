@@ -1,5 +1,5 @@
-# Compile the extension and open a new Extension Development Host window.
-dev:
+# Install the Pi extension, compile, and open a new Extension Development Host window.
+dev: install-pi-extension
     npm run compile
     code --new-window --extensionDevelopmentPath="{{justfile_directory()}}" "{{invocation_directory()}}"
 
