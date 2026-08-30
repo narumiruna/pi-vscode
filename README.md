@@ -4,7 +4,7 @@ Use Pi in VS Code through a dedicated conversation view, the native `@pi` chat p
 
 ## Features
 
-- Stream persistent Pi sessions in Ask, Edit, Plan, or Agent mode.
+- Stream, resume, rename, export, or delete persistent Pi sessions in Ask, Edit, Plan, or Agent mode.
 - Attach selections, files, diagnostics, terminal text, and images as bounded context, including image paste with Ctrl/Cmd+V.
 - Send editor context-menu actions into the persistent Pi Chat session so follow-up questions retain the conversation.
 - Preview generated edits in Pi Chat before explicitly applying or rejecting them, and safely review tracked file changes.

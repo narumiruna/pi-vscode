@@ -254,6 +254,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         case "newSession":
           await this.newSession();
           break;
+        case "deleteSession":
+          await this.deleteSession();
+          break;
         case "attachSelection":
           this.attachments.attachSelection();
           break;
@@ -693,6 +696,31 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       return;
     }
     await this.runtime.newSession();
+    await this.resetConversation("New Pi session");
+  }
+
+  private async deleteSession(): Promise<void> {
+    if (this.isForegroundRequestActive()) {
+      this.postNotice("Cancel or wait for the active request before deleting the conversation.", "warning");
+      return;
+    }
+    const sessionName = this.runtime.currentState.sessionName;
+    const target = sessionName ? `“${sessionName}”` : "this conversation";
+    const confirmation = await vscode.window.showWarningMessage(
+      `Delete ${target}? Its persistent Pi session will be moved to Trash.`,
+      { modal: true },
+      "Delete Conversation",
+    );
+    if (confirmation !== "Delete Conversation") {
+      return;
+    }
+    this.status = "Deleting conversation…";
+    this.postState();
+    await this.runtime.deleteSession();
+    await this.resetConversation("Conversation deleted · New Pi session");
+  }
+
+  private async resetConversation(status: string): Promise<void> {
     this.messages = [];
     this.tools = [];
     this.changes = [];
@@ -701,7 +729,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.historyRecoveryAvailable = false;
     this.attachments.clear();
     await this.persistMessages();
-    this.status = "New Pi session";
+    this.status = status;
     this.postState();
   }
 

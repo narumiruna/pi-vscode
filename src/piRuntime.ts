@@ -145,6 +145,27 @@ export class PiRuntimeManager implements vscode.Disposable {
     await this.refreshState(true);
   }
 
+  public async deleteSession(): Promise<void> {
+    await this.ensureStarted(this.resource);
+    if (this.state.busy) {
+      throw new Error("Cancel or wait for the active request before deleting the conversation.");
+    }
+    const sessionFile = this.state.sessionFile;
+    await this.stopClient();
+    if (sessionFile) {
+      try {
+        await vscode.workspace.fs.delete(vscode.Uri.file(sessionFile), { useTrash: true });
+      } catch (error) {
+        await this.ensureStarted(this.resource).catch(() => undefined);
+        throw error;
+      }
+    }
+    await this.context.workspaceState.update(sessionPathKey, undefined);
+    this.state = emptyState(this.mode);
+    this.stateEmitter.fire(this.state);
+    await this.ensureStarted(this.resource);
+  }
+
   public async setSessionName(name: string): Promise<void> {
     await this.ensureStarted(this.resource);
     await this.requireClient().setSessionName(name);

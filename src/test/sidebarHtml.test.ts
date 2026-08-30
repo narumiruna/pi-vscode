@@ -22,6 +22,9 @@ test("sidebar keeps primary controls compact and exposes recovery and proposal a
   const html = getSidebarHtml(100_000, 5 * 1024 * 1024);
 
   assert.match(html, /id="model-picker"/);
+  assert.match(html, /id="delete-session"[^>]*>Delete<\/button>/);
+  assert.match(html, /type: 'deleteSession'/);
+  assert.match(html, /delete-session'\)\.disabled = interactionLocked \|\| !connected \|\| !deletableSession/);
   assert.match(html, /id="more"/);
   assert.match(html, /id="handoff-agent"[^>]*hidden>Implement Plan<\/button>/);
   assert.match(html, /state\.runtime\.mode !== 'plan'/);
