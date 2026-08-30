@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add a confirmed **Delete Conversation** button that moves the current persistent Pi session to Trash and starts a new session.
 - Add a standalone global Pi extension with authenticated request/event communication, `pi.events` interoperability, and integrated-terminal discovery.
 - Export a same-host VS Code API for broadcasting bounded events to connected Pi sessions.
 - Install both the Pi extension and VSIX through `just install`.

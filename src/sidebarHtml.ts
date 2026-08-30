@@ -22,13 +22,15 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     button, select { min-height: 28px; border: 1px solid transparent; border-radius: 3px; padding: 3px 8px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); cursor: pointer; font: inherit; }
     button:hover { background: var(--vscode-button-hoverBackground); }
     button.secondary, select { color: var(--vscode-foreground); background: var(--vscode-button-secondaryBackground); border-color: var(--vscode-button-border, transparent); }
+    button.danger { color: var(--vscode-errorForeground); }
     button:focus-visible, select:focus-visible, textarea:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
     button:disabled, select:disabled { cursor: default; opacity: .55; }
-    .header { display: grid; grid-template-columns: minmax(72px, auto) minmax(0, 1fr) auto auto; gap: 5px; padding: 7px 8px; border-bottom: 1px solid var(--vscode-sideBar-border, transparent); }
+    .header { display: grid; grid-template-columns: minmax(72px, auto) minmax(0, 1fr) auto auto auto; gap: 5px; padding: 7px 8px; border-bottom: 1px solid var(--vscode-sideBar-border, transparent); }
     .header select, .header button { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #model-picker { text-align: left; }
     #new-session { grid-column: 3; grid-row: 1; }
-    #more { grid-column: 4; grid-row: 1; }
+    #delete-session { grid-column: 4; grid-row: 1; }
+    #more { grid-column: 5; grid-row: 1; }
     #handoff-agent { grid-column: 1 / -1; }
     #runtime { display: flex; min-width: 0; gap: 8px; align-items: center; padding: 4px 9px; color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-sideBar-border, transparent); font-size: .82em; }
     #runtime span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -77,7 +79,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     #notice { min-height: 22px; padding: 0 8px 5px; color: var(--vscode-descriptionForeground); font-size: .85em; overflow-wrap: anywhere; }
     #notice.error { color: var(--vscode-errorForeground); }
     #notice.warning { color: var(--vscode-editorWarning-foreground); }
-    @media (max-width: 340px) { .header { grid-template-columns: minmax(66px, 1fr) auto auto; } #model-picker { grid-column: 1 / -1; grid-row: 2; } #new-session { grid-column: 2; grid-row: 1; } #more { grid-column: 3; grid-row: 1; } #handoff-agent { grid-column: 1 / -1; } .composer-actions { grid-template-columns: auto 1fr auto; } #composer-hint { display: none; } }
+    @media (max-width: 340px) { .header { grid-template-columns: minmax(66px, 1fr) auto auto auto; } #model-picker { grid-column: 1 / -1; grid-row: 2; } #new-session { grid-column: 2; grid-row: 1; } #delete-session { grid-column: 3; grid-row: 1; } #more { grid-column: 4; grid-row: 1; } #handoff-agent { grid-column: 1 / -1; } .composer-actions { grid-template-columns: auto 1fr auto; } #composer-hint { display: none; } }
   </style>
 </head>
 <body>
@@ -86,6 +88,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       <select id="mode" aria-label="Pi mode" title="Choose how Pi may work"><option value="ask">Ask</option><option value="edit">Edit</option><option value="plan">Plan</option><option value="agent">Agent</option></select>
       <button id="model-picker" class="secondary" type="button" aria-label="Change Pi model">Model…</button>
       <button id="new-session" class="secondary" type="button" title="Start a new Pi conversation" aria-label="New Pi conversation">New</button>
+      <button id="delete-session" class="secondary danger" type="button" title="Delete the current Pi conversation" aria-label="Delete current Pi conversation">Delete</button>
       <button id="handoff-agent" type="button" title="Continue this Plan session in Agent mode" hidden>Implement Plan</button>
       <button id="more" class="secondary" type="button" title="Session and advanced actions" aria-label="More Pi actions">More…</button>
     </header>
@@ -126,6 +129,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     const mode = $('mode');
     let busy = false;
     let connected = false;
+    let deletableSession = false;
     let imageSupported = true;
     let attachedImages = false;
     let pendingImageReads = 0;
@@ -336,6 +340,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       mode.disabled = interactionLocked;
       $('model-picker').disabled = interactionLocked || !connected;
       $('new-session').disabled = interactionLocked;
+      $('delete-session').disabled = interactionLocked || !connected || !deletableSession;
       $('handoff-agent').disabled = interactionLocked || !connected;
       $('more').disabled = interactionLocked || !connected;
       $('add-context').disabled = interactionLocked;
@@ -359,6 +364,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     function render(state) {
       busy = Boolean(state.runtime.busy);
       connected = Boolean(state.runtime.connected);
+      deletableSession = Boolean(state.runtime.sessionFile);
       imageSupported = Boolean(state.imageSupported);
       backgroundSubmissionPending = Boolean(state.backgroundSubmissionPending);
       renderMessages(state.messages || []);
@@ -376,6 +382,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('model-picker').title = currentModel.provider && currentModel.id ? currentModel.provider + '/' + currentModel.id : 'Choose Pi model';
       $('model-picker').disabled = busy || !connected;
       $('new-session').disabled = busy;
+      $('delete-session').disabled = busy || !connected || !deletableSession;
       $('handoff-agent').hidden = state.runtime.mode !== 'plan';
       $('handoff-agent').disabled = busy || !connected;
       $('more').disabled = busy || !connected;
@@ -468,6 +475,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     $('add-context').addEventListener('click', () => vscode.postMessage({ type: 'pickContext' }));
     $('model-picker').addEventListener('click', () => vscode.postMessage({ type: 'pickModel' }));
     $('new-session').addEventListener('click', () => vscode.postMessage({ type: 'newSession' }));
+    $('delete-session').addEventListener('click', () => vscode.postMessage({ type: 'deleteSession' }));
     $('handoff-agent').addEventListener('click', () => {
       $('handoff-agent').disabled = true;
       vscode.postMessage({ type: 'handoffAgent' });

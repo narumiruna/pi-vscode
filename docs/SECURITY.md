@@ -35,6 +35,7 @@ Pi extensions must be reviewed before installation.
 
 ## Change Safety
 
+Deleting a conversation requires modal confirmation and moves its persistent session file to Trash before starting a replacement session.
 Focused editor edits enter the persistent Pi Chat session as edit proposals.
 A packaged read-only policy gate recognizes only extension-controlled prompt-prefix metadata, narrows active tools, and blocks every non-read-only tool while Pi generates a proposal, regardless of the current Chat mode.
 Apply remains disabled until the user opens Preview, and document-version checks reject stale proposals before both Preview and Apply.
