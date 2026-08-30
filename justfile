@@ -2,3 +2,8 @@
 dev:
     npm run compile
     code --new-window --extensionDevelopmentPath="{{justfile_directory()}}" "{{invocation_directory()}}"
+
+# Package and install the extension in VS Code.
+install:
+    npm run package
+    code --install-extension "{{justfile_directory()}}/pi-coding-agent.vsix" --force
