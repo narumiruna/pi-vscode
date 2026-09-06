@@ -85,7 +85,7 @@ pi.events.on("vscode:event", message => {
 });
 ```
 
-VS Code extensions in the same Extension Host can activate `narumitw.pi-coding-agent` and call its exported `broadcast(event, data)` API.
+VS Code extensions in the same Extension Host can activate `narumi.pi-coding-agent` and call its exported `broadcast(event, data)` API.
 Event names and payloads are validated and bounded before delivery.
 
 ## Key Settings

@@ -3,7 +3,7 @@
   "displayName": "Pi Coding Agent",
   "description": "Chat with Pi in VS Code, ask about selected code, and apply focused modifications.",
   "version": "0.0.1",
-  "publisher": "narumitw",
+  "publisher": "narumi",
   "license": "MIT",
   "engines": {
     "vscode": "^1.106.0"
