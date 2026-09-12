@@ -167,6 +167,7 @@ export class BackgroundAgentManager implements vscode.Disposable {
 
   public async openSession(id: string): Promise<string> {
     const task = this.requireTask(id);
+    if (task.worktreePath || task.origin) throw new Error("Isolated sessions must be resumed in their own workspace. Use Open Worktree, then Resume Session there.");
     if (!task.sessionFile) {
       throw new Error("This background task does not have a resumable Pi session yet.");
     }

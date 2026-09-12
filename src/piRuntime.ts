@@ -51,6 +51,7 @@ export class PiRuntimeManager implements vscode.Disposable {
   private queueStopping = false;
   private promptActive = false;
   private queueRevision = 0;
+  private pendingInstruction: { text: string; kind: "steering" | "followUp"; previousOccurrences: number; observed: boolean } | undefined;
 
   public readonly onEvent = this.eventEmitter.event;
   public readonly onDidChangeState = this.stateEmitter.event;
@@ -166,16 +167,18 @@ export class PiRuntimeManager implements vscode.Disposable {
       parseRpcQueue({ steering: [...queue.steering, text], followUp: queue.followUp });
       const client = this.requireClient();
       const revision = this.queueRevision;
+      const queueKind = kind === "steer" ? "steering" : "followUp";
+      this.pendingInstruction = { text, kind: queueKind, previousOccurrences: queue[queueKind].filter(item => item === text).length, observed: false };
       try {
         await client[kind](text);
         if (!this.state.busy || !this.state.queueable || this.queueRevision === revision) throw new Error("Pi settled during acceptance or did not report queue_update; delivery is uncertain.");
       }
       catch (error) {
-        this.recoverQueue([text], true);
+        // process_exit owns recovery, including an unacknowledged submission.
         await client.stop();
         throw new Error(`Queue acceptance is uncertain or unsupported. Pi disconnected; do not blindly resend. ${formatError(error)}`);
       }
-    } finally { release(); }
+    } finally { this.pendingInstruction = undefined; release(); }
   }
 
   public async clearInstructions(): Promise<void> {
@@ -185,7 +188,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     try {
       const client = this.requireClient();
       try { const cleared = await client.clearQueue(); this.recoverQueue([...cleared.steering, ...cleared.followUp], false); this.updateState({ queue: { steering: [], followUp: [] } }); }
-      catch (error) { this.recoverQueue([...(this.state.queue?.steering ?? []), ...(this.state.queue?.followUp ?? [])], true); await client.stop(); throw new Error(`Queue clearing unsupported/uncertain; disconnected without replay. ${formatError(error)}`); }
+      catch (error) { await client.stop(); throw new Error(`Queue clearing unsupported/uncertain; disconnected without replay. ${formatError(error)}`); }
     } finally { release(); this.queueStopping = false; }
   }
 
@@ -196,7 +199,6 @@ export class PiRuntimeManager implements vscode.Disposable {
   public async abort(): Promise<void> {
     const client = this.client; if (!client) return;
     if (this.queueGate.isPending) {
-      this.recoverQueue([...(this.state.queue?.steering ?? []), ...(this.state.queue?.followUp ?? [])], true);
       await client.stop();
       throw new Error("Pi disconnected during an ambiguous queue operation. Check recovered drafts; no automatic replay.");
     }
@@ -208,7 +210,6 @@ export class PiRuntimeManager implements vscode.Disposable {
       this.updateState({ queue: { steering: [], followUp: [] } });
       await client.abort();
     } catch (error) {
-      this.recoverQueue([...(this.state.queue?.steering ?? []), ...(this.state.queue?.followUp ?? [])], true);
       await client.stop();
       throw new Error(`Could not guarantee clear-queue before abort. Pi disconnected; pending delivery is uncertain. ${formatError(error)}`);
     } finally { release(); this.queueStopping = false; }
@@ -461,10 +462,11 @@ export class PiRuntimeManager implements vscode.Disposable {
     this.eventEmitter.fire(event);
     if (event.type === "queue_update") {
       const queue = parseRpcQueue(event);
+      const pending = this.pendingInstruction;
+      if (pending && queue[pending.kind].filter(text => text === pending.text).length > pending.previousOccurrences) pending.observed = true;
       this.queueRevision++;
       this.updateState({ queue });
       if (this.queueStopping && (queue.steering.length || queue.followUp.length)) {
-        this.recoverQueue([...queue.steering, ...queue.followUp], true);
         void this.client?.stop();
         this.eventEmitter.fire({ type: "runtime_warning", message: "Queue changed during cancellation; disconnected to prevent hidden continuation." });
       }
@@ -481,7 +483,11 @@ export class PiRuntimeManager implements vscode.Disposable {
       this.clientSubscription?.dispose();
       this.clientSubscription = undefined;
       this.client = undefined;
-      this.recoverQueue([...(this.state.queue?.steering ?? []), ...(this.state.queue?.followUp ?? [])], true);
+      const pending = this.pendingInstruction;
+      const queue = this.state.queue ?? { steering: [], followUp: [] };
+      const unobserved = pending && (!pending.observed || !queue[pending.kind].includes(pending.text));
+      this.recoverQueue([...queue.steering, ...queue.followUp, ...(unobserved ? [pending.text] : [])], true);
+      this.pendingInstruction = undefined;
       this.updateState({ connected: false, busy: false, queueable: false, queue: { steering: [], followUp: [] } });
     }
   }

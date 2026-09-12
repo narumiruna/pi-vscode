@@ -27,7 +27,11 @@ export function redactRecognizableSecrets(text: string): string {
     .replace(/((?:api[_-]?key|password|token)\s*[:=]\s*)["']?[^\s"']{8,}["']?/gi, "$1[REDACTED]")
     .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "[REDACTED PRIVATE KEY]");
 }
-export function noTestsMatched(output: string): boolean { return /no tests? (?:found|matched)|\b0 tests?\b/i.test(output); }
+/** Best-effort recognized runner summaries, never arbitrary test names or diagnostics. */
+export function noTestsMatched(output: string): boolean {
+  const plain = output.replace(/\x1b\[[0-9;]*m/g, "");
+  return /^(?:No tests? (?:found|matched)(?:[,.!].*)?|# tests 0|ℹ tests 0|collected 0 items)\s*$/im.test(plain);
+}
 export class RepairAttempts {
   public attempts = 0;
   public stopped: string | undefined;

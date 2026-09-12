@@ -45,6 +45,10 @@ test("background manager restores legacy/interrupted tasks safely, previews canc
     await assert.rejects(manager.reviewResults("live-pid"), /still running/);
     await assert.rejects(manager.reviewResults("missing"));
     await assert.rejects(manager.cleanupWorktree("legacy"));
+    await assert.rejects(manager.openSession("legacy"), /Open Worktree/);
+    await assert.rejects(manager.openSession("cancelled"), /Open Worktree/);
+    const resumable = create([{ ...base, id: "local", sessionFile: path.join(root, "local.jsonl") }]);
+    assert.equal(await resumable.openSession("local"), path.join(root, "local.jsonl"));
     const inspected: string[] = [];
     // Capture the already-created manager's provider directly for local-only inspection evidence.
     vscode.workspace.openTextDocument = async (uri: any) => ({ uri });
@@ -68,6 +72,7 @@ test("background manager restores legacy/interrupted tasks safely, previews canc
     assert.deepEqual(recovered.states.find(task => task.id === "cancelled")?.importReport?.applied, ["a.txt"]);
     await manager.cleanupWorktree("cancelled");
     assert.equal(manager.states.find(task => task.id === "cancelled")?.worktreePath, undefined);
+    await assert.rejects(manager.openSession("cancelled"), /Isolated sessions/);
     await assert.rejects(readFile(path.join(worktree, "a.txt")), { code: "ENOENT" });
     const created = await (manager as any).createWorktree(repository, "created");
     assert.equal(created.origin.baseCommit, origin.baseCommit);
