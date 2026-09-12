@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Script } from "node:vm";
+import { createContext, Script } from "node:vm";
 import { getSidebarHtml } from "../sidebarHtml";
 
 test("sidebar composer forwards pasted clipboard images with client-side bounds", () => {
@@ -101,4 +101,104 @@ test("sidebar generated script parses with static icons and keeps nonce-only CSP
   assert.doesNotMatch(html, /unsafe-inline|https?:\/\/|<script[^>]*src=/);
   assert.match(html, /<svg[^>]*aria-hidden="true"[^>]*focusable="false"/);
   assert.notEqual(getSidebarHtml(100_000, 1024), html, "each webview gets a fresh nonce");
+});
+
+// Only the DOM operations needed to execute the generated script are modeled.
+// Descendant searches fail deterministically instead of relying on timing limits.
+class SidebarTestElement {
+  children: SidebarTestElement[] = [];
+  dataset: Record<string, string> = {};
+  classList = { toggle() {} };
+  style = {};
+  value = "";
+  disabled = false;
+  scrollHeight = 100;
+  scrollTop = 0;
+  clientHeight = 100;
+  listeners = new Map<string, () => void>();
+
+  append(...elements: SidebarTestElement[]): void { this.children.push(...elements); }
+  appendChild(element: SidebarTestElement): void { this.append(element); }
+  replaceChildren(): void { this.children = []; }
+  querySelector(): { textContent: string } { return { textContent: "" }; }
+  querySelectorAll(): never { throw new Error("Unexpected conversation descendant search"); }
+  addEventListener(type: string, listener: () => void): void { this.listeners.set(type, listener); }
+  focus(): void {}
+}
+
+function createSidebarScriptHarness() {
+  const html = getSidebarHtml(100_000, 1024);
+  const elements = new Map(Array.from(html.matchAll(/\bid="([^"]+)"/g), match => [match[1], new SidebarTestElement()]));
+  const element = (id: string) => {
+    const result = elements.get(id);
+    assert.ok(result, `missing sidebar element: ${id}`);
+    return result;
+  };
+  const context = createContext({
+    document: { getElementById: element, createElement: () => new SidebarTestElement() },
+    window: { addEventListener() {} },
+    acquireVsCodeApi: () => ({ postMessage() {} }),
+  });
+  const script = /<script nonce="[^"]+">([\s\S]*?)<\/script>/.exec(html);
+  assert.ok(script);
+  new Script(script[1]).runInContext(context);
+  return {
+    element,
+    run: (source: string) => new Script(source).runInContext(context),
+    welcomeButtons: () => element("messages").children[0].children[0].children,
+  };
+}
+
+test("sidebar keystrokes do not search populated conversation descendants", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.run("renderMessages(Array.from({ length: 100 }, () => ({ role: 'assistant', html: '<p>Reply</p>' })))");
+  assert.equal(sidebar.element("messages").children.length, 100);
+  const input = sidebar.element("input");
+  const onInput = input.listeners.get("input");
+  assert.ok(onInput);
+  for (let index = 0; index < 20; index += 1) {
+    input.value += "x";
+    onInput();
+  }
+});
+
+test("sidebar updates only current welcome buttons across locks and message renders", () => {
+  const sidebar = createSidebarScriptHarness();
+  const assertLocked = (expected: boolean) => {
+    const buttons = sidebar.welcomeButtons();
+    assert.equal(buttons.length, 3);
+    for (const button of buttons) assert.equal(button.disabled, expected);
+  };
+  const rejectStaleUpdates = (buttons: SidebarTestElement[]) => {
+    for (const button of buttons) {
+      Object.defineProperty(button, "disabled", {
+        set() { assert.fail("A detached welcome button must not be updated"); },
+      });
+    }
+  };
+
+  sidebar.run("renderMessages([]); updateSendState()");
+  assertLocked(false);
+  for (const [flag, lockedValue, unlockedValue] of [
+    ["busy", "true", "false"],
+    ["submissionPending", "true", "false"],
+    ["backgroundSubmissionPending", "true", "false"],
+    ["pendingImageReads", "1", "0"],
+  ]) {
+    sidebar.run(`${flag} = ${lockedValue}; updateSendState()`);
+    assertLocked(true);
+    sidebar.run(`${flag} = ${unlockedValue}; updateSendState()`);
+    assertLocked(false);
+  }
+
+  const firstButtons = sidebar.welcomeButtons();
+  rejectStaleUpdates(firstButtons);
+  sidebar.run("busy = true; renderMessages([]); updateSendState()");
+  assert.notEqual(sidebar.welcomeButtons()[0], firstButtons[0]);
+  assertLocked(true);
+
+  rejectStaleUpdates(sidebar.welcomeButtons());
+  sidebar.run("renderMessages([{ role: 'user', html: '<p>Question</p>' }]); updateSendState()");
+  sidebar.run("busy = false; renderMessages([{ role: 'assistant', html: '' }]); updateSendState()");
+  assertLocked(false);
 });
