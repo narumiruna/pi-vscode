@@ -190,6 +190,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     const vscode = acquireVsCodeApi();
     const $ = id => document.getElementById(id);
     const messagesElement = $('messages');
+    const emptyActionButtons = [];
     const toolsElement = $('tools');
     const proposalsElement = $('proposals');
     const changesElement = $('changes');
@@ -224,6 +225,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const nearBottom = messagesElement.scrollHeight - messagesElement.scrollTop - messagesElement.clientHeight < 80;
       const visibleMessages = messages.filter(message => message.role !== 'assistant' || Boolean(message.html));
       messagesElement.replaceChildren();
+      emptyActionButtons.length = 0;
       messagesElement.classList.toggle('is-empty', visibleMessages.length === 0);
       if (visibleMessages.length === 0) {
         const empty = document.createElement('div');
@@ -244,6 +246,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           button.querySelector('.action-title').textContent = item[1];
           button.querySelector('.action-description').textContent = item[2];
           actions.appendChild(button);
+          emptyActionButtons.push(button);
         }
         empty.appendChild(actions);
         messagesElement.appendChild(empty);
@@ -442,7 +445,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('handoff-agent').disabled = interactionLocked || !connected;
       $('more').disabled = interactionLocked || !connected;
       $('add-context').disabled = interactionLocked;
-      for (const button of messagesElement.querySelectorAll('button[data-empty-action]')) button.disabled = interactionLocked;
+      for (const button of emptyActionButtons) button.disabled = interactionLocked;
       sendButton.disabled = interactionLocked || !connected || !input.value.trim() || imageBlocked;
       sendButton.title = imageLoading
         ? 'Wait for pasted images to finish loading.'
