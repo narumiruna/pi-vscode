@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import path from "node:path";
 import { realpath } from "node:fs/promises";
-import { assertSafeFile } from "./backgroundResults";
+import { assertSafeFile, readRegularText } from "./backgroundResults";
 import { runBoundedProcess, type ProcessResult } from "./boundedProcess";
 import { computeEditHunks, selectedReplacement } from "./editHunks";
 import { digest } from "./gitSnapshots";
@@ -31,21 +31,36 @@ export function registerTestRepair(context: vscode.ExtensionContext, runtime: Pi
       requireTrustedFile(uri);
       if (vscode.workspace.getWorkspaceFolder(uri)?.uri.toString() !== folder.toString()) throw new Error("Choose a source file in the selected workspace.");
       const root = await realpath(folder.fsPath);
-      await assertSafeFile(root, path.relative(root, uri.fsPath).split(path.sep).join("/"));
+      const relative = path.relative(root, uri.fsPath).split(path.sep).join("/");
+      await assertSafeFile(root, relative);
       const document = await vscode.workspace.openTextDocument(uri);
-      if (document.getText().length > 200_000) throw new Error("Repair source is limited to 200,000 characters.");
+      const captureSource = async () => {
+        const before = document.getText(), version = document.version;
+        if (before.length > 200_000) throw new Error("Repair source is limited to 200,000 characters.");
+        if (document.isClosed || document.isDirty) throw new Error("Save the selected source before capturing test evidence.");
+        if (await readRegularText(root, relative, 800_000) !== before) throw new Error("Source disk contents differ from the editor; capture fresh test evidence.");
+        if (document.isClosed || document.isDirty || document.version !== version) throw new Error("Source changed during test evidence capture.");
+        return { before, version };
+      };
+      const validateSource = async (snapshot: { before: string; version: number }) => {
+        const current = await captureSource();
+        if (current.before !== snapshot.before || current.version !== snapshot.version) throw new Error("Source changed around the test run; capture fresh test evidence.");
+      };
       const method = await vscode.window.showQuickPick(["Run Approved Command", "Supply Existing Failure Log"], { title: "Capture test evidence" });
       if (!method) return;
+      let testedSource = await captureSource();
       let output: string;
       let evidence: { exitCode: number | null; status: ProcessResult["status"] | "supplied-log"; truncated: boolean };
       if (method === "Supply Existing Failure Log") {
-        const input = await vscode.window.showInputBox({ title: "Existing failure log", prompt: "Paste failure output (bounded to 100,000 characters). This is supplied evidence, not an observed test run." });
-        if (input === undefined) return;
-        const bounded = boundedFailure(input);
-        output = bounded.output;
-        evidence = { exitCode: null, status: "supplied-log", truncated: bounded.truncated };
+        const logUri = (await vscode.window.showOpenDialog({ title: "Select existing UTF-8 failure log (up to 100,000 bytes; supplied, not observed evidence)", defaultUri: folder, canSelectMany: false, canSelectFiles: true, canSelectFolders: false }))?.[0];
+        if (!logUri) return;
+        requireTrustedFile(logUri);
+        const input = await readRegularText(await realpath(path.dirname(logUri.fsPath)), path.basename(logUri.fsPath), 100_000);
+        if (input === undefined) throw new Error("Failure log no longer exists.");
+        output = input;
+        evidence = { exitCode: null, status: "supplied-log", truncated: false };
       } else {
-        const initial = await runApproved(command, folder.fsPath, sessionId); if (!initial) return;
+        const initial = await runApproved(command, folder.fsPath, sessionId, () => validateSource(testedSource)); if (!initial) return;
         output = initial.stdout.toString("utf8") + initial.stderr.toString("utf8");
         evidence = { exitCode: initial.exitCode, status: initial.status, truncated: initial.status === "output-limit" };
         if (initial.status !== "exited" || initial.exitCode === 0 || noTestsMatched(output)) {
@@ -55,17 +70,19 @@ export function registerTestRepair(context: vscode.ExtensionContext, runtime: Pi
       const attempts = new RepairAttempts(output);
       while (!attempts.stopped) {
         await assertRuntimeTarget(runtime, folder.fsPath, sessionId);
-        const before = document.getText(), version = document.version;
+        await validateSource(testedSource);
+        const { before, version } = testedSource;
         const bounded = boundedFailure(output);
         const snapshot = { repository: folder.fsPath, command, exitCode: evidence.exitCode, status: evidence.status, output: redactRecognizableSecrets(bounded.output), truncated: bounded.truncated || evidence.truncated,
           source: { path: uri.fsPath, hash: digest(before), text: before }, capturedAt: new Date().toISOString(), attemptsRemaining: 2 - attempts.attempts };
         const inspected = await inspectForTransmission(documents, "Test repair context", JSON.stringify(snapshot, null, 2), 400_000);
         if (inspected === undefined) return;
         const validate = () => {
-          if (document.isClosed || document.version !== version) throw new Error("Source changed while inspecting the failure; start a fresh repair.");
+          if (document.isClosed || document.isDirty || document.version !== version) throw new Error("Source changed while inspecting the failure; start a fresh repair.");
           if (runtime.currentState.sessionId !== sessionId) throw new Error("Session changed; start a fresh repair.");
         };
         validate();
+        await validateSource(testedSource);
         await assertRuntimeTarget(runtime, folder.fsPath, sessionId);
         attempts.approve();
         const response = await conversation.sendRequest("Propose one focused fix for the selected source file and failure. Do not execute tests or modify files.", [{ label: "Inspected test failure and source", content: inspected }], {
@@ -107,7 +124,8 @@ export function registerTestRepair(context: vscode.ExtensionContext, runtime: Pi
         if (await vscode.window.showWarningMessage("Save the repaired source and rerun the same approved test command?", { modal: true }, "Save and Rerun") !== "Save and Rerun") return;
         await assertRuntimeTarget(runtime, folder.fsPath, sessionId);
         if (!await document.save()) throw new Error("Source could not be saved; no rerun.");
-        const rerun = await runApproved(command, folder.fsPath, sessionId); if (!rerun) return;
+        testedSource = await captureSource();
+        const rerun = await runApproved(command, folder.fsPath, sessionId, () => validateSource(testedSource)); if (!rerun) return;
         output = rerun.stdout.toString("utf8") + rerun.stderr.toString("utf8");
         evidence = { exitCode: rerun.exitCode, status: rerun.status, truncated: rerun.status === "output-limit" };
         attempts.observe(rerun.exitCode, output, rerun.status);
@@ -116,13 +134,17 @@ export function registerTestRepair(context: vscode.ExtensionContext, runtime: Pi
     } finally { active = false; }
   });
 
-  async function runApproved(command: TestCommand, cwd: string, sessionId: string | undefined): Promise<ProcessResult | undefined> {
+  async function runApproved(command: TestCommand, cwd: string, sessionId: string | undefined, validateSource: () => Promise<void>): Promise<ProcessResult | undefined> {
     await assertRuntimeTarget(runtime, cwd, sessionId);
     const approval = await vscode.window.showWarningMessage(`Run in ${cwd}:\n${JSON.stringify(command)}\nWorkspace code executes with your permissions. 60-second timeout, 256 KiB output limit. ${process.platform === "win32" ? "Windows descendant cleanup cannot be guaranteed." : "Owned process-group cleanup enabled."}`, { modal: true }, "Run Test Command");
     if (approval !== "Run Test Command") return undefined;
     await assertRuntimeTarget(runtime, cwd, sessionId);
     const release = acquireOperation(await realpath(cwd), "test command");
-    try { return await cancellable("Run approved tests", signal => runBoundedProcess(command.executable, command.args, { cwd, signal, timeoutMs: 60_000, maxBytes: 256 * 1024 })); }
-    finally { release(); }
+    try {
+      await validateSource();
+      const result = await cancellable("Run approved tests", signal => runBoundedProcess(command.executable, command.args, { cwd, signal, timeoutMs: 60_000, maxBytes: 256 * 1024 }));
+      await validateSource();
+      return result;
+    } finally { release(); }
   }
 }

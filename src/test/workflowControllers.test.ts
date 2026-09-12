@@ -14,6 +14,7 @@ function ui(root: string) {
   vscode.workspace.workspaceFolders = [folder];
   vscode.workspace.isTrusted = true;
   vscode.workspace.getWorkspaceFolder = () => folder;
+  vscode.workspace.getConfiguration = () => ({ get: (_key: string, fallback: unknown) => fallback });
   vscode.ProgressLocation = { Notification: 1 };
   vscode.EndOfLine = { LF: 1, CRLF: 2 };
   vscode.window.withProgress = async (_options: unknown, run: any) => run({}, { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) });
@@ -165,6 +166,70 @@ test("failed-test repair runs a real failing Node test, applies a previewed fixt
   }
 });
 
+test("test repair rejects dirty sources and buffer/disk changes around observed runs", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "pi-repair-source-"));
+  const fixture = ui(root), source = path.join(root, "source.cjs"), runs = path.join(root, "runs");
+  let text = "module.exports = 0;\n", version = 1, dirty = false, scenario = "";
+  const document = { uri: MockUri.file(source), isClosed: false, get isDirty() { return dirty; }, get version() { return version; }, getText: () => text };
+  vscode.workspace.openTextDocument = async (uri: any) => uri.scheme === "file" ? document : { uri };
+  vscode.window.showOpenDialog = async () => [MockUri.file(source)];
+  vscode.window.showInputBox = async () => JSON.stringify({ executable: process.execPath, args: ["-e", "require('fs').writeFileSync('runs','ran');process.exit(1)"] });
+  vscode.window.showQuickPick = async () => "Run Approved Command";
+  vscode.window.showWarningMessage = async (_message: string, ...args: any[]) => { if (scenario === "approval-edit") { text = "changed"; version++; } return args.find(arg => typeof arg === "string"); };
+  const progress = vscode.window.withProgress;
+  vscode.window.withProgress = async (options: unknown, run: any) => {
+    const result = await progress(options, run);
+    if (scenario === "buffer-edit") { text = "changed"; version++; }
+    if (scenario === "disk-edit") await writeFile(source, "external edit");
+    return result;
+  };
+  let requests = 0;
+  const { registerTestRepair } = require("../testRepairController") as typeof import("../testRepairController");
+  registerTestRepair(fixture.context, fixture.runtime, { sendRequest: async () => { requests++; return "unused"; }, addEditProposal: () => "unused" });
+  try {
+    for (scenario of ["dirty", "approval-edit", "buffer-edit", "disk-edit"]) {
+      text = "module.exports = 0;\n"; version++; dirty = scenario === "dirty";
+      await writeFile(source, text); await rm(runs, { force: true });
+      await vscode.registrations.get("piCodingAgent.repairFailedTest")!();
+      assert.match(fixture.errors.pop() ?? "", /Source|source/);
+      assert.equal(requests, 0, scenario);
+      if (["dirty", "approval-edit"].includes(scenario)) await assert.rejects(readFile(runs), { code: "ENOENT" });
+      else assert.equal(await readFile(runs, "utf8"), "ran");
+    }
+  } finally { fixture.dispose(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("supplied failure log files preserve multiline evidence and reject missing, binary or oversized input", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "pi-repair-log-"));
+  const fixture = ui(root), source = path.join(root, "source.cjs"), log = path.join(root, "failure.log");
+  const text = "module.exports = 0;\n", output = "AssertionError: expected 42\r\n  at test.js:3\r\n\n漢字 context\n";
+  let picks = 0, cancelLog = false, requests = 0;
+  const document = { uri: MockUri.file(source), isClosed: false, isDirty: false, eol: 1, version: 1, getText: () => text };
+  vscode.workspace.openTextDocument = async (uri: any) => uri.scheme === "file" ? document : { uri };
+  vscode.window.showOpenDialog = async () => ++picks % 2 === 1 ? [MockUri.file(source)] : cancelLog ? undefined : [MockUri.file(log)];
+  vscode.window.showInputBox = async () => JSON.stringify({ executable: "/nonexistent/must-not-run", args: [] });
+  vscode.window.showQuickPick = async () => "Supply Existing Failure Log";
+  vscode.window.showWarningMessage = async () => "Send Snapshot";
+  const { registerTestRepair } = require("../testRepairController") as typeof import("../testRepairController");
+  registerTestRepair(fixture.context, fixture.runtime, {
+    sendRequest: async (_request, contexts) => {
+      requests++; const snapshot = JSON.parse(contexts[0]!.content);
+      assert.equal(snapshot.output, output); assert.equal(snapshot.status, "supplied-log"); assert.equal(snapshot.exitCode, null);
+      return `<<<PI_REPLACEMENT_START>>>\n${text}\n<<<PI_REPLACEMENT_END>>>`;
+    }, addEditProposal: () => assert.fail("unchanged response must not propose edits"),
+  });
+  try {
+    await writeFile(source, text); await writeFile(log, output);
+    const command = vscode.registrations.get("piCodingAgent.repairFailedTest")!;
+    await command(); assert.equal(requests, 1); assert.deepEqual(fixture.errors, []);
+    for (const invalid of [Buffer.from([0, 1]), Buffer.alloc(100_001, 65)]) {
+      await writeFile(log, invalid); await command(); assert.equal(requests, 1); assert.match(fixture.errors.pop() ?? "", /Binary|Oversized/);
+    }
+    await rm(log); await command(); assert.match(fixture.errors.pop() ?? "", /no longer exists/);
+    cancelLog = true; await command(); assert.equal(requests, 1); assert.deepEqual(fixture.errors, []);
+  } finally { fixture.dispose(); await rm(root, { recursive: true, force: true }); }
+});
+
 test("debug capture cancellation, unsupported adapters and resume during inspection never submit to Pi", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "pi-debug-controller-"));
   const fixture = ui(root);
@@ -184,6 +249,17 @@ test("debug capture cancellation, unsupported adapters and resume during inspect
     await command(); assert.equal(dap, 0); assert.equal(provider, 0);
     session.type = "unsupported"; await command(); assert.equal(dap, 0); assert.match(fixture.errors.pop() ?? "", /unsupported/);
     session.type = "pwa-node";
+    let expandGetters = true;
+    vscode.workspace.getConfiguration = (section: string, scope: any) => ({ get: (_key: string, fallback: unknown) => {
+      if (section !== "debug.javascript") return fallback;
+      assert.equal(scope, fixture.folder.uri, "resolve settings in the debug session's workspace, not the default root");
+      return expandGetters;
+    } });
+    await command(); assert.equal(dap, 0); assert.match(fixture.errors.pop() ?? "", /getter expansion/);
+    expandGetters = false;
+    vscode.window.showWarningMessage = async () => { expandGetters = true; return "Capture Locally"; };
+    await command(); assert.equal(dap, 0); assert.match(fixture.errors.pop() ?? "", /getter expansion/);
+    expandGetters = false;
     vscode.window.showQuickPick = async () => [];
     vscode.window.showWarningMessage = async (_message: string, ...args: any[]) => {
       const action = args.find(arg => typeof arg === "string");

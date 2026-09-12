@@ -37,16 +37,17 @@ export function registerDebugContext(context: vscode.ExtensionContext, runtime: 
     requireTrustedFile(folder);
     await assertRuntimeTarget(runtime, folder.fsPath);
     const sessionId = runtime.currentState.sessionId;
-    if (session.configuration.customDescriptionGenerator || session.configuration.customPropertiesGenerator
-      || vscode.workspace.getConfiguration("debug.javascript").get<boolean>("autoExpandGetters", false)) {
-      throw new Error("Disable custom debug descriptions/properties and automatic getter expansion before Pi captures variables.");
-    }
     const generation = tracker.token(session.id);
     const check = () => {
+      if (session.configuration.customDescriptionGenerator || session.configuration.customPropertiesGenerator
+        || vscode.workspace.getConfiguration("debug.javascript", folder).get<boolean>("autoExpandGetters", false)) {
+        throw new Error("Disable custom debug descriptions/properties and automatic getter expansion before Pi captures variables.");
+      }
       tracker.assert(session.id, generation);
       const active = vscode.debug.activeStackItem;
       if (!(active instanceof vscode.DebugStackFrame) || active.session.id !== session.id || active.frameId !== selectedFrame.frameId || active.threadId !== selectedFrame.threadId) throw new Error("Selected debug frame changed; discard the capture.");
     };
+    check();
     if (await vscode.window.showWarningMessage("Capture a local snapshot of up to 20 frames and 50 local variables? Node.js adapters may perform adapter-specific inspection work. No evaluate, memory, set-variable or recursive requests will be sent; nothing goes to Pi yet.", { modal: true }, "Capture Locally") !== "Capture Locally") return;
     check();
     const snapshot = await captureDebug({ sessionId: session.id, frameId: selectedFrame.frameId, threadId: selectedFrame.threadId, assertCurrent: check, request: async (command, args) => session.customRequest(command, args) });

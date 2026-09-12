@@ -11,7 +11,9 @@ test("test command validation, log redaction, no-test matches and finite repair 
   for (const value of [{ executable: "sh", args: ["-c", "echo secret"] }, { executable: "node && rm", args: [] }, { executable: "node", args: [null] }]) assert.throws(() => validateTestCommand(value));
   assert.equal(boundedFailure("x".repeat(100001)).truncated, true);
   assert.match(redactRecognizableSecrets("password=supersecretvalue"), /REDACTED/);
-  assert.equal(noTestsMatched("No tests found"), true);
+  for (const summary of ["No tests found", "No tests found, exiting with code 1", "TAP version 13\n1..0\n# tests 0\n# fail 0", "ℹ tests 0", "collected 0 items"]) assert.equal(noTestsMatched(summary), true);
+  for (const diagnostic of ["not ok 1 - handles 0 tests", "AssertionError: expected 0 tests", "# Subtest: No tests found", "Error: No tests found", "# tests 10\n# fail 1"]) assert.equal(noTestsMatched(diagnostic), false);
+  const namedFailure = new RepairAttempts("previous"); namedFailure.approve(); namedFailure.observe(1, "not ok 1 - handles 0 tests\n# tests 1\n# fail 1", "exited"); assert.equal(namedFailure.stopped, undefined);
   const attempts = new RepairAttempts("failure"); attempts.approve(); attempts.observe(1, "failure", "exited"); assert.equal(attempts.stopped, "Unchanged failure");
   assert.throws(() => attempts.approve());
   const exhausted = new RepairAttempts("a"); exhausted.approve(); exhausted.observe(1, "b", "exited"); exhausted.approve(); exhausted.observe(1, "c", "exited"); assert.match(exhausted.stopped ?? "", /exhausted/);

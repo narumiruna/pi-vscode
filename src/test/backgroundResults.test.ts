@@ -66,6 +66,36 @@ test("partial I/O failure reports exact progress and source remains recoverable"
   assert.deepEqual((await importBackgroundResult(recovered, ["a", "b"], options)).skipped, ["a"]);
 }));
 
+test("Git index modes preserve executable content changes when filesystem modes are not authoritative", async () => fixture(async (root, task, origin, git) => {
+  await writeFile(path.join(root, "executable"), "base\n");
+  git(root, "add", "executable"); git(root, "update-index", "--chmod=+x", "executable"); git(root, "commit", "-qm", "executable base");
+  const recorded = { ...origin, baseCommit: git(root, "rev-parse", "HEAD") };
+  git(task, "reset", "--hard", recorded.baseCommit);
+  git(task, "config", "core.filemode", "false");
+  await chmod(path.join(task, "executable"), 0o644);
+  await writeFile(path.join(task, "executable"), "changed\n");
+  const snapshot = await captureBackgroundResult(task, recorded);
+  assert.equal(snapshot.files.find(file => file.path === "executable")?.after, "changed\n");
+  assert.deepEqual((await importBackgroundResult(snapshot, ["executable"], options)).applied, ["executable"]);
+  git(task, "update-index", "--chmod=-x", "executable");
+  assert.match((await captureBackgroundResult(task, recorded)).files.find(file => file.path === "executable")?.skipped ?? "", /Executable-bit/);
+  await writeFile(path.join(task, "new-executable"), "new\n");
+  git(task, "add", "new-executable"); git(task, "update-index", "--chmod=+x", "new-executable");
+  assert.match((await captureBackgroundResult(task, recorded)).files.find(file => file.path === "new-executable")?.skipped ?? "", /Executable-bit/);
+}));
+
+test("a skipped oversized candidate does not consume the budget for later fitting files", async () => fixture(async (root, task, origin, git) => {
+  for (const [name, size] of [["a", 90_000], ["b", 90_000], ["c", 30_000], ["d", 10]] as const) await writeFile(path.join(root, name), "a".repeat(size));
+  git(root, "add", "a", "b", "c", "d"); git(root, "commit", "-qm", "bounded base");
+  const recorded = { ...origin, baseCommit: git(root, "rev-parse", "HEAD") };
+  git(task, "reset", "--hard", recorded.baseCommit);
+  for (const [name, size] of [["a", 90_000], ["b", 90_000], ["c", 30_000], ["d", 10]] as const) await writeFile(path.join(task, name), "b".repeat(size));
+  const snapshot = await captureBackgroundResult(task, recorded);
+  assert.match(snapshot.files.find(file => file.path === "c")?.skipped ?? "", /Total snapshot limit/);
+  assert.equal(snapshot.files.find(file => file.path === "d")?.after, "b".repeat(10));
+  assert.equal(snapshot.files.reduce((sum, file) => sum + Buffer.byteLength(file.before ?? "") + Buffer.byteLength(file.after ?? ""), 0), 360_020);
+}));
+
 test("observed Git reads never execute configured filters/fsmonitor or inherited external diff helpers", async () => fixture(async (root, task, origin, git) => {
   const helper = path.join(root, "helper.cjs"), marker = path.join(root, "helper-ran");
   await writeFile(helper, `require('fs').writeFileSync(${JSON.stringify(marker)},'unsafe helper');process.stdout.write('rewritten');`);

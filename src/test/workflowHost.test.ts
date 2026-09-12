@@ -73,6 +73,48 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
     await failed;
     assert.equal(runtime.currentState.connected, false);
     assert.equal(calls.filter(call => call === "prompt").length, 3, "no automatic replay");
+    const resetQueue = () => {
+      client.isRunning = true; internal.client = client;
+      queued = { steering: ["same"], followUp: ["distinct"] };
+      internal.updateState({ connected: true, busy: true, queueable: true, queue: queued,
+        recoveredDrafts: Array.from({ length: 17 }, (_, index) => ({ id: String(index), text: `old-${index}`, uncertain: false })) });
+    };
+    const recovered = () => runtime.currentState.recoveredDrafts?.map(draft => draft.text);
+    const old = Array.from({ length: 17 }, (_, index) => `old-${index}`);
+    resetQueue();
+    client.steer = async (text: string) => { queued = { ...queued, steering: [...queued.steering, text] }; internal.handleEvent({ type: "queue_update", ...queued }); throw new Error("Malformed acknowledgement"); };
+    await assert.rejects(runtime.queueInstruction("steer", "same"), /uncertain/);
+    assert.deepEqual(recovered(), [...old, "same", "same", "distinct"], "intentional duplicates survive without recovering the failed command twice or evicting old drafts");
+    resetQueue();
+    client.steer = async () => { throw new Error("No acknowledgement or queue event"); };
+    await assert.rejects(runtime.queueInstruction("steer", "new"), /uncertain/);
+    assert.deepEqual(recovered(), [...old, "same", "distinct", "new"]);
+    for (const operation of [() => runtime.clearInstructions(), () => runtime.abort()]) {
+      resetQueue();
+      await assert.rejects(operation(), /disconnected/i);
+      assert.deepEqual(recovered(), [...old, "same", "distinct"], "only process_exit recovers an uncleared queue");
+    }
+    resetQueue();
+    client.clearQueue = async () => { const result = queued; queued = { steering: [], followUp: [] }; internal.handleEvent({ type: "queue_update", ...queued }); return result; };
+    client.abort = async () => { throw new Error("Abort failed after clear"); };
+    await assert.rejects(runtime.abort(), /disconnected/i);
+    assert.deepEqual(recovered(), [...old, "same", "distinct"]);
+    assert.ok(runtime.currentState.recoveredDrafts?.every(draft => !draft.uncertain), "a verified clear remains delivery evidence even if abort fails");
+    resetQueue();
+    client.steer = async (text: string) => {
+      queued = { ...queued, steering: [...queued.steering, text] }; internal.handleEvent({ type: "queue_update", ...queued });
+      queued = { steering: [], followUp: queued.followUp }; internal.handleEvent({ type: "queue_update", ...queued });
+      throw new Error("Malformed acknowledgement after consumption");
+    };
+    await assert.rejects(runtime.queueInstruction("steer", "new"), /uncertain/);
+    assert.deepEqual(recovered(), [...old, "distinct", "new"]);
+    resetQueue();
+    let rejectQueue!: (reason: Error) => void;
+    client.steer = () => new Promise((_resolve, reject) => { rejectQueue = reject; });
+    const interrupted = assert.rejects(runtime.queueInstruction("steer", "new"), /uncertain/);
+    await assert.rejects(runtime.abort(), /ambiguous queue/);
+    rejectQueue(new Error("Process exited")); await interrupted;
+    assert.deepEqual(recovered(), [...old, "same", "distinct", "new"], "abort and the later queue rejection share one recovery owner");
   } finally { runtime.dispose(); vscode.restore(); }
 });
 

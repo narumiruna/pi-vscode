@@ -64,6 +64,16 @@ export async function captureBackgroundResult(sourceRoot: string, origin: TaskOr
   }
   const changed = gitText(await git(source.root, ["diff", "--name-only", "-z", "--no-renames", "--no-ext-diff", "--no-textconv", origin.baseCommit, "--"], signal)).split("\0");
   const untracked = gitText(await git(source.root, ["ls-files", "--others", "--exclude-standard", "-z"], signal)).split("\0");
+  // Git's index is authoritative when the filesystem cannot represent executable bits.
+  const trustFileMode = process.platform !== "win32" && (await git(source.root, ["config", "--type=bool", "--default=true", "--get", "core.filemode"], signal)).toString().trim() === "true";
+  const indexModes = new Map<string, string>();
+  if (!trustFileMode) {
+    for (const record of gitText(await git(source.root, ["ls-files", "--stage", "-z"], signal)).split("\0").filter(Boolean)) {
+      const match = /^(\d+) [a-f0-9]+ ([0-3])\t([\s\S]+)$/.exec(record);
+      if (!match) throw new Error("Invalid task index record.");
+      indexModes.set(match[3]!, match[2] === "0" ? match[1]! : "unmerged");
+    }
+  }
   const files: ResultFile[] = [];
   let bytes = 0;
   for (const name of [...new Set([...changed, ...untracked].filter(Boolean))].sort()) {
@@ -80,12 +90,17 @@ export async function captureBackgroundResult(sourceRoot: string, origin: TaskOr
       }
       const after = await readRegularText(source.root, name);
       if (after !== undefined) {
-        const executable = ((await lstat(await assertSafeFile(source.root, name))).mode & 0o111) !== 0;
-        if (executable !== (entry?.mode === "100755")) throw new Error("Executable-bit changes/additions are unsupported; use Source Control.");
+        const mode = trustFileMode
+          ? ((await lstat(await assertSafeFile(source.root, name))).mode & 0o111) !== 0 ? "100755" : "100644"
+          : indexModes.get(name) ?? "100644";
+        if (mode !== (entry?.mode ?? "100644")) throw new Error("Executable-bit changes/additions or unsupported index modes require Source Control.");
       }
-      bytes += Buffer.byteLength(before ?? "") + Buffer.byteLength(after ?? "");
-      if (bytes > 400_000) throw new Error("Total snapshot limit.");
-      if (before !== after) files.push({ path: name, before, after });
+      if (before !== after) {
+        const candidateBytes = Buffer.byteLength(before ?? "") + Buffer.byteLength(after ?? "");
+        if (bytes + candidateBytes > 400_000) throw new Error("Total snapshot limit.");
+        files.push({ path: name, before, after });
+        bytes += candidateBytes;
+      }
     } catch (error) {
       if (signal?.aborted) throw error;
       files.push({ path: name, skipped: error instanceof Error ? error.message : "Unavailable" });

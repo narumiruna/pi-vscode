@@ -207,6 +207,20 @@ test("sidebar updates only current welcome buttons across locks and message rend
   assertLocked(false);
 });
 
+test("isolated background sessions offer Open Worktree instead of an unusable Resume", () => {
+  const sidebar = createSidebarScriptHarness();
+  const actions = (task: Record<string, unknown>) => {
+    sidebar.run(`renderBackground([${JSON.stringify({ id: "task", title: "Task", status: "completed", sessionFile: "/session.jsonl", ...task })}])`);
+    return sidebar.element("background").children[0]!.children.at(-1)!.children.map(button => button.dataset.action);
+  };
+  assert.ok(actions({}).includes("resumeBackground"));
+  const isolated = actions({ worktreePath: "/worktree", origin: {} });
+  assert.ok(isolated.includes("openWorktree")); assert.equal(isolated.includes("resumeBackground"), false);
+  assert.equal(actions({ worktreePath: "/legacy-worktree" }).includes("resumeBackground"), false);
+  assert.equal(actions({ origin: {} }).includes("resumeBackground"), false, "cleanup does not make an isolated session resumable here");
+  assert.equal(actions({ status: "running" }).includes("resumeBackground"), false);
+});
+
 test("queue and accepted-send messages preserve newer drafts and never create transcript copies", () => {
   const sidebar = createSidebarScriptHarness();
   const input = sidebar.element("input");
