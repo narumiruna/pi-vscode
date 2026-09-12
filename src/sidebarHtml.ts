@@ -56,7 +56,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
     .header { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 10px 0 8px; }
     .header select, .header button { min-width: 0; white-space: nowrap; }
-    #mode { max-width: 94px; color: var(--vscode-foreground); background: var(--vscode-input-background); border-color: var(--vscode-input-border, var(--pi-border)); }
+    #mode, #thinking-level { color: var(--vscode-foreground); background: var(--vscode-input-background); border-color: var(--vscode-input-border, var(--pi-border)); }
+    #mode { max-width: 94px; }
+    #thinking-level { max-width: 104px; }
     #model-picker { flex: 1; justify-content: flex-start; color: var(--vscode-descriptionForeground); }
     #model-label { overflow: hidden; text-overflow: ellipsis; }
     #model-picker .icon { width: 12px; height: 12px; }
@@ -157,6 +159,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     <header class="header" aria-label="Pi conversation controls">
       <select id="mode" aria-label="Pi mode" title="Choose how Pi may work"><option value="ask">Ask</option><option value="edit">Edit</option><option value="plan">Plan</option><option value="agent">Agent</option></select>
       <button id="model-picker" class="secondary" type="button" aria-label="Change Pi model"><span id="model-label">Choose model…</span>${icon("chevron")}</button>
+      <label for="thinking-level" class="sr-only">Pi thinking level</label>
+      <select id="thinking-level" aria-label="Pi thinking level" title="Pi thinking level"><option value="">Thinking: —</option></select>
       <button id="new-session" class="secondary icon-button" type="button" title="New conversation" aria-label="New Pi conversation">${icon("plus")}</button>
       <button id="delete-session" class="secondary danger icon-button" type="button" title="Delete conversation" aria-label="Delete current Pi conversation" hidden>${icon("trash")}</button>
       <button id="more" class="secondary icon-button" type="button" title="More… · Session and advanced actions" aria-label="More Pi actions">${icon("more")}</button>
@@ -211,6 +215,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     const cancelButton = $('cancel');
     const notice = $('notice');
     const mode = $('mode');
+    const thinkingLevel = $('thinking-level');
     let busy = false;
     let queueable = false;
     let connected = false;
@@ -222,6 +227,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let backgroundSubmissionPending = false;
     let composerRevision = 0;
     let updatingControls = false;
+    let thinkingSelectable = false;
 
     function submit() {
       const text = input.value.trim();
@@ -447,12 +453,47 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       input.style.height = input.scrollHeight + 'px';
     }
 
+    function formatThinkingLevel(level) {
+      if (level === 'xhigh') return 'X-high';
+      return level.charAt(0).toUpperCase() + level.slice(1);
+    }
+
+    function renderThinkingLevel(runtime) {
+      const available = Array.isArray(runtime.availableThinkingLevels)
+        ? runtime.availableThinkingLevels.filter(level => typeof level === 'string')
+        : [];
+      const current = typeof runtime.thinkingLevel === 'string' ? runtime.thinkingLevel : '';
+      const levels = current && !available.includes(current) ? [current, ...available] : available;
+      const signature = levels.join('|');
+      if (thinkingLevel.dataset.levels !== signature) {
+        thinkingLevel.replaceChildren();
+        if (levels.length === 0) {
+          const option = document.createElement('option');
+          option.value = '';
+          option.textContent = 'Thinking: —';
+          thinkingLevel.appendChild(option);
+        } else {
+          for (const level of levels) {
+            const option = document.createElement('option');
+            option.value = level;
+            option.textContent = 'Thinking: ' + formatThinkingLevel(level);
+            thinkingLevel.appendChild(option);
+          }
+        }
+        thinkingLevel.dataset.levels = signature;
+      }
+      thinkingSelectable = levels.length > 1;
+      thinkingLevel.value = current || levels[0] || '';
+      thinkingLevel.title = current ? 'Pi thinking level: ' + formatThinkingLevel(current) : 'Pi thinking level unavailable';
+    }
+
     function updateSendState() {
       const imageBlocked = attachedImages && !imageSupported;
       const imageLoading = pendingImageReads > 0;
       const interactionLocked = busy || submissionPending || backgroundSubmissionPending || imageLoading;
       mode.disabled = interactionLocked;
       $('model-picker').disabled = interactionLocked || !connected;
+      thinkingLevel.disabled = interactionLocked || !connected || !thinkingSelectable;
       $('new-session').disabled = interactionLocked;
       $('delete-session').disabled = interactionLocked || !connected || !deletableSession;
       $('handoff-agent').disabled = interactionLocked || !connected;
@@ -501,7 +542,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('activity').hidden = ![state.proposals, state.tools, state.changes, state.backgroundTasks].some(items => items && items.length);
       updatingControls = true;
       mode.value = state.runtime.mode;
+      renderThinkingLevel(state.runtime);
       mode.disabled = busy;
+      thinkingLevel.disabled = busy || !connected || !thinkingSelectable;
       updatingControls = false;
       const currentModel = state.runtime.model || {};
       $('model-label').textContent = currentModel.name || currentModel.id || 'Choose model…';
@@ -632,6 +675,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     $('more').addEventListener('click', () => vscode.postMessage({ type: 'showMoreActions', text: input.value, revision: composerRevision }));
     $('source-control').addEventListener('click', () => vscode.postMessage({ type: 'openSourceControl' }));
     mode.addEventListener('change', () => { if (!updatingControls) vscode.postMessage({ type: 'setMode', mode: mode.value }); });
+    thinkingLevel.addEventListener('change', () => { if (!updatingControls) vscode.postMessage({ type: 'setThinking', level: thinkingLevel.value }); });
     input.addEventListener('input', () => { composerRevision += 1; resizeInput(); updateSendState(); });
     window.addEventListener('resize', resizeInput);
     input.addEventListener('paste', attachPastedImages);

@@ -23,6 +23,9 @@ test("sidebar keeps primary controls compact and exposes recovery and proposal a
   const html = getSidebarHtml(100_000, 5 * 1024 * 1024);
 
   assert.match(html, /id="model-picker"/);
+  assert.match(html, /id="thinking-level"[^>]*aria-label="Pi thinking level"/);
+  assert.match(html, /renderThinkingLevel\(state\.runtime\)/);
+  assert.match(html, /type: 'setThinking', level: thinkingLevel\.value/);
   assert.match(html, /id="delete-session"[^>]*aria-label="Delete current Pi conversation"[^>]*hidden>/);
   assert.match(html, /delete-session'\)\.hidden = !deletableSession/);
   assert.match(html, /type: 'deleteSession'/);
@@ -111,6 +114,8 @@ class SidebarTestElement {
   classList = { toggle() {} };
   style = {};
   value = "";
+  textContent = "";
+  title = "";
   disabled = false;
   scrollHeight = 100;
   scrollTop = 0;
@@ -152,6 +157,44 @@ function createSidebarScriptHarness() {
     welcomeButtons: () => element("messages").children[0].children[0].children,
   };
 }
+
+test("sidebar displays and changes the current thinking level", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({
+    type: "state",
+    runtime: {
+      busy: false,
+      connected: true,
+      mode: "ask",
+      thinkingLevel: "high",
+      availableThinkingLevels: ["off", "low", "high"],
+    },
+  });
+
+  const picker = sidebar.element("thinking-level");
+  assert.equal(picker.value, "high");
+  assert.equal(picker.title, "Pi thinking level: High");
+  assert.equal(picker.disabled, false);
+  assert.deepEqual(picker.children.map(option => option.textContent), ["Thinking: Off", "Thinking: Low", "Thinking: High"]);
+
+  picker.value = "low";
+  picker.listeners.get("change")!();
+  assert.equal(sidebar.posted.at(-1).type, "setThinking");
+  assert.equal(sidebar.posted.at(-1).level, "low");
+
+  sidebar.receive({
+    type: "state",
+    runtime: {
+      busy: false,
+      connected: true,
+      mode: "ask",
+      thinkingLevel: "off",
+      availableThinkingLevels: ["off"],
+    },
+  });
+  assert.equal(picker.value, "off");
+  assert.equal(picker.disabled, true);
+});
 
 test("sidebar keystrokes do not search populated conversation descendants", () => {
   const sidebar = createSidebarScriptHarness();

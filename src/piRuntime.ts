@@ -302,7 +302,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       if (this.state.busy) throw new Error("Wait for Pi before changing the model.");
       await this.ensureStarted(this.resource);
       await this.requireClient().setModel(provider, modelId);
-      await this.refreshState(false);
+      await this.refreshState(true);
     });
   }
 

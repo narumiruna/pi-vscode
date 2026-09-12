@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Show the active Pi thinking level in the Chat header and allow direct changes between model-supported levels.
 - Add confirmed read-only staged Git review with immutable finding navigation, stale-index detection, and explicit skipped-file coverage.
 - Add deterministic hunk selection, revision-bound Preview, and single-Apply partial proposals without applying the remainder.
 - Record isolated-task origin/base metadata; preview actual committed, uncommitted and untracked results and import selected text files with stale/dirty/path gates and recoverable partial reports.
