@@ -1,6 +1,10 @@
 import path from "node:path";
+import { realpath } from "node:fs/promises";
 import * as vscode from "vscode";
-import { ConversationResponseCapture } from "./conversationController";
+import { ConversationResponseCapture, ExclusiveOperationGate } from "./conversationController";
+import { randomUUID } from "node:crypto";
+import { assertSessionWorkspace } from "./sessionIdentity";
+import { parseRpcQueue, type PiRpcQueue } from "./piRpcClient";
 import { PiRpcClient, type PiRpcClientOptions, type PiRpcEvent, type PiRpcImage } from "./piRpcClient";
 import { getRuntimeProfile, normalizeMode, type PiAgentMode } from "./runtimeProfiles";
 import { readPiInvocationOptions } from "./vscodePi";
@@ -26,6 +30,9 @@ export interface PiRuntimeState {
   readonly availableThinkingLevels: readonly string[];
   readonly commands: readonly Record<string, unknown>[];
   readonly stats?: Record<string, unknown>;
+  readonly queue?: PiRpcQueue;
+  readonly queueable?: boolean;
+  readonly recoveredDrafts?: readonly { id: string; text: string; uncertain: boolean }[];
 }
 
 export class PiRuntimeManager implements vscode.Disposable {
@@ -38,6 +45,12 @@ export class PiRuntimeManager implements vscode.Disposable {
   private resource: vscode.Uri | undefined;
   private mode: PiAgentMode;
   private state: PiRuntimeState;
+  private readonly queueGate = new ExclusiveOperationGate("Wait for the current queue operation.");
+  private readonly ownership = new ExclusiveOperationGate("Wait for the current Pi request or session operation.");
+  private refreshRevision = 0;
+  private queueStopping = false;
+  private promptActive = false;
+  private queueRevision = 0;
 
   public readonly onEvent = this.eventEmitter.event;
   public readonly onDidChangeState = this.stateEmitter.event;
@@ -51,7 +64,14 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   public get currentState(): PiRuntimeState {
-    return this.state;
+    return { ...this.state, busy: this.state.busy || this.ownership.isPending };
+  }
+
+  private async owned<T>(action: () => Promise<T>): Promise<T> {
+    const release = this.ownership.acquire();
+    this.stateEmitter.fire(this.currentState);
+    try { return await action(); }
+    finally { release(); this.stateEmitter.fire(this.currentState); }
   }
 
   public get currentCwd(): string {
@@ -77,6 +97,10 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   public async ensureStarted(resource?: vscode.Uri): Promise<void> {
+    if (!vscode.workspace.isTrusted) throw new Error("Pi requires a trusted workspace.");
+    if (resource && !["file", "untitled"].includes(resource.scheme)) throw new Error("Pi requires file-backed resources (or an untitled editor in a file-backed workspace).");
+    const folder = resource ? vscode.workspace.getWorkspaceFolder(resource) : vscode.workspace.workspaceFolders?.[0];
+    if (folder && folder.uri.scheme !== "file") throw new Error("Pi does not support virtual workspaces.");
     if (this.client?.isRunning) {
       return;
     }
@@ -98,8 +122,15 @@ export class PiRuntimeManager implements vscode.Disposable {
     images?: readonly PiRpcImage[],
     onAccepted?: () => void,
     beforeSubmit?: () => void,
+    allowQueue = false,
   ): Promise<string | undefined> {
+    return this.owned(async () => {
     await this.ensureStarted(resource);
+    if (resource) {
+      if (!["file", "untitled"].includes(resource.scheme)) throw new Error("Pi requests require file-backed resources.");
+      const target = readPiInvocationOptions(resource).cwd;
+      if (await realpath(target) !== await realpath(this.currentCwd)) throw new Error("The target workspace differs from Pi's active working directory. Switch workspace/session explicitly.");
+    }
     const client = this.requireClient();
     if (this.state.busy) {
       throw new Error("Pi is already working. Send a steering message or cancel the active request first.");
@@ -107,45 +138,110 @@ export class PiRuntimeManager implements vscode.Disposable {
     beforeSubmit?.();
 
     const settled = this.createSettledWaiter();
-    this.updateState({ busy: true });
+    void settled.promise.catch(() => undefined);
+    this.promptActive = true;
+    this.updateState({ busy: true, queueable: allowQueue, queue: { steering: [], followUp: [] } });
     try {
       await client.prompt(message, images);
       onAccepted?.();
       return await settled.promise;
     } catch (error) {
+      this.promptActive = false;
+      await client.stop();
       this.updateState({ busy: false });
       throw error;
     } finally {
+      this.promptActive = false;
+      this.updateState({ queueable: false });
       settled.dispose();
     }
+    });
+  }
+
+  public async queueInstruction(kind: "steer" | "followUp", text: string): Promise<void> {
+    if (!this.state.busy || !this.state.queueable || this.queueStopping || text.trimStart().startsWith("/")) throw new Error("Only an active ordinary composer request accepts plain-text queued instructions.");
+    const release = this.queueGate.acquire();
+    try {
+      const queue = this.state.queue ?? { steering: [], followUp: [] };
+      parseRpcQueue({ steering: [...queue.steering, text], followUp: queue.followUp });
+      const client = this.requireClient();
+      const revision = this.queueRevision;
+      try {
+        await client[kind](text);
+        if (!this.state.busy || !this.state.queueable || this.queueRevision === revision) throw new Error("Pi settled during acceptance or did not report queue_update; delivery is uncertain.");
+      }
+      catch (error) {
+        this.recoverQueue([text], true);
+        await client.stop();
+        throw new Error(`Queue acceptance is uncertain or unsupported. Pi disconnected; do not blindly resend. ${formatError(error)}`);
+      }
+    } finally { release(); }
+  }
+
+  public async clearInstructions(): Promise<void> {
+    if (!this.state.queueable) throw new Error("This request does not own a composer queue.");
+    const release = this.queueGate.acquire();
+    this.queueStopping = true;
+    try {
+      const client = this.requireClient();
+      try { const cleared = await client.clearQueue(); this.recoverQueue([...cleared.steering, ...cleared.followUp], false); this.updateState({ queue: { steering: [], followUp: [] } }); }
+      catch (error) { this.recoverQueue([...(this.state.queue?.steering ?? []), ...(this.state.queue?.followUp ?? [])], true); await client.stop(); throw new Error(`Queue clearing unsupported/uncertain; disconnected without replay. ${formatError(error)}`); }
+    } finally { release(); this.queueStopping = false; }
+  }
+
+  private recoverQueue(texts: readonly string[], uncertain: boolean): void {
+    this.updateState({ recoveredDrafts: [...(this.state.recoveredDrafts ?? []), ...texts.map(text => ({ id: randomUUID(), text, uncertain }))].slice(-20) });
   }
 
   public async abort(): Promise<void> {
-    await this.client?.abort();
+    const client = this.client; if (!client) return;
+    if (this.queueGate.isPending) {
+      this.recoverQueue([...(this.state.queue?.steering ?? []), ...(this.state.queue?.followUp ?? [])], true);
+      await client.stop();
+      throw new Error("Pi disconnected during an ambiguous queue operation. Check recovered drafts; no automatic replay.");
+    }
+    this.queueStopping = true;
+    const release = this.queueGate.acquire();
+    try {
+      const cleared = await client.clearQueue();
+      this.recoverQueue([...cleared.steering, ...cleared.followUp], false);
+      this.updateState({ queue: { steering: [], followUp: [] } });
+      await client.abort();
+    } catch (error) {
+      this.recoverQueue([...(this.state.queue?.steering ?? []), ...(this.state.queue?.followUp ?? [])], true);
+      await client.stop();
+      throw new Error(`Could not guarantee clear-queue before abort. Pi disconnected; pending delivery is uncertain. ${formatError(error)}`);
+    } finally { release(); this.queueStopping = false; }
   }
 
   public async setMode(mode: PiAgentMode): Promise<void> {
     if (mode === this.mode) {
       return;
     }
-    if (this.state.busy) {
-      await this.abort();
-    }
+    if (this.state.busy) throw new Error("Stop or wait for Pi before switching mode; queued work cannot cross modes.");
+    return this.owned(async () => {
     await this.stopClient();
     this.mode = mode;
     await this.context.workspaceState.update(modeKey, mode);
-    this.state = emptyState(mode);
+    this.state = { ...emptyState(mode), recoveredDrafts: this.state.recoveredDrafts };
     this.stateEmitter.fire(this.state);
     await this.ensureStarted(this.resource);
+    });
   }
 
   public async newSession(): Promise<void> {
+    return this.owned(async () => {
     await this.ensureStarted(this.resource);
-    await this.requireClient().newSession();
+    if (this.state.busy) throw new Error("Stop or wait for Pi before starting a session.");
+    const result = await this.requireClient().newSession();
+    if (isRecord(result) && result.cancelled) throw new Error("Pi cancelled the session switch.");
+    this.updateState({ queue: { steering: [], followUp: [] }, queueable: false });
     await this.refreshState(true);
+    });
   }
 
   public async deleteSession(): Promise<void> {
+    return this.owned(async () => {
     await this.ensureStarted(this.resource);
     if (this.state.busy) {
       throw new Error("Cancel or wait for the active request before deleting the conversation.");
@@ -164,6 +260,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     this.state = emptyState(this.mode);
     this.stateEmitter.fire(this.state);
     await this.ensureStarted(this.resource);
+    });
   }
 
   public async setSessionName(name: string): Promise<void> {
@@ -173,32 +270,48 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   public async switchSession(sessionPath: string): Promise<void> {
+    return this.owned(async () => {
+    if (this.state.busy) throw new Error("Stop or wait for Pi before switching session.");
     await this.ensureStarted(this.resource);
-    await this.requireClient().switchSession(sessionPath);
+    await assertSessionWorkspace(sessionPath, this.currentCwd);
+    const result = await this.requireClient().switchSession(sessionPath);
+    if (isRecord(result) && result.cancelled) throw new Error("Pi cancelled the session switch.");
+    this.updateState({ queue: { steering: [], followUp: [] }, queueable: false });
     await this.refreshState(true);
+    });
   }
 
   public async compact(customInstructions?: string): Promise<void> {
-    await this.ensureStarted(this.resource);
-    this.updateState({ busy: true });
-    try {
-      await this.requireClient().compact(customInstructions);
-      await this.refreshState(false);
-    } finally {
-      this.updateState({ busy: false });
-    }
+    return this.owned(async () => {
+      if (this.state.busy) throw new Error("Wait for Pi before compacting the session.");
+      await this.ensureStarted(this.resource);
+      this.updateState({ busy: true });
+      try {
+        await this.requireClient().compact(customInstructions);
+        await this.refreshState(false);
+      } finally {
+        // Compaction statistics do not prove the provider's remaining context usage.
+        this.updateState({ busy: false, stats: undefined });
+      }
+    });
   }
 
   public async setModel(provider: string, modelId: string): Promise<void> {
-    await this.ensureStarted(this.resource);
-    await this.requireClient().setModel(provider, modelId);
-    await this.refreshState(false);
+    return this.owned(async () => {
+      if (this.state.busy) throw new Error("Wait for Pi before changing the model.");
+      await this.ensureStarted(this.resource);
+      await this.requireClient().setModel(provider, modelId);
+      await this.refreshState(false);
+    });
   }
 
   public async setThinkingLevel(level: string): Promise<void> {
-    await this.ensureStarted(this.resource);
-    await this.requireClient().setThinkingLevel(level);
-    await this.refreshState(false);
+    return this.owned(async () => {
+      if (this.state.busy) throw new Error("Wait for Pi before changing thinking level.");
+      await this.ensureStarted(this.resource);
+      await this.requireClient().setThinkingLevel(level);
+      await this.refreshState(false);
+    });
   }
 
   public async getMessages(): Promise<unknown[]> {
@@ -262,6 +375,7 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   private async createAndStartClient(sessionPath: string | undefined): Promise<void> {
+    if (sessionPath) await assertSessionWorkspace(sessionPath, this.currentCwd);
     const bridgeEnvironment = await this.bridge.start();
     const options = this.buildClientOptions(sessionPath, bridgeEnvironment);
     const client = new PiRpcClient(options);
@@ -307,6 +421,7 @@ export class PiRuntimeManager implements vscode.Disposable {
 
   private async refreshState(includeCatalogs: boolean): Promise<void> {
     const client = this.requireClient();
+    const revision = ++this.refreshRevision;
     const [rpcState, stats, models, thinkingLevels, commands] = await Promise.all([
       client.getState(),
       client.getSessionStats().catch(() => undefined),
@@ -316,13 +431,15 @@ export class PiRuntimeManager implements vscode.Disposable {
         : Promise.resolve(this.state.availableThinkingLevels),
       includeCatalogs ? client.getCommands().catch(() => []) : Promise.resolve(this.state.commands),
     ]);
+    if (revision !== this.refreshRevision || this.client !== client) return;
     const sessionFile = stringField(rpcState, "sessionFile");
     if (sessionFile) {
       await this.context.workspaceState.update(sessionPathKey, sessionFile);
     }
+    if (revision !== this.refreshRevision || this.client !== client) return;
     this.state = {
       connected: true,
-      busy: Boolean(rpcState.isStreaming),
+      busy: this.promptActive || Boolean(rpcState.isStreaming),
       mode: this.mode,
       model: recordField(rpcState, "model"),
       thinkingLevel: stringField(rpcState, "thinkingLevel"),
@@ -333,24 +450,39 @@ export class PiRuntimeManager implements vscode.Disposable {
       availableThinkingLevels: thinkingLevels,
       commands: commands.filter(isRecord),
       stats,
+      queue: this.state.queue,
+      queueable: this.state.queueable,
+      recoveredDrafts: this.state.recoveredDrafts,
     };
     this.stateEmitter.fire(this.state);
   }
 
   private handleEvent(event: PiRpcEvent): void {
     this.eventEmitter.fire(event);
-    if (event.type === "agent_start") {
+    if (event.type === "queue_update") {
+      const queue = parseRpcQueue(event);
+      this.queueRevision++;
+      this.updateState({ queue });
+      if (this.queueStopping && (queue.steering.length || queue.followUp.length)) {
+        this.recoverQueue([...queue.steering, ...queue.followUp], true);
+        void this.client?.stop();
+        this.eventEmitter.fire({ type: "runtime_warning", message: "Queue changed during cancellation; disconnected to prevent hidden continuation." });
+      }
+    } else if (event.type === "agent_start") {
       this.updateState({ busy: true });
     } else if (event.type === "agent_settled") {
-      this.updateState({ busy: false });
+      this.promptActive = false;
+      this.updateState({ busy: false, queueable: false });
       void this.refreshState(false).catch(error => {
         this.eventEmitter.fire({ type: "runtime_warning", message: formatError(error) });
       });
     } else if (event.type === "process_exit") {
+      this.promptActive = false;
       this.clientSubscription?.dispose();
       this.clientSubscription = undefined;
       this.client = undefined;
-      this.updateState({ connected: false, busy: false });
+      this.recoverQueue([...(this.state.queue?.steering ?? []), ...(this.state.queue?.followUp ?? [])], true);
+      this.updateState({ connected: false, busy: false, queueable: false, queue: { steering: [], followUp: [] } });
     }
   }
 

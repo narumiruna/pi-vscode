@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { realpath } from "node:fs/promises";
+import { acquireOperation } from "./operationLocks";
+import { WorkflowDocuments } from "./workflowUi";
 import { homedir } from "node:os";
 import path from "node:path";
 import * as vscode from "vscode";
@@ -169,6 +172,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       disposable.dispose();
     }
     this.proposals.clear();
+    this.attachments.dispose();
   }
 
   public async sendRequest(
@@ -186,6 +190,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       options.policy,
       "editor",
       options.onResponse,
+      undefined,
+      options.validate,
     );
   }
 
@@ -225,8 +231,27 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           this.postState();
           break;
         case "send":
-          await this.send(message.text);
+          await this.send(message.text, message.revision);
           break;
+        case "queueInstruction":
+          await this.runtime.queueInstruction(message.kind, message.text);
+          this.postMessage({ type: "clearInput", expectedText: message.text, expectedRevision: message.revision });
+          break;
+        case "clearQueue":
+          await this.runtime.clearInstructions();
+          break;
+        case "inspectQueue": {
+          const documents = new WorkflowDocuments();
+          const state = this.runtime.currentState;
+          try { await documents.inspect("Pi pending queue snapshot", `Session ${state.sessionId ?? "unknown"}; mode ${state.mode}; captured ${new Date().toISOString()}. Pending state can change while inspecting; not delivery evidence.\n\n${JSON.stringify(state.queue ?? { steering: [], followUp: [] }, null, 2)}`); }
+          finally { documents.dispose(); }
+          break;
+        }
+        case "recoverQueue": {
+          const picked = await vscode.window.showQuickPick((this.runtime.currentState.recoveredDrafts ?? []).map(draft => ({ label: draft.text.slice(0, 150), description: draft.uncertain ? "Delivery uncertain — inspect history before resending" : "Cleared before delivery", draft })), { title: "Recovered queue drafts (never replayed automatically)" });
+          if (picked) this.postMessage({ type: "appendDraft", text: picked.draft.text, expectedRevision: message.revision });
+          break;
+        }
         case "cancel":
           this.requestLifecycle.cancel();
           await this.runtime.abort();
@@ -241,6 +266,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           break;
         case "retry":
           await this.retryLastRequest();
+          break;
+        case "inspectContext":
+          await this.attachments.inspect();
           break;
         case "pickContext":
           await this.attachments.pickContext();
@@ -327,10 +355,23 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           await vscode.commands.executeCommand("workbench.view.scm");
           break;
         case "proposalAction":
-          await this.proposals.handleAction(message.id, message.action);
+          if (this.isForegroundRequestActive()) throw new Error("Wait for Pi before changing or applying proposals.");
+          if (message.action === "select") {
+            const choices = await vscode.window.showQuickPick(this.proposals.hunkChoices(message.id), { title: "Choose edit hunks · changing selection invalidates Preview", canPickMany: true });
+            if (choices) this.proposals.select(message.id, choices.map(choice => choice.id));
+          } else {
+            const release = acquireOperation(await realpath(this.runtime.currentCwd), "edit proposal action");
+            try { await this.proposals.handleAction(message.id, message.action); } finally { release(); }
+          }
           break;
         case "runBackground":
           await this.runBackground(message.text, message.isolated, message.revision);
+          break;
+        case "reviewBackground":
+          await this.backgroundAgents.reviewResults(message.id);
+          break;
+        case "applyBackground":
+          await this.backgroundAgents.applySelected(message.id, this.runtime.currentCwd);
           break;
         case "cancelBackground":
           await this.backgroundAgents.cancel(message.id);
@@ -346,7 +387,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           break;
       }
     } catch (error) {
-      if (message.type === "send") {
+      if (message.type === "send" || message.type === "queueInstruction") {
         this.postMessage({ type: "sendRejected" });
       }
       this.postNotice(formatError(error), "error");
@@ -382,6 +423,10 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   private async showMoreActions(composerText: string, composerRevision: number): Promise<void> {
     const selected = await vscode.window.showQuickPick(
       [
+        { label: "$(history) Request Checkpoints", action: "checkpoints" },
+        { label: "$(git-pull-request) Review Staged Changes", action: "staged" },
+        { label: "$(beaker) Repair Failed Test", action: "repair" },
+        { label: "$(debug) Ask Debug Context", action: "debug" },
         { label: "$(history) Resume Session", action: "resume" },
         { label: "$(edit) Rename Session", action: "rename" },
         { label: "$(symbol-method) Change Model", action: "model" },
@@ -396,7 +441,21 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       { title: "Pi Chat Actions", placeHolder: "Choose a session or advanced action" },
     );
     if (!selected) return;
-    if (selected.action === "resume") await this.resumeSession();
+    if (selected.action === "checkpoints") {
+      if (this.isForegroundRequestActive()) throw new Error("Wait for Pi before restoring checkpoints.");
+      const release = this.requestGate.acquire();
+      this.postState();
+      try { await this.changeTracker.selectCheckpoint(this.runtime.currentCwd, this.runtime.currentState.sessionId); }
+      finally {
+        // Even partial restore failures invalidate dependent previews.
+        this.proposals.clear(); this.backgroundAgents.invalidateResults(); this.changes = this.changeTracker.changes;
+        release(); this.postState();
+      }
+    }
+    else if (selected.action === "staged") await vscode.commands.executeCommand("piCodingAgent.reviewStagedChanges");
+    else if (selected.action === "repair") await vscode.commands.executeCommand("piCodingAgent.repairFailedTest");
+    else if (selected.action === "debug") await vscode.commands.executeCommand("piCodingAgent.askDebugContext");
+    else if (selected.action === "resume") await this.resumeSession();
     else if (selected.action === "rename") await this.nameSession();
     else if (selected.action === "model") await this.pickModel();
     else if (selected.action === "thinking") await this.pickThinkingLevel();
@@ -458,11 +517,12 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     );
   }
 
-  private async send(rawText: string): Promise<void> {
+  private async send(rawText: string, revision: number): Promise<void> {
     const text = rawText.trim();
     if (!text) {
       return;
     }
+    const consumedIds = this.attachments.values.map(item => item.id);
     const textContexts = this.attachments.textContexts;
     const images = this.attachments.images;
     if (images.length > 0 && !modelSupportsImages(this.runtime.currentState.model)) {
@@ -476,6 +536,11 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       undefined,
       undefined,
       "composer",
+      undefined,
+      () => {
+        this.attachments.consume(consumedIds);
+        this.postMessage({ type: "clearInput", expectedText: rawText, expectedRevision: revision });
+      },
     );
   }
 
@@ -488,6 +553,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     policy?: AgentRequestPolicy,
     origin: ConversationRequestOrigin = "editor",
     onResponse?: (response: string) => Promise<void> | void,
+    onAccepted?: () => void,
+    validate?: () => void,
   ): Promise<string> {
     const text = request.trim();
     if (!text) {
@@ -512,7 +579,10 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.historyRecoveryAvailable = false;
     let responseCaptured = false;
     let synchronizingHistory = false;
+    let releaseOperation = () => {};
     try {
+      await this.runtime.ensureStarted(resource);
+      releaseOperation = acquireOperation(await realpath(this.runtime.currentCwd), "foreground Pi request");
       this.retryRequest = retryable
         ? { request: text, contexts: [...contexts], images: [...images], resource, instructions, policy }
         : undefined;
@@ -533,24 +603,22 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.streamingAssistantId = undefined;
       this.status = "Sending to Pi…";
       await this.persistMessages();
-      if (shouldTrackConversationChanges(policy, this.runtime.currentState.mode)) {
-        this.changes = [];
-        this.changeTracker.startRequest(this.runtime.currentCwd);
-        this.trackCurrentRequestChanges = true;
-      }
+      if (shouldTrackConversationChanges(policy, this.runtime.currentState.mode)) this.changes = [];
       this.postState();
 
       const response = await this.runtime.prompt(
         buildAgentPrompt(text, contexts, instructions, policy),
         resource,
         images,
-        behavior.clearComposerOnAccepted
-          ? () => {
-              this.attachments.clear();
-              this.postMessage({ type: "clearInput" });
-            }
-          : undefined,
-        () => this.requestLifecycle.throwIfCancelled(),
+        behavior.clearComposerOnAccepted ? onAccepted : undefined,
+        () => {
+          this.requestLifecycle.throwIfCancelled(); validate?.();
+          if (shouldTrackConversationChanges(policy, this.runtime.currentState.mode)) {
+            this.changeTracker.startRequest(this.runtime.currentCwd, this.runtime.currentState.sessionId);
+            this.trackCurrentRequestChanges = true;
+          }
+        },
+        origin === "composer" && !onResponse && policy === undefined && !text.startsWith("/"),
       );
       if (this.requestLifecycle.wasCancelled) {
         throw new Error("Pi request was cancelled.");
@@ -622,13 +690,14 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.postState();
       throw error;
     } finally {
+      releaseOperation();
       releaseRequest();
       this.postState();
     }
   }
 
   private isForegroundRequestActive(): boolean {
-    return this.requestGate.isPending || this.runtime.currentState.busy;
+    return this.requestGate.isPending || this.runtime.currentState.busy || this.proposals.states.some(proposal => ["previewing", "applying", "rejecting"].includes(proposal.status));
   }
 
   private async runBackground(rawText: string, isolated: boolean, composerRevision: number): Promise<void> {
@@ -657,7 +726,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       const contexts = this.attachments.textContexts;
       const images = this.attachments.images;
       await this.backgroundAgents.start(text, contexts, images, this.runtime.currentCwd, isolated);
-      this.attachments.removeMany(submittedAttachmentIds);
+      this.attachments.consume(submittedAttachmentIds);
       this.postMessage({ type: "clearInput", expectedText: rawText, expectedRevision: composerRevision });
       this.postNotice(isolated ? "Started an isolated worktree agent." : "Started a background agent.", "info");
     } finally {
@@ -668,7 +737,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
 
   private async cleanupBackgroundWorktree(id: string): Promise<void> {
     const confirmation = await vscode.window.showWarningMessage(
-      "Remove this isolated worktree and all uncommitted changes inside it?",
+      "Remove this isolated worktree, including committed or uncommitted results that may not have been imported? This cannot be undone by Pi.",
       { modal: true },
       "Remove Worktree",
     );
@@ -683,6 +752,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     }
     const sessionFile = await this.backgroundAgents.openSession(id);
     await this.runtime.switchSession(sessionFile);
+    this.attachments.clear();
     this.proposals.clear();
     this.retryRequest = undefined;
     await this.syncMessagesFromPi();
@@ -772,16 +842,17 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     if (!change) {
       throw new Error("The selected Pi change is no longer available.");
     }
-    const confirmation = await vscode.window.showWarningMessage(
-      `Revert Pi's change to ${change.label}?`,
-      { modal: true },
-      "Revert File",
-    );
-    if (confirmation !== "Revert File") {
-      return;
-    }
-    this.changes = this.changeTracker.revert(id);
+    if (this.isForegroundRequestActive()) throw new Error("Wait for Pi before restoring a file.");
+    const release = this.requestGate.acquire();
     this.postState();
+    try {
+      const confirmation = await vscode.window.showWarningMessage(`Revert Pi's change to ${change.label}?`, { modal: true }, "Revert File");
+      if (confirmation !== "Revert File") return;
+      this.changes = this.changeTracker.revert(id);
+    } finally {
+      this.proposals.clear(); this.backgroundAgents.invalidateResults(); this.changes = this.changeTracker.changes;
+      release(); this.postState();
+    }
   }
 
   private async nameSession(): Promise<void> {
@@ -816,6 +887,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       return;
     }
     await this.runtime.switchSession(session.fsPath);
+    this.attachments.clear();
     this.proposals.clear();
     this.retryRequest = undefined;
     await this.syncMessagesFromPi();
@@ -921,10 +993,14 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.status = this.requestLifecycle.wasCancelled ? "Cancelling Pi request…" : "Finishing Pi response…";
       this.streamingAssistantId = undefined;
       if (this.trackCurrentRequestChanges) {
-        this.changes = this.changeTracker.finishRequest();
+        this.changes = this.changeTracker.finishRequest(this.requestLifecycle.wasCancelled ? "cancelled" : "completed");
         this.trackCurrentRequestChanges = false;
       }
     } else if (event.type === "process_exit") {
+      if (this.trackCurrentRequestChanges) {
+        this.changes = this.changeTracker.finishRequest("process-exit");
+        this.trackCurrentRequestChanges = false;
+      }
       this.status = "Disconnected · Reconnect available";
     } else if (event.type === "runtime_warning" || event.type === "protocol_error") {
       this.postNotice(stringValue(event.message) ?? "Pi runtime warning.", "warning");
@@ -1058,6 +1134,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
 
   private postState(): void {
     const requestBusy = this.isForegroundRequestActive();
+    const estimate = this.attachments.estimate;
     this.postMessage({
       type: "state",
       messages: this.messages.map(message => ({ ...message, html: renderSafeMarkdown(message.content) })),
@@ -1067,6 +1144,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       backgroundTasks: this.backgroundAgents.states,
       status: this.status,
       attachments: this.attachments.summaries,
+      attachmentEstimate: { characters: estimate.characters, bytes: estimate.bytes, estimatedTextTokens: estimate.estimatedTextTokens, imageUsage: estimate.imageUsage },
       imageSupported: modelSupportsImages(this.runtime.currentState.model),
       retryAvailable: Boolean(this.retryRequest) && !requestBusy,
       historyRecoveryAvailable: this.historyRecoveryAvailable && !requestBusy,

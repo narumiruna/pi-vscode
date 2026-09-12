@@ -8,12 +8,35 @@ interface MenuContribution {
 }
 
 interface ExtensionManifest {
+  readonly engines: { readonly vscode: string };
+  readonly extensionKind: readonly string[];
+  readonly devDependencies: Record<string, string>;
   readonly contributes: {
+    readonly commands: readonly { command: string; enablement?: string }[];
     readonly menus: Record<string, readonly MenuContribution[]>;
   };
 }
 
 const manifest = JSON.parse(readFileSync("package.json", "utf8")) as ExtensionManifest;
+
+test("workflow commands are contributed, registered, documented and keep minimum stable workspace-host compatibility", () => {
+  assert.equal(manifest.engines.vscode, "^1.106.0");
+  assert.deepEqual(manifest.extensionKind, ["workspace"]);
+  assert.equal(manifest.devDependencies["@types/vscode"], "1.106.0");
+  const entry = readFileSync("src/extension.ts", "utf8"), readme = readFileSync("README.md", "utf8");
+  for (const [command, controller, register] of [
+    ["reviewStagedChanges", "gitReviewController", "registerGitReview"],
+    ["showStagedFindings", "gitReviewController", "registerGitReview"],
+    ["repairFailedTest", "testRepairController", "registerTestRepair"],
+    ["askDebugContext", "debugContextController", "registerDebugContext"],
+  ]) {
+    const id = `piCodingAgent.${command}`;
+    assert.match(manifest.contributes.commands.find(item => item.command === id)?.enablement ?? "", /isWorkspaceTrusted/);
+    assert.ok(readFileSync(`src/${controller}.ts`, "utf8").includes(`\"${id}\"`));
+    assert.ok(entry.includes(`${register}(context, runtime, conversation)`));
+  }
+  for (const label of ["Review Staged Changes", "Show Staged Findings", "Repair Failed Test (Preview)", "Ask Debug Context"]) assert.ok(readme.includes(`Pi: ${label}`));
+});
 
 test("quick-fix menu contributions are hidden for read-only editors", () => {
   for (const menu of ["editor/title", "editor/context"]) {

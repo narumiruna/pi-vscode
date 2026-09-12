@@ -1,6 +1,8 @@
 import path from "node:path";
 import * as vscode from "vscode";
 import type { PiConversationController } from "./conversationController";
+import { computeEditHunks, selectedReplacement } from "./editHunks";
+import { requireTrustedFile } from "./workflowUi";
 import {
   buildDiagnosticFixInstruction,
   filterFixableDiagnostics,
@@ -266,12 +268,21 @@ function createEditProposal(
   const originalText = snapshot.document.getText();
   const startOffset = snapshot.document.offsetAt(snapshot.range.start);
   const endOffset = snapshot.document.offsetAt(snapshot.range.end);
-  const previewText = originalText.slice(0, startOffset) + convertedReplacement + originalText.slice(endOffset);
-  const previewUri = previews.create(snapshot.document.uri, previewText);
+  const originalTarget = originalText.slice(startOffset, endOffset);
+  const { hunks } = computeEditHunks(originalTarget, convertedReplacement);
+  if (!hunks.length) throw new Error("Pi proposed no changes.");
+  let previewUri: vscode.Uri | undefined;
+  let previewSelection: string | undefined;
   conversation.addEditProposal({
     label: `${path.basename(snapshot.document.uri.fsPath)}:${snapshot.range.start.line + 1}-${snapshot.range.end.line + 1}`,
-    onPreview: async () => {
+    hunks,
+    onPreview: async selected => {
+      requireTrustedFile(snapshot.document.isUntitled ? undefined : snapshot.document.uri);
       assertSnapshotCurrent(snapshot, "The document changed after Pi generated the proposal. Regenerate the edit before previewing it.");
+      const target = selectedReplacement(originalTarget, hunks, selected ?? hunks.map(hunk => hunk.id));
+      if (previewUri) previews.delete(previewUri);
+      previewUri = previews.create(snapshot.document.uri, originalText.slice(0, startOffset) + target + originalText.slice(endOffset));
+      previewSelection = JSON.stringify(selected);
       await vscode.commands.executeCommand(
         "vscode.diff",
         snapshot.document.uri,
@@ -280,15 +291,17 @@ function createEditProposal(
         { preview: true },
       );
     },
-    onApply: async () => {
+    onApply: async selected => {
+      requireTrustedFile(snapshot.document.isUntitled ? undefined : snapshot.document.uri);
       assertSnapshotCurrent(snapshot, "The document changed after Pi generated the proposal. Regenerate the edit before applying it.");
+      if (!previewUri || previewSelection !== JSON.stringify(selected)) throw new Error("Preview the current hunk selection before applying.");
       const edit = new vscode.WorkspaceEdit();
-      edit.replace(snapshot.document.uri, snapshot.range, convertedReplacement);
+      edit.replace(snapshot.document.uri, snapshot.range, selectedReplacement(originalTarget, hunks, selected ?? hunks.map(hunk => hunk.id)));
       if (!(await vscode.workspace.applyEdit(edit))) {
         throw new Error("VS Code could not apply the Pi edit.");
       }
     },
-    onDispose: () => previews.delete(previewUri),
+    onDispose: () => { if (previewUri) previews.delete(previewUri); },
   });
 }
 

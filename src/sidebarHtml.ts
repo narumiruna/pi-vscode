@@ -173,8 +173,18 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     <section id="composer" aria-label="Message composer">
       <div class="composer-box">
         <div id="attachments" aria-label="Context attached to the next message" hidden></div>
+        <button id="inspect-context" class="secondary" type="button" hidden>Inspect Context</button>
+        <div id="attachment-estimate" class="proposal-meta"></div>
         <label for="input" class="sr-only">Message Pi</label>
         <textarea id="input" rows="3" maxlength="${maxInputCharacters}" placeholder="Ask, plan, or build something…" aria-describedby="composer-hint"></textarea>
+        <div id="queue-status" class="proposal-meta" role="status"></div>
+        <div class="proposal-actions">
+          <button id="steer" class="secondary" type="button" hidden title="Delivered after current tool calls, not an immediate interruption">Steer</button>
+          <button id="follow-up" class="secondary" type="button" hidden>Follow Up</button>
+          <button id="inspect-queue" class="secondary" type="button" hidden>Inspect Queue</button>
+          <button id="clear-queue" class="secondary" type="button" hidden>Clear Queue</button>
+          <button id="recover-queue" class="secondary" type="button" hidden>Recovered Drafts</button>
+        </div>
         <div class="composer-actions">
           <button id="add-context" class="secondary" type="button" title="Attach code, files, or images">${icon("attachment")}<span>Add context</span></button>
           <span class="composer-spacer"></span>
@@ -202,6 +212,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     const notice = $('notice');
     const mode = $('mode');
     let busy = false;
+    let queueable = false;
     let connected = false;
     let deletableSession = false;
     let imageSupported = true;
@@ -217,7 +228,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       if (!text || busy || !connected || pendingImageReads > 0 || submissionPending || backgroundSubmissionPending || (attachedImages && !imageSupported)) return;
       submissionPending = true;
       updateSendState();
-      vscode.postMessage({ type: 'send', text });
+      vscode.postMessage({ type: 'send', text: input.value, revision: composerRevision });
       notice.textContent = '';
     }
 
@@ -292,7 +303,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         title.textContent = proposal.label;
         const meta = document.createElement('div');
         meta.className = 'proposal-meta';
-        meta.textContent = proposal.status === 'ready' ? 'Ready to preview' : proposal.status;
+        meta.textContent = (proposal.status === 'ready' ? 'Ready to preview' : proposal.status) + (proposal.totalHunks !== undefined ? ' · ' + (proposal.selected || []).length + '/' + proposal.totalHunks + ' selected' : '') + (proposal.summary ? ' · ' + proposal.summary : '');
         card.append(title, meta);
         if (proposal.error) {
           const error = document.createElement('div');
@@ -304,7 +315,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         actions.className = 'proposal-actions';
         const terminal = ['applied', 'rejected', 'stale'].includes(proposal.status);
         const transitioning = ['previewing', 'applying', 'rejecting'].includes(proposal.status);
-        for (const definition of [['preview', 'Preview'], ['apply', 'Apply'], ['reject', 'Reject']]) {
+        for (const definition of [['select', 'Choose Hunks'], ['preview', 'Preview'], ['apply', 'Apply'], ['reject', 'Reject']]) {
+          if (definition[0] === 'select' && proposal.totalHunks === undefined) continue;
           const button = document.createElement('button');
           button.className = definition[0] === 'apply' ? '' : 'secondary';
           button.type = 'button';
@@ -387,11 +399,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         meta.textContent = task.status + (task.tool ? ' · ' + task.tool : '') + (task.worktreePath ? ' · worktree' : '');
         const output = document.createElement('div');
         output.className = 'background-output';
-        output.textContent = task.error || task.output || '';
+        output.textContent = (task.error || task.output || '') + (task.importReport ? '\\nImport: ' + task.importReport.applied.length + ' applied, ' + task.importReport.skipped.length + ' skipped, ' + task.importReport.failed.length + ' failed' : '') + '\\nModel summary · tests not verified';
         const actions = document.createElement('div');
         actions.className = 'background-actions';
         const running = task.status === 'starting' || task.status === 'running';
-        for (const definition of [['cancelBackground', 'Cancel', running], ['resumeBackground', 'Resume', Boolean(task.sessionFile) && !running], ['openWorktree', 'Open Worktree', Boolean(task.worktreePath)], ['cleanupWorktree', 'Remove Worktree', Boolean(task.worktreePath) && !running]]) {
+        for (const definition of [['reviewBackground', 'Review Results', Boolean(task.origin && task.worktreePath) && !running], ['applyBackground', 'Apply Selected', Boolean(task.origin && task.worktreePath) && !running], ['cancelBackground', 'Cancel', running], ['resumeBackground', 'Resume', Boolean(task.sessionFile) && !running], ['openWorktree', 'Open Worktree', Boolean(task.worktreePath)], ['cleanupWorktree', 'Remove Worktree', Boolean(task.worktreePath) && !running]]) {
           if (!definition[2]) continue;
           const button = document.createElement('button');
           button.className = 'secondary';
@@ -399,6 +411,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           button.textContent = definition[1];
           button.dataset.action = definition[0];
           button.dataset.id = task.id;
+          button.disabled = Boolean(task.reviewing) || (definition[0] === 'applyBackground' && (busy || !task.resultPreviewReady));
           actions.appendChild(button);
         }
         card.append(title, meta, output, actions);
@@ -447,6 +460,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('add-context').disabled = interactionLocked;
       for (const button of emptyActionButtons) button.disabled = interactionLocked;
       sendButton.disabled = interactionLocked || !connected || !input.value.trim() || imageBlocked;
+      $('steer').disabled = $('follow-up').disabled = !queueable || !input.value.trim() || !connected || submissionPending;
+      $('clear-queue').disabled = !queueable || submissionPending;
       sendButton.title = imageLoading
         ? 'Wait for pasted images to finish loading.'
         : submissionPending
@@ -460,11 +475,16 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         ? 'Loading pasted image…'
         : backgroundSubmissionPending
           ? 'Starting background agent…'
-          : imageBlocked ? 'Choose an image-capable model or remove images' : 'Enter to send · Shift+Enter for newline';
+          : imageBlocked ? 'Choose an image-capable model or remove images' : queueable ? 'Choose Steer or Follow Up · Shift+Enter for newline' : 'Enter to send · Shift+Enter for newline';
     }
 
     function render(state) {
       busy = Boolean(state.runtime.busy);
+      queueable = Boolean(state.runtime.queueable) && busy;
+      $('steer').hidden = $('follow-up').hidden = $('clear-queue').hidden = $('inspect-queue').hidden = !queueable;
+      const queue = state.runtime.queue || { steering: [], followUp: [] };
+      $('queue-status').textContent = queueable ? queue.steering.length + ' steering · ' + queue.followUp.length + ' follow-ups pending · text only; attachments excluded · steering waits for tool calls' : '';
+      $('recover-queue').hidden = !(state.runtime.recoveredDrafts || []).length;
       connected = Boolean(state.runtime.connected);
       deletableSession = Boolean(state.runtime.sessionFile);
       imageSupported = Boolean(state.imageSupported);
@@ -475,6 +495,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       renderChanges(state.changes || []);
       renderBackground(state.backgroundTasks || []);
       renderAttachments(state.attachments || []);
+      $('inspect-context').hidden = !(state.attachments || []).length;
+      const estimate = state.attachmentEstimate || {};
+      $('attachment-estimate').textContent = estimate.characters || attachedImages ? 'Attachments: ' + (estimate.characters || 0) + ' chars · ≈' + (estimate.estimatedTextTokens || 0) + ' heuristic text tokens' + (attachedImages ? ' · image usage unknown' : '') : '';
       $('activity').hidden = ![state.proposals, state.tools, state.changes, state.backgroundTasks].some(items => items && items.length);
       updatingControls = true;
       mode.value = state.runtime.mode;
@@ -496,7 +519,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('session').textContent = state.runtime.sessionName || (state.runtime.sessionId ? 'Session ' + state.runtime.sessionId.slice(0, 8) : '');
       $('session').title = state.runtime.sessionName || state.runtime.sessionId || '';
       const context = (state.runtime.stats || {}).contextUsage || {};
-      $('usage').textContent = typeof context.percent === 'number' ? Math.round(context.percent) + '% context' : '';
+      $('usage').textContent = typeof context.percent === 'number' ? Math.round(context.percent) + '% Pi context' : 'Pi context unknown';
       $('reconnect').hidden = connected;
       $('retry').hidden = !state.retryAvailable;
       $('retry').disabled = busy || !connected;
@@ -555,6 +578,12 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const message = event.data;
       if (message.type === 'state') render(message);
       else if (message.type === 'notice') { notice.textContent = message.message; notice.className = message.level; }
+      else if (message.type === 'appendDraft') {
+        if (composerRevision === message.expectedRevision) {
+          input.value += (input.value ? '\\n\\n' : '') + message.text;
+          composerRevision += 1; resizeInput(); updateSendState();
+        } else { notice.textContent = 'Your draft changed. The recovered message remains in Recovered Drafts.'; }
+      }
       else if (message.type === 'setInput') {
         input.value = message.text;
         resizeInput();
@@ -576,11 +605,22 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       }
       else if (message.type === 'sendRejected') { submissionPending = false; updateSendState(); input.focus(); }
     });
+    for (const [id, kind] of [['steer', 'steer'], ['follow-up', 'followUp']]) {
+      $(id).addEventListener('click', () => {
+        if (!queueable || !input.value.trim() || submissionPending) return;
+        submissionPending = true; updateSendState();
+        vscode.postMessage({ type: 'queueInstruction', kind, text: input.value, revision: composerRevision });
+      });
+    }
+    $('clear-queue').addEventListener('click', () => vscode.postMessage({ type: 'clearQueue' }));
+    $('inspect-queue').addEventListener('click', () => vscode.postMessage({ type: 'inspectQueue' }));
+    $('recover-queue').addEventListener('click', () => vscode.postMessage({ type: 'recoverQueue', revision: composerRevision }));
     sendButton.addEventListener('click', submit);
     cancelButton.addEventListener('click', () => vscode.postMessage({ type: 'cancel' }));
     $('reconnect').addEventListener('click', () => vscode.postMessage({ type: 'reconnect' }));
     $('retry').addEventListener('click', () => vscode.postMessage({ type: 'retry' }));
     $('refresh-history').addEventListener('click', () => vscode.postMessage({ type: 'refreshHistory' }));
+    $('inspect-context').addEventListener('click', () => vscode.postMessage({ type: 'inspectContext' }));
     $('add-context').addEventListener('click', () => vscode.postMessage({ type: 'pickContext' }));
     $('model-picker').addEventListener('click', () => vscode.postMessage({ type: 'pickModel' }));
     $('new-session').addEventListener('click', () => vscode.postMessage({ type: 'newSession' }));

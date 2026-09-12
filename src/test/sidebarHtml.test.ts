@@ -134,16 +134,20 @@ function createSidebarScriptHarness() {
     assert.ok(result, `missing sidebar element: ${id}`);
     return result;
   };
+  let receive: ((event: { data: unknown }) => void) | undefined;
+  const posted: any[] = [];
   const context = createContext({
     document: { getElementById: element, createElement: () => new SidebarTestElement() },
-    window: { addEventListener() {} },
-    acquireVsCodeApi: () => ({ postMessage() {} }),
+    window: { addEventListener: (type: string, listener: typeof receive) => { if (type === "message") receive = listener; } },
+    acquireVsCodeApi: () => ({ postMessage: (message: unknown) => posted.push(message) }),
   });
   const script = /<script nonce="[^"]+">([\s\S]*?)<\/script>/.exec(html);
   assert.ok(script);
   new Script(script[1]).runInContext(context);
   return {
     element,
+    posted,
+    receive: (data: unknown) => receive!({ data }),
     run: (source: string) => new Script(source).runInContext(context),
     welcomeButtons: () => element("messages").children[0].children[0].children,
   };
@@ -201,4 +205,31 @@ test("sidebar updates only current welcome buttons across locks and message rend
   sidebar.run("renderMessages([{ role: 'user', html: '<p>Question</p>' }]); updateSendState()");
   sidebar.run("busy = false; renderMessages([{ role: 'assistant', html: '' }]); updateSendState()");
   assertLocked(false);
+});
+
+test("queue and accepted-send messages preserve newer drafts and never create transcript copies", () => {
+  const sidebar = createSidebarScriptHarness();
+  const input = sidebar.element("input");
+  const change = input.listeners.get("input")!;
+  sidebar.run("busy = true; connected = true; queueable = true; updateSendState()");
+  input.value = "steer text"; change();
+  sidebar.element("steer").listeners.get("click")!();
+  const queued = sidebar.posted.at(-1);
+  assert.equal(queued.type, "queueInstruction"); assert.equal(queued.kind, "steer");
+  assert.equal(queued.text, "steer text"); assert.equal(queued.revision, 1);
+  assert.equal(sidebar.element("messages").children.length, 0);
+  input.value = "new draft"; change();
+  sidebar.receive({ type: "clearInput", expectedText: queued.text, expectedRevision: queued.revision });
+  assert.equal(input.value, "new draft");
+  sidebar.receive({ type: "appendDraft", text: "recovered", expectedRevision: 1 });
+  assert.equal(input.value, "new draft");
+  sidebar.receive({ type: "appendDraft", text: "recovered", expectedRevision: 2 });
+  assert.equal(input.value, "new draft\n\nrecovered");
+  sidebar.receive({ type: "clearInput", expectedText: input.value, expectedRevision: 3 });
+  assert.equal(input.value, "");
+  sidebar.run("queueable = false; updateSendState()");
+  input.value = "callback continuation"; change();
+  const count = sidebar.posted.length;
+  sidebar.element("follow-up").listeners.get("click")!();
+  assert.equal(sidebar.posted.length, count);
 });

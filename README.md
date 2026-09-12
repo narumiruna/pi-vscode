@@ -7,7 +7,8 @@ Use Pi in VS Code through a dedicated conversation view, the native `@pi` chat p
 - Stream, resume, rename, export, or delete persistent Pi sessions in Ask, Edit, Plan, or Agent mode.
 - Attach selections, files, diagnostics, terminal text, and images as bounded context, including image paste with Ctrl/Cmd+V.
 - Send editor context-menu actions into the persistent Pi Chat session so follow-up questions retain the conversation.
-- Preview generated edits in Pi Chat before explicitly applying or rejecting them, and safely review tracked file changes.
+- Choose generated edit hunks, preview the selected result, then apply once; inspect staged Git findings and bounded request checkpoints.
+- Inspect, redact, or pin attachment snapshots; repair failing tests with approved reruns; ask read-only questions about selected paused Node.js debug values.
 - Fix error and warning diagnostics from the lightbulb menu, editor toolbar, or Ctrl/Cmd+I, with a diff preview before applying.
 - Run inline completions, predicted next edits, and parallel background or worktree agents.
 - Use Pi models, thinking levels, commands, prompt templates, skills, and extensions.
@@ -66,6 +67,34 @@ Use **More…** for session resume, thinking level, commands, compaction, export
 The standalone Pi extension exposes `vscode_context`, `vscode_open_file`, and `vscode_notify` when Pi runs in a new VS Code integrated terminal or a session started by the Pi view.
 Automatic inline completions are disabled by default and can be enabled with `piCodingAgent.inlineCompletions.enabled`.
 
+## Workflow Tools
+
+| Workflow | Entry point and steps |
+| --- | --- |
+| Staged review | **More… → Review Staged Changes** or **Pi: Review Staged Changes**. Inspect the bounded provider-bound snapshot and confirm. **Pi: Show Staged Findings** navigates immutable before/after content, never unstaged editor positions. Changed HEAD/index makes findings stale. |
+| Selected edits | On a proposal card, **Choose Hunks → Preview → Apply**. Changing selection invalidates Preview. Apply uses one workspace edit and finishes the proposal; unselected hunks remain unapplied. Use normal editor Undo. |
+| Task result import | Start an isolated worktree agent through **More…**. Once inactive, use its card's **Review Results → Apply Selected**. Import selected regular text files into the originating worktree; keep the task worktree until explicit removal. Non-isolated tasks use Source Control. |
+| Context inspector | **Inspect Context** next to attachments, or **Add context → Inspect Context**. Inspect exact text snapshots, edit/redact, remove, pin/unpin, or explicitly refresh from source. Only consumed unpinned revisions disappear after an accepted send. |
+| Failed-test repair | **More… → Repair Failed Test** or **Pi: Repair Failed Test (Preview)**. Enter an executable/argument JSON object, select one source file, approve a test run or supply a log, inspect/redact, then Preview/Apply. Saving and rerunning the original command require approval; at most two repair attempts. |
+| Checkpoint history | **More… → Request Checkpoints**. Inspect coverage, choose files, preview, then **Revert Covered Changes**. Memory-only request history is not a Git or transcript rewind. Existing file-card Diff/Open/Revert remains available for covered changes. |
+| In-flight text | During an ordinary composer request, use **Steer** (after current tool calls) or **Follow Up**. **Inspect Queue** opens the pending-text snapshot; **Clear Queue** recovers cleared text. **Recovered Drafts** appends a selected draft only if the composer revision is unchanged. No attachments or slash commands are queued. |
+| Debug question | Pause a Node.js debugger, select a frame, then **More… → Ask Debug Context** or **Pi: Ask Debug Context**. Approve local capture, choose variables, inspect/redact, and enter a question. Resuming/changing frames invalidates the snapshot. |
+
+All new process and mutation workflows require a trusted, file-backed workspace. Foreground targets must match Pi's active working directory/session. Open a task worktree in its own window to resume its isolated session; cross-worktree session resume is rejected.
+
+### Workflow limits
+
+- Staged review excludes binary, symlink, submodule, oversized, and omitted files. Limits: 100 reviewed files, 100 KB per blob, 400 KB total blobs, 200 KB diff, 45-second capture. Unstaged/branch/PR review is not included.
+- Hunk generation uses bounded line comparison; oversized comparisons fall back to one whole-target hunk. No incremental remainder application or automatic rebase.
+- Task import covers additions, modifications and deletions, including task commits and untracked files. Limits: 100 reviewed files, 100 KB per file side, 400 KB total text. Executable-bit changes/additions, symlinks, binary and unsupported paths are not imported; non-UTF-8 path records reject capture. Legacy tasks without verified base/origin metadata cannot import. Dirty or overlapping destination edits block import; partial I/O failures report applied/skipped/failed paths without deleting recovery source. Tests are **not verified** by a model summary.
+- Attachments: 8 items, 200,000 characters per text item, 400,000 total text characters, up to 5 images of 5 MiB each. Pins share these limits, never refresh silently, and expire on session change/reload. Estimates use UTF-8 bytes / 4 for text; image token usage and Pi context-window usage may be unknown. Inspection does not include Pi history, instructions, or later tool reads. Temporary attachment editing uses a normal untitled editor; close/discard it when finished.
+- Test runner: explicit executable and argument array, no shell expression. Example: `{"executable":"node","args":["--test","test/example.test.js"]}`. Use a direct runner executable on Windows rather than a `.cmd` shell shim. Runs have a 60-second timeout and 256 KiB output cap; supplied/transmitted logs are limited to 100,000 characters and selected source to 200,000. No private Test Explorer integration or autonomous command generation. Cancellation attempts owned process-group cleanup on POSIX; Windows/escaped descendants cannot be guaranteed stopped and are reported.
+- Checkpoints: before-prompt capture of up to 10,000 entries / 20 MiB existing regular text; retain 20 requests, 2 MiB per file side and 20 MiB total before/after text. Capture may briefly delay submission on large/remote trees. Only deterministic announced edit/write outcomes matching captured final disk text are restorable. Dirty, symlink, hardlink, uncaptured, created/deleted and ambiguous files are excluded. Shell/custom-tool requests and process exits without settlement are non-restorable. Newer dependent checkpoints must be reverted first. Restore/import are not filesystem-wide transactions; external writers can race checks.
+- Queue: 10 messages / 50,000 characters, ordinary composer only, same mode/session through `agent_settled`. Cancellation clears before abort. Pi versions without validated queue commands/state disconnect on unsupported or uncertain acceptance; recovered text is never replayed automatically. Check history before resending an uncertain draft.
+- Debug: `node`/`pwa-node` js-debug paths only; 20 frames, 50 local variable candidates, 1,000 characters/value, 20,000 total characters, five-second DAP deadline. No evaluate, memory, mutation, lazy-value or recursive requests. Custom description/property generators and automatic getters must be disabled. Adapter inspection may have side effects. Capture begun before activation requires a fresh observed pause. No debug pins or raw debug persistence by this extension; approved transmission becomes normal Pi conversation data.
+
+See [Security](https://github.com/narumiruna/pi-vscode/blob/main/docs/SECURITY.md) and [Workflow validation](https://github.com/narumiruna/pi-vscode/blob/main/docs/WORKFLOW_VALIDATION.md). Interactive minimum/current VS Code and remote UI checks are deferred to real-world use; they are not claimed as passed.
+
 ## Extension Bridge
 
 ```mermaid
@@ -104,6 +133,7 @@ Event names and payloads are validated and bounded before delivery.
 | `piCodingAgent.defaultMode` | `ask` | Selects the mode for new conversations. |
 | `piCodingAgent.agent.confirmToolCalls` | `dangerous` | Controls approval for mutating tools. |
 | `piCodingAgent.approveProjectResources` | `false` | Allows trusted project-local Pi resources. |
+| `piCodingAgent.sensitiveContextNames` | Sensitive filename fragments | Best-effort attachment warnings; inspect/redact before sending. |
 | `piCodingAgent.inlineCompletions.enabled` | `false` | Enables automatic inline completions. |
 
 ## Security
