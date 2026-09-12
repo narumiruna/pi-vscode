@@ -27,6 +27,14 @@ pi --version
 
 ## Install
 
+If you previously installed `narumitw.pi-coding-agent`, uninstall that legacy extension first (in the connected remote environment too, when applicable):
+
+```bash
+code --uninstall-extension narumitw.pi-coding-agent
+```
+
+The current extension ID is `narumi.pi-coding-agent`. VS Code treats these IDs as separate extensions, not an upgrade; do not enable both at once.
+
 Install the standalone Pi extension and the VSIX from this repository:
 
 ```bash
@@ -114,6 +122,17 @@ npm run package
 ```
 
 Use `just dev` to compile the VS Code extension, launch an Extension Development Host, and run `pi -ne -e resources/pi-vscode-bridge.ts` in the invoking terminal.
+Both `just dev` and the **Run Extension** debug configuration disable `narumitw.pi-coding-agent` for the development window to avoid competing with the current extension. This does not uninstall it or disable it in other windows.
+
+## Troubleshooting
+
+### View provider for `piCodingAgent.chatView` already registered
+
+Check for the legacy `narumitw.pi-coding-agent` alongside the current `narumi.pi-coding-agent`. They contribute the same view and commands, so only one may be enabled in a window.
+
+- In Extensions, search for `@id:narumitw.pi-coding-agent`, disable the legacy extension, and run **Developer: Reload Window**. For WSL/SSH/containers, check the extension in the connected remote environment as well.
+- When upgrading, uninstall the legacy ID using the command in **Install**, install the current VSIX, and reload the window.
+- When developing, close the existing Extension Development Host and relaunch through `just dev` or **Run Extension** so the updated launch arguments take effect; reloading an already-running development window does not add those arguments.
 
 ## License
 
