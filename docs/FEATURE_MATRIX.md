@@ -5,11 +5,18 @@ Vendor-owned hosted services cannot be reproduced by a local extension, so those
 
 | Reference capability | Pi VS Code workflow | Status / evidence |
 | --- | --- | --- |
+| Staged Git review | Confirm bounded staged snapshots and navigate immutable before/after findings | `gitSnapshots.ts`, `gitReview.ts`; temporary Git and host-controller tests. Unstaged/branch/PR review excluded. |
+| Selective application | Choose deterministic hunks, preview the combined selection, Apply once | `editHunks.ts`, `editProposals.ts`, `editorActions.ts`; selected-preview/one-workspace-edit and stale-version tests. No automatic rebase. |
+| Context inspection | Exact snapshots, explicit edit/redact/refresh, bounded memory-only pins | `contextInspector.ts`, `sidebarAttachments.ts`; revision-safe consumed-item tests. Estimates exclude Pi history/instructions/future reads; image usage unknown. |
+| Failed-test repair | Explicit process command or supplied failure log, read-only proposal, approved save/rerun | `testRepair.ts`, `testRepairController.ts`; real failing Node test repaired/rerun with fixture response. Two attempts, one source file; no private Test Explorer API. |
+| Request checkpoints | Bounded pre-prompt snapshots, coverage report, preview and guarded restore | `checkpointHistory.ts`, `changeTracker.ts`; immediate-write subprocess boundary and stale/dirty/dependency tests. Memory-only; no creations/deletions/shell rollback. |
+| In-flight instructions | Session/policy-bound Steer, Follow Up, Clear and recovered drafts | `piRpcClient.ts`, `piRuntime.ts`; deterministic RPC/lifecycle fixtures. Ordinary text-only composer requests; unsupported/uncertain queue delivery disconnects without replay. |
+| Debug-context questions | Explicit bounded paused Node.js capture, variable selection, inspection/redaction, read-only question | `debugContext.ts`, `debugContextController.ts`; fake DAP/host invalidation tests. Only checked js-debug read paths; no evaluate/recursive capture. |
 | Codex side-by-side chat panel | Dedicated Pi Activity Bar conversation view | Implemented in `src/sidebar.ts` and `src/sidebarHtml.ts`. |
 | Codex context from open files and selections | Selection, current file, file picker, diagnostics, terminal text, and image attachments | Implemented with item, size, and total bounds. |
 | Codex edit and preview changes | Editor actions use the persistent Pi Chat session, create proposal cards, generate virtual-document diffs, and require Preview before Apply | Implemented in `src/editorActions.ts` and `src/sidebar.ts`. |
 | Codex cloud delegation | Independent background and detached-worktree Pi agents with streamed tracking | Local equivalent implemented; OpenAI-hosted Codex Cloud remains an OpenAI service dependency. |
-| Codex cloud task review locally | Resume a background Pi session, open its worktree, and review Source Control | Implemented. |
+| Codex cloud task review locally | Inspect actual isolated-task results and explicitly import selected files into the originating worktree | `backgroundResults.ts`, `backgroundAgents.ts`; Git, partial-failure and metadata/reload tests. Legacy tasks without verified origin cannot import; model test claims are not evidence. |
 | GitHub Copilot inline completion | Manual or opt-in automatic VS Code ghost-text completion | Implemented with cancellation, debounce, cache, and bounded context. |
 | GitHub Copilot next edit suggestion | `Pi: Suggest Next Edit` predicts one focused whole-file change and opens a diff preview | Implemented local equivalent; Copilot's proprietary ranking model is a GitHub service dependency. |
 | Copilot Chat conversational assistance | Dedicated Pi view plus native `@pi` Chat participant and slash commands | Implemented. |
@@ -18,7 +25,7 @@ Vendor-owned hosted services cannot be reproduced by a local extension, so those
 | Copilot autonomous multi-step agent | Persistent Pi RPC Agent mode reads, edits, runs commands, tests, retries, and self-corrects | Implemented using Pi's full coding toolset. |
 | Copilot central session management | New, name, resume, compact, export, terminal handoff, foreground, and background sessions | Implemented in the Pi conversation view. |
 | Copilot Plan-to-implementation handoff | `Implement Plan` restarts the same persistent session in Agent mode | Implemented. |
-| Copilot change review and revert | Tool activity, changed-file cards, Source Control, diff, open, and stale-safe revert | Implemented for bounded edit/write tool files; shell-created changes remain reviewable in Source Control. |
+| Copilot change review and revert | Tool activity, changed-file cards, request history, Source Control, diff, open, and stale/dirty-safe revert | Covered pre-captured regular edit/write files only; shell and uncertain effects require Source Control review. |
 | Copilot custom instructions | Pi global/project AGENTS.md and Pi system/settings resources | Implemented through normal Pi resource discovery and explicit project trust. |
 | Copilot skills and custom agents | Pi skills, prompt templates, extension commands, mode profiles, and background agents | Implemented and discoverable through `Commands…`. |
 | Copilot MCP and external tools | Tools supplied by installed Pi extensions, including third-party MCP bridges | Supported through Pi's extension system; each external server/bridge remains its own dependency. |

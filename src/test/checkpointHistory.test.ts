@@ -1,0 +1,83 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { CheckpointHistory, expectedToolText } from "../checkpointHistory";
+import { installVscodeMock, MockUri } from "./vscodeMock";
+
+test("checkpoint retention bounds, newer dependencies, dirty/stale files and reload expiry", () => {
+  const history = new CheckpointHistory();
+  const add = (before: string, after: string) => history.add({ repository: "/repo", sessionId: "s", startedAt: 1, completedAt: 2, status: "completed", files: [{ path: "a", before, after }], exclusions: [] });
+  const first = add("a", "b"), second = add("b", "c");
+  assert.throws(() => history.assertRestorable(first.id, ["a"], () => ({ text: "b", dirty: false })), /newer/);
+  second.files[0]!.reverted = true;
+  assert.throws(() => history.assertRestorable(first.id, ["a"], () => ({ text: "b", dirty: true })), /dirty/);
+  history.assertRestorable(first.id, ["a"], () => ({ text: "b", dirty: false }));
+  for (let index = 0; index < 30; index++) add("a", "b");
+  assert.equal(history.values.length, 20);
+  for (let index = 0; index < 10; index++) add("a".repeat(2 * 1024 * 1024), "b".repeat(2 * 1024 * 1024));
+  assert.ok(history.retainedBytes <= 20 * 1024 * 1024);
+  assert.equal(add("a".repeat(2 * 1024 * 1024 + 1), "b").files.length, 0);
+  history.clear(); assert.equal(history.retainedBytes, 0);
+  assert.throws(() => history.require(first.id), /expired/);
+  assert.equal(expectedToolText("repeat repeat", "edit", { oldText: "repeat", newText: "x" }), undefined);
+  for (let index = 0; index < 20; index++) add("before", "after").restoreFailed = true;
+  const evicted = add("incoming", "large retained payload");
+  assert.equal(history.values.length, 20);
+  assert.equal(evicted.files.length, 0, "an evicted result must not retain text outside the budget");
+  assert.match(evicted.exclusions.join(" "), /unresolved recovery/);
+});
+
+test("request-start snapshots precede immediate subprocess writes; dirty, external and shell changes are not restorable", () => {
+  const vscode = installVscodeMock();
+  const { WorkspaceChangeTracker } = require("../changeTracker") as typeof import("../changeTracker");
+  const root = mkdtempSync(path.join(tmpdir(), "pi-checkpoint-"));
+  const file = path.join(root, "file");
+  const tracker = new WorkspaceChangeTracker();
+  try {
+    writeFileSync(file, "before");
+    tracker.startRequest(root, "session");
+    execFileSync(process.execPath, ["-e", "require('fs').writeFileSync(process.argv[1], 'after')", file]);
+    // Notification deliberately arrives after the subprocess has already written bytes.
+    tracker.captureToolEvent({ type: "tool_execution_start", toolName: "write", args: { path: "file", content: "after" } });
+    const changes = tracker.finishRequest();
+    assert.equal(changes.length, 1); assert.equal(changes[0]?.canRevert, true);
+    tracker.revert(changes[0]!.id); assert.equal(readFileSync(file, "utf8"), "before");
+    vscode.workspace.textDocuments = [{ uri: MockUri.file(file), isDirty: true }];
+    tracker.startRequest(root, "session"); writeFileSync(file, "dirty");
+    tracker.captureToolEvent({ type: "tool_execution_start", toolName: "write", args: { path: "file", content: "dirty" } });
+    assert.equal(tracker.finishRequest().length, 0);
+    vscode.workspace.textDocuments = [];
+    tracker.startRequest(root, "session");
+    tracker.captureToolEvent({ type: "tool_execution_start", toolName: "write", args: { path: "file", content: "Pi result" } });
+    writeFileSync(file, "external edit"); assert.equal(tracker.finishRequest().length, 0);
+    tracker.startRequest(root, "session");
+    tracker.captureToolEvent({ type: "tool_execution_start", toolName: "bash", args: {} });
+    writeFileSync(file, "shell effect"); assert.equal(tracker.finishRequest().length, 0);
+    tracker.startRequest(root, "session");
+    tracker.captureToolEvent({ type: "tool_execution_start", toolName: "write", args: { path: "file", content: "custom effect" } });
+    tracker.captureToolEvent({ type: "tool_execution_start", toolName: "custom_mutation", args: {} });
+    writeFileSync(file, "custom effect"); assert.equal(tracker.finishRequest().length, 0);
+    tracker.startRequest(root, "session");
+    tracker.captureToolEvent({ type: "tool_execution_start", toolName: "write", args: { path: "file", content: "final" } });
+    writeFileSync(file, "final"); const latest = tracker.finishRequest()[0]!;
+    rmSync(file); symlinkSync("../outside", file);
+    assert.throws(() => tracker.revert(latest.id), /stale/);
+    assert.equal((tracker as any).history.values.at(-1).restoreFailed, true);
+    assert.equal((tracker as any).history.values.at(-1).files[0].before, "custom effect", "failed restore retains recovery bytes");
+    rmSync(file);
+    const large = "x".repeat(2 * 1024 * 1024);
+    for (let index = 0; index < 11; index++) writeFileSync(path.join(root, `bounded-${index}`), large);
+    tracker.startRequest(root, "session");
+    const captures = (tracker as any).current.files as Map<string, unknown>;
+    assert.ok(captures.size <= 10);
+    const omitted = Array.from({ length: 11 }, (_, index) => `bounded-${index}`).find(name => !captures.has(name))!;
+    writeFileSync(path.join(root, omitted), "uncaptured result");
+    tracker.captureToolEvent({ type: "tool_execution_start", toolName: "write", args: { path: omitted, content: "uncaptured result" } });
+    assert.equal(tracker.finishRequest("process-exit").length, 0);
+    assert.equal((tracker as any).history.values.at(-1).status, "process-exit");
+    assert.match((tracker as any).history.values.at(-1).exclusions.join(" "), /overflow|not pre-captured/);
+  } finally { tracker.dispose(); vscode.restore(); rmSync(root, { recursive: true, force: true }); }
+});
