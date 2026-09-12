@@ -24,3 +24,26 @@ test("quick-fix menu contributions are hidden for read-only editors", () => {
     assert.match(contribution.when ?? "", /(?:^|&&)\s*!editorReadonly(?:\s*&&|$)/);
   }
 });
+
+test("development launchers disable the legacy Pi ID without disabling unrelated extensions", () => {
+  const legacyFlag = "--disable-extension=narumitw.pi-coding-agent";
+  const launch = JSON.parse(readFileSync(".vscode/launch.json", "utf8")) as {
+    configurations: { type: string; args: string[] }[];
+  };
+  const hosts = launch.configurations.filter(configuration => configuration.type === "extensionHost");
+  assert.ok(hosts.length > 0, "missing Extension Development Host configuration");
+  for (const host of hosts) {
+    assert.ok(host.args.includes(legacyFlag), "F5 must not activate both Pi extension IDs");
+    assert.ok(host.args.includes("--extensionDevelopmentPath=${workspaceFolder}"));
+    assert.deepEqual(host.args.filter(arg => arg.startsWith("--disable-extension")), [legacyFlag]);
+  }
+
+  const recipes = readFileSync("justfile", "utf8");
+  const dev = /^dev:\n((?:[ \t].*\n)+)/m.exec(recipes)?.[1];
+  assert.ok(dev, "missing just dev recipe");
+  const launchLine = dev.split("\n").find(line => line.trimStart().startsWith("code "));
+  assert.ok(launchLine, "just dev must launch VS Code");
+  assert.ok(launchLine.includes(legacyFlag));
+  assert.ok(launchLine.includes('--extensionDevelopmentPath="{{justfile_directory()}}"'));
+  assert.deepEqual(launchLine.match(/--disable-extension\S*/g), [legacyFlag]);
+});
