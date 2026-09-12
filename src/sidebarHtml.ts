@@ -1,5 +1,24 @@
 import { randomBytes } from "node:crypto";
 
+// Static, theme-colored icons need no font, resource URI, or broader CSP.
+const iconPaths = {
+  plus: '<path d="M8 3v10M3 8h10"/>',
+  chevron: '<path d="m5 6 3 3 3-3"/>',
+  arrow: '<path d="M3 8h10m-4-4 4 4-4 4"/>',
+  more: '<circle cx="3" cy="8" r=".7"/><circle cx="8" cy="8" r=".7"/><circle cx="13" cy="8" r=".7"/>',
+  trash: '<path d="M2.5 4.5h11M6 4V2.5h4V4M4 5l.5 8.5h7L12 5M6.5 7v4M9.5 7v4"/>',
+  selection: '<path d="m5 4-4 4 4 4m6-8 4 4-4 4M9 2 7 14"/>',
+  plan: '<rect x="3" y="2" width="10" height="12" rx="2"/><path d="M6 6h4M6 9h4M6 12h2"/>',
+  agent: '<path d="m9 1-6 8h4l-1 6 7-9H9l1-5Z"/>',
+  attachment: '<path d="m6 9 4-4a2 2 0 0 1 3 3l-5 5a3.5 3.5 0 0 1-5-5l5-5"/>',
+  send: '<path d="M8 13V3m-4 4 4-4 4 4"/>',
+  stop: '<rect x="4" y="4" width="8" height="8" rx="1"/>',
+} as const;
+
+function icon(name: keyof typeof iconPaths): string {
+  return `<svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${iconPaths[name]}</svg>`;
+}
+
 export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number): string {
   const nonce = randomBytes(16).toString("base64url");
   const csp = [
@@ -16,100 +35,154 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
   <meta http-equiv="Content-Security-Policy" content="${csp}">
   <style nonce="${nonce}">
     :root { color-scheme: light dark; }
+    body { --pi-border: var(--vscode-sideBar-border, var(--vscode-widget-border, transparent)); --pi-accent: var(--vscode-textLink-foreground); }
+    body.vscode-light, body.vscode-high-contrast-light { color-scheme: light; }
+    body.vscode-dark, body.vscode-high-contrast { color-scheme: dark; }
     * { box-sizing: border-box; }
-    body { margin: 0; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); line-height: 1.45; overflow: hidden; }
-    #app { height: 100vh; min-width: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto auto; }
-    button, select { min-height: 28px; border: 1px solid transparent; border-radius: 3px; padding: 3px 8px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); cursor: pointer; font: inherit; }
-    button:hover { background: var(--vscode-button-hoverBackground); }
-    button.secondary, select { color: var(--vscode-foreground); background: var(--vscode-button-secondaryBackground); border-color: var(--vscode-button-border, transparent); }
+    /* Author display rules must never override native hidden state. */
+    [hidden] { display: none !important; }
+    body { margin: 0; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); line-height: 1.5; overflow: hidden; }
+    #app { height: 100vh; min-width: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto auto; padding: 0 12px 10px; }
+    button, select { min-height: 28px; border: 1px solid var(--vscode-button-border, transparent); border-radius: 6px; padding: 4px 9px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); cursor: pointer; font: inherit; }
+    button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+    button:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
+    button.secondary { color: var(--vscode-foreground); background: transparent; }
+    button.secondary:hover:not(:disabled) { background: var(--vscode-toolbar-hoverBackground); }
     button.danger { color: var(--vscode-errorForeground); }
-    button:focus-visible, select:focus-visible, textarea:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
-    button:disabled, select:disabled { cursor: default; opacity: .55; }
-    .header { display: grid; grid-template-columns: minmax(72px, auto) minmax(0, 1fr) auto auto auto; gap: 5px; padding: 7px 8px; border-bottom: 1px solid var(--vscode-sideBar-border, transparent); }
-    .header select, .header button { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    #model-picker { text-align: left; }
-    #new-session { grid-column: 3; grid-row: 1; }
-    #delete-session { grid-column: 4; grid-row: 1; }
-    #more { grid-column: 5; grid-row: 1; }
-    #handoff-agent { grid-column: 1 / -1; }
-    #runtime { display: flex; min-width: 0; gap: 8px; align-items: center; padding: 4px 9px; color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-sideBar-border, transparent); font-size: .82em; }
-    #runtime span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    #runtime #status { flex: 1; }
-    #reconnect { min-height: 22px; padding: 1px 6px; }
-    #messages { min-width: 0; overflow-y: auto; padding: 10px; }
-    .empty { margin: 10vh 12px 0; text-align: center; color: var(--vscode-descriptionForeground); }
-    .empty h2 { margin: 0 0 6px; color: var(--vscode-foreground); font-size: 1.05em; }
-    .empty-actions { display: grid; gap: 6px; margin-top: 14px; }
-    .message { min-width: 0; margin: 0 0 12px; }
-    .role { margin-bottom: 3px; color: var(--vscode-descriptionForeground); font-size: .78em; font-weight: 600; text-transform: uppercase; }
-    .content { min-width: 0; padding: 8px 10px; border-radius: 6px; overflow-wrap: anywhere; }
-    .content p { margin: 0 0 7px; }
-    .content p:last-child { margin-bottom: 0; }
-    .content pre { max-width: 100%; overflow: auto; margin: 7px 0; padding: 7px; background: var(--vscode-textCodeBlock-background); border-radius: 3px; white-space: pre; }
+    button:focus-visible, select:focus-visible, summary:focus-visible, textarea:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+    button:disabled, select:disabled { cursor: default; opacity: .5; }
+    .icon { width: 16px; height: 16px; flex: 0 0 auto; }
+    .icon-button { width: 28px; padding: 5px; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+    .header { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 10px 0 8px; }
+    .header select, .header button { min-width: 0; white-space: nowrap; }
+    #mode { max-width: 94px; color: var(--vscode-foreground); background: var(--vscode-input-background); border-color: var(--vscode-input-border, var(--pi-border)); }
+    #model-picker { flex: 1; justify-content: flex-start; color: var(--vscode-descriptionForeground); }
+    #model-label { overflow: hidden; text-overflow: ellipsis; }
+    #model-picker .icon { width: 12px; height: 12px; }
+    #handoff-agent { width: 100%; margin-top: 4px; }
+    #runtime { display: flex; flex-wrap: wrap; min-width: 0; gap: 6px; align-items: center; padding: 0 2px 9px; color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--pi-border); font-size: .82em; }
+    .status-dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--vscode-descriptionForeground); }
+    #runtime[data-connection="connected"] .status-dot { background: var(--vscode-testing-iconPassed, var(--pi-accent)); }
+    #runtime[data-connection="busy"] .status-dot { background: var(--vscode-progressBar-background); }
+    #runtime[data-connection="disconnected"] .status-dot { background: var(--vscode-editorWarning-foreground); }
+    #runtime span:not(.status-dot) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #status { flex: 1 1 70px; }
+    #session { max-width: 38%; }
+    #usage { font-variant-numeric: tabular-nums; }
+    #runtime button { min-height: 24px; padding: 2px 6px; font-size: inherit; }
+    #messages { min-width: 0; overflow-y: auto; padding: 18px 2px 8px; scrollbar-width: thin; }
+    #messages.is-empty { display: flex; }
+    .empty { width: 100%; max-width: 380px; margin: auto; padding: 24px 8px 40px; text-align: center; color: var(--vscode-descriptionForeground); }
+    .welcome-mark { display: grid; place-items: center; width: 44px; height: 44px; margin: 0 auto 18px; border: 1px solid var(--pi-border); border-radius: 12px; background: var(--vscode-editor-background); color: var(--pi-accent); font: 30px Georgia, serif; }
+    .empty h2 { margin: 0 0 8px; color: var(--vscode-foreground); font-size: 1.65em; font-weight: 600; letter-spacing: -.035em; line-height: 1.25; }
+    .empty p { margin: 0 auto; max-width: 280px; font-size: .95em; }
+    .empty-actions { display: grid; gap: 8px; margin-top: 26px; text-align: left; }
+    button.welcome-action { display: flex; width: 100%; gap: 12px; padding: 12px; border: 1px solid var(--pi-border); border-radius: 8px; text-align: left; background: var(--vscode-editor-background); }
+    button.welcome-action:hover { border-color: var(--vscode-focusBorder); }
+    .action-icon { display: grid; place-items: center; flex: 0 0 30px; height: 30px; border-radius: 7px; background: var(--vscode-input-background); color: var(--pi-accent); }
+    .action-copy { display: grid; flex: 1; min-width: 0; gap: 2px; }
+    .action-title { font-weight: 500; }
+    .action-description { color: var(--vscode-descriptionForeground); font-size: .85em; }
+    .action-arrow { display: flex; color: var(--vscode-descriptionForeground); }
+    .message { min-width: 0; margin: 0 0 20px; }
+    .role { display: flex; align-items: center; gap: 6px; margin: 0 0 6px 2px; color: var(--vscode-descriptionForeground); font-size: .85em; font-weight: 500; }
+    .assistant .role { color: var(--vscode-foreground); }
+    .assistant .role::before { content: 'π'; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; background: var(--vscode-input-background); color: var(--pi-accent); font: 15px Georgia, serif; }
+    .content { min-width: 0; padding: 0 2px; overflow-wrap: anywhere; line-height: 1.6; }
+    .content p { margin: 0 0 10px; }
+    .content > :first-child { margin-top: 0; }
+    .content > :last-child { margin-bottom: 0; }
+    .content h1, .content h2, .content h3, .content h4 { font-size: 1.1em; margin: 16px 0 8px; }
+    .content pre { max-width: 100%; overflow: auto; margin: 10px 0; padding: 12px; border: 1px solid var(--pi-border); background: var(--vscode-textCodeBlock-background); border-radius: 7px; white-space: pre; }
     .content code { font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); }
-    .content :not(pre) > code { padding: 1px 3px; background: var(--vscode-textCodeBlock-background); border-radius: 2px; }
-    .content ul { margin: 5px 0; padding-left: 22px; }
-    .user .content { background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); }
-    .assistant .content { background: var(--vscode-editor-background); border: 1px solid var(--vscode-sideBar-border, transparent); }
-    .context, .truncated { display: inline-block; max-width: 100%; margin: 5px 4px 0 0; padding: 2px 6px; border-radius: 10px; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); font-size: .8em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    #activity { max-height: 245px; overflow-y: auto; }
-    #proposals, #tools, #changes { padding: 0 8px; }
-    .proposal, .change, .tool, .background-task { margin: 0 0 6px; border: 1px solid var(--vscode-sideBar-border, var(--vscode-input-border)); border-radius: 4px; }
-    .proposal { padding: 7px; }
+    .content :not(pre) > code { padding: 1px 4px; background: var(--vscode-textCodeBlock-background); border-radius: 4px; }
+    .content ul { margin: 8px 0; padding-left: 22px; }
+    .user .content { padding: 10px 12px; border-radius: 9px; background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); }
+    .context, .truncated { display: inline-block; max-width: 100%; margin: 6px 4px 0 0; padding: 2px 7px; border-radius: 5px; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); font-size: .8em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #activity { max-height: min(28vh, 240px); overflow-y: auto; padding: 8px 2px 0; border-top: 1px solid var(--pi-border); scrollbar-width: thin; }
+    .proposal, .change, .tool, .background-task { margin: 0 0 6px; border: 1px solid var(--pi-border); border-radius: 7px; }
+    .proposal, .background-task { padding: 9px; }
     .proposal-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .proposal-meta, .background-meta { color: var(--vscode-descriptionForeground); font-size: .8em; }
+    .proposal-meta, .background-meta { color: var(--vscode-descriptionForeground); font-size: .85em; }
     .proposal-error { color: var(--vscode-errorForeground); font-size: .85em; overflow-wrap: anywhere; }
-    .proposal-actions, .change-actions, .background-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
-    .tool summary { padding: 5px 7px; cursor: pointer; color: var(--vscode-descriptionForeground); }
-    .tool.running summary { color: var(--vscode-progressBar-background); }
+    .proposal-actions, .change-actions, .background-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+    #tools-group { margin-bottom: 6px; }
+    #tools-group > summary { padding: 4px 2px; cursor: pointer; color: var(--vscode-descriptionForeground); font-size: .85em; overflow-wrap: anywhere; }
+    #tools-summary { margin-left: 3px; }
+    #tools-group[data-status="running"] > summary { color: var(--pi-accent); }
+    #tools-group[data-status="error"] > summary { color: var(--vscode-errorForeground); }
+    #tools { margin-top: 8px; }
+    .tool summary { padding: 6px 8px; cursor: pointer; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
+    .tool.running summary { color: var(--pi-accent); }
     .tool.error summary { color: var(--vscode-errorForeground); }
-    .tool pre, .background-output { max-height: 100px; overflow: auto; margin: 0; padding: 7px; border-top: 1px solid var(--vscode-sideBar-border, transparent); white-space: pre-wrap; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); }
-    .change { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; align-items: center; padding: 5px 7px; }
-    .change-label, .background-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .background-task { margin-left: 8px; margin-right: 8px; padding: 7px; }
-    .section-heading { display: flex; justify-content: space-between; align-items: center; margin: 5px 8px; color: var(--vscode-descriptionForeground); font-size: .78em; font-weight: 600; text-transform: uppercase; }
-    #attachments { display: none; gap: 5px; flex-wrap: wrap; padding: 6px 8px 0; border-top: 1px solid var(--vscode-sideBar-border, transparent); }
-    .attachment { display: inline-flex; max-width: 100%; align-items: center; gap: 4px; padding: 3px 4px 3px 7px; border-radius: 12px; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); font-size: .82em; }
+    .tool pre, .background-output { max-height: 120px; overflow: auto; margin: 0; padding: 8px; border-top: 1px solid var(--pi-border); white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); }
+    .change { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 8px; }
+    .change-label { flex: 1 1 100px; }
+    .change-label, .background-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .change-actions { margin-top: 0; }
+    .section-heading { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin: 4px 0 8px; color: var(--vscode-descriptionForeground); font-size: .85em; font-weight: 500; }
+    #source-control { min-height: 24px; font-size: inherit; }
+    #attachments { display: flex; gap: 5px; flex-wrap: wrap; padding: 8px 10px 0; }
+    .attachment { display: inline-flex; max-width: 100%; align-items: center; gap: 4px; padding: 3px 4px 3px 7px; border-radius: 5px; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); font-size: .82em; }
     .attachment-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .attachment button { min-height: 18px; width: 18px; padding: 0; border-radius: 50%; color: inherit; background: transparent; }
-    #composer { padding: 8px; }
-    textarea { display: block; width: 100%; min-height: 76px; max-height: 220px; resize: vertical; padding: 8px; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; font: inherit; }
-    .composer-actions { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 5px; margin-top: 7px; align-items: center; }
-    #composer-hint { min-width: 0; color: var(--vscode-descriptionForeground); font-size: .78em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    #notice { min-height: 22px; padding: 0 8px 5px; color: var(--vscode-descriptionForeground); font-size: .85em; overflow-wrap: anywhere; }
+    .attachment button { min-height: 20px; width: 20px; padding: 0; color: inherit; background: transparent; }
+    #composer { min-width: 0; padding-top: 10px; }
+    .composer-box { background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--pi-border)); border-radius: 10px; }
+    .composer-box:focus-within { border-color: var(--vscode-focusBorder); }
+    textarea { display: block; width: 100%; height: 82px; min-height: 82px; max-height: min(220px, 28vh); resize: none; padding: 12px; color: var(--vscode-input-foreground); background: transparent; border: 0; border-radius: 10px; font: inherit; line-height: 1.5; scrollbar-width: thin; }
+    textarea:focus-visible { outline: none; }
+    textarea::placeholder { color: var(--vscode-input-placeholderForeground); }
+    .composer-actions { display: flex; gap: 6px; padding: 0 7px 7px; align-items: center; }
+    #add-context { color: var(--vscode-descriptionForeground); font-size: .9em; }
+    .composer-spacer { flex: 1; }
+    #send { width: 28px; padding: 5px; }
+    #cancel { font-size: .9em; }
+    #composer-hint { margin: 6px 2px 0; color: var(--vscode-descriptionForeground); font-size: .78em; text-align: right; overflow-wrap: anywhere; }
+    #notice { max-height: 20vh; overflow-y: auto; padding: 7px 2px 0; color: var(--vscode-descriptionForeground); font-size: .85em; overflow-wrap: anywhere; }
+    #notice:empty { display: none; }
     #notice.error { color: var(--vscode-errorForeground); }
     #notice.warning { color: var(--vscode-editorWarning-foreground); }
-    @media (max-width: 340px) { .header { grid-template-columns: minmax(66px, 1fr) auto auto auto; } #model-picker { grid-column: 1 / -1; grid-row: 2; } #new-session { grid-column: 2; grid-row: 1; } #delete-session { grid-column: 3; grid-row: 1; } #more { grid-column: 4; grid-row: 1; } #handoff-agent { grid-column: 1 / -1; } .composer-actions { grid-template-columns: auto 1fr auto; } #composer-hint { display: none; } }
+    body.vscode-high-contrast .composer-box, body.vscode-high-contrast-light .composer-box,
+    body.vscode-high-contrast .welcome-action, body.vscode-high-contrast-light .welcome-action { border-color: var(--vscode-contrastBorder); }
+    body.vscode-high-contrast .composer-box:focus-within, body.vscode-high-contrast-light .composer-box:focus-within { border-color: var(--vscode-focusBorder); }
+    @media (max-width: 340px) { #app { padding: 0 8px 8px; } .header { gap: 2px; } #session { display: none; } .empty { padding-left: 2px; padding-right: 2px; } .empty h2 { font-size: 1.5em; } button.welcome-action { gap: 9px; padding: 10px; } }
+    @media (max-width: 260px) { #model-picker { order: 1; flex-basis: 100%; } #handoff-agent { order: 2; } #new-session { margin-left: auto; } }
+    @media (max-height: 500px) { .empty { padding-top: 8px; padding-bottom: 16px; } .welcome-mark { display: none; } .empty-actions { margin-top: 16px; } textarea { height: 64px; min-height: 64px; } }
+    @media (prefers-reduced-motion: no-preference) { button { transition: background-color .12s ease, border-color .12s ease; } }
   </style>
 </head>
 <body>
   <main id="app">
     <header class="header" aria-label="Pi conversation controls">
       <select id="mode" aria-label="Pi mode" title="Choose how Pi may work"><option value="ask">Ask</option><option value="edit">Edit</option><option value="plan">Plan</option><option value="agent">Agent</option></select>
-      <button id="model-picker" class="secondary" type="button" aria-label="Change Pi model">Model…</button>
-      <button id="new-session" class="secondary" type="button" title="Start a new Pi conversation" aria-label="New Pi conversation">New</button>
-      <button id="delete-session" class="secondary danger" type="button" title="Delete the current Pi conversation" aria-label="Delete current Pi conversation">Delete</button>
+      <button id="model-picker" class="secondary" type="button" aria-label="Change Pi model"><span id="model-label">Choose model…</span>${icon("chevron")}</button>
+      <button id="new-session" class="secondary icon-button" type="button" title="New conversation" aria-label="New Pi conversation">${icon("plus")}</button>
+      <button id="delete-session" class="secondary danger icon-button" type="button" title="Delete conversation" aria-label="Delete current Pi conversation" hidden>${icon("trash")}</button>
+      <button id="more" class="secondary icon-button" type="button" title="More… · Session and advanced actions" aria-label="More Pi actions">${icon("more")}</button>
       <button id="handoff-agent" type="button" title="Continue this Plan session in Agent mode" hidden>Implement Plan</button>
-      <button id="more" class="secondary" type="button" title="Session and advanced actions" aria-label="More Pi actions">More…</button>
     </header>
-    <div id="runtime"><span id="status" role="status" aria-live="polite">Connecting…</span><span id="session"></span><span id="usage"></span><button id="retry" class="secondary" type="button" hidden>Retry</button><button id="refresh-history" class="secondary" type="button" hidden>Refresh history</button><button id="reconnect" class="secondary" type="button" hidden>Reconnect</button></div>
+    <div id="runtime"><span class="status-dot" aria-hidden="true"></span><span id="status" role="status" aria-live="polite">Connecting…</span><span id="session"></span><span id="usage"></span><button id="retry" class="secondary" type="button" hidden>Retry</button><button id="refresh-history" class="secondary" type="button" hidden>Refresh history</button><button id="reconnect" class="secondary" type="button" hidden>Reconnect</button></div>
     <section id="messages" aria-live="off" aria-label="Pi conversation"></section>
-    <section id="activity">
+    <section id="activity" aria-label="Pi activity" hidden>
       <div id="proposals-heading" class="section-heading" hidden><span>Edit proposals</span></div><section id="proposals" aria-label="Pi edit proposals"></section>
-      <section id="tools" aria-label="Pi tool activity"></section>
+      <details id="tools-group" hidden><summary><span id="tools-summary">Tool activity</span></summary><section id="tools" aria-label="Pi tool activity"></section></details>
       <div id="changes-heading" class="section-heading" hidden><span>Pi changes</span><button id="source-control" class="secondary" type="button">Source Control</button></div><section id="changes" aria-label="Pi file changes"></section>
       <div id="background-heading" class="section-heading" hidden><span>Background agents</span></div><section id="background" aria-label="Background Pi agents"></section>
     </section>
-    <div id="attachments" aria-label="Context attached to the next message"></div>
-    <section id="composer">
-      <label for="input" class="role">Message Pi</label>
-      <textarea id="input" maxlength="${maxInputCharacters}" placeholder="Ask Pi…" aria-label="Message Pi"></textarea>
-      <div class="composer-actions">
-        <button id="add-context" class="secondary" type="button">Add context</button>
-        <span id="composer-hint">Enter to send · Shift+Enter for newline</span>
-        <button id="cancel" class="secondary" type="button" hidden>Cancel</button>
-        <button id="send" type="button">Send</button>
+    <section id="composer" aria-label="Message composer">
+      <div class="composer-box">
+        <div id="attachments" aria-label="Context attached to the next message" hidden></div>
+        <label for="input" class="sr-only">Message Pi</label>
+        <textarea id="input" rows="3" maxlength="${maxInputCharacters}" placeholder="Ask, plan, or build something…" aria-describedby="composer-hint"></textarea>
+        <div class="composer-actions">
+          <button id="add-context" class="secondary" type="button" title="Attach code, files, or images">${icon("attachment")}<span>Add context</span></button>
+          <span class="composer-spacer"></span>
+          <button id="cancel" class="secondary" type="button" aria-label="Cancel Pi response" hidden>${icon("stop")}<span>Stop</span></button>
+          <button id="send" type="button" aria-label="Send message" title="Send message" disabled>${icon("send")}</button>
+        </div>
       </div>
+      <div id="composer-hint">Enter to send · Shift+Enter for newline</div>
     </section>
     <div id="notice" role="status" aria-live="polite"></div>
   </main>
@@ -117,6 +190,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     const vscode = acquireVsCodeApi();
     const $ = id => document.getElementById(id);
     const messagesElement = $('messages');
+    const emptyActionButtons = [];
     const toolsElement = $('tools');
     const proposalsElement = $('proposals');
     const changesElement = $('changes');
@@ -151,19 +225,28 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const nearBottom = messagesElement.scrollHeight - messagesElement.scrollTop - messagesElement.clientHeight < 80;
       const visibleMessages = messages.filter(message => message.role !== 'assistant' || Boolean(message.html));
       messagesElement.replaceChildren();
+      emptyActionButtons.length = 0;
+      messagesElement.classList.toggle('is-empty', visibleMessages.length === 0);
       if (visibleMessages.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'empty';
-        empty.innerHTML = '<h2>What do you want to do?</h2><div>Start with code context or choose a working mode.</div>';
+        empty.innerHTML = '<div class="welcome-mark" aria-hidden="true">π</div><h2>Let’s build something.</h2><p>Ask a question, shape a plan, or put Pi to work.</p>';
         const actions = document.createElement('div');
         actions.className = 'empty-actions';
-        for (const item of [['selection', 'Ask about current selection'], ['plan', 'Plan a change'], ['agent', 'Start an agent task']]) {
+        for (const item of [
+          ['selection', 'Explore your code', 'Ask about the current selection', '${icon("selection")}'],
+          ['plan', 'Plan a change', 'Think it through before editing', '${icon("plan")}'],
+          ['agent', 'Build with Pi', 'Work on a task from start to finish', '${icon("agent")}'],
+        ]) {
           const button = document.createElement('button');
-          button.className = 'secondary';
+          button.className = 'secondary welcome-action';
           button.type = 'button';
           button.dataset.emptyAction = item[0];
-          button.textContent = item[1];
+          button.innerHTML = '<span class="action-icon">' + item[3] + '</span><span class="action-copy"><span class="action-title"></span><span class="action-description"></span></span><span class="action-arrow">${icon("arrow")}</span>';
+          button.querySelector('.action-title').textContent = item[1];
+          button.querySelector('.action-description').textContent = item[2];
           actions.appendChild(button);
+          emptyActionButtons.push(button);
         }
         empty.appendChild(actions);
         messagesElement.appendChild(empty);
@@ -194,7 +277,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           messagesElement.appendChild(wrapper);
         }
       }
-      if (nearBottom || busy) messagesElement.scrollTop = messagesElement.scrollHeight;
+      if (visibleMessages.length === 0) messagesElement.scrollTop = 0;
+      else if (nearBottom || busy) messagesElement.scrollTop = messagesElement.scrollHeight;
     }
 
     function renderProposals(proposals) {
@@ -236,10 +320,23 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     }
 
     function renderTools(tools) {
+      // Preserve user disclosure choices across streamed state updates.
+      const openTools = new Map(Array.from(toolsElement.children, details => [details.dataset.id, details.open]));
+      const group = $('tools-group');
+      group.hidden = tools.length === 0;
+      if (!tools.length) group.open = false;
+      const running = tools.filter(tool => tool.status === 'running');
+      const failed = tools.filter(tool => tool.status === 'error');
+      group.dataset.status = running.length ? 'running' : failed.length ? 'error' : 'success';
+      $('tools-summary').textContent = running.length
+        ? 'Running · ' + running[running.length - 1].name + (running.length > 1 ? ' · ' + running.length + ' active' : '')
+        : tools.length + (tools.length === 1 ? ' tool call' : ' tool calls') + (failed.length ? ' · ' + failed.length + ' failed' : ' · completed');
       toolsElement.replaceChildren();
       for (const tool of tools) {
         const details = document.createElement('details');
         details.className = 'tool ' + tool.status;
+        details.dataset.id = tool.id;
+        details.open = openTools.get(tool.id) ?? tool.status !== 'success';
         const summary = document.createElement('summary');
         summary.textContent = (tool.status === 'running' ? 'Running · ' : tool.status === 'error' ? 'Failed · ' : 'Completed · ') + tool.name;
         const pre = document.createElement('pre');
@@ -247,7 +344,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         details.append(summary, pre);
         toolsElement.appendChild(details);
       }
-      if (tools.length && tools[tools.length - 1].status !== 'success') toolsElement.lastElementChild.open = true;
     }
 
     function renderChanges(changes) {
@@ -313,7 +409,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     function renderAttachments(attachments) {
       attachmentsElement.replaceChildren();
       attachedImages = attachments.some(attachment => attachment.image);
-      attachmentsElement.style.display = attachments.length ? 'flex' : 'none';
+      attachmentsElement.hidden = attachments.length === 0;
       for (const attachment of attachments) {
         const chip = document.createElement('span');
         chip.className = 'attachment';
@@ -333,6 +429,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       }
     }
 
+    function resizeInput() {
+      input.style.height = '0px';
+      input.style.height = input.scrollHeight + 'px';
+    }
+
     function updateSendState() {
       const imageBlocked = attachedImages && !imageSupported;
       const imageLoading = pendingImageReads > 0;
@@ -344,6 +445,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('handoff-agent').disabled = interactionLocked || !connected;
       $('more').disabled = interactionLocked || !connected;
       $('add-context').disabled = interactionLocked;
+      for (const button of emptyActionButtons) button.disabled = interactionLocked;
       sendButton.disabled = interactionLocked || !connected || !input.value.trim() || imageBlocked;
       sendButton.title = imageLoading
         ? 'Wait for pasted images to finish loading.'
@@ -353,7 +455,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
             ? 'Wait for the background agent to finish starting.'
             : imageBlocked
               ? 'The current model does not support image attachments.'
-              : !connected ? 'Reconnect to Pi before sending.' : '';
+              : !connected ? 'Reconnect to Pi before sending.' : 'Send message';
       $('composer-hint').textContent = imageLoading
         ? 'Loading pasted image…'
         : backgroundSubmissionPending
@@ -373,21 +475,26 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       renderChanges(state.changes || []);
       renderBackground(state.backgroundTasks || []);
       renderAttachments(state.attachments || []);
+      $('activity').hidden = ![state.proposals, state.tools, state.changes, state.backgroundTasks].some(items => items && items.length);
       updatingControls = true;
       mode.value = state.runtime.mode;
       mode.disabled = busy;
       updatingControls = false;
       const currentModel = state.runtime.model || {};
-      $('model-picker').textContent = currentModel.name || currentModel.id || 'Choose model…';
+      $('model-label').textContent = currentModel.name || currentModel.id || 'Choose model…';
       $('model-picker').title = currentModel.provider && currentModel.id ? currentModel.provider + '/' + currentModel.id : 'Choose Pi model';
       $('model-picker').disabled = busy || !connected;
       $('new-session').disabled = busy;
+      $('delete-session').hidden = !deletableSession;
       $('delete-session').disabled = busy || !connected || !deletableSession;
       $('handoff-agent').hidden = state.runtime.mode !== 'plan';
       $('handoff-agent').disabled = busy || !connected;
       $('more').disabled = busy || !connected;
+      $('runtime').dataset.connection = !connected ? 'disconnected' : busy ? 'busy' : 'connected';
       $('status').textContent = state.status + (connected ? '' : ' · disconnected');
+      $('status').title = $('status').textContent;
       $('session').textContent = state.runtime.sessionName || (state.runtime.sessionId ? 'Session ' + state.runtime.sessionId.slice(0, 8) : '');
+      $('session').title = state.runtime.sessionName || state.runtime.sessionId || '';
       const context = (state.runtime.stats || {}).contextUsage || {};
       $('usage').textContent = typeof context.percent === 'number' ? Math.round(context.percent) + '% context' : '';
       $('reconnect').hidden = connected;
@@ -397,7 +504,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('refresh-history').disabled = busy || !connected;
       $('add-context').disabled = busy;
       cancelButton.hidden = !busy;
-      sendButton.textContent = busy ? 'Working…' : 'Send';
+      sendButton.hidden = busy;
       updateSendState();
     }
 
@@ -450,6 +557,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       else if (message.type === 'notice') { notice.textContent = message.message; notice.className = message.level; }
       else if (message.type === 'setInput') {
         input.value = message.text;
+        resizeInput();
         composerRevision += 1;
         updateSendState();
         input.focus();
@@ -460,6 +568,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         const textMatches = message.expectedText === undefined || input.value === message.expectedText;
         if (revisionMatches && textMatches) {
           input.value = '';
+          resizeInput();
           composerRevision += 1;
           input.focus();
         }
@@ -483,14 +592,15 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     $('more').addEventListener('click', () => vscode.postMessage({ type: 'showMoreActions', text: input.value, revision: composerRevision }));
     $('source-control').addEventListener('click', () => vscode.postMessage({ type: 'openSourceControl' }));
     mode.addEventListener('change', () => { if (!updatingControls) vscode.postMessage({ type: 'setMode', mode: mode.value }); });
-    input.addEventListener('input', () => { composerRevision += 1; updateSendState(); });
+    input.addEventListener('input', () => { composerRevision += 1; resizeInput(); updateSendState(); });
+    window.addEventListener('resize', resizeInput);
     input.addEventListener('paste', attachPastedImages);
     input.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); submit(); } });
     messagesElement.addEventListener('click', event => {
       const button = event.target instanceof Element ? event.target.closest('button[data-empty-action]') : undefined;
-      if (!button) return;
+      if (!button || button.disabled) return;
       if (button.dataset.emptyAction === 'selection') { vscode.postMessage({ type: 'attachSelection' }); input.focus(); }
-      else vscode.postMessage({ type: 'setMode', mode: button.dataset.emptyAction });
+      else { vscode.postMessage({ type: 'setMode', mode: button.dataset.emptyAction }); input.focus(); }
     });
     attachmentsElement.addEventListener('click', event => {
       const button = event.target instanceof Element ? event.target.closest('button[data-remove-attachment]') : undefined;
