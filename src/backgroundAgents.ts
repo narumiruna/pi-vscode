@@ -214,14 +214,18 @@ export class BackgroundAgentManager implements vscode.Disposable {
     const task = this.requireTask(id);
     const preview = this.resultPreviews.get(id);
     if (!preview) throw new Error("Review Results and preview selected files first. Previews expire on reload.");
-    if (await realpath(targetCwd) !== preview.snapshot.origin.repository.root) throw new Error("Switch Pi to the task's originating worktree before importing results.");
     requireTrustedFile(vscode.Uri.file(targetCwd));
+    const cwd = await realpath(targetCwd);
+    const target = await gitIdentity(cwd);
+    if (JSON.stringify(target) !== JSON.stringify(preview.snapshot.origin.repository)) throw new Error("Switch Pi to the task's originating worktree before importing results.");
     if (this.resultOperations.has(id)) throw new Error("A task result operation is already active.");
-    const release = acquireOperation(preview.snapshot.origin.repository.root, "task result import");
-    this.resultOperations.add(id);
-    this.patchTask(id, { reviewing: true });
+    const release = acquireOperation(target.root, "task result import");
+    let releaseCwd = () => {};
     try {
-      if (await vscode.window.showWarningMessage(`Import ${preview.selected.length} previewed files into ${targetCwd}? No staging or branch changes. Filesystem writes are not atomic across files.`, { modal: true }, "Import Selected") !== "Import Selected") return;
+      if (cwd !== target.root) releaseCwd = acquireOperation(cwd, "task result import");
+      this.resultOperations.add(id);
+      this.patchTask(id, { reviewing: true });
+      if (await vscode.window.showWarningMessage(`Import ${preview.selected.length} previewed files into ${target.root}? No staging or branch changes. Filesystem writes are not atomic across files.`, { modal: true }, "Import Selected") !== "Import Selected") return;
       const report = await importBackgroundResult(preview.snapshot, preview.selected, {
         assertInactive: () => { requireTrustedFile(); this.assertTaskInactive(id); },
         isDirty: isDirtyFile,
@@ -229,7 +233,7 @@ export class BackgroundAgentManager implements vscode.Disposable {
       this.patchTask(id, { importReport: report });
       this.resultPreviews.delete(id);
       await this.documents.inspect("Task import report", JSON.stringify(report, null, 2));
-    } finally { release(); this.resultOperations.delete(id); this.patchTask(task.id, { reviewing: false }); }
+    } finally { releaseCwd(); release(); this.resultOperations.delete(id); this.patchTask(task.id, { reviewing: false }); }
   }
 
   public async cleanupWorktree(id: string): Promise<void> {

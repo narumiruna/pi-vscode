@@ -80,7 +80,7 @@ Automatic inline completions are disabled by default and can be enabled with `pi
 | In-flight text | During an ordinary composer request, use **Steer** (after current tool calls) or **Follow Up**. **Inspect Queue** opens the pending-text snapshot; **Clear Queue** recovers cleared text. **Recovered Drafts** appends a selected draft only if the composer revision is unchanged. No attachments or slash commands are queued. |
 | Debug question | Pause a Node.js debugger, select a frame, then **More… → Ask Debug Context** or **Pi: Ask Debug Context**. Approve local capture, choose variables, inspect/redact, and enter a question. Resuming/changing frames invalidates the snapshot. |
 
-All new process and mutation workflows require a trusted, file-backed workspace. Foreground targets must match Pi's active working directory/session. Open a task worktree in its own window to resume its isolated session; cross-worktree session resume is rejected.
+All new process and mutation workflows require a trusted, file-backed workspace. Foreground targets must match Pi's active working directory/session. Repository subfolder workspaces support staged review and task import: approval identifies the repository-wide scope/destination, while Pi remains bound to the selected workspace. Open a task worktree in its own window to resume its isolated session; cross-worktree session resume is rejected.
 
 ### Workflow limits
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -113,6 +113,46 @@ test("staged command confirmation, immutable finding navigation, stale rejection
     vscode.workspace.isTrusted = false; await command(); assert.match(fixture.errors.pop() ?? "", /trusted/);
     vscode.workspace.isTrusted = true; vscode.workspace.workspaceFolders = [{ uri: new MockUri("virtual", "/repo"), name: "Virtual" }];
     await command(); assert.match(fixture.errors.pop() ?? "", /virtual/);
+  } finally { fixture.dispose(); await rm(root, { recursive: true, force: true }); }
+});
+
+for (const workspaceKind of ["root", "subfolder"]) test(`staged ${workspaceKind} review preserves runtime scope and highlights complete finding lines`, async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "pi-staged-scope-")), nested = path.join(root, "nested");
+  await mkdir(nested);
+  const fixture = ui(workspaceKind === "root" ? root : nested);
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: root, env: gitEnvironment() });
+  let finding = { path: "a.ts", side: "after", startLine: 1, endLine: 1 };
+  let selection: any;
+  const show = vscode.window.showTextDocument;
+  vscode.window.showTextDocument = async (document: any, options: any) => { if (options?.selection) selection = options.selection; return show(document); };
+  vscode.window.showWarningMessage = async () => "Send Staged Review";
+  vscode.window.showQuickPick = async (items: any[]) => items[0];
+  const { registerGitReview } = require("../gitReviewController") as typeof import("../gitReviewController");
+  registerGitReview(fixture.context, fixture.runtime, {
+    sendRequest: async (_request, _contexts, options) => {
+      assert.equal(options?.resource, fixture.folder.uri);
+      const response = JSON.stringify({ incomplete: false, findings: [{ ...finding, severity: "warning", message: "Finding" }] });
+      await options?.onResponse?.(response); return response;
+    }, addEditProposal: () => "unused",
+  });
+  try {
+    git("init", "-q"); await writeFile(path.join(root, "a.ts"), "old\r\nlast"); git("add", "a.ts");
+    git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "base");
+    await writeFile(path.join(root, "a.ts"), "new\r\nfinal🙂"); git("add", "a.ts");
+    for (const side of ["before", "after"]) for (const startLine of [1, 2]) {
+      finding = { path: "a.ts", side, startLine, endLine: 2 };
+      await vscode.registrations.get("piCodingAgent.reviewStagedChanges")!();
+      await vscode.registrations.get("piCodingAgent.showStagedFindings")!();
+      assert.deepEqual(fixture.errors, []);
+      assert.equal(selection.startLine, startLine - 1); assert.equal(selection.startCharacter, 0);
+      assert.equal(selection.endLine, 1); assert.equal(selection.endCharacter, side === "before" ? 4 : 7);
+    }
+    fixture.runtime.currentCwd = workspaceKind === "root" ? nested : root;
+    await vscode.registrations.get("piCodingAgent.showStagedFindings")!();
+    assert.match(fixture.errors.pop() ?? "", /target does not match/);
+    fixture.runtime.currentCwd = fixture.folder.uri.fsPath; fixture.runtime.currentState.sessionId = "changed";
+    await vscode.registrations.get("piCodingAgent.showStagedFindings")!();
+    assert.match(fixture.errors.pop() ?? "", /session changed/);
   } finally { fixture.dispose(); await rm(root, { recursive: true, force: true }); }
 });
 

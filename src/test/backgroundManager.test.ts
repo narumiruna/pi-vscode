@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { gitEnvironment, gitIdentity, gitRevision } from "../gitSnapshots";
+import { acquireOperation, hasOperation } from "../operationLocks";
 import { installVscodeMock, MockUri } from "./vscodeMock";
 
 test("background manager restores legacy/interrupted tasks safely, previews cancelled results, recovers imports and guards cleanup", async () => {
@@ -63,8 +64,18 @@ test("background manager restores legacy/interrupted tasks safely, previews canc
     (manager as any).resultOperations.add("cancelled");
     await assert.rejects(manager.cleanupWorktree("cancelled"), /review\/import/);
     (manager as any).resultOperations.delete("cancelled");
-    vscode.window.showWarningMessage = async () => "Import Selected";
-    await manager.applySelected("cancelled", repository);
+    const nested = path.join(repository, "nested"); await mkdir(nested);
+    const releaseForeground = acquireOperation(nested, "foreground request");
+    try { await assert.rejects(manager.applySelected("cancelled", nested), /Wait for foreground/); }
+    finally { releaseForeground(); }
+    assert.equal(hasOperation(repository), false, "failed subfolder lock acquisition releases the repository gate");
+    await assert.rejects(manager.applySelected("cancelled", worktree), /originating worktree/);
+    vscode.window.showWarningMessage = async (message: string) => {
+      assert.ok(message.includes(`into ${repository}?`), "approval names the actual repository-wide destination");
+      assert.ok(hasOperation(repository)); assert.ok(hasOperation(nested)); return "Import Selected";
+    };
+    await manager.applySelected("cancelled", nested);
+    assert.equal(hasOperation(repository), false); assert.equal(hasOperation(nested), false);
     assert.equal(await readFile(path.join(repository, "a.txt"), "utf8"), "result\n");
     assert.deepEqual(manager.states.find(task => task.id === "cancelled")?.importReport?.applied, ["a.txt"]);
     assert.equal(await readFile(path.join(worktree, "a.txt"), "utf8"), "result\n", "import retains recovery source");
