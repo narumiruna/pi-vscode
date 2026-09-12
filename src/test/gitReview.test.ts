@@ -57,6 +57,22 @@ test("unborn and empty staging, additions, deleted sides, rename and unsupported
   for (const value of ["", "{}", '{"findings":[]}', "x".repeat(100001)]) assert.throws(() => parseGitReview(value, snapshot));
 }));
 
+test("rejected staged file sides do not consume the retained review budget", async () => fixture(async (root, git) => {
+  for (const name of ["a", "b", "c", "d"]) await writeFile(path.join(root, name), "a".repeat(100_000));
+  git("add", "a", "b", "c", "d"); git("commit", "-qm", "base");
+  await writeFile(path.join(root, "a"), "x".repeat(100_001));
+  await writeFile(path.join(root, "b"), Buffer.from([0, 1]));
+  await writeFile(path.join(root, "c"), "x".repeat(100_001));
+  await writeFile(path.join(root, "d"), "b".repeat(100_000));
+  git("add", "a", "b", "c", "d");
+  const index = digest(await readFile(path.join(root, ".git/index")));
+  const snapshot = await captureStaged(root);
+  assert.equal(snapshot.files.filter(file => file.skipped).length, 3);
+  assert.equal(snapshot.files.find(file => file.path === "d")?.after, "b".repeat(100_000));
+  assert.equal(snapshot.files.reduce((sum, file) => sum + Buffer.byteLength(file.before ?? "") + Buffer.byteLength(file.after ?? ""), 0), 200_000);
+  assert.equal(digest(await readFile(path.join(root, ".git/index"))), index);
+}));
+
 test("repository identities differ; cancellation and unsafe paths fail closed", async () => {
   await fixture(async root => fixture(async other => {
     assert.notEqual((await captureStaged(root)).repository.gitDir, (await captureStaged(other)).repository.gitDir);

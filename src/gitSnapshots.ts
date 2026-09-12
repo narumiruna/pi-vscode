@@ -99,19 +99,21 @@ export async function captureStaged(cwd: string, signal?: AbortSignal): Promise<
     else if (![beforeMode, afterMode].every(mode => ["000000", "100644", "100755"].includes(mode))) skipped = "Symlink, submodule, or unsupported file mode";
     else if (files.length >= 100) skipped = "File-count limit";
     const texts: Array<string | undefined> = [];
+    let fileBytes = 0;
     if (!skipped) {
       for (const oid of [beforeOid, afterOid]) {
         if (/^0+$/.test(oid)) { texts.push(undefined); continue; }
         if (!validGitOid(oid)) throw new Error("Invalid Git object identity.");
         const size = Number(line(await git(repository.root, ["cat-file", "-s", oid], signal)));
-        if (!Number.isSafeInteger(size) || size < 0 || size > Math.min(100_000, remaining)) { skipped = "Oversized file or context limit"; break; }
+        if (!Number.isSafeInteger(size) || size < 0 || size > Math.min(100_000, remaining - fileBytes)) { skipped = "Oversized file or context limit"; break; }
         const bytes = await git(repository.root, ["cat-file", "blob", oid], signal, 100_001);
         const text = decodeText(bytes);
         if (text === undefined) { skipped = "Binary or non-UTF-8 file"; break; }
-        remaining -= bytes.length;
+        fileBytes += bytes.length;
         texts.push(text);
       }
     }
+    if (!skipped) remaining -= fileBytes;
     files.push({ path: filePath, oldPath, status, ...(skipped ? { skipped } : { before: texts[0], after: texts[1] }) });
   }
   // Generate diffs only for bounded reviewed paths. Blob snapshots remain the navigation authority.

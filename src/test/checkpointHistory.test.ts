@@ -30,6 +30,16 @@ test("checkpoint retention bounds, newer dependencies, dirty/stale files and rel
   assert.match(evicted.exclusions.join(" "), /unresolved recovery/);
 });
 
+test("rejected checkpoint candidates leave room for later fitting files", () => {
+  const history = new CheckpointHistory(), mib = 1024 * 1024;
+  const file = (name: string, bytes: number) => ({ path: name, before: "a".repeat(bytes), after: "b".repeat(bytes) });
+  const record = history.add({ repository: "/repo", sessionId: "s", startedAt: 1, completedAt: 2, status: "completed", exclusions: [],
+    files: [...Array.from({ length: 4 }, (_, index) => file(String(index), 2 * mib)), file("near-limit", mib), file("overflow", 2 * mib), file("oversized-side", 2 * mib + 1), file("later", 10)] });
+  assert.equal(history.retainedBytes, 18 * mib + 20);
+  assert.equal(record.files.at(-1)?.path, "later");
+  assert.deepEqual(record.exclusions, ["overflow: retained snapshot limit", "oversized-side: retained snapshot limit"]);
+});
+
 test("request-start snapshots precede immediate subprocess writes; dirty, external and shell changes are not restorable", () => {
   const vscode = installVscodeMock();
   const { WorkspaceChangeTracker } = require("../changeTracker") as typeof import("../changeTracker");

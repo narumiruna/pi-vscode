@@ -17,8 +17,8 @@ export class CheckpointHistory {
     const excluded = [...record.exclusions];
     record.files = record.files.filter(file => {
       const before = Buffer.byteLength(file.before), after = Buffer.byteLength(file.after);
+      if (before > 2 * 1024 * 1024 || after > 2 * 1024 * 1024 || bytes + before + after > 20 * 1024 * 1024) { excluded.push(`${file.path}: retained snapshot limit`); return false; }
       bytes += before + after;
-      if (before > 2 * 1024 * 1024 || after > 2 * 1024 * 1024 || bytes > 20 * 1024 * 1024) { excluded.push(`${file.path}: retained snapshot limit`); return false; }
       return true;
     });
     const stored = { ...record, exclusions: excluded };
