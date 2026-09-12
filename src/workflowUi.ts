@@ -65,7 +65,8 @@ export async function inspectForTransmission(documents: WorkflowDocuments, label
   if (text.length > maxCharacters) throw new Error("Snapshot exceeds its transmission limit.");
   await documents.inspect(label, text);
   const warnings = contextWarnings(label, text);
-  const action = await vscode.window.showWarningMessage(`${warnings.join("; ")} Inspect this local snapshot. Pi history/instructions and later tool reads are separate. Secret warnings are best-effort. Nothing has been sent yet.`, "Send Snapshot", "Edit / Redact");
+  const warningPrefix = warnings.length ? `${warnings.join("; ")}. ` : "";
+  const action = await vscode.window.showWarningMessage(`${warningPrefix}Inspect this local snapshot. Pi history/instructions and later tool reads are separate. Secret warnings are best-effort. Nothing has been sent yet.`, "Send Snapshot", "Edit / Redact");
   if (action === "Send Snapshot") return text;
   if (action !== "Edit / Redact") return undefined;
   // Do not put raw debug/test secrets in untitled editors, which VS Code may back up for hot exit.

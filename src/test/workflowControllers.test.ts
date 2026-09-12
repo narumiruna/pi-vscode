@@ -29,6 +29,62 @@ function ui(root: string) {
   return { context, runtime, folder, errors, inspected, dispose: () => { for (const item of context.subscriptions) item.dispose(); } };
 }
 
+test("snapshot inspection formats zero, one and multiple warnings without exposing content in the prompt", async () => {
+  const fixture = ui(tmpdir());
+  const { inspectForTransmission, WorkflowDocuments } = require("../workflowUi") as typeof import("../workflowUi");
+  const documents = new WorkflowDocuments();
+  const disclosure = "Inspect this local snapshot. Pi history/instructions and later tool reads are separate. Secret warnings are best-effort. Nothing has been sent yet.";
+  try {
+    for (const [label, text, prefix] of [
+      ["config", "ordinary snapshot", ""],
+      [".env", "ordinary snapshot", "Sensitive filename. "],
+      ["config", "api_key=supersecretvalue", "Possible secret pattern. "],
+      [".env", "api_key=supersecretvalue", "Sensitive filename; Possible secret pattern. "],
+    ]) {
+      let confirmations = 0;
+      vscode.window.showWarningMessage = async (message: string, ...actions: string[]) => {
+        confirmations++;
+        assert.equal(fixture.inspected.at(-1), text, "inspect locally before asking to send");
+        assert.equal(message, prefix + disclosure);
+        assert.deepEqual(actions, ["Send Snapshot", "Edit / Redact"]);
+        return "Send Snapshot";
+      };
+      assert.equal(await inspectForTransmission(documents, label!, text!, 100), text);
+      assert.equal(confirmations, 1);
+    }
+  } finally { documents.dispose(); fixture.dispose(); }
+});
+
+test("snapshot confirmation preserves cancellation, redaction reinspection and failure limits", async () => {
+  const fixture = ui(tmpdir());
+  const { inspectForTransmission, WorkflowDocuments } = require("../workflowUi") as typeof import("../workflowUi");
+  const documents = new WorkflowDocuments();
+  const text = "private-value and private-value";
+  let confirmations = 0;
+  const decisions: (string | undefined)[] = [];
+  vscode.window.showWarningMessage = async () => { confirmations++; return decisions.shift(); };
+  vscode.window.showInputBox = async (options: any) => { assert.equal(options.password, true); return "private-value"; };
+  try {
+    assert.equal(await inspectForTransmission(documents, "config", text, 100), undefined);
+    decisions.push("Edit / Redact", "Send Snapshot");
+    assert.equal(await inspectForTransmission(documents, "config", text, 100), "[REDACTED] and [REDACTED]");
+    assert.equal(confirmations, 3, "redaction needs another explicit confirmation");
+    assert.deepEqual(fixture.inspected, [text, text, "[REDACTED] and [REDACTED]"]);
+    decisions.push("Edit / Redact", undefined);
+    assert.equal(await inspectForTransmission(documents, "config", text, 100), undefined);
+    decisions.push("Edit / Redact");
+    vscode.window.showInputBox = async () => undefined;
+    assert.equal(await inspectForTransmission(documents, "config", text, 100), undefined);
+    decisions.push("Edit / Redact");
+    vscode.window.showInputBox = async () => "absent";
+    await assert.rejects(inspectForTransmission(documents, "config", text, 100), /not found/);
+    const inspected = fixture.inspected.length, prompted = confirmations;
+    await assert.rejects(inspectForTransmission(documents, "config", text, 1), /transmission limit/);
+    assert.equal(fixture.inspected.length, inspected);
+    assert.equal(confirmations, prompted);
+  } finally { documents.dispose(); fixture.dispose(); }
+});
+
 test("staged command confirmation, immutable finding navigation, stale rejection and trust/virtual guards", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "pi-review-controller-"));
   const fixture = ui(root);
