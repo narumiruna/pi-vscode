@@ -63,7 +63,7 @@ just install-pi-extension
 7. Use `@pi` in the native Chat view when VS Code's native participant workflow is preferred; its history remains separate from the Pi Sidebar session.
 8. Ask Pi to inspect the active editor or open a file when the VS Code bridge tools are useful.
 
-Use **More…** for session resume, thinking level, commands, compaction, export, terminal handoff, and background or worktree agents.
+The header shows the current thinking level and lets you change it directly. Use **More…** for session resume, commands, compaction, export, terminal handoff, and background or worktree agents.
 The standalone Pi extension exposes `vscode_context`, `vscode_open_file`, and `vscode_notify` when Pi runs in a new VS Code integrated terminal or a session started by the Pi view.
 Automatic inline completions are disabled by default and can be enabled with `piCodingAgent.inlineCompletions.enabled`.
 
