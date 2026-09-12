@@ -51,10 +51,10 @@ export function renderSafeMarkdown(markdown: string): string {
     }
 
     closeList();
+    // Paragraph/list margins provide spacing; blank lines must not become
+    // visible content for empty or tool-only assistant messages.
     if (line.trim()) {
       output.push(`<p>${renderInline(line)}</p>`);
-    } else {
-      output.push("<br>");
     }
   }
 

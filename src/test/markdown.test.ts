@@ -32,3 +32,22 @@ test("renderSafeMarkdown escapes raw HTML and scripts", () => {
 test("renderSafeMarkdown does not interpret Markdown inside inline code", () => {
   assert.equal(renderSafeMarkdown("`**literal** <tag>`"), "<p><code>**literal** &lt;tag&gt;</code></p>");
 });
+
+test("renderSafeMarkdown keeps empty assistant turns invisible", () => {
+  for (const content of ["", " ", "\n\n", "\r\n\t  \r\n"]) {
+    assert.equal(renderSafeMarkdown(content), "");
+  }
+});
+
+test("renderSafeMarkdown separates paragraphs without extra blank-line artifacts", () => {
+  assert.equal(renderSafeMarkdown("\nFirst paragraph.\n\n\nSecond paragraph.\n\n"),
+    "<p>First paragraph.</p><p>Second paragraph.</p>");
+  assert.equal(renderSafeMarkdown("- One\n\nAfter the list."), "<ul><li>One</li></ul><p>After the list.</p>");
+});
+
+test("renderSafeMarkdown preserves whitespace inside complete and streaming code fences", () => {
+  const code = "const x = 1;\n\n  x++;";
+  const expected = `<pre><code class="language-ts">${code}</code></pre>`;
+  assert.equal(renderSafeMarkdown("```ts\n" + code + "\n```\n\n"), expected);
+  assert.equal(renderSafeMarkdown("```ts\n" + code), expected);
+});
