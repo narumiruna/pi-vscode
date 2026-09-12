@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Script } from "node:vm";
 import { getSidebarHtml } from "../sidebarHtml";
 
 test("sidebar composer forwards pasted clipboard images with client-side bounds", () => {
@@ -22,7 +23,8 @@ test("sidebar keeps primary controls compact and exposes recovery and proposal a
   const html = getSidebarHtml(100_000, 5 * 1024 * 1024);
 
   assert.match(html, /id="model-picker"/);
-  assert.match(html, /id="delete-session"[^>]*>Delete<\/button>/);
+  assert.match(html, /id="delete-session"[^>]*aria-label="Delete current Pi conversation"[^>]*hidden>/);
+  assert.match(html, /delete-session'\)\.hidden = !deletableSession/);
   assert.match(html, /type: 'deleteSession'/);
   assert.match(html, /delete-session'\)\.disabled = interactionLocked \|\| !connected \|\| !deletableSession/);
   assert.match(html, /id="more"/);
@@ -51,4 +53,52 @@ test("sidebar keeps primary controls compact and exposes recovery and proposal a
   assert.match(html, /messages\.filter\(message => message\.role !== 'assistant' \|\| Boolean\(message\.html\)\)/);
   assert.match(html, /for \(const message of visibleMessages\)/);
   assert.doesNotMatch(html, /id="resume-session"/);
+});
+
+test("sidebar preserves hidden semantics, themed layout, and keyboard accessibility", () => {
+  const html = getSidebarHtml(42, 1024);
+
+  assert.match(html, /\[hidden\] \{ display: none !important; \}/);
+  assert.match(html, /id="activity"[^>]*hidden/);
+  assert.match(html, /activity'\)\.hidden = !\[state\.proposals, state\.tools, state\.changes, state\.backgroundTasks\]/);
+  assert.match(html, /attachmentsElement\.hidden = attachments\.length === 0/);
+  assert.match(html, /id="attachments"[^>]*hidden/);
+  assert.match(html, /#notice:empty \{ display: none; \}/);
+  assert.match(html, /var\(--vscode-focusBorder\)/);
+  assert.match(html, /var\(--vscode-contrastBorder\)/);
+  assert.match(html, /prefers-reduced-motion: no-preference/);
+  assert.match(html, /summary:focus-visible/);
+  assert.match(html, /<label for="input" class="sr-only">Message Pi<\/label>/);
+  assert.match(html, /<textarea[^>]*maxlength="42"[^>]*aria-describedby="composer-hint"/);
+  assert.match(html, /id="send"[^>]*aria-label="Send message"[^>]*disabled/);
+  assert.match(html, /sendButton\.hidden = busy/);
+  assert.match(html, /cancelButton\.hidden = !busy/);
+  assert.match(html, /!event\.isComposing/);
+  assert.match(html, /input\.scrollHeight/);
+});
+
+test("sidebar groups tools without reopening disclosures on every state update", () => {
+  const html = getSidebarHtml(100_000, 1024);
+
+  assert.match(html, /<details id="tools-group" hidden><summary>/);
+  assert.doesNotMatch(html, /<details id="tools-group"[^>]*\bopen\b/);
+  assert.match(html, /details\.dataset\.id, details\.open/);
+  assert.match(html, /details\.open = openTools\.get\(tool\.id\) \?\? tool\.status !== 'success'/);
+  assert.match(html, /if \(!tools\.length\) group\.open = false/);
+  assert.match(html, /group\.dataset\.status = running\.length/);
+  assert.match(html, /failed\.length \+ ' failed'/);
+  assert.doesNotMatch(html, /lastElementChild\.open = true/);
+});
+
+test("sidebar generated script parses with static icons and keeps nonce-only CSP", () => {
+  const html = getSidebarHtml(100_000, 1024);
+  const script = /<script nonce="([^"]+)">([\s\S]*?)<\/script>/.exec(html);
+  assert.ok(script);
+  assert.doesNotThrow(() => new Script(script[2]));
+  assert.ok(html.includes(`script-src 'nonce-${script[1]}'`));
+  assert.ok(html.includes(`style-src 'nonce-${script[1]}'`));
+  assert.match(html, /default-src 'none'/);
+  assert.doesNotMatch(html, /unsafe-inline|https?:\/\/|<script[^>]*src=/);
+  assert.match(html, /<svg[^>]*aria-hidden="true"[^>]*focusable="false"/);
+  assert.notEqual(getSidebarHtml(100_000, 1024), html, "each webview gets a fresh nonce");
 });
