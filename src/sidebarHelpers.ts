@@ -5,20 +5,24 @@ import type { PiAgentMode } from "./runtimeProfiles";
 import { limitSidebarMessages, type SidebarMessage } from "./sidebarState";
 
 export type WebviewMessage =
-  | { readonly type: "ready" | "cancel" | "reconnect" | "refreshHistory" | "retry" | "newSession" | "deleteSession" | "pickContext" | "pickModel" | "attachSelection" | "attachFile" | "attachCurrentFile" | "attachDiagnostics" | "attachImage" | "attachTerminal" | "clearAttachments" | "compact" | "nameSession" | "resumeSession" | "exportSession" | "openTerminal" | "openSourceControl" | "handoffAgent" | "pickCommand" }
-  | { readonly type: "send"; readonly text: string }
+  | { readonly type: "ready" | "cancel" | "reconnect" | "refreshHistory" | "retry" | "newSession" | "deleteSession" | "pickContext" | "pickModel" | "attachSelection" | "attachFile" | "attachCurrentFile" | "attachDiagnostics" | "attachImage" | "attachTerminal" | "clearAttachments" | "compact" | "nameSession" | "resumeSession" | "exportSession" | "openTerminal" | "openSourceControl" | "handoffAgent" | "pickCommand" | "inspectContext" | "clearQueue" | "inspectQueue" }
+  | { readonly type: "send"; readonly text: string; readonly revision: number }
+  | { readonly type: "queueInstruction"; readonly text: string; readonly revision: number; readonly kind: "steer" | "followUp" }
+  | { readonly type: "recoverQueue"; readonly revision: number }
   | { readonly type: "showMoreActions"; readonly text: string; readonly revision: number }
   | { readonly type: "pasteImage"; readonly data: string; readonly mimeType: string; readonly fileName?: string }
   | { readonly type: "setMode"; readonly mode: PiAgentMode }
   | { readonly type: "setModel"; readonly provider: string; readonly modelId: string }
   | { readonly type: "setThinking"; readonly level: string }
-  | { readonly type: "reviewChange" | "openChange" | "revertChange" | "cancelBackground" | "resumeBackground" | "openWorktree" | "cleanupWorktree" | "removeAttachment"; readonly id: string }
-  | { readonly type: "proposalAction"; readonly id: string; readonly action: "preview" | "apply" | "reject" }
+  | { readonly type: "reviewChange" | "openChange" | "revertChange" | "cancelBackground" | "resumeBackground" | "openWorktree" | "cleanupWorktree" | "removeAttachment" | "reviewBackground" | "applyBackground"; readonly id: string }
+  | { readonly type: "proposalAction"; readonly id: string; readonly action: "preview" | "apply" | "reject" | "select" }
   | { readonly type: "runBackground"; readonly text: string; readonly isolated: boolean; readonly revision: number };
 
 export function isWebviewMessage(value: unknown, maxImageBytes: number): value is WebviewMessage {
   if (!isRecord(value) || typeof value.type !== "string") return false;
-  if (value.type === "send") return typeof value.text === "string";
+  if (value.type === "send") return typeof value.text === "string" && isComposerRevision(value.revision);
+  if (value.type === "queueInstruction") return typeof value.text === "string" && value.text.length <= 50_000 && isComposerRevision(value.revision) && ["steer", "followUp"].includes(String(value.kind));
+  if (value.type === "recoverQueue") return isComposerRevision(value.revision);
   if (value.type === "showMoreActions") {
     return typeof value.text === "string" && isComposerRevision(value.revision);
   }
@@ -37,15 +41,15 @@ export function isWebviewMessage(value: unknown, maxImageBytes: number): value i
     return typeof value.text === "string" && typeof value.isolated === "boolean" && isComposerRevision(value.revision);
   }
   if (value.type === "proposalAction") {
-    return typeof value.id === "string" && ["preview", "apply", "reject"].includes(String(value.action));
+    return typeof value.id === "string" && ["preview", "apply", "reject", "select"].includes(String(value.action));
   }
-  if (["reviewChange", "openChange", "revertChange", "cancelBackground", "resumeBackground", "openWorktree", "cleanupWorktree", "removeAttachment"].includes(value.type)) {
+  if (["reviewChange", "openChange", "revertChange", "cancelBackground", "resumeBackground", "openWorktree", "cleanupWorktree", "removeAttachment", "reviewBackground", "applyBackground"].includes(value.type)) {
     return typeof value.id === "string";
   }
   return [
     "ready", "cancel", "reconnect", "refreshHistory", "retry", "newSession", "deleteSession", "pickContext", "pickModel", "attachSelection", "attachFile",
     "attachCurrentFile", "attachDiagnostics", "attachImage", "attachTerminal", "clearAttachments", "compact",
-    "nameSession", "resumeSession", "exportSession", "openTerminal", "openSourceControl", "handoffAgent", "pickCommand",
+    "nameSession", "resumeSession", "exportSession", "openTerminal", "openSourceControl", "handoffAgent", "pickCommand", "inspectContext", "clearQueue", "inspectQueue",
   ].includes(value.type);
 }
 

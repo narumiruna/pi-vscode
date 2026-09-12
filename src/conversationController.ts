@@ -7,12 +7,14 @@ export interface ConversationRequestOptions {
   readonly resource?: vscode.Uri;
   readonly policy?: AgentRequestPolicy;
   readonly onResponse?: (response: string) => Promise<void> | void;
+  readonly validate?: () => void;
 }
 
 export interface EditProposalInput {
   readonly label: string;
-  readonly onPreview: () => Promise<void>;
-  readonly onApply: () => Promise<void>;
+  readonly hunks?: readonly { readonly id: string; readonly label: string }[];
+  readonly onPreview: (selected?: readonly string[]) => Promise<void>;
+  readonly onApply: (selected?: readonly string[]) => Promise<void>;
   readonly onReject?: () => Promise<void> | void;
   readonly onDispose?: () => Promise<void> | void;
 }

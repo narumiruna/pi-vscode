@@ -17,6 +17,10 @@ export interface EditProposalState {
   readonly label: string;
   readonly status: EditProposalStatus;
   readonly error?: string;
+  readonly selectionRevision?: number;
+  readonly selected?: readonly string[];
+  readonly totalHunks?: number;
+  readonly summary?: string;
 }
 
 interface EditProposalEntry {
@@ -43,12 +47,26 @@ export class EditProposalStore {
   public add(input: EditProposalInput): string {
     const id = randomUUID();
     this.proposals.set(id, {
-      state: { id, label: input.label, status: "ready" },
+      state: { id, label: input.label, status: "ready", ...(input.hunks ? { selectionRevision: 0, selected: input.hunks.map(hunk => hunk.id), totalHunks: input.hunks.length } : {}) },
       input,
       disposed: false,
     });
     this.onChange();
     return id;
+  }
+
+  public hunkChoices(id: string): readonly { id: string; label: string; picked: boolean }[] {
+    const proposal = this.proposals.get(id);
+    if (!proposal?.input?.hunks) throw new Error("Hunk selection is unavailable for this proposal.");
+    return proposal.input.hunks.map(hunk => ({ ...hunk, picked: proposal.state.selected?.includes(hunk.id) ?? false }));
+  }
+
+  public select(id: string, ids: readonly string[]): void {
+    const proposal = this.proposals.get(id);
+    if (!proposal?.input?.hunks || !["ready", "previewed", "failed"].includes(proposal.state.status)) throw new Error("This proposal cannot change selection now.");
+    if (new Set(ids).size !== ids.length || ids.some(id => !proposal.input!.hunks!.some(hunk => hunk.id === id))) throw new Error("Invalid hunk identifiers.");
+    proposal.state = { ...proposal.state, selected: [...ids], selectionRevision: (proposal.state.selectionRevision ?? 0) + 1, status: "ready", error: undefined };
+    this.onChange();
   }
 
   public async handleAction(id: string, action: "preview" | "apply" | "reject"): Promise<void> {
@@ -89,7 +107,9 @@ export class EditProposalStore {
       proposal.state = { ...proposal.state, status: "previewing", error: undefined };
       this.onChange();
       try {
-        await input.onPreview();
+        if (proposal.state.selected?.length === 0) throw new Error("Select at least one hunk before Preview.");
+        await input.onPreview(proposal.state.selected);
+        if (proposal.disposed) return;
         proposal.state = { ...proposal.state, status: "previewed" };
       } catch (error) {
         const message = formatError(error);
@@ -112,8 +132,9 @@ export class EditProposalStore {
     proposal.state = { ...proposal.state, status: "applying", error: undefined };
     this.onChange();
     try {
-      await input.onApply();
-      proposal.state = { ...proposal.state, status: "applied" };
+      await input.onApply(proposal.state.selected);
+      if (proposal.disposed) return;
+      proposal.state = { ...proposal.state, status: "applied", summary: proposal.state.selected ? `Applied ${proposal.state.selected.length}/${proposal.state.totalHunks} hunks; remainder not applied.` : "Applied whole edit." };
       this.release(proposal);
       this.pruneTerminalStates();
       this.onNotice("Pi edit applied. Use Undo to revert it.", "info");

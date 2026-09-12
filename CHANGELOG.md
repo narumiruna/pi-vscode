@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Add confirmed read-only staged Git review with immutable finding navigation, stale-index detection, and explicit skipped-file coverage.
+- Add deterministic hunk selection, revision-bound Preview, and single-Apply partial proposals without applying the remainder.
+- Record isolated-task origin/base metadata; preview actual committed, uncommitted and untracked results and import selected text files with stale/dirty/path gates and recoverable partial reports.
+- Add exact attachment inspection, edit/redact, explicit refresh, memory-only pins, heuristic estimates and revision-safe draft/attachment consumption.
+- Add approved process-based failed-test repair with inspected/redacted evidence, read-only proposals and at most two approved reruns.
+- Replace tool-notification-time capture with bounded pre-prompt request checkpoints, conservative coverage reports, dependency checks and dirty/stale-safe historical restore.
+- Add session/policy-bound Steer and Follow Up, bounded queue feedback, clear-before-abort cancellation and uncertain-draft recovery without replay.
+- Add explicit bounded Node.js debug snapshots, variable selection/redaction, pause/frame invalidation and read-only questions; no evaluate or recursive requests.
+- Serialize foreground request/session operations, bind resumed sessions to their working directory, bound subprocess cleanup, and explicitly disable unapproved project resources.
+- Compile against exactly VS Code 1.106 declarations rather than newer APIs. Record automated workflow evidence and explicitly deferred interactive/remote validation in `docs/WORKFLOW_VALIDATION.md`.
+
 - Add a confirmed **Delete Conversation** button that moves the current persistent Pi session to Trash and starts a new session.
 - Add a standalone global Pi extension with authenticated request/event communication, `pi.events` interoperability, and integrated-terminal discovery.
 - Export a same-host VS Code API for broadcasting bounded events to connected Pi sessions.

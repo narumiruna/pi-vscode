@@ -8,6 +8,14 @@ const defaultRequestTimeoutMs = 30_000;
 
 export type PiRpcEvent = Record<string, unknown> & { readonly type: string };
 
+export interface PiRpcQueue { readonly steering: readonly string[]; readonly followUp: readonly string[] }
+export function parseRpcQueue(value: unknown): PiRpcQueue {
+  if (!isRecord(value) || !Array.isArray(value.steering) || !Array.isArray(value.followUp)) throw new Error("Invalid Pi queue state.");
+  const messages = [...value.steering, ...value.followUp];
+  if (messages.length > 10 || messages.some(message => typeof message !== "string") || messages.reduce((sum, message) => sum + message.length, 0) > 50_000) throw new Error("Pi queue exceeds 10 messages / 50,000 characters.");
+  return { steering: [...value.steering], followUp: [...value.followUp] };
+}
+
 export interface PiRpcImage {
   readonly type: "image";
   readonly data: string;
@@ -63,6 +71,7 @@ export class StrictJsonLineDecoder {
   public end(): void {
     this.buffer += this.decoder.end();
     if (this.buffer.length > 0) {
+      if (Buffer.byteLength(this.buffer) > maxJsonLineBytes) throw new Error("Pi RPC emitted a JSON line larger than 5 MiB.");
       this.onLine(stripCarriageReturn(this.buffer));
       this.buffer = "";
     }
@@ -75,6 +84,7 @@ export class StrictJsonLineDecoder {
         return;
       }
       const line = this.buffer.slice(0, newlineIndex);
+      if (Buffer.byteLength(line) > maxJsonLineBytes) throw new Error("Pi RPC emitted a JSON line larger than 5 MiB.");
       this.buffer = this.buffer.slice(newlineIndex + 1);
       this.onLine(stripCarriageReturn(line));
     }
@@ -88,12 +98,15 @@ export class PiRpcClient {
   private requestId = 0;
   private stderr = "";
   private stopping = false;
+  private stopPromise: Promise<void> | undefined;
 
   public constructor(private readonly options: PiRpcClientOptions) {}
 
   public get isRunning(): boolean {
     return this.process !== undefined && this.process.exitCode === null;
   }
+
+  public get processId(): number | undefined { return this.process?.pid; }
 
   public get diagnostics(): string {
     return this.stderr;
@@ -113,6 +126,7 @@ export class PiRpcClient {
         cwd: this.options.cwd,
         env: { ...process.env, ...this.options.env, NO_COLOR: "1" },
         shell: false,
+        detached: process.platform !== "win32",
         windowsHide: true,
         stdio: ["pipe", "pipe", "pipe"],
       },
@@ -144,6 +158,7 @@ export class PiRpcClient {
       this.failProcess(new Error(`Could not start Pi RPC using '${this.options.executablePath}': ${error.message}`));
     });
     child.once("exit", (code, signal) => {
+      killOwnedProcess(child, "SIGKILL");
       if (this.process !== child) {
         return;
       }
@@ -164,16 +179,20 @@ export class PiRpcClient {
   }
 
   public async stop(): Promise<void> {
+    if (this.stopPromise) return this.stopPromise;
     const child = this.process;
-    if (!child) {
-      return;
-    }
+    if (!child) return;
+    this.stopPromise = this.stopChild(child);
+    try { await this.stopPromise; } finally { this.stopPromise = undefined; }
+  }
+
+  private async stopChild(child: ChildProcessWithoutNullStreams): Promise<void> {
     this.stopping = true;
     this.rejectPending(new Error("Pi RPC client stopped."));
-    child.kill("SIGTERM");
+    killOwnedProcess(child, "SIGTERM");
     await new Promise<void>(resolve => {
       const timer = setTimeout(() => {
-        child.kill("SIGKILL");
+        killOwnedProcess(child, "SIGKILL");
         resolve();
       }, 1_000);
       child.once("exit", () => {
@@ -183,7 +202,12 @@ export class PiRpcClient {
     });
     if (this.process === child) {
       this.process = undefined;
+      // SIGKILL may not have produced an exit event yet. Always release runtime
+      // settlement waiters; do not lose the event by clearing process first.
+      this.emit({ type: "runtime_warning", message: "Pi termination deadline reached; descendant cleanup could not be verified." });
+      this.emit({ type: "process_exit", code: child.exitCode, signal: child.signalCode, expected: true });
     }
+    child.stdin.destroy(); child.stdout.destroy(); child.stderr.destroy(); child.unref();
   }
 
   public onEvent(listener: (event: PiRpcEvent) => void): vscode.Disposable {
@@ -197,6 +221,14 @@ export class PiRpcClient {
 
   public async prompt(message: string, images?: readonly PiRpcImage[]): Promise<void> {
     await this.command("prompt", { message, images });
+  }
+
+  public async steer(message: string): Promise<void> { await this.queueCommand("steer", message); }
+  public async followUp(message: string): Promise<void> { await this.queueCommand("follow_up", message); }
+  public async clearQueue(): Promise<PiRpcQueue> { return parseRpcQueue((await this.command("clear_queue")).data); }
+  private async queueCommand(type: "steer" | "follow_up", message: string): Promise<void> {
+    if (!message.trim() || message.length > 50_000 || message.trimStart().startsWith("/")) throw new Error("Only bounded plain text, not slash commands, can be queued.");
+    await this.command(type, { message });
   }
 
   public async abort(): Promise<void> {
@@ -329,13 +361,18 @@ export class PiRpcClient {
         this.pending.delete(value.id);
         clearTimeout(pending.timer);
         const response = value as unknown as PiRpcResponse;
-        if (response.success) {
+        if (response.command !== pending.command || typeof response.success !== "boolean") {
+          pending.reject(new Error("Invalid Pi RPC command acknowledgement; acceptance is uncertain."));
+        } else if (response.success) {
           pending.resolve(response);
         } else {
           pending.reject(new Error(response.error ?? `Pi RPC command '${pending.command}' failed.`));
         }
         return;
       }
+    }
+    if (value.type === "queue_update") {
+      try { parseRpcQueue(value); } catch (error) { this.failProcess(asError(error)); return; }
     }
     this.emit(value as PiRpcEvent);
   }
@@ -349,7 +386,7 @@ export class PiRpcClient {
   private failProcess(error: Error): void {
     this.rejectPending(error);
     this.emit({ type: "protocol_error", message: error.message });
-    this.process?.kill();
+    if (!this.stopping) void this.stop();
   }
 
   private rejectPending(error: Error): void {
@@ -384,10 +421,15 @@ export function buildRpcArguments(options: PiRpcClientOptions): string[] {
   if (options.sessionPath) {
     args.push("--session", options.sessionPath);
   }
-  if (options.approveProjectResources) {
-    args.push("--approve");
-  }
+  args.push(options.approveProjectResources ? "--approve" : "--no-approve");
   return args;
+}
+
+function killOwnedProcess(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals): void {
+  try {
+    if (process.platform !== "win32" && child.pid) process.kill(-child.pid, signal);
+    else child.kill(signal);
+  } catch { /* The owned process group already exited. */ }
 }
 
 function appendBounded(current: string, next: string, maxBytes: number): string {
