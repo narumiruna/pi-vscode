@@ -11,20 +11,18 @@ Oversized or malformed bridge frames fail closed and terminate their socket.
 Processes in an authenticated terminal can inherit that token, so requests remain allowlisted and expose no arbitrary command execution or file mutation method.
 The bridge exposes bounded editor context, file opening, notifications, and JSON-safe events from same-host VS Code extensions.
 
-## Modes and Tools
+## Pi Tools
 
-Ask and Plan modes only enable `read`, `grep`, `find`, and `ls`.
-Edit mode enables file read/write tools but not shell execution.
-Agent mode enables the complete Pi coding toolset and requires an explicit confirmation when selected.
-Background and worktree buttons also require explicit confirmation.
+Foreground, background, and worktree sessions do not pass a fixed `--tools` list. Pi therefore exposes its default `read`, `write`, `bash`, and `edit` tools together with tools contributed by installed Pi extensions.
+Background and worktree buttons require explicit confirmation before launch. Focused preview workflows use a packaged read-only gate while generating proposals.
 
 ## Per-Tool Permissions
 
 The packaged `resources/pi-vscode-permission-gate.ts` extension runs inside Pi before mutating tools execute.
-The `piCodingAgent.agent.confirmToolCalls` setting supports `off`, `dangerous`, and `all`.
+The `piCodingAgent.agent.confirmToolCalls` setting supports `off`, `dangerous`, and `all` for Pi's built-in `bash`, `edit`, and `write` tools.
 `dangerous` confirms dangerous shell patterns and writes to sensitive or out-of-workspace paths.
 `all` confirms every bash, edit, and write call.
-A missing RPC permission UI blocks gated tools instead of allowing them.
+A missing RPC permission UI blocks gated tools instead of allowing them. Tools contributed by other Pi extensions define their own permission behavior and are not covered by this setting.
 
 ## Project Trust
 
@@ -38,10 +36,10 @@ Pi extensions must be reviewed before installation.
 
 Deleting a conversation requires modal confirmation and moves its persistent session file to Trash before starting a replacement session.
 Focused editor edits enter the persistent Pi Chat session as edit proposals.
-A packaged read-only policy gate recognizes only extension-controlled prompt-prefix metadata, narrows active tools, and blocks every non-read-only tool while Pi generates a proposal, regardless of the current Chat mode.
+A packaged read-only policy gate recognizes only extension-controlled prompt-prefix metadata, narrows active tools, and blocks every non-read-only tool while Pi generates a proposal.
 Apply remains disabled until the user opens Preview for the current hunk selection. Selection changes invalidate Preview. The host computes hunks from captured text, validates IDs, checks document version immediately before one workspace edit, and finishes the proposal without applying the remainder.
 
-Checkpoint capture completes before submitting the foreground prompt; late tool-start notifications never establish the before-image. Coverage requires pre-captured existing regular text and an unambiguous supported edit/write announcement whose expected result matches final disk text. This is conservative coverage, not proof of every external writer's identity. Dirty buffers, unsupported files, creations/deletions and ambiguous attribution are excluded. Shell/custom-tool requests and process exits without settlement are non-restorable. Capture is bounded to 10,000 entries / 20 MiB. History is memory-only, capped at 20 requests, 2 MiB per file side and 20 MiB retained before/after bytes; unresolved restore failures retain recovery data and may prevent new history from being retained.
+Every ordinary foreground request starts conservative checkpoint capture because default Pi and extension-contributed tools may mutate state. Any tool start makes automatic retry unsafe, including a tool not known to pi-vscode. Checkpoint capture completes before submitting the foreground prompt; late tool-start notifications never establish the before-image. Coverage requires pre-captured existing regular text and an unambiguous supported edit/write announcement whose expected result matches final disk text. This is conservative coverage, not proof of every external writer's identity. Dirty buffers, unsupported files, creations/deletions and ambiguous attribution are excluded. Shell/custom-tool requests and process exits without settlement are non-restorable. Capture is bounded to 10,000 entries / 20 MiB. History is memory-only, capped at 20 requests, 2 MiB per file side and 20 MiB retained before/after bytes; unresolved restore failures retain recovery data and may prevent new history from being retained.
 
 Restore preflights all selected paths/content/dirty buffers and later checkpoint dependencies, then rechecks each write. Proposal/import/restore and active Pi work in the same canonical directory share an operation gate. Successful and partial restore attempts invalidate dependent previews. This gate cannot serialize another VS Code window or an external process. No operation promises filesystem-wide atomicity or rolls back arbitrary shell/service effects. Checkpoints never rewind the transcript or index; Source Control review and backups remain required.
 
@@ -75,7 +73,7 @@ Test commands are user-supplied executable/argument vectors, not model output or
 
 ## In-Flight Instructions
 
-Only ordinary composer requests own a text queue in the current mode/session. Callback-owned editor, review, repair and debug requests cannot accept continuations. Queue state is validated and bounded to 10 messages / 50,000 characters. `agent_settled`, not a model-turn end, closes the request/checkpoint. Cancellation clears pending instructions before abort. Unsupported commands, missing queue-state acknowledgement or ambiguous delivery stop/disconnect Pi and preserve bounded uncertain drafts; nothing is replayed automatically. Review history before resending. Draft insertion and accepted-send clearing check the composer revision.
+Only ordinary composer requests own a text queue in the active session. Callback-owned editor, review, repair and debug requests cannot accept continuations. While queueable, Enter sends steering text after current tool calls; Alt+Enter sends a follow-up on macOS/non-WSL Linux, while Windows/WSL uses Ctrl+Q. Either path starts immediately while Pi is idle. Queue state is validated and bounded to 10 messages / 50,000 characters. Attachments and slash commands are not queued. Pi's `steeringMode` and `followUpMode` control one-at-a-time versus grouped delivery and are not overridden. `agent_settled`, not a model-turn end, closes the request/checkpoint. Cancellation clears pending instructions before abort. Unsupported commands, missing queue-state acknowledgement or ambiguous delivery stop/disconnect Pi and preserve bounded uncertain drafts; nothing is replayed automatically. Review history before resending. Draft insertion and accepted-send clearing check the composer revision.
 
 ## Debugger Inspection
 

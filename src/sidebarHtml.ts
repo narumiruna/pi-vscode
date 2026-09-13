@@ -19,7 +19,18 @@ function icon(name: keyof typeof iconPaths): string {
   return `<svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${iconPaths[name]}</svg>`;
 }
 
-export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number): string {
+export function shouldUseCtrlQForFollowUp(
+  platform: NodeJS.Platform,
+  remoteName: string | undefined,
+): boolean {
+  return platform === "win32" || remoteName === "wsl";
+}
+
+export function getSidebarHtml(
+  maxInputCharacters: number,
+  maxImageBytes: number,
+  useCtrlQForFollowUp = false,
+): string {
   const nonce = randomBytes(16).toString("base64url");
   const csp = [
     "default-src 'none'",
@@ -54,15 +65,12 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .icon { width: 16px; height: 16px; flex: 0 0 auto; }
     .icon-button { width: 28px; padding: 5px; }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
-    .header { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 10px 0 8px; }
-    .header select, .header button { min-width: 0; white-space: nowrap; }
-    #mode, #thinking-level { color: var(--vscode-foreground); background: var(--vscode-input-background); border-color: var(--vscode-input-border, var(--pi-border)); }
-    #mode { max-width: 94px; }
-    #thinking-level { max-width: 104px; }
-    #model-picker { flex: 1; justify-content: flex-start; color: var(--vscode-descriptionForeground); }
-    #model-label { overflow: hidden; text-overflow: ellipsis; }
+    .header { display: flex; gap: 4px; align-items: center; justify-content: flex-end; padding: 10px 0 8px; }
+    .header button { min-width: 0; white-space: nowrap; }
+    #thinking-level { min-width: 0; max-width: 104px; color: var(--vscode-foreground); background: var(--vscode-input-background); border-color: var(--vscode-input-border, var(--pi-border)); }
+    #model-picker { min-width: 0; max-width: 132px; justify-content: flex-start; color: var(--vscode-descriptionForeground); }
+    #model-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #model-picker .icon { width: 12px; height: 12px; }
-    #handoff-agent { width: 100%; margin-top: 4px; }
     #runtime { display: flex; flex-wrap: wrap; min-width: 0; gap: 6px; align-items: center; padding: 0 2px 9px; color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--pi-border); font-size: .82em; }
     .status-dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--vscode-descriptionForeground); }
     #runtime[data-connection="connected"] .status-dot { background: var(--vscode-testing-iconPassed, var(--pi-accent)); }
@@ -135,10 +143,10 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     textarea { display: block; width: 100%; height: 82px; min-height: 82px; max-height: min(220px, 28vh); resize: none; padding: 12px; color: var(--vscode-input-foreground); background: transparent; border: 0; border-radius: 10px; font: inherit; line-height: 1.5; scrollbar-width: thin; }
     textarea:focus-visible { outline: none; }
     textarea::placeholder { color: var(--vscode-input-placeholderForeground); }
-    .composer-actions { display: flex; gap: 6px; padding: 0 7px 7px; align-items: center; }
-    #add-context { color: var(--vscode-descriptionForeground); font-size: .9em; }
-    .composer-spacer { flex: 1; }
-    #send { width: 28px; padding: 5px; }
+    .composer-actions { display: flex; flex-wrap: nowrap; min-width: 0; gap: 6px; padding: 0 7px 7px; align-items: center; }
+    #add-context { flex: 0 1 auto; min-width: 28px; color: var(--vscode-descriptionForeground); font-size: .9em; }
+    .composer-spacer { min-width: 0; flex: 1; }
+    #send { width: 28px; flex: 0 0 28px; padding: 5px; }
     #cancel { font-size: .9em; }
     #composer-hint { margin: 6px 2px 0; color: var(--vscode-descriptionForeground); font-size: .78em; text-align: right; overflow-wrap: anywhere; }
     #notice { max-height: 20vh; overflow-y: auto; padding: 7px 2px 0; color: var(--vscode-descriptionForeground); font-size: .85em; overflow-wrap: anywhere; }
@@ -148,8 +156,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     body.vscode-high-contrast .composer-box, body.vscode-high-contrast-light .composer-box,
     body.vscode-high-contrast .welcome-action, body.vscode-high-contrast-light .welcome-action { border-color: var(--vscode-contrastBorder); }
     body.vscode-high-contrast .composer-box:focus-within, body.vscode-high-contrast-light .composer-box:focus-within { border-color: var(--vscode-focusBorder); }
-    @media (max-width: 340px) { #app { padding: 0 8px 8px; } .header { gap: 2px; } #session { display: none; } .empty { padding-left: 2px; padding-right: 2px; } .empty h2 { font-size: 1.5em; } button.welcome-action { gap: 9px; padding: 10px; } }
-    @media (max-width: 260px) { #model-picker { order: 1; flex-basis: 100%; } #handoff-agent { order: 2; } #new-session { margin-left: auto; } }
+    @media (max-width: 340px) { #app { padding: 0 8px 8px; } .header { gap: 2px; } #session { display: none; } #add-context span { display: none; } #model-picker { max-width: 96px; } #thinking-level { max-width: 90px; } .empty { padding-left: 2px; padding-right: 2px; } .empty h2 { font-size: 1.5em; } button.welcome-action { gap: 9px; padding: 10px; } }
     @media (max-height: 500px) { .empty { padding-top: 8px; padding-bottom: 16px; } .welcome-mark { display: none; } .empty-actions { margin-top: 16px; } textarea { height: 64px; min-height: 64px; } }
     @media (prefers-reduced-motion: no-preference) { button { transition: background-color .12s ease, border-color .12s ease; } }
   </style>
@@ -157,14 +164,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
 <body>
   <main id="app">
     <header class="header" aria-label="Pi conversation controls">
-      <select id="mode" aria-label="Pi mode" title="Choose how Pi may work"><option value="ask">Ask</option><option value="edit">Edit</option><option value="plan">Plan</option><option value="agent">Agent</option></select>
-      <button id="model-picker" class="secondary" type="button" aria-label="Change Pi model"><span id="model-label">Choose model…</span>${icon("chevron")}</button>
-      <label for="thinking-level" class="sr-only">Pi thinking level</label>
-      <select id="thinking-level" aria-label="Pi thinking level" title="Pi thinking level"><option value="">Thinking: —</option></select>
       <button id="new-session" class="secondary icon-button" type="button" title="New conversation" aria-label="New Pi conversation">${icon("plus")}</button>
       <button id="delete-session" class="secondary danger icon-button" type="button" title="Delete conversation" aria-label="Delete current Pi conversation" hidden>${icon("trash")}</button>
       <button id="more" class="secondary icon-button" type="button" title="More… · Session and advanced actions" aria-label="More Pi actions">${icon("more")}</button>
-      <button id="handoff-agent" type="button" title="Continue this Plan session in Agent mode" hidden>Implement Plan</button>
     </header>
     <div id="runtime"><span class="status-dot" aria-hidden="true"></span><span id="status" role="status" aria-live="polite">Connecting…</span><span id="session"></span><span id="usage"></span><button id="retry" class="secondary" type="button" hidden>Retry</button><button id="refresh-history" class="secondary" type="button" hidden>Refresh history</button><button id="reconnect" class="secondary" type="button" hidden>Reconnect</button></div>
     <section id="messages" aria-live="off" aria-label="Pi conversation"></section>
@@ -193,10 +195,13 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           <button id="add-context" class="secondary" type="button" title="Attach code, files, or images">${icon("attachment")}<span>Add context</span></button>
           <span class="composer-spacer"></span>
           <button id="cancel" class="secondary" type="button" aria-label="Cancel Pi response" hidden>${icon("stop")}<span>Stop</span></button>
+          <button id="model-picker" class="secondary" type="button" aria-label="Change Pi model"><span id="model-label">Choose model…</span>${icon("chevron")}</button>
+          <label for="thinking-level" class="sr-only">Pi thinking level</label>
+          <select id="thinking-level" aria-label="Pi thinking level" title="Pi thinking level"><option value="">Thinking: —</option></select>
           <button id="send" type="button" aria-label="Send message" title="Send message" disabled>${icon("send")}</button>
         </div>
       </div>
-      <div id="composer-hint">Enter to send · Shift+Enter for newline</div>
+      <div id="composer-hint">Enter to send · ${useCtrlQForFollowUp ? "Ctrl+Q" : "Alt+Enter"} also sends · Shift+Enter for newline</div>
     </section>
     <div id="notice" role="status" aria-live="polite"></div>
   </main>
@@ -214,8 +219,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     const sendButton = $('send');
     const cancelButton = $('cancel');
     const notice = $('notice');
-    const mode = $('mode');
     const thinkingLevel = $('thinking-level');
+    const useCtrlQForFollowUp = ${useCtrlQForFollowUp};
+    const followUpShortcutLabel = useCtrlQForFollowUp ? 'Ctrl+Q' : 'Alt+Enter';
     let busy = false;
     let queueable = false;
     let connected = false;
@@ -229,12 +235,24 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let updatingControls = false;
     let thinkingSelectable = false;
 
-    function submit() {
+    function submit(kind = 'steer') {
       const text = input.value.trim();
-      if (!text || busy || !connected || pendingImageReads > 0 || submissionPending || backgroundSubmissionPending || (attachedImages && !imageSupported)) return;
-      submissionPending = true;
-      updateSendState();
-      vscode.postMessage({ type: 'send', text: input.value, revision: composerRevision });
+      if (!text || !connected || submissionPending || backgroundSubmissionPending) return;
+      if (busy) {
+        if (!queueable) {
+          notice.textContent = 'This request does not accept queued messages.';
+          notice.className = 'warning';
+          return;
+        }
+        submissionPending = true;
+        updateSendState();
+        vscode.postMessage({ type: 'queueInstruction', kind, text: input.value, revision: composerRevision });
+      } else {
+        if (pendingImageReads > 0 || (attachedImages && !imageSupported)) return;
+        submissionPending = true;
+        updateSendState();
+        vscode.postMessage({ type: 'send', text: input.value, revision: composerRevision });
+      }
       notice.textContent = '';
     }
 
@@ -488,15 +506,13 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     }
 
     function updateSendState() {
-      const imageBlocked = attachedImages && !imageSupported;
+      const imageBlocked = !busy && attachedImages && !imageSupported;
       const imageLoading = pendingImageReads > 0;
       const interactionLocked = busy || submissionPending || backgroundSubmissionPending || imageLoading;
-      mode.disabled = interactionLocked;
       $('model-picker').disabled = interactionLocked || !connected;
       thinkingLevel.disabled = interactionLocked || !connected || !thinkingSelectable;
       $('new-session').disabled = interactionLocked;
       $('delete-session').disabled = interactionLocked || !connected || !deletableSession;
-      $('handoff-agent').disabled = interactionLocked || !connected;
       $('more').disabled = interactionLocked || !connected;
       $('add-context').disabled = interactionLocked;
       for (const button of emptyActionButtons) button.disabled = interactionLocked;
@@ -516,7 +532,13 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         ? 'Loading pasted image…'
         : backgroundSubmissionPending
           ? 'Starting background agent…'
-          : imageBlocked ? 'Choose an image-capable model or remove images' : queueable ? 'Choose Steer or Follow Up · Shift+Enter for newline' : 'Enter to send · Shift+Enter for newline';
+          : imageBlocked
+            ? 'Choose an image-capable model or remove images'
+            : queueable
+              ? 'Enter to steer · ' + followUpShortcutLabel + ' for follow-up · Shift+Enter for newline'
+              : busy
+                ? 'This request does not accept queued messages'
+                : 'Enter to send · ' + followUpShortcutLabel + ' also sends · Shift+Enter for newline';
     }
 
     function render(state) {
@@ -541,9 +563,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('attachment-estimate').textContent = estimate.characters || attachedImages ? 'Attachments: ' + (estimate.characters || 0) + ' chars · ≈' + (estimate.estimatedTextTokens || 0) + ' heuristic text tokens' + (attachedImages ? ' · image usage unknown' : '') : '';
       $('activity').hidden = ![state.proposals, state.tools, state.changes, state.backgroundTasks].some(items => items && items.length);
       updatingControls = true;
-      mode.value = state.runtime.mode;
       renderThinkingLevel(state.runtime);
-      mode.disabled = busy;
       thinkingLevel.disabled = busy || !connected || !thinkingSelectable;
       updatingControls = false;
       const currentModel = state.runtime.model || {};
@@ -553,8 +573,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('new-session').disabled = busy;
       $('delete-session').hidden = !deletableSession;
       $('delete-session').disabled = busy || !connected || !deletableSession;
-      $('handoff-agent').hidden = state.runtime.mode !== 'plan';
-      $('handoff-agent').disabled = busy || !connected;
       $('more').disabled = busy || !connected;
       $('runtime').dataset.connection = !connected ? 'disconnected' : busy ? 'busy' : 'connected';
       $('status').textContent = state.status + (connected ? '' : ' · disconnected');
@@ -649,16 +667,12 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       else if (message.type === 'sendRejected') { submissionPending = false; updateSendState(); input.focus(); }
     });
     for (const [id, kind] of [['steer', 'steer'], ['follow-up', 'followUp']]) {
-      $(id).addEventListener('click', () => {
-        if (!queueable || !input.value.trim() || submissionPending) return;
-        submissionPending = true; updateSendState();
-        vscode.postMessage({ type: 'queueInstruction', kind, text: input.value, revision: composerRevision });
-      });
+      $(id).addEventListener('click', () => submit(kind));
     }
     $('clear-queue').addEventListener('click', () => vscode.postMessage({ type: 'clearQueue' }));
     $('inspect-queue').addEventListener('click', () => vscode.postMessage({ type: 'inspectQueue' }));
     $('recover-queue').addEventListener('click', () => vscode.postMessage({ type: 'recoverQueue', revision: composerRevision }));
-    sendButton.addEventListener('click', submit);
+    sendButton.addEventListener('click', () => submit());
     cancelButton.addEventListener('click', () => vscode.postMessage({ type: 'cancel' }));
     $('reconnect').addEventListener('click', () => vscode.postMessage({ type: 'reconnect' }));
     $('retry').addEventListener('click', () => vscode.postMessage({ type: 'retry' }));
@@ -668,23 +682,39 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     $('model-picker').addEventListener('click', () => vscode.postMessage({ type: 'pickModel' }));
     $('new-session').addEventListener('click', () => vscode.postMessage({ type: 'newSession' }));
     $('delete-session').addEventListener('click', () => vscode.postMessage({ type: 'deleteSession' }));
-    $('handoff-agent').addEventListener('click', () => {
-      $('handoff-agent').disabled = true;
-      vscode.postMessage({ type: 'handoffAgent' });
-    });
     $('more').addEventListener('click', () => vscode.postMessage({ type: 'showMoreActions', text: input.value, revision: composerRevision }));
     $('source-control').addEventListener('click', () => vscode.postMessage({ type: 'openSourceControl' }));
-    mode.addEventListener('change', () => { if (!updatingControls) vscode.postMessage({ type: 'setMode', mode: mode.value }); });
     thinkingLevel.addEventListener('change', () => { if (!updatingControls) vscode.postMessage({ type: 'setThinking', level: thinkingLevel.value }); });
     input.addEventListener('input', () => { composerRevision += 1; resizeInput(); updateSendState(); });
     window.addEventListener('resize', resizeInput);
     input.addEventListener('paste', attachPastedImages);
-    input.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); submit(); } });
+    input.addEventListener('keydown', event => {
+      if (event.isComposing) return;
+      const followUpShortcut = useCtrlQForFollowUp
+        ? event.key.toLowerCase() === 'q' && event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey
+        : event.key === 'Enter' && event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+      if (followUpShortcut) {
+        event.preventDefault();
+        submit('followUp');
+      } else if (event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        submit('steer');
+      }
+    });
     messagesElement.addEventListener('click', event => {
       const button = event.target instanceof Element ? event.target.closest('button[data-empty-action]') : undefined;
       if (!button || button.disabled) return;
-      if (button.dataset.emptyAction === 'selection') { vscode.postMessage({ type: 'attachSelection' }); input.focus(); }
-      else { vscode.postMessage({ type: 'setMode', mode: button.dataset.emptyAction }); input.focus(); }
+      if (button.dataset.emptyAction === 'selection') {
+        vscode.postMessage({ type: 'attachSelection' });
+      } else {
+        vscode.postMessage({
+          type: 'setInput',
+          text: button.dataset.emptyAction === 'plan'
+            ? 'Plan this change before implementing it: '
+            : 'Implement this task: ',
+        });
+      }
+      input.focus();
     });
     attachmentsElement.addEventListener('click', event => {
       const button = event.target instanceof Element ? event.target.closest('button[data-remove-attachment]') : undefined;

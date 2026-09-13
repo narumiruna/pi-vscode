@@ -29,7 +29,6 @@ export interface PiRpcClientOptions {
   readonly provider?: string;
   readonly model?: string;
   readonly thinkingLevel?: string;
-  readonly tools?: readonly string[];
   readonly appendSystemPrompt?: string;
   readonly extensions?: readonly string[];
   readonly sessionPath?: string;
@@ -408,9 +407,6 @@ export function buildRpcArguments(options: PiRpcClientOptions): string[] {
   }
   if (options.thinkingLevel) {
     args.push("--thinking", options.thinkingLevel);
-  }
-  if (options.tools) {
-    args.push("--tools", options.tools.join(","));
   }
   if (options.appendSystemPrompt) {
     args.push("--append-system-prompt", options.appendSystemPrompt);
