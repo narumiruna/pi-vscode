@@ -57,7 +57,7 @@ test("sidebar places model and thinking controls before Send and exposes recover
   assert.match(html, /type: 'proposalAction'/);
   assert.match(html, /proposal\.status !== 'previewed'/);
   assert.match(html, /\['previewing', 'applying', 'rejecting'\]\.includes\(proposal\.status\)/);
-  assert.match(html, /setInput'[\s\S]*composerRevision \+= 1[\s\S]*updateSendState\(\)/);
+  assert.match(html, /function setComposerInput\(text\)[\s\S]*composerRevision \+= 1[\s\S]*updateSendState\(\)[\s\S]*message\.type === 'setInput'[\s\S]*setComposerInput\(message\.text\)/);
   assert.match(html, /clearInput'[\s\S]*composerRevision === message\.expectedRevision[\s\S]*input\.value === message\.expectedText[\s\S]*updateSendState\(\)/);
   assert.match(html, /showMoreActions', text: input\.value, revision: composerRevision/);
   assert.match(html, /input\.addEventListener\('input', \(\) => \{ composerRevision \+= 1/);
@@ -138,6 +138,7 @@ class SidebarTestElement {
   scrollHeight = 100;
   scrollTop = 0;
   clientHeight = 100;
+  focusCount = 0;
   listeners = new Map<string, (event?: any) => void>();
 
   append(...elements: SidebarTestElement[]): void { this.children.push(...elements); }
@@ -147,7 +148,7 @@ class SidebarTestElement {
   querySelectorAll(): never { throw new Error("Unexpected conversation descendant search"); }
   closest(): SidebarTestElement { return this; }
   addEventListener(type: string, listener: (event?: any) => void): void { this.listeners.set(type, listener); }
-  focus(): void {}
+  focus(): void { this.focusCount += 1; }
 }
 
 function createSidebarScriptHarness(useCtrlQForFollowUp = false) {
@@ -268,21 +269,30 @@ test("sidebar updates only current welcome buttons across locks and message rend
   assertLocked(false);
 });
 
-test("welcome actions attach context or start ordinary drafts without changing modes", () => {
+test("welcome actions attach context or set ordinary composer drafts locally", () => {
   const sidebar = createSidebarScriptHarness();
+  const input = sidebar.element("input");
   sidebar.run("renderMessages([])");
   const [selection, plan, build] = sidebar.welcomeButtons();
   const click = sidebar.element("messages").listeners.get("click")!;
 
   click({ target: selection });
   assert.equal(sidebar.posted.at(-1).type, "attachSelection");
+  const postedAfterSelection = sidebar.posted.length;
+  const focusAfterSelection = input.focusCount;
+
   click({ target: plan });
-  assert.equal(sidebar.posted.at(-1).type, "setInput");
-  assert.equal(sidebar.posted.at(-1).text, "Plan this change before implementing it: ");
+  assert.equal(input.value, "Plan this change before implementing it: ");
+  assert.equal(sidebar.run("composerRevision"), 1);
+  assert.equal(sidebar.posted.length, postedAfterSelection);
+  assert.equal(input.focusCount, focusAfterSelection + 1);
+
   click({ target: build });
-  assert.equal(sidebar.posted.at(-1).type, "setInput");
-  assert.equal(sidebar.posted.at(-1).text, "Implement this task: ");
-  assert.equal(sidebar.posted.some(message => message.type === "setMode" || message.type === "handoffAgent"), false);
+  assert.equal(input.value, "Implement this task: ");
+  assert.equal(sidebar.run("composerRevision"), 2);
+  assert.equal(sidebar.posted.length, postedAfterSelection);
+  assert.equal(input.focusCount, focusAfterSelection + 2);
+  assert.equal(sidebar.posted.some(message => message.type === "setInput" || message.type === "setMode" || message.type === "handoffAgent"), false);
 });
 
 test("composer keyboard submission matches Pi queue behavior on Alt+Enter platforms", () => {
