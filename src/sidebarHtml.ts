@@ -471,6 +471,14 @@ export function getSidebarHtml(
       input.style.height = input.scrollHeight + 'px';
     }
 
+    function setComposerInput(text) {
+      input.value = text;
+      resizeInput();
+      composerRevision += 1;
+      updateSendState();
+      input.focus();
+    }
+
     function formatThinkingLevel(level) {
       if (level === 'xhigh') return 'X-high';
       return level.charAt(0).toUpperCase() + level.slice(1);
@@ -646,11 +654,7 @@ export function getSidebarHtml(
         } else { notice.textContent = 'Your draft changed. The recovered message remains in Recovered Drafts.'; }
       }
       else if (message.type === 'setInput') {
-        input.value = message.text;
-        resizeInput();
-        composerRevision += 1;
-        updateSendState();
-        input.focus();
+        setComposerInput(message.text);
       }
       else if (message.type === 'clearInput') {
         submissionPending = false;
@@ -706,15 +710,12 @@ export function getSidebarHtml(
       if (!button || button.disabled) return;
       if (button.dataset.emptyAction === 'selection') {
         vscode.postMessage({ type: 'attachSelection' });
+        input.focus();
       } else {
-        vscode.postMessage({
-          type: 'setInput',
-          text: button.dataset.emptyAction === 'plan'
-            ? 'Plan this change before implementing it: '
-            : 'Implement this task: ',
-        });
+        setComposerInput(button.dataset.emptyAction === 'plan'
+          ? 'Plan this change before implementing it: '
+          : 'Implement this task: ');
       }
-      input.focus();
     });
     attachmentsElement.addEventListener('click', event => {
       const button = event.target instanceof Element ? event.target.closest('button[data-remove-attachment]') : undefined;
