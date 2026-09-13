@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 interface MenuContribution {
@@ -14,6 +14,7 @@ interface ExtensionManifest {
   readonly contributes: {
     readonly commands: readonly { command: string; enablement?: string }[];
     readonly menus: Record<string, readonly MenuContribution[]>;
+    readonly configuration: { readonly properties: Record<string, unknown> };
   };
 }
 
@@ -23,6 +24,9 @@ test("workflow commands are contributed, registered, documented and keep minimum
   assert.equal(manifest.engines.vscode, "^1.106.0");
   assert.deepEqual(manifest.extensionKind, ["workspace"]);
   assert.equal(manifest.devDependencies["@types/vscode"], "1.106.0");
+  assert.equal(manifest.contributes.configuration.properties["piCodingAgent.defaultMode"], undefined);
+  assert.equal(existsSync("src/runtimeProfiles.ts"), false);
+  assert.equal(existsSync("src/test/runtimeProfiles.test.ts"), false);
   const entry = readFileSync("src/extension.ts", "utf8"), readme = readFileSync("README.md", "utf8");
   for (const [command, controller, register] of [
     ["reviewStagedChanges", "gitReviewController", "registerGitReview"],

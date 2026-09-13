@@ -10,7 +10,7 @@ Vendor-owned hosted services cannot be reproduced by a local extension, so those
 | Context inspection | Exact snapshots, explicit edit/redact/refresh, bounded memory-only pins | `contextInspector.ts`, `sidebarAttachments.ts`; revision-safe consumed-item tests. Estimates exclude Pi history/instructions/future reads; image usage unknown. |
 | Failed-test repair | Explicit process command or supplied failure log, read-only proposal, approved save/rerun | `testRepair.ts`, `testRepairController.ts`; real failing Node test repaired/rerun with fixture response. Two attempts, one source file; no private Test Explorer API. |
 | Request checkpoints | Bounded pre-prompt snapshots, coverage report, preview and guarded restore | `checkpointHistory.ts`, `changeTracker.ts`; immediate-write subprocess boundary and stale/dirty/dependency tests. Memory-only; no creations/deletions/shell rollback. |
-| In-flight instructions | Session/policy-bound Steer, Follow Up, Clear and recovered drafts | `piRpcClient.ts`, `piRuntime.ts`; deterministic RPC/lifecycle fixtures. Ordinary text-only composer requests; unsupported/uncertain queue delivery disconnects without replay. |
+| In-flight instructions | Enter-to-Steer, platform Follow Up shortcut, explicit buttons, Clear and recovered drafts | `piRpcClient.ts`, `piRuntime.ts`, `sidebarHtml.ts`; deterministic RPC/lifecycle/keyboard fixtures. Ordinary text-only composer requests; unsupported/uncertain queue delivery disconnects without replay. Pi queue grouping settings remain native. |
 | Debug-context questions | Explicit bounded paused Node.js capture, variable selection, inspection/redaction, read-only question | `debugContext.ts`, `debugContextController.ts`; fake DAP/host invalidation tests. Only checked js-debug read paths; no evaluate/recursive capture. |
 | Codex side-by-side chat panel | Dedicated Pi Activity Bar conversation view | Implemented in `src/sidebar.ts` and `src/sidebarHtml.ts`. |
 | Codex context from open files and selections | Selection, current file, file picker, diagnostics, terminal text, and image attachments | Implemented with item, size, and total bounds. |
@@ -21,16 +21,16 @@ Vendor-owned hosted services cannot be reproduced by a local extension, so those
 | GitHub Copilot next edit suggestion | `Pi: Suggest Next Edit` predicts one focused whole-file change and opens a diff preview | Implemented local equivalent; Copilot's proprietary ranking model is a GitHub service dependency. |
 | Copilot Chat conversational assistance | Dedicated Pi view plus native `@pi` Chat participant and slash commands | Implemented. |
 | Copilot inline chat | `Pi: Inline Edit` targets the selection or current line, routes into persistent Pi Chat, preserves follow-up context, and previews edits | Implemented with `Ctrl/Cmd+I`. |
-| Copilot Ask/Edit/Plan/Agent modes | Four explicit Pi runtime profiles with tested tool allowlists | Implemented in `src/runtimeProfiles.ts`. |
-| Copilot autonomous multi-step agent | Persistent Pi RPC Agent mode reads, edits, runs commands, tests, retries, and self-corrects | Implemented using Pi's full coding toolset. |
+| Copilot Ask/Edit/Plan/Agent modes | Pi-default conversation without extension-defined modes | Deliberately uses Pi's default tools and extension-contributed tools instead of recreating Copilot modes or fixed allowlists. |
+| Copilot autonomous multi-step agent | Persistent Pi RPC conversation reads, edits, runs commands, tests, retries, and self-corrects | Implemented using Pi's default coding toolset. |
 | Copilot central session management | New, name, resume, compact, export, terminal handoff, foreground, and background sessions | Implemented in the Pi conversation view. |
-| Copilot Plan-to-implementation handoff | `Implement Plan` restarts the same persistent session in Agent mode | Implemented. |
+| Copilot Plan-to-implementation handoff | Plan and build welcome actions create ordinary prompt drafts in the same Pi-default session | No special mode transition or runtime restart is required. |
 | Copilot change review and revert | Tool activity, changed-file cards, request history, Source Control, diff, open, and stale/dirty-safe revert | Covered pre-captured regular edit/write files only; shell and uncertain effects require Source Control review. |
 | Copilot custom instructions | Pi global/project AGENTS.md and Pi system/settings resources | Implemented through normal Pi resource discovery and explicit project trust. |
-| Copilot skills and custom agents | Pi skills, prompt templates, extension commands, mode profiles, and background agents | Implemented and discoverable through `Commands…`. |
+| Copilot skills and custom agents | Pi skills, prompt templates, extension commands, contributed tools, and background agents | Implemented and discoverable through `Commands…`; tool discovery is not restricted by a fixed allowlist. |
 | Copilot MCP and external tools | Tools supplied by installed Pi extensions, including third-party MCP bridges | Supported through Pi's extension system; each external server/bridge remains its own dependency. |
 | Claude Code editor awareness | Current file, selection, diagnostics, files, images, and terminal context, plus Pi-callable `vscode_context` and `vscode_open_file` bridge tools | Implemented through an authenticated loopback bridge and standalone Pi extension. |
-| Claude Code autonomous file/terminal work | Agent mode and background agents use Pi edit/write/bash tools | Implemented. |
+| Claude Code autonomous file/terminal work | Foreground and background sessions use Pi's default edit/write/bash tools | Implemented. |
 | Claude Code permission prompts | Packaged Pi tool-call gate supports off, dangerous, or all mutating confirmations | Implemented through RPC extension UI. |
 | Claude Code subagents | Multiple independent foreground/background/worktree Pi RPC clients | Implemented local equivalent. |
 | Claude Code custom slash commands | Pi extension commands, prompt templates, and skills from `get_commands` | Implemented. |
@@ -38,5 +38,5 @@ Vendor-owned hosted services cannot be reproduced by a local extension, so those
 | Claude Code subscription/model choice | Pi's provider authentication, subscription OAuth, API keys, model catalog, and thinking levels | Implemented by reusing Pi; provider subscriptions remain provider dependencies. |
 | Image-aware chat | Bounded PNG, JPEG, GIF, and WebP RPC image payloads from file selection or Ctrl/Cmd+V paste, with model-capability checks | Implemented. |
 | Session export | Pi RPC HTML export and open action | Implemented. |
-| Hosted pull-request agent | Agent/worktree mode can use installed `git` and `gh` tools to create branches, commits, pushes, and PRs | Local orchestration implemented; GitHub credentials and hosted repository access are external dependencies. |
+| Hosted pull-request agent | Foreground/worktree sessions can use installed `git` and `gh` tools to create branches, commits, pushes, and PRs | Local orchestration implemented; GitHub credentials and hosted repository access are external dependencies. |
 | Cross-machine cloud synchronization | Exported sessions and Git/remote-provider workflows | Requires an external storage or hosted-agent service; no vendor-neutral synchronization service exists in this local extension. |

@@ -1,6 +1,5 @@
 import type * as vscode from "vscode";
 import type { AgentRequestPolicy, ChatReferenceContext } from "./prompts";
-import type { PiAgentMode } from "./runtimeProfiles";
 
 export interface ConversationRequestOptions {
   readonly instructions?: string;
@@ -148,18 +147,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function shouldTrackConversationChanges(
   policy: AgentRequestPolicy | undefined,
-  mode: PiAgentMode,
 ): boolean {
-  return policy !== "read-only" && (mode === "edit" || mode === "agent");
+  return policy !== "read-only";
 }
 
 export function requestMayHaveProducedSideEffects(
   policy: AgentRequestPolicy | undefined,
-  mode: PiAgentMode,
   toolNames: readonly string[],
 ): boolean {
-  return shouldTrackConversationChanges(policy, mode)
-    && toolNames.some(name => name === "bash" || name === "edit" || name === "write");
+  return shouldTrackConversationChanges(policy) && toolNames.length > 0;
 }
 
 export class ConversationSideEffectTracker {
@@ -175,8 +171,8 @@ export class ConversationSideEffectTracker {
     this.detected = false;
   }
 
-  public record(policy: AgentRequestPolicy | undefined, mode: PiAgentMode, toolName: string): void {
-    this.detected ||= requestMayHaveProducedSideEffects(policy, mode, [toolName]);
+  public record(policy: AgentRequestPolicy | undefined, toolName: string): void {
+    this.detected ||= requestMayHaveProducedSideEffects(policy, [toolName]);
     if (this.detected) {
       this.lifecycle.completeExecution();
     }
