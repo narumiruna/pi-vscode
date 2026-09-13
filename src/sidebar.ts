@@ -20,7 +20,7 @@ import {
 } from "./conversationController";
 import { EditProposalStore } from "./editProposals";
 import { WorkspaceChangeTracker, type TrackedFileChange } from "./changeTracker";
-import { getSidebarHtml, shouldUseCtrlQForFollowUp } from "./sidebarHtml";
+import { getSidebarHtml } from "./sidebarHtml";
 import { renderSafeMarkdown } from "./markdown";
 import { buildAgentPrompt, type AgentRequestPolicy, type ChatReferenceContext } from "./prompts";
 import { PiRuntimeManager } from "./piRuntime";
@@ -144,11 +144,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       enableScripts: true,
       localResourceRoots: [],
     };
-    webviewView.webview.html = getSidebarHtml(
-      maxInputCharacters,
-      maxImageBytes,
-      shouldUseCtrlQForFollowUp(process.platform, vscode.env.remoteName),
-    );
+    webviewView.webview.html = getSidebarHtml(maxInputCharacters, maxImageBytes);
 
     const messageListener = webviewView.webview.onDidReceiveMessage(message => {
       void this.handleMessage(message);

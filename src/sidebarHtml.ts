@@ -19,18 +19,7 @@ function icon(name: keyof typeof iconPaths): string {
   return `<svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${iconPaths[name]}</svg>`;
 }
 
-export function shouldUseCtrlQForFollowUp(
-  platform: NodeJS.Platform,
-  remoteName: string | undefined,
-): boolean {
-  return platform === "win32" || remoteName === "wsl";
-}
-
-export function getSidebarHtml(
-  maxInputCharacters: number,
-  maxImageBytes: number,
-  useCtrlQForFollowUp = false,
-): string {
+export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number): string {
   const nonce = randomBytes(16).toString("base64url");
   const csp = [
     "default-src 'none'",
@@ -201,7 +190,7 @@ export function getSidebarHtml(
           <button id="send" type="button" aria-label="Send message" title="Send message" disabled>${icon("send")}</button>
         </div>
       </div>
-      <div id="composer-hint">Enter to send · ${useCtrlQForFollowUp ? "Ctrl+Q" : "Alt+Enter"} also sends · Shift+Enter for newline</div>
+      <div id="composer-hint">Enter to send · Shift+Enter for newline</div>
     </section>
     <div id="notice" role="status" aria-live="polite"></div>
   </main>
@@ -220,8 +209,13 @@ export function getSidebarHtml(
     const cancelButton = $('cancel');
     const notice = $('notice');
     const thinkingLevel = $('thinking-level');
-    const useCtrlQForFollowUp = ${useCtrlQForFollowUp};
+    const clientPlatform = typeof navigator.userAgentData?.platform === 'string'
+      ? navigator.userAgentData.platform
+      : navigator.platform || '';
+    const useCtrlQForFollowUp = /^win/i.test(clientPlatform)
+      || /\\bwindows\\b/i.test(navigator.userAgent || '');
     const followUpShortcutLabel = useCtrlQForFollowUp ? 'Ctrl+Q' : 'Alt+Enter';
+    $('composer-hint').textContent = 'Enter to send · ' + followUpShortcutLabel + ' also sends · Shift+Enter for newline';
     let busy = false;
     let queueable = false;
     let connected = false;
