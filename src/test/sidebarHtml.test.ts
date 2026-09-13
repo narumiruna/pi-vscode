@@ -2,6 +2,30 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createContext, Script } from "node:vm";
 import { getSidebarHtml } from "../sidebarHtml";
+import { installVscodeMock } from "./vscodeMock";
+
+test("follow-up shortcut selection uses the webview client OS", () => {
+  const windows = createSidebarScriptHarness("Win32");
+  assert.equal(windows.run("useCtrlQForFollowUp"), true);
+  assert.match(windows.element("composer-hint").textContent, /Ctrl\+Q/);
+
+  const linux = createSidebarScriptHarness("Linux x86_64");
+  assert.equal(linux.run("useCtrlQForFollowUp"), false);
+  assert.match(linux.element("composer-hint").textContent, /Alt\+Enter/);
+
+  const reducedPlatform = createSidebarScriptHarness("", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+  assert.equal(reducedPlatform.run("useCtrlQForFollowUp"), true);
+});
+
+test("webview protocol rejects removed mode messages", () => {
+  const vscode = installVscodeMock();
+  try {
+    const { isWebviewMessage } = require("../sidebarHelpers") as typeof import("../sidebarHelpers");
+    assert.equal(isWebviewMessage({ type: "setMode", mode: "agent" }, 1024), false);
+    assert.equal(isWebviewMessage({ type: "handoffAgent" }, 1024), false);
+    assert.equal(isWebviewMessage({ type: "queueInstruction", kind: "steer", text: "adjust", revision: 1 }, 1024), true);
+  } finally { vscode.restore(); }
+});
 
 test("sidebar composer forwards pasted clipboard images with client-side bounds", () => {
   const html = getSidebarHtml(100_000, 123_456);
@@ -19,11 +43,12 @@ test("sidebar composer forwards pasted clipboard images with client-side bounds"
   assert.match(html, /current model does not support image attachments/i);
 });
 
-test("sidebar keeps primary controls compact and exposes recovery and proposal actions", () => {
+test("sidebar places model and thinking controls before Send and exposes recovery and proposal actions", () => {
   const html = getSidebarHtml(100_000, 5 * 1024 * 1024);
 
-  assert.match(html, /id="model-picker"/);
+  assert.match(html, /<div class="composer-actions">[\s\S]*id="model-picker"[\s\S]*id="thinking-level"[\s\S]*id="send"/);
   assert.match(html, /id="thinking-level"[^>]*aria-label="Pi thinking level"/);
+  assert.doesNotMatch(html, /id="mode"|id="handoff-agent"|type: 'setMode'|type: 'handoffAgent'/);
   assert.match(html, /renderThinkingLevel\(state\.runtime\)/);
   assert.match(html, /type: 'setThinking', level: thinkingLevel\.value/);
   assert.match(html, /id="delete-session"[^>]*aria-label="Delete current Pi conversation"[^>]*hidden>/);
@@ -31,9 +56,6 @@ test("sidebar keeps primary controls compact and exposes recovery and proposal a
   assert.match(html, /type: 'deleteSession'/);
   assert.match(html, /delete-session'\)\.disabled = interactionLocked \|\| !connected \|\| !deletableSession/);
   assert.match(html, /id="more"/);
-  assert.match(html, /id="handoff-agent"[^>]*hidden>Implement Plan<\/button>/);
-  assert.match(html, /state\.runtime\.mode !== 'plan'/);
-  assert.match(html, /handoff-agent'\)\.disabled = true;\s+vscode\.postMessage\(\{ type: 'handoffAgent'/);
   assert.match(html, /id="reconnect"/);
   assert.match(html, /id="retry"/);
   assert.match(html, /id="refresh-history"/);
@@ -41,7 +63,7 @@ test("sidebar keeps primary controls compact and exposes recovery and proposal a
   assert.match(html, /type: 'proposalAction'/);
   assert.match(html, /proposal\.status !== 'previewed'/);
   assert.match(html, /\['previewing', 'applying', 'rejecting'\]\.includes\(proposal\.status\)/);
-  assert.match(html, /setInput'[\s\S]*composerRevision \+= 1[\s\S]*updateSendState\(\)/);
+  assert.match(html, /function setComposerInput\(text\)[\s\S]*composerRevision \+= 1[\s\S]*updateSendState\(\)[\s\S]*message\.type === 'setInput'[\s\S]*setComposerInput\(message\.text\)/);
   assert.match(html, /clearInput'[\s\S]*composerRevision === message\.expectedRevision[\s\S]*input\.value === message\.expectedText[\s\S]*updateSendState\(\)/);
   assert.match(html, /showMoreActions', text: input\.value, revision: composerRevision/);
   assert.match(html, /input\.addEventListener\('input', \(\) => \{ composerRevision \+= 1/);
@@ -49,12 +71,14 @@ test("sidebar keeps primary controls compact and exposes recovery and proposal a
   assert.match(html, /submissionPending = true;\s+updateSendState\(\);\s+vscode\.postMessage/);
   assert.match(html, /message\.type === 'sendRejected'[\s\S]*submissionPending = false/);
   assert.match(html, /let backgroundSubmissionPending = false/);
-  assert.match(html, /submissionPending \|\| backgroundSubmissionPending \|\| \(attachedImages/);
+  assert.match(html, /!text \|\| !connected \|\| submissionPending \|\| backgroundSubmissionPending/);
   assert.match(html, /backgroundSubmissionPending = Boolean\(state\.backgroundSubmissionPending\)/);
   assert.match(html, /busy \|\| submissionPending \|\| backgroundSubmissionPending \|\| imageLoading/);
   assert.match(html, /Starting background agent/);
   assert.match(html, /messages\.filter\(message => message\.role !== 'assistant' \|\| Boolean\(message\.html\)\)/);
   assert.match(html, /for \(const message of visibleMessages\)/);
+  assert.match(html, /#add-context span \{ display: none; \}/);
+  assert.match(html, /\.composer-actions \{[^}]*flex-wrap: nowrap/);
   assert.doesNotMatch(html, /id="resume-session"/);
 });
 
@@ -76,7 +100,7 @@ test("sidebar preserves hidden semantics, themed layout, and keyboard accessibil
   assert.match(html, /id="send"[^>]*aria-label="Send message"[^>]*disabled/);
   assert.match(html, /sendButton\.hidden = busy/);
   assert.match(html, /cancelButton\.hidden = !busy/);
-  assert.match(html, /!event\.isComposing/);
+  assert.match(html, /if \(event\.isComposing\) return/);
   assert.match(html, /input\.scrollHeight/);
 });
 
@@ -120,18 +144,20 @@ class SidebarTestElement {
   scrollHeight = 100;
   scrollTop = 0;
   clientHeight = 100;
-  listeners = new Map<string, () => void>();
+  focusCount = 0;
+  listeners = new Map<string, (event?: any) => void>();
 
   append(...elements: SidebarTestElement[]): void { this.children.push(...elements); }
   appendChild(element: SidebarTestElement): void { this.append(element); }
   replaceChildren(): void { this.children = []; }
   querySelector(): { textContent: string } { return { textContent: "" }; }
   querySelectorAll(): never { throw new Error("Unexpected conversation descendant search"); }
-  addEventListener(type: string, listener: () => void): void { this.listeners.set(type, listener); }
-  focus(): void {}
+  closest(): SidebarTestElement { return this; }
+  addEventListener(type: string, listener: (event?: any) => void): void { this.listeners.set(type, listener); }
+  focus(): void { this.focusCount += 1; }
 }
 
-function createSidebarScriptHarness() {
+function createSidebarScriptHarness(clientPlatform = "Linux x86_64", userAgent = "") {
   const html = getSidebarHtml(100_000, 1024);
   const elements = new Map(Array.from(html.matchAll(/\bid="([^"]+)"/g), match => [match[1], new SidebarTestElement()]));
   const element = (id: string) => {
@@ -144,6 +170,8 @@ function createSidebarScriptHarness() {
   const context = createContext({
     document: { getElementById: element, createElement: () => new SidebarTestElement() },
     window: { addEventListener: (type: string, listener: typeof receive) => { if (type === "message") receive = listener; } },
+    navigator: { platform: clientPlatform, userAgent },
+    Element: SidebarTestElement,
     acquireVsCodeApi: () => ({ postMessage: (message: unknown) => posted.push(message) }),
   });
   const script = /<script nonce="[^"]+">([\s\S]*?)<\/script>/.exec(html);
@@ -165,7 +193,6 @@ test("sidebar displays and changes the current thinking level", () => {
     runtime: {
       busy: false,
       connected: true,
-      mode: "ask",
       thinkingLevel: "high",
       availableThinkingLevels: ["off", "low", "high"],
     },
@@ -187,7 +214,6 @@ test("sidebar displays and changes the current thinking level", () => {
     runtime: {
       busy: false,
       connected: true,
-      mode: "ask",
       thinkingLevel: "off",
       availableThinkingLevels: ["off"],
     },
@@ -248,6 +274,100 @@ test("sidebar updates only current welcome buttons across locks and message rend
   sidebar.run("renderMessages([{ role: 'user', html: '<p>Question</p>' }]); updateSendState()");
   sidebar.run("busy = false; renderMessages([{ role: 'assistant', html: '' }]); updateSendState()");
   assertLocked(false);
+});
+
+test("welcome actions attach context or set ordinary composer drafts locally", () => {
+  const sidebar = createSidebarScriptHarness();
+  const input = sidebar.element("input");
+  sidebar.run("renderMessages([])");
+  const [selection, plan, build] = sidebar.welcomeButtons();
+  const click = sidebar.element("messages").listeners.get("click")!;
+
+  click({ target: selection });
+  assert.equal(sidebar.posted.at(-1).type, "attachSelection");
+  const postedAfterSelection = sidebar.posted.length;
+  const focusAfterSelection = input.focusCount;
+
+  click({ target: plan });
+  assert.equal(input.value, "Plan this change before implementing it: ");
+  assert.equal(sidebar.run("composerRevision"), 1);
+  assert.equal(sidebar.posted.length, postedAfterSelection);
+  assert.equal(input.focusCount, focusAfterSelection + 1);
+
+  click({ target: build });
+  assert.equal(input.value, "Implement this task: ");
+  assert.equal(sidebar.run("composerRevision"), 2);
+  assert.equal(sidebar.posted.length, postedAfterSelection);
+  assert.equal(input.focusCount, focusAfterSelection + 2);
+  assert.equal(sidebar.posted.some(message => message.type === "setInput" || message.type === "setMode" || message.type === "handoffAgent"), false);
+});
+
+test("composer keyboard submission matches Pi queue behavior on Alt+Enter platforms", () => {
+  const sidebar = createSidebarScriptHarness("MacIntel");
+  const input = sidebar.element("input");
+  const keydown = input.listeners.get("keydown")!;
+  const press = (fields: Record<string, unknown>) => {
+    let prevented = false;
+    keydown({ key: "Enter", shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, isComposing: false, preventDefault: () => { prevented = true; }, ...fields });
+    return prevented;
+  };
+  sidebar.run("connected = true; busy = false; queueable = false; submissionPending = false");
+  input.value = "start now";
+  assert.equal(press({}), true);
+  assert.equal(sidebar.posted.at(-1).type, "send");
+  assert.equal(sidebar.posted.at(-1).text, "start now");
+  assert.equal(sidebar.posted.at(-1).revision, 0);
+
+  sidebar.run("submissionPending = false; busy = true; queueable = true");
+  input.value = "steer now";
+  assert.equal(press({}), true);
+  assert.equal(sidebar.posted.at(-1).kind, "steer");
+  sidebar.run("submissionPending = false");
+  input.value = "after completion";
+  assert.equal(press({ altKey: true }), true);
+  assert.equal(sidebar.posted.at(-1).kind, "followUp");
+
+  sidebar.run("submissionPending = false; busy = false; queueable = false");
+  input.value = "idle follow-up shortcut";
+  assert.equal(press({ altKey: true }), true);
+  assert.equal(sidebar.posted.at(-1).type, "send");
+
+  const count = sidebar.posted.length;
+  assert.equal(press({ shiftKey: true }), false);
+  assert.equal(press({ isComposing: true }), false);
+  assert.equal(sidebar.posted.length, count);
+
+  sidebar.run("submissionPending = false; busy = true; queueable = false");
+  input.value = "preserved";
+  assert.equal(press({}), true);
+  assert.equal(sidebar.posted.length, count);
+  assert.equal(input.value, "preserved");
+  assert.match(sidebar.element("notice").textContent, /does not accept queued messages/);
+});
+
+test("composer uses Ctrl+Q for Windows-client follow-ups", () => {
+  const sidebar = createSidebarScriptHarness("Win32");
+  const input = sidebar.element("input");
+  const keydown = input.listeners.get("keydown")!;
+  const press = (fields: Record<string, unknown>) => {
+    let prevented = false;
+    keydown({ key: "q", shiftKey: false, altKey: false, ctrlKey: true, metaKey: false, isComposing: false, preventDefault: () => { prevented = true; }, ...fields });
+    return prevented;
+  };
+  sidebar.run("connected = true; busy = true; queueable = true; submissionPending = false");
+  input.value = "follow up";
+  assert.equal(press({}), true);
+  assert.equal(sidebar.posted.at(-1).type, "queueInstruction");
+  assert.equal(sidebar.posted.at(-1).kind, "followUp");
+
+  sidebar.run("submissionPending = false; busy = false; queueable = false");
+  input.value = "start now";
+  assert.equal(press({}), true);
+  assert.equal(sidebar.posted.at(-1).type, "send");
+
+  const count = sidebar.posted.length;
+  assert.equal(press({ key: "Enter", ctrlKey: false, altKey: true }), false);
+  assert.equal(sidebar.posted.length, count);
 });
 
 test("isolated background sessions offer Open Worktree instead of an unusable Resume", () => {

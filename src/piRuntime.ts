@@ -6,7 +6,6 @@ import { randomUUID } from "node:crypto";
 import { assertSessionWorkspace } from "./sessionIdentity";
 import { parseRpcQueue, type PiRpcQueue } from "./piRpcClient";
 import { PiRpcClient, type PiRpcClientOptions, type PiRpcEvent, type PiRpcImage } from "./piRpcClient";
-import { getRuntimeProfile, normalizeMode, type PiAgentMode } from "./runtimeProfiles";
 import { readPiInvocationOptions } from "./vscodePi";
 import { VscodeBridgeServer } from "./vscodeBridge";
 import {
@@ -15,12 +14,10 @@ import {
 } from "./vscodeBridgeProtocol";
 
 const sessionPathKey = "piCodingAgent.rpc.sessionPath.v1";
-const modeKey = "piCodingAgent.rpc.mode.v1";
 
 export interface PiRuntimeState {
   readonly connected: boolean;
   readonly busy: boolean;
-  readonly mode: PiAgentMode;
   readonly model?: Record<string, unknown>;
   readonly thinkingLevel?: string;
   readonly sessionFile?: string;
@@ -43,7 +40,6 @@ export class PiRuntimeManager implements vscode.Disposable {
   private clientSubscription: vscode.Disposable | undefined;
   private startPromise: Promise<void> | undefined;
   private resource: vscode.Uri | undefined;
-  private mode: PiAgentMode;
   private state: PiRuntimeState;
   private readonly queueGate = new ExclusiveOperationGate("Wait for the current queue operation.");
   private readonly ownership = new ExclusiveOperationGate("Wait for the current Pi request or session operation.");
@@ -57,11 +53,7 @@ export class PiRuntimeManager implements vscode.Disposable {
   public readonly onDidChangeState = this.stateEmitter.event;
 
   public constructor(private readonly context: vscode.ExtensionContext) {
-    this.mode = normalizeMode(
-      context.workspaceState.get<string>(modeKey) ??
-        vscode.workspace.getConfiguration("piCodingAgent").get<string>("defaultMode", "ask"),
-    );
-    this.state = emptyState(this.mode);
+    this.state = emptyState();
   }
 
   public get currentState(): PiRuntimeState {
@@ -215,21 +207,6 @@ export class PiRuntimeManager implements vscode.Disposable {
     } finally { release(); this.queueStopping = false; }
   }
 
-  public async setMode(mode: PiAgentMode): Promise<void> {
-    if (mode === this.mode) {
-      return;
-    }
-    if (this.state.busy) throw new Error("Stop or wait for Pi before switching mode; queued work cannot cross modes.");
-    return this.owned(async () => {
-    await this.stopClient();
-    this.mode = mode;
-    await this.context.workspaceState.update(modeKey, mode);
-    this.state = { ...emptyState(mode), recoveredDrafts: this.state.recoveredDrafts };
-    this.stateEmitter.fire(this.state);
-    await this.ensureStarted(this.resource);
-    });
-  }
-
   public async newSession(): Promise<void> {
     return this.owned(async () => {
     await this.ensureStarted(this.resource);
@@ -258,7 +235,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       }
     }
     await this.context.workspaceState.update(sessionPathKey, undefined);
-    this.state = emptyState(this.mode);
+    this.state = emptyState();
     this.stateEmitter.fire(this.state);
     await this.ensureStarted(this.resource);
     });
@@ -398,15 +375,12 @@ export class PiRuntimeManager implements vscode.Disposable {
   private buildClientOptions(sessionPath: string | undefined, bridgeEnvironment: NodeJS.ProcessEnv): PiRpcClientOptions {
     const invocation = readPiInvocationOptions(this.resource);
     const configuration = vscode.workspace.getConfiguration("piCodingAgent");
-    const profile = getRuntimeProfile(this.mode);
     return {
       executablePath: invocation.executablePath,
       cwd: invocation.cwd,
       provider: invocation.provider,
       model: invocation.model,
       thinkingLevel: invocation.thinkingLevel,
-      tools: profile.tools,
-      appendSystemPrompt: profile.systemPrompt,
       extensions: [
         path.join(this.context.extensionUri.fsPath, "resources", "pi-vscode-permission-gate.ts"),
         path.join(this.context.extensionUri.fsPath, "resources", "pi-vscode-read-only-gate.ts"),
@@ -441,7 +415,6 @@ export class PiRuntimeManager implements vscode.Disposable {
     this.state = {
       connected: true,
       busy: this.promptActive || Boolean(rpcState.isStreaming),
-      mode: this.mode,
       model: recordField(rpcState, "model"),
       thinkingLevel: stringField(rpcState, "thinkingLevel"),
       sessionFile,
@@ -561,11 +534,10 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 }
 
-function emptyState(mode: PiAgentMode): PiRuntimeState {
+function emptyState(): PiRuntimeState {
   return {
     connected: false,
     busy: false,
-    mode,
     availableModels: [],
     availableThinkingLevels: [],
     commands: [],

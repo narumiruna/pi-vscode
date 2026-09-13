@@ -25,7 +25,6 @@ import { renderSafeMarkdown } from "./markdown";
 import { buildAgentPrompt, type AgentRequestPolicy, type ChatReferenceContext } from "./prompts";
 import { PiRuntimeManager } from "./piRuntime";
 import type { PiRpcEvent, PiRpcImage } from "./piRpcClient";
-import type { PiAgentMode } from "./runtimeProfiles";
 import { SidebarAttachmentManager } from "./sidebarAttachments";
 import {
   convertPiMessages,
@@ -33,7 +32,6 @@ import {
   formatError,
   isRecord,
   isWebviewMessage,
-  modeLabel,
   modelSupportsImages,
   restoreMessages,
   safeJson,
@@ -243,7 +241,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         case "inspectQueue": {
           const documents = new WorkflowDocuments();
           const state = this.runtime.currentState;
-          try { await documents.inspect("Pi pending queue snapshot", `Session ${state.sessionId ?? "unknown"}; mode ${state.mode}; captured ${new Date().toISOString()}. Pending state can change while inspecting; not delivery evidence.\n\n${JSON.stringify(state.queue ?? { steering: [], followUp: [] }, null, 2)}`); }
+          try { await documents.inspect("Pi pending queue snapshot", `Session ${state.sessionId ?? "unknown"}; captured ${new Date().toISOString()}. Pending state can change while inspecting; not delivery evidence.\n\n${JSON.stringify(state.queue ?? { steering: [], followUp: [] }, null, 2)}`); }
           finally { documents.dispose(); }
           break;
         }
@@ -317,12 +315,6 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           break;
         case "removeAttachment":
           this.attachments.remove(message.id);
-          break;
-        case "setMode":
-          await this.setMode(message.mode);
-          break;
-        case "handoffAgent":
-          await this.setMode("agent");
           break;
         case "setModel":
           await this.runtime.setModel(message.provider, message.modelId);
@@ -603,7 +595,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.streamingAssistantId = undefined;
       this.status = "Sending to Pi…";
       await this.persistMessages();
-      if (shouldTrackConversationChanges(policy, this.runtime.currentState.mode)) this.changes = [];
+      if (shouldTrackConversationChanges(policy)) this.changes = [];
       this.postState();
 
       const response = await this.runtime.prompt(
@@ -613,7 +605,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         behavior.clearComposerOnAccepted ? onAccepted : undefined,
         () => {
           this.requestLifecycle.throwIfCancelled(); validate?.();
-          if (shouldTrackConversationChanges(policy, this.runtime.currentState.mode)) {
+          if (shouldTrackConversationChanges(policy)) {
             this.changeTracker.startRequest(this.runtime.currentCwd, this.runtime.currentState.sessionId);
             this.trackCurrentRequestChanges = true;
           }
@@ -803,27 +795,6 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.postState();
   }
 
-  private async setMode(mode: PiAgentMode): Promise<void> {
-    if (this.isForegroundRequestActive()) {
-      throw new Error("Cancel or wait for the active request before changing Pi mode.");
-    }
-    if (mode === "agent") {
-      const choice = await vscode.window.showWarningMessage(
-        "Agent mode allows Pi to edit files and run shell commands with your user permissions.",
-        { modal: true },
-        "Enable Agent Mode",
-      );
-      if (choice !== "Enable Agent Mode") {
-        this.postState();
-        return;
-      }
-    }
-    await this.runtime.setMode(mode);
-    await this.syncMessagesFromPi();
-    this.status = `${modeLabel(mode)} mode`;
-    this.postState();
-  }
-
   private async compact(): Promise<void> {
     if (this.isForegroundRequestActive()) {
       this.postNotice("Cancel or wait for the active request before compacting the session.", "warning");
@@ -963,7 +934,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       const toolName = stringValue(event.toolName) ?? "tool";
       if (this.trackCurrentRequestChanges) {
         this.changeTracker.captureToolEvent(event);
-        this.currentRequestSideEffects.record(undefined, this.runtime.currentState.mode, toolName);
+        this.currentRequestSideEffects.record(undefined, toolName);
       }
       this.upsertTool({
         id: stringValue(event.toolCallId) ?? randomUUID(),

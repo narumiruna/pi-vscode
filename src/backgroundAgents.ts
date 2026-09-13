@@ -16,7 +16,6 @@ import {
 } from "./backgroundAgentLifecycle";
 import { buildAgentPrompt, type ChatReferenceContext } from "./prompts";
 import { PiRpcClient, type PiRpcEvent, type PiRpcImage } from "./piRpcClient";
-import { getRuntimeProfile } from "./runtimeProfiles";
 import { readPiInvocationOptions } from "./vscodePi";
 
 const storageKey = "piCodingAgent.backgroundTasks.v1";
@@ -108,7 +107,6 @@ export class BackgroundAgentManager implements vscode.Disposable {
     }
 
     const invocation = readPiInvocationOptions(vscode.Uri.file(taskCwd));
-    const profile = getRuntimeProfile("agent", { includeVscodeBridge: false });
     const configuration = vscode.workspace.getConfiguration("piCodingAgent");
     const client = new PiRpcClient({
       executablePath: invocation.executablePath,
@@ -116,8 +114,7 @@ export class BackgroundAgentManager implements vscode.Disposable {
       provider: invocation.provider,
       model: invocation.model,
       thinkingLevel: invocation.thinkingLevel,
-      tools: profile.tools,
-      appendSystemPrompt: `${profile.systemPrompt} This is an independent background task. Work only in the provided working directory.`,
+      appendSystemPrompt: "This is an independent background task. Work only in the provided working directory.",
       extensions: [path.join(this.context.extensionUri.fsPath, "resources", "pi-vscode-permission-gate.ts")],
       approveProjectResources: configuration.get<boolean>("approveProjectResources", false),
       env: {

@@ -23,7 +23,7 @@ test("StrictJsonLineDecoder uses LF framing and preserves Unicode separators", (
   assert.deepEqual(lines, ['{"text":"first\u2028second"}', '{"value":2}']);
 });
 
-test("buildRpcArguments applies tool policy and configured overrides", () => {
+test("buildRpcArguments leaves foreground tools and system prompt at Pi defaults", () => {
   assert.deepEqual(
     buildRpcArguments({
       executablePath: "pi",
@@ -31,9 +31,7 @@ test("buildRpcArguments applies tool policy and configured overrides", () => {
       provider: "anthropic",
       model: "sonnet",
       thinkingLevel: "high",
-      tools: ["read", "grep"],
-      appendSystemPrompt: "Stay read-only.",
-      extensions: ["/extension/permission.ts"],
+      extensions: ["/extension/permission.ts", "/extension/read-only.ts"],
       sessionPath: "/tmp/session.jsonl",
       approveProjectResources: true,
     }),
@@ -46,17 +44,32 @@ test("buildRpcArguments applies tool policy and configured overrides", () => {
       "sonnet",
       "--thinking",
       "high",
-      "--tools",
-      "read,grep",
-      "--append-system-prompt",
-      "Stay read-only.",
       "--extension",
       "/extension/permission.ts",
+      "--extension",
+      "/extension/read-only.ts",
       "--session",
       "/tmp/session.jsonl",
       "--approve",
     ],
   );
+});
+
+test("buildRpcArguments retains only the background orchestration prompt", () => {
+  const args = buildRpcArguments({
+    executablePath: "pi",
+    cwd: "/workspace",
+    appendSystemPrompt: "This is an independent background task. Work only in the provided working directory.",
+    extensions: ["/extension/permission.ts"],
+    approveProjectResources: false,
+  });
+  assert.deepEqual(args, [
+    "--mode", "rpc",
+    "--append-system-prompt", "This is an independent background task. Work only in the provided working directory.",
+    "--extension", "/extension/permission.ts",
+    "--no-approve",
+  ]);
+  assert.equal(args.includes("--tools"), false);
 });
 
 test("PiRpcClient correlates responses and streams events", async () => {
