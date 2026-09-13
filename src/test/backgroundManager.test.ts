@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { gitEnvironment, gitIdentity, gitRevision } from "../gitSnapshots";
 import { acquireOperation, hasOperation } from "../operationLocks";
+import { buildRpcArguments, PiRpcClient } from "../piRpcClient";
 import { installVscodeMock, MockUri } from "./vscodeMock";
 
 test("background manager restores legacy/interrupted tasks safely, previews cancelled results, recovers imports and guards cleanup", async () => {
@@ -19,13 +20,37 @@ test("background manager restores legacy/interrupted tasks safely, previews canc
   const managers: InstanceType<typeof BackgroundAgentManager>[] = [];
   let persisted: any[] = [];
   const create = (records: unknown[]) => {
-    const manager = new BackgroundAgentManager({ workspaceState: { get: () => records, update: async (_key: string, value: any[]) => { persisted = value; } }, globalStorageUri: MockUri.file(storage) } as any);
+    const manager = new BackgroundAgentManager({ workspaceState: { get: () => records, update: async (_key: string, value: any[]) => { persisted = value; } }, globalStorageUri: MockUri.file(storage), extensionUri: MockUri.file(root) } as any);
     managers.push(manager); return manager;
   };
   try {
     await mkdir(repository); await mkdir(path.dirname(worktree), { recursive: true });
     git("init", "-q"); await writeFile(path.join(repository, "a.txt"), "base\n"); git("add", "a.txt");
     git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "base");
+
+    const clientPrototype = PiRpcClient.prototype as any;
+    const originalStart = clientPrototype.start;
+    const originalPrompt = clientPrototype.prompt;
+    const originalSetSessionName = clientPrototype.setSessionName;
+    let launchOptions: any;
+    clientPrototype.start = async function () { launchOptions = this.options; };
+    clientPrototype.prompt = async () => {};
+    clientPrototype.setSessionName = async () => {};
+    vscode.workspace.getWorkspaceFolder = () => ({ uri: MockUri.file(repository) });
+    const launchManager = create([]);
+    try {
+      const launched = await launchManager.start("default tools", [], [], repository, false);
+      assert.equal(launchOptions.tools, undefined);
+      assert.equal(launchOptions.appendSystemPrompt, "This is an independent background task. Work only in the provided working directory.");
+      assert.equal(buildRpcArguments(launchOptions).includes("--tools"), false);
+      assert.deepEqual(launchOptions.extensions.map((value: string) => path.basename(value)), ["pi-vscode-permission-gate.ts"]);
+      await launchManager.cancel(launched);
+    } finally {
+      clientPrototype.start = originalStart;
+      clientPrototype.prompt = originalPrompt;
+      clientPrototype.setSessionName = originalSetSessionName;
+    }
+
     const origin = { repository: await gitIdentity(repository), baseCommit: (await gitRevision(repository)).head! };
     git("-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", worktree, origin.baseCommit);
     await writeFile(path.join(worktree, "a.txt"), "result\n");

@@ -80,31 +80,24 @@ test("request lifecycle preserves cancellation until the next request and record
   assert.equal(lifecycle.canRetry, false);
 });
 
-test("change checkpoints are captured only for effective mutating requests", () => {
-  assert.equal(shouldTrackConversationChanges(undefined, "edit"), true);
-  assert.equal(shouldTrackConversationChanges(undefined, "agent"), true);
-  assert.equal(shouldTrackConversationChanges("read-only", "agent"), false);
-  assert.equal(shouldTrackConversationChanges(undefined, "ask"), false);
-  assert.equal(shouldTrackConversationChanges(undefined, "plan"), false);
+test("change checkpoints cover every request except explicit read-only workflows", () => {
+  assert.equal(shouldTrackConversationChanges(undefined), true);
+  assert.equal(shouldTrackConversationChanges("read-only"), false);
 });
 
-test("missing responses are non-retryable only when a mutating tool may have run", () => {
-  assert.equal(requestMayHaveProducedSideEffects(undefined, "agent", ["bash"]), true);
-  assert.equal(requestMayHaveProducedSideEffects(undefined, "edit", ["write"]), true);
-  assert.equal(requestMayHaveProducedSideEffects(undefined, "agent", ["read", "grep"]), false);
-  assert.equal(requestMayHaveProducedSideEffects(undefined, "agent", []), false);
-  assert.equal(requestMayHaveProducedSideEffects("read-only", "agent", ["bash"]), false);
-  assert.equal(requestMayHaveProducedSideEffects(undefined, "ask", ["read"]), false);
-  assert.equal(requestMayHaveProducedSideEffects(undefined, "plan", ["find"]), false);
+test("any tool makes a default Pi request non-retryable after possible side effects", () => {
+  for (const tool of ["bash", "edit", "write", "read", "custom_extension_tool"]) {
+    assert.equal(requestMayHaveProducedSideEffects(undefined, [tool]), true);
+  }
+  assert.equal(requestMayHaveProducedSideEffects(undefined, []), false);
+  assert.equal(requestMayHaveProducedSideEffects("read-only", ["bash"]), false);
 
   const lifecycle = new ConversationRequestLifecycle();
   const tracker = new ConversationSideEffectTracker(lifecycle);
   lifecycle.begin();
-  tracker.record(undefined, "agent", "read");
-  assert.equal(lifecycle.canRetry, true);
-  tracker.record(undefined, "agent", "bash");
+  tracker.record(undefined, "read");
   assert.equal(lifecycle.canRetry, false);
-  for (let index = 0; index < 31; index += 1) tracker.record(undefined, "agent", "read");
+  tracker.record(undefined, "custom_extension_tool");
   assert.equal(tracker.mayHaveSideEffects, true);
   tracker.reset();
   assert.equal(tracker.mayHaveSideEffects, false);

@@ -26,7 +26,7 @@ function ui(root: string) {
   const errors: string[] = [];
   vscode.window.showErrorMessage = async (message: string) => { errors.push(message); };
   const context: any = { subscriptions: [] };
-  const runtime: any = { currentCwd: root, currentState: { connected: true, sessionId: "s", busy: false, mode: "agent" } };
+  const runtime: any = { currentCwd: root, currentState: { connected: true, sessionId: "s", busy: false } };
   return { context, runtime, folder, errors, inspected, dispose: () => { for (const item of context.subscriptions) item.dispose(); } };
 }
 

@@ -1,17 +1,15 @@
 import path from "node:path";
 import * as vscode from "vscode";
 import { extractReplacement, parseAgentPrompt } from "./prompts";
-import type { PiAgentMode } from "./runtimeProfiles";
 import { limitSidebarMessages, type SidebarMessage } from "./sidebarState";
 
 export type WebviewMessage =
-  | { readonly type: "ready" | "cancel" | "reconnect" | "refreshHistory" | "retry" | "newSession" | "deleteSession" | "pickContext" | "pickModel" | "attachSelection" | "attachFile" | "attachCurrentFile" | "attachDiagnostics" | "attachImage" | "attachTerminal" | "clearAttachments" | "compact" | "nameSession" | "resumeSession" | "exportSession" | "openTerminal" | "openSourceControl" | "handoffAgent" | "pickCommand" | "inspectContext" | "clearQueue" | "inspectQueue" }
+  | { readonly type: "ready" | "cancel" | "reconnect" | "refreshHistory" | "retry" | "newSession" | "deleteSession" | "pickContext" | "pickModel" | "attachSelection" | "attachFile" | "attachCurrentFile" | "attachDiagnostics" | "attachImage" | "attachTerminal" | "clearAttachments" | "compact" | "nameSession" | "resumeSession" | "exportSession" | "openTerminal" | "openSourceControl" | "pickCommand" | "inspectContext" | "clearQueue" | "inspectQueue" }
   | { readonly type: "send"; readonly text: string; readonly revision: number }
   | { readonly type: "queueInstruction"; readonly text: string; readonly revision: number; readonly kind: "steer" | "followUp" }
   | { readonly type: "recoverQueue"; readonly revision: number }
   | { readonly type: "showMoreActions"; readonly text: string; readonly revision: number }
   | { readonly type: "pasteImage"; readonly data: string; readonly mimeType: string; readonly fileName?: string }
-  | { readonly type: "setMode"; readonly mode: PiAgentMode }
   | { readonly type: "setModel"; readonly provider: string; readonly modelId: string }
   | { readonly type: "setThinking"; readonly level: string }
   | { readonly type: "reviewChange" | "openChange" | "revertChange" | "cancelBackground" | "resumeBackground" | "openWorktree" | "cleanupWorktree" | "removeAttachment" | "reviewBackground" | "applyBackground"; readonly id: string }
@@ -34,7 +32,6 @@ export function isWebviewMessage(value: unknown, maxImageBytes: number): value i
       (value.fileName === undefined || (typeof value.fileName === "string" && value.fileName.length <= 500))
     );
   }
-  if (value.type === "setMode") return ["ask", "edit", "plan", "agent"].includes(String(value.mode));
   if (value.type === "setModel") return typeof value.provider === "string" && typeof value.modelId === "string";
   if (value.type === "setThinking") return typeof value.level === "string";
   if (value.type === "runBackground") {
@@ -49,7 +46,7 @@ export function isWebviewMessage(value: unknown, maxImageBytes: number): value i
   return [
     "ready", "cancel", "reconnect", "refreshHistory", "retry", "newSession", "deleteSession", "pickContext", "pickModel", "attachSelection", "attachFile",
     "attachCurrentFile", "attachDiagnostics", "attachImage", "attachTerminal", "clearAttachments", "compact",
-    "nameSession", "resumeSession", "exportSession", "openTerminal", "openSourceControl", "handoffAgent", "pickCommand", "inspectContext", "clearQueue", "inspectQueue",
+    "nameSession", "resumeSession", "exportSession", "openTerminal", "openSourceControl", "pickCommand", "inspectContext", "clearQueue", "inspectQueue",
   ].includes(value.type);
 }
 
@@ -116,10 +113,6 @@ export function relativeDocumentPath(document: vscode.TextDocument): string {
   const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
   if (workspaceFolder) return path.relative(workspaceFolder.uri.fsPath, document.uri.fsPath);
   return document.uri.scheme === "file" ? path.basename(document.uri.fsPath) : document.uri.toString();
-}
-
-export function modeLabel(mode: PiAgentMode): string {
-  return mode.charAt(0).toUpperCase() + mode.slice(1);
 }
 
 export function formatError(error: unknown): string {
