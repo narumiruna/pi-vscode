@@ -1,100 +1,129 @@
 # Pi Coding Agent for VS Code
 
-Use Pi in VS Code through a dedicated conversation view, the native `@pi` chat participant, and focused editor actions.
+Bring your existing [Pi](https://pi.dev) setup into VS Code. Work in a persistent Pi conversation, use the native `@pi` chat participant, attach editor context, and review proposed changes before applying them.
 
-## Features
+## Highlights
 
-- Stream, resume, rename, export, or delete persistent Pi sessions using Pi's default coding tools and installed Pi-extension tools.
-- Attach selections, files, diagnostics, terminal text, and images as bounded context, including image paste with Ctrl/Cmd+V.
-- Send editor context-menu actions into the persistent Pi Chat session so follow-up questions retain the conversation.
-- Choose generated edit hunks, preview the selected result, then apply once; inspect staged Git findings and bounded request checkpoints.
-- Inspect, redact, or pin attachment snapshots; repair failing tests with approved reruns; ask read-only questions about selected paused Node.js debug values.
-- Fix error and warning diagnostics from the lightbulb menu, editor toolbar, or Ctrl/Cmd+I, with a diff preview before applying.
-- Run inline completions, predicted next edits, and parallel background or worktree agents.
-- Use Pi models, thinking levels, commands, prompt templates, skills, and extensions.
-- Connect standalone Pi extensions and VS Code extensions through a local authenticated request/event bridge.
-- Let Pi read the active VS Code editor context, open source locations, and show requested notifications.
+- **Persistent Pi Chat** — Stream responses; rename, resume, compact, export, or delete sessions; and hand a session off to the terminal.
+- **Editor-aware context** — Attach selections, files, diagnostics, terminal text, and images. Inspect, redact, refresh, or pin attachment snapshots before sending them.
+- **Reviewable edits** — Preview full proposals or select individual hunks, then apply the reviewed result with one workspace edit.
+- **Focused workflows** — Review staged changes, import results from isolated worktree agents, repair failed tests, inspect request checkpoints, and ask read-only questions about paused Node.js debug values.
+- **Coding assistance** — Fix diagnostics, edit selections, generate tests, request inline completions, and predict the next edit.
+- **Pi ecosystem support** — Use Pi providers, models, thinking levels, prompt templates, skills, extensions, and contributed tools.
+- **VS Code bridge** — Let authenticated Pi extensions read bounded editor context, open files, and show notifications.
+
+See the [feature matrix](https://github.com/narumiruna/pi-vscode/blob/main/docs/FEATURE_MATRIX.md) for the complete capability map.
 
 ## Requirements
 
-- VS Code 1.106 or newer.
-- [Pi](https://pi.dev) installed and authenticated.
+- VS Code 1.106 or newer
+- [Pi](https://pi.dev), installed and authenticated
 
-Confirm that Pi is available in the VS Code environment:
+Confirm that Pi is available in the same environment where VS Code runs the extension:
 
 ```bash
 pi --version
 ```
 
-## Install
+Building from this repository also requires Node.js, npm, [`just`](https://just.systems), and the VS Code `code` command.
 
-If you previously installed `narumitw.pi-coding-agent`, uninstall that legacy extension first (in the connected remote environment too, when applicable):
+## Install from source
+
+If `narumitw.pi-coding-agent` is installed, remove it first. The legacy and current extensions contribute the same views and commands, and VS Code treats them as separate extensions.
 
 ```bash
 code --uninstall-extension narumitw.pi-coding-agent
-```
-
-The current extension ID is `narumi.pi-coding-agent`. VS Code treats these IDs as separate extensions, not an upgrade; do not enable both at once.
-
-Install the standalone Pi extension and the VSIX from this repository:
-
-```bash
+npm install
 just install
 ```
 
-The Pi extension is copied to `${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions/pi-vscode.ts`.
-Run **Developer: Reload Window** after installation or an update.
-Open a new integrated terminal so Pi inherits the authenticated bridge environment.
+The current extension ID is `narumi.pi-coding-agent`. In WSL, SSH, or a dev container, remove the legacy extension from the connected remote environment as well.
 
-To install only the standalone Pi extension:
+`just install` installs the VS Code extension and copies the standalone Pi extension to `${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions/pi-vscode.ts`.
+
+After installation or an update:
+
+1. Run **Developer: Reload Window**.
+2. Open a new integrated terminal so Pi inherits the authenticated bridge environment.
+
+To install only the standalone Pi extension, run:
 
 ```bash
 just install-pi-extension
 ```
 
-## Use
+## Get started
 
-1. Open **Pi: Open Chat** from the Command Palette or select **Pi** in the Secondary Sidebar.
-2. Use **Add context** or paste a supported image into the composer with Ctrl/Cmd+V.
-3. Enter a request and review any proposed changes before applying them.
-4. Place the cursor on a red or yellow diagnostic and press Ctrl/Cmd+I, choose **Fix with Pi** from the lightbulb menu, or select the Pi quick-fix toolbar button; then preview and apply the proposal in Pi Chat. With no diagnostic at the cursor, Ctrl/Cmd+I falls back to the focused inline-edit prompt.
-5. Select code and use the editor's **Pi** context menu; its request and result appear in Pi Chat for continued follow-up.
-6. Use `@pi` in the native Chat view when VS Code's native participant workflow is preferred; its history remains separate from the Pi Sidebar session.
-7. Ask Pi to inspect the active editor or open a file when the VS Code bridge tools are useful.
+1. Run **Pi: Open Chat** from the Command Palette, or open **Pi** in the Secondary Sidebar.
+2. Add context from the composer, or paste a supported image with Ctrl/Cmd+V.
+3. Enter a request. The active model and thinking level appear beside **Send**.
+4. Review generated edits with **Preview**, optionally choose hunks, and explicitly **Apply** the result.
+5. Open **More…** for session management, commands, export, terminal handoff, staged review, repair tools, checkpoints, and background or worktree agents.
 
-The composer shows the current model and thinking level immediately before Send. Use **More…** for session resume, commands, compaction, export, terminal handoff, and background or worktree agents.
-The standalone Pi extension exposes `vscode_context`, `vscode_open_file`, and `vscode_notify` when Pi runs in a new VS Code integrated terminal or a session started by the Pi view.
-Automatic inline completions are disabled by default and can be enabled with `piCodingAgent.inlineCompletions.enabled`.
+Editor shortcuts and actions:
 
-## Workflow Tools
+- **Ctrl/Cmd+I** fixes an error or warning at the cursor. Without a diagnostic, it opens the focused inline-edit prompt.
+- **Alt+]** manually requests an inline completion.
+- **Ctrl+Alt+N** (**Cmd+Alt+N** on macOS) suggests the next edit.
+- The editor's **Pi** context menu sends selection requests to the persistent Pi Chat session.
 
-| Workflow | Entry point and steps |
+Use `@pi` in VS Code's native Chat view when you prefer the native participant workflow. Native Chat history is separate from the Pi Sidebar session.
+
+Automatic inline completions are disabled by default. Enable `piCodingAgent.inlineCompletions.enabled` to request them after a typing pause.
+
+## Workflows
+
+| Workflow | How to use it |
 | --- | --- |
-| Staged review | **More… → Review Staged Changes** or **Pi: Review Staged Changes**. Inspect the bounded provider-bound snapshot and confirm. **Pi: Show Staged Findings** navigates immutable before/after content, never unstaged editor positions. Changed HEAD/index makes findings stale. |
-| Selected edits | On a proposal card, **Choose Hunks → Preview → Apply**. Changing selection invalidates Preview. Apply uses one workspace edit and finishes the proposal; unselected hunks remain unapplied. Use normal editor Undo. |
-| Task result import | Start an isolated worktree agent through **More…**. Once inactive, use its card's **Review Results → Apply Selected**. Import selected regular text files into the originating worktree; keep the task worktree until explicit removal. Non-isolated tasks use Source Control. |
-| Context inspector | **Inspect Context** next to attachments, or **Add context → Inspect Context**. Inspect exact text snapshots, edit/redact, remove, pin/unpin, or explicitly refresh from source. Only consumed unpinned revisions disappear after an accepted send. |
-| Failed-test repair | **More… → Repair Failed Test** or **Pi: Repair Failed Test (Preview)**. Enter an executable/argument JSON object, select one saved source file, approve a test run or select an existing multiline UTF-8 log file, inspect/redact, then Preview/Apply. Saving and rerunning the original command require approval; at most two repair attempts. |
-| Checkpoint history | **More… → Request Checkpoints**. Inspect coverage, choose files, preview, then **Revert Covered Changes**. Memory-only request history is not a Git or transcript rewind. Existing file-card Diff/Open/Revert remains available for covered changes. |
-| In-flight text | During an ordinary composer request, Enter sends **Steer** after current tool calls. Alt+Enter sends **Follow Up** on macOS and Linux clients; Windows clients use Ctrl+Q, including when connected to WSL or another remote workspace. The same shortcut starts immediately while Pi is idle. Buttons remain available. **Inspect Queue** opens the pending-text snapshot; **Clear Queue** recovers cleared text. **Recovered Drafts** appends a selected draft only if the composer revision is unchanged. No attachments or slash commands are queued. |
-| Debug question | Pause a Node.js debugger, select a frame, then **More… → Ask Debug Context** or **Pi: Ask Debug Context**. Approve local capture, choose variables, inspect/redact, and enter a question. Resuming/changing frames invalidates the snapshot. |
+| **Staged review** | Choose **More… → Review Staged Changes** or run **Pi: Review Staged Changes**. Confirm the bounded snapshot, then use **Pi: Show Staged Findings** to navigate immutable before/after content. Findings become stale when HEAD or the index changes. |
+| **Selected edits** | On a proposal card, choose **Choose Hunks → Preview → Apply**. Changing the hunk selection invalidates the preview. Unselected hunks remain unapplied; use normal editor Undo after application. |
+| **Worktree result import** | Start an isolated agent from **More…**. When it is inactive, select **Review Results → Apply Selected** to import reviewed text files into the originating worktree. Remove the task worktree only when recovery is no longer needed. |
+| **Context inspector** | Select **Inspect Context** beside an attachment or under **Add context**. Inspect the exact snapshot, edit or redact it, refresh it explicitly, or pin it for later requests. |
+| **Failed-test repair** | Run **Pi: Repair Failed Test (Preview)**. Provide an executable and argument array, select one saved source file, approve a run or select an existing UTF-8 log, inspect the evidence, then preview and apply the repair. |
+| **Request checkpoints** | Choose **More… → Request Checkpoints**. Inspect coverage, select files, preview the restore, then choose **Revert Covered Changes**. This is memory-only file recovery, not a Git or conversation rewind. |
+| **In-flight instructions** | While a normal request is running, Enter sends **Steer** after current tool calls. Alt+Enter sends **Follow Up** on macOS and Linux; Windows uses Ctrl+Q, including remote WSL sessions. **Inspect Queue**, **Clear Queue**, and **Recovered Drafts** expose pending or uncertain text. |
+| **Debug question** | Pause a Node.js debugger, then run **Pi: Ask Debug Context**. Approve capture, choose local variables, inspect or redact the snapshot, and ask a read-only question. Resuming or changing frames invalidates it. |
 
-All new process and mutation workflows require a trusted, file-backed workspace. Foreground targets must match Pi's active working directory/session. Repository subfolder workspaces support staged review and task import: approval identifies the repository-wide scope/destination, while Pi remains bound to the selected workspace. Open a task worktree in its own window to resume its isolated session; cross-worktree session resume is rejected.
+New process and mutation workflows require a trusted, file-backed workspace. Pi sessions and foreground targets must match the active working directory. Open an isolated worktree in its own VS Code window before resuming that worktree's session.
 
-### Workflow limits
+### Important limits
 
-- Staged review excludes binary, symlink, submodule, oversized, and omitted files. Limits: 100 reviewed files, 100 KB per blob, 400 KB total blobs, 200 KB diff, 45-second capture. Unstaged/branch/PR review is not included.
-- Hunk generation uses bounded line comparison; oversized comparisons fall back to one whole-target hunk. No incremental remainder application or automatic rebase.
-- Task import covers additions, modifications and deletions, including task commits and untracked files. Limits: 100 reviewed files, 100 KB per file side, 400 KB total text. Executable-bit changes/additions, symlinks, binary and unsupported paths are not imported; non-UTF-8 path records reject capture. Legacy tasks without verified base/origin metadata cannot import. Dirty or overlapping destination edits block import; partial I/O failures report applied/skipped/failed paths without deleting recovery source. Tests are **not verified** by a model summary.
-- Attachments: 8 items, 200,000 characters per text item, 400,000 total text characters, up to 5 images of 5 MiB each. Pins share these limits, never refresh silently, and expire on session change/reload. Estimates use UTF-8 bytes / 4 for text; image token usage and Pi context-window usage may be unknown. Inspection does not include Pi history, instructions, or later tool reads. Temporary attachment editing uses a normal untitled editor; close/discard it when finished.
-- Test runner: explicit executable and argument array, no shell expression. Example: `{"executable":"node","args":["--test","test/example.test.js"]}`. Use a direct runner executable on Windows rather than a `.cmd` shell shim. Runs have a 60-second timeout and 256 KiB output cap; supplied UTF-8 log files are limited to 100,000 bytes, transmitted logs to 100,000 characters, and selected source to 200,000 characters. The source must be clean and match disk; version/content changes around a run or before a proposal require fresh evidence. Supplied logs preserve line endings and are not labelled as observed runs. No private Test Explorer integration or autonomous command generation. Cancellation attempts owned process-group cleanup on POSIX; Windows/escaped descendants cannot be guaranteed stopped and are reported.
-- Checkpoints: before-prompt capture of up to 10,000 entries / 20 MiB existing regular text; retain 20 requests, 2 MiB per file side and 20 MiB total before/after text. Capture may briefly delay submission on large/remote trees. Only deterministic announced edit/write outcomes matching captured final disk text are restorable. Dirty, symlink, hardlink, uncaptured, created/deleted and ambiguous files are excluded. Shell/custom-tool requests and process exits without settlement are non-restorable. Newer dependent checkpoints must be reverted first. Restore/import are not filesystem-wide transactions; external writers can race checks.
-- Queue: 10 messages / 50,000 characters, ordinary composer only, bound to the active session through `agent_settled`. Cancellation clears before abort. Pi versions without validated queue commands/state disconnect on unsupported or uncertain acceptance; recovered text is never replayed automatically. Check history before resending an uncertain draft. Pi's `steeringMode` and `followUpMode` keep their own defaults (`one-at-a-time`) unless changed in Pi settings.
-- Debug: `node`/`pwa-node` js-debug paths only; 20 frames, 50 local variable candidates, 1,000 characters/value, 20,000 total characters, five-second DAP deadline. No evaluate, memory, mutation, lazy-value or recursive requests. Custom description/property generators and automatic getters must be disabled in the debug session's workspace; the guard is rechecked before DAP reads. Adapter inspection may have side effects. Capture begun before activation requires a fresh observed pause. No debug pins or raw debug persistence by this extension; approved transmission becomes normal Pi conversation data.
+- Staged review supports up to 100 text files, 100 KB per blob, 400 KB of total blob content, and a 200 KB diff. Binary files, symlinks, submodules, and unsafe or oversized inputs are skipped.
+- Task import supports additions, modifications, and deletions for regular UTF-8 text files. It does not import symlinks, binary files, unsupported paths, or executable-bit changes. Dirty, overlapping, stale, or unverifiable destinations are rejected.
+- Attachments allow 8 items and 400,000 total text characters, including up to 5 images of 5 MiB each. Pins are memory-only, never refresh silently, and expire when the session changes or VS Code reloads.
+- Test repair accepts an executable plus arguments, not a shell expression. Runs require approval, stop after 60 seconds, cap output at 256 KiB, and allow at most two repair attempts.
+- Checkpoints retain up to 20 requests in memory. Only deterministically observed edits to captured regular text files are restorable; shell effects, file creation/deletion, dirty buffers, and ambiguous changes are excluded.
+- The in-flight queue is limited to 10 plain-text messages and 50,000 characters. Attachments and slash commands cannot be queued, and uncertain delivery is never replayed automatically.
+- Debug capture supports paused `node` and `pwa-node` js-debug sessions only. It does not evaluate expressions, recurse through values, read memory, or mutate debugger state.
 
-See [Security](https://github.com/narumiruna/pi-vscode/blob/main/docs/SECURITY.md) and [Workflow validation](https://github.com/narumiruna/pi-vscode/blob/main/docs/WORKFLOW_VALIDATION.md). Interactive minimum/current VS Code and remote UI checks are deferred to real-world use; they are not claimed as passed.
+For threat boundaries and exact safeguards, read [Security and Privacy](https://github.com/narumiruna/pi-vscode/blob/main/docs/SECURITY.md). For tested and deferred behavior, read [Workflow Validation](https://github.com/narumiruna/pi-vscode/blob/main/docs/WORKFLOW_VALIDATION.md).
 
-## Extension Bridge
+## Settings
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `piCodingAgent.executablePath` | `pi` | Pi executable name or absolute path. |
+| `piCodingAgent.provider` | Empty | Optional provider override; empty uses Pi settings. |
+| `piCodingAgent.model` | Empty | Optional model override; empty uses Pi settings. |
+| `piCodingAgent.thinkingLevel` | `default` | Optional thinking-level override. |
+| `piCodingAgent.agent.confirmToolCalls` | `dangerous` | Approval policy for Pi's built-in `bash`, `edit`, and `write` tools. |
+| `piCodingAgent.approveProjectResources` | `false` | Allows trusted project-local Pi settings, extensions, skills, and prompts. |
+| `piCodingAgent.sensitiveContextNames` | Sensitive filename fragments | Adds best-effort warnings to matching attachment labels. |
+| `piCodingAgent.inlineCompletions.enabled` | `false` | Enables automatic inline completions. |
+
+Additional settings control inline-completion delay, minimum prefix length, and excluded languages.
+
+## Security model
+
+Pi Sidebar sessions expose Pi's default coding tools and tools contributed by installed Pi extensions. The packaged confirmation policy applies only to the built-in `bash`, `edit`, and `write` tools; contributed tools define their own permission behavior.
+
+Focused edit workflows use a packaged read-only policy while generating proposals. Applying a proposal, importing worktree results, rerunning tests, and restoring checkpoints remain explicit user actions. Project-local Pi resources stay disabled until the workspace is trusted and `piCodingAgent.approveProjectResources` is enabled.
+
+Prompts and context are sent to Pi through standard input, not command-line arguments. The selected Pi provider receives approved prompts and context under that provider's own data policy.
+
+## Extension bridge
+
+The standalone Pi extension and VS Code extension communicate over an authenticated local bridge:
 
 ```mermaid
 flowchart LR
@@ -103,7 +132,7 @@ flowchart LR
     P <-->|pi.events| E[Other Pi extensions]
 ```
 
-Other Pi extensions can send an allowlisted VS Code request and receive its correlated response:
+Other Pi extensions can send an allowlisted request and receive the correlated response:
 
 ```typescript
 pi.events.emit("vscode:request", {
@@ -113,33 +142,15 @@ pi.events.emit("vscode:request", {
 });
 
 pi.events.on("vscode:response", response => {
-  // response is { id, ok, result } or { id, ok, error }.
+  // { id, ok, result } or { id, ok, error }
 });
 
 pi.events.on("vscode:event", message => {
-  // message is { event, data } from a VS Code extension.
+  // { event, data }
 });
 ```
 
-VS Code extensions in the same Extension Host can activate `narumi.pi-coding-agent` and call its exported `broadcast(event, data)` API.
-Event names and payloads are validated and bounded before delivery.
-
-## Key Settings
-
-| Setting | Default | Purpose |
-| --- | --- | --- |
-| `piCodingAgent.executablePath` | `pi` | Sets the Pi executable or absolute path. |
-| `piCodingAgent.agent.confirmToolCalls` | `dangerous` | Controls approval for mutating tools. |
-| `piCodingAgent.approveProjectResources` | `false` | Allows trusted project-local Pi resources. |
-| `piCodingAgent.sensitiveContextNames` | Sensitive filename fragments | Best-effort attachment warnings; inspect/redact before sending. |
-| `piCodingAgent.inlineCompletions.enabled` | `false` | Enables automatic inline completions. |
-
-## Security
-
-Pi Sidebar sessions use Pi's default `read`, `write`, `bash`, and `edit` tools plus tools supplied by installed Pi extensions. The packaged confirmation policy covers the built-in `bash`, `edit`, and `write` tools; contributed tools define their own permission behavior.
-Focused preview workflows remain read-only while generating proposed edits, which still require explicit Preview and Apply actions.
-Project-local Pi resources remain disabled until the workspace is trusted and the setting is enabled.
-Prompts and context are sent to the Pi subprocess through standard input rather than command-line arguments.
+The standalone extension provides `vscode_context`, `vscode_open_file`, and `vscode_notify` when Pi starts from a new integrated terminal or from Pi Chat. VS Code extensions in the same Extension Host can activate `narumi.pi-coding-agent` and call its exported `broadcast(event, data)` API. Event names and payloads are validated and bounded.
 
 ## Development
 
@@ -149,19 +160,22 @@ npm test
 npm run package
 ```
 
-Use `just dev` to compile the VS Code extension, launch an Extension Development Host, and run `pi -ne -e resources/pi-vscode-bridge.ts` in the invoking terminal.
-Both `just dev` and the **Run Extension** debug configuration disable `narumitw.pi-coding-agent` for the development window to avoid competing with the current extension. This does not uninstall it or disable it in other windows.
+`npm test` compiles the extension and runs the Node test suite. `npm run package` repeats those checks and creates `pi-coding-agent.vsix`.
+
+Use `just dev` to compile the extension, open an Extension Development Host, and run Pi with `resources/pi-vscode-bridge.ts` in the invoking terminal. The recipe and the **Run Extension** debug configuration disable `narumitw.pi-coding-agent` only in the development window to prevent duplicate registrations.
 
 ## Troubleshooting
 
-### View provider for `piCodingAgent.chatView` already registered
+### `View provider for piCodingAgent.chatView already registered`
 
-Check for the legacy `narumitw.pi-coding-agent` alongside the current `narumi.pi-coding-agent`. They contribute the same view and commands, so only one may be enabled in a window.
+The legacy `narumitw.pi-coding-agent` extension is enabled alongside `narumi.pi-coding-agent`.
 
-- In Extensions, search for `@id:narumitw.pi-coding-agent`, disable the legacy extension, and run **Developer: Reload Window**. For WSL/SSH/containers, check the extension in the connected remote environment as well.
-- When upgrading, uninstall the legacy ID using the command in **Install**, install the current VSIX, and reload the window.
-- When developing, close the existing Extension Development Host and relaunch through `just dev` or **Run Extension** so the updated launch arguments take effect; reloading an already-running development window does not add those arguments.
+1. Search Extensions for `@id:narumitw.pi-coding-agent`.
+2. Disable or uninstall it in the local or connected remote environment.
+3. Run **Developer: Reload Window**.
+
+When developing, close the existing Extension Development Host and relaunch it with `just dev` or **Run Extension**. Reloading an already-running development window does not add updated launch arguments.
 
 ## License
 
-MIT
+[MIT](LICENSE)
