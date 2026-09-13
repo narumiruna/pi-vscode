@@ -1,14 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createContext, Script } from "node:vm";
-import { getSidebarHtml, shouldUseCtrlQForFollowUp } from "../sidebarHtml";
+import { getSidebarHtml } from "../sidebarHtml";
 import { installVscodeMock } from "./vscodeMock";
 
-test("follow-up shortcut selection treats Windows and WSL as Ctrl+Q platforms", () => {
-  assert.equal(shouldUseCtrlQForFollowUp("win32", undefined), true);
-  assert.equal(shouldUseCtrlQForFollowUp("linux", "wsl"), true);
-  assert.equal(shouldUseCtrlQForFollowUp("linux", "ssh-remote"), false);
-  assert.equal(shouldUseCtrlQForFollowUp("darwin", undefined), false);
+test("follow-up shortcut selection uses the webview client OS", () => {
+  const windows = createSidebarScriptHarness("Win32");
+  assert.equal(windows.run("useCtrlQForFollowUp"), true);
+  assert.match(windows.element("composer-hint").textContent, /Ctrl\+Q/);
+
+  const linux = createSidebarScriptHarness("Linux x86_64");
+  assert.equal(linux.run("useCtrlQForFollowUp"), false);
+  assert.match(linux.element("composer-hint").textContent, /Alt\+Enter/);
+
+  const reducedPlatform = createSidebarScriptHarness("", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+  assert.equal(reducedPlatform.run("useCtrlQForFollowUp"), true);
 });
 
 test("webview protocol rejects removed mode messages", () => {
@@ -151,8 +157,8 @@ class SidebarTestElement {
   focus(): void { this.focusCount += 1; }
 }
 
-function createSidebarScriptHarness(useCtrlQForFollowUp = false) {
-  const html = getSidebarHtml(100_000, 1024, useCtrlQForFollowUp);
+function createSidebarScriptHarness(clientPlatform = "Linux x86_64", userAgent = "") {
+  const html = getSidebarHtml(100_000, 1024);
   const elements = new Map(Array.from(html.matchAll(/\bid="([^"]+)"/g), match => [match[1], new SidebarTestElement()]));
   const element = (id: string) => {
     const result = elements.get(id);
@@ -164,6 +170,7 @@ function createSidebarScriptHarness(useCtrlQForFollowUp = false) {
   const context = createContext({
     document: { getElementById: element, createElement: () => new SidebarTestElement() },
     window: { addEventListener: (type: string, listener: typeof receive) => { if (type === "message") receive = listener; } },
+    navigator: { platform: clientPlatform, userAgent },
     Element: SidebarTestElement,
     acquireVsCodeApi: () => ({ postMessage: (message: unknown) => posted.push(message) }),
   });
@@ -296,7 +303,7 @@ test("welcome actions attach context or set ordinary composer drafts locally", (
 });
 
 test("composer keyboard submission matches Pi queue behavior on Alt+Enter platforms", () => {
-  const sidebar = createSidebarScriptHarness(false);
+  const sidebar = createSidebarScriptHarness("MacIntel");
   const input = sidebar.element("input");
   const keydown = input.listeners.get("keydown")!;
   const press = (fields: Record<string, unknown>) => {
@@ -338,8 +345,8 @@ test("composer keyboard submission matches Pi queue behavior on Alt+Enter platfo
   assert.match(sidebar.element("notice").textContent, /does not accept queued messages/);
 });
 
-test("composer uses Ctrl+Q for Windows and WSL follow-ups", () => {
-  const sidebar = createSidebarScriptHarness(true);
+test("composer uses Ctrl+Q for Windows-client follow-ups", () => {
+  const sidebar = createSidebarScriptHarness("Win32");
   const input = sidebar.element("input");
   const keydown = input.listeners.get("keydown")!;
   const press = (fields: Record<string, unknown>) => {
