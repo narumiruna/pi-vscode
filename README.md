@@ -4,8 +4,8 @@ Bring your existing [Pi](https://pi.dev) setup into VS Code. Work in a persisten
 
 ## Highlights
 
-- **Persistent Pi Chat** — Stream responses; rename, resume, compact, export, or delete sessions; and hand a session off to the terminal.
-- **Editor-aware context** — Attach selections, files, diagnostics, terminal text, and images. Inspect, redact, refresh, or pin attachment snapshots before sending them.
+- **Persistent Pi Chat** — Stream responses; keep submitted context and image thumbnails on the user turn that used them; rename, resume, compact, export, or delete sessions; and hand a session off to the terminal.
+- **Editor-aware context** — Attach selections, files, diagnostics, terminal text, and images. Inspect, redact, refresh, or pin attachment snapshots before sending them. Open submitted images in a keyboard-accessible preview.
 - **Reviewable edits** — Preview full proposals or select individual hunks, then apply the reviewed result with one workspace edit.
 - **Focused workflows** — Review staged changes, import results from isolated worktree agents, repair failed tests, inspect request checkpoints, and ask read-only questions about paused Node.js debug values.
 - **Coding assistance** — Fix diagnostics, edit selections, generate tests, request inline completions, and predict the next edit.
@@ -79,7 +79,7 @@ Automatic inline completions are disabled by default. Enable `piCodingAgent.inli
 | **Staged review** | Choose **More… → Review Staged Changes** or run **Pi: Review Staged Changes**. Confirm the bounded snapshot, then use **Pi: Show Staged Findings** to navigate immutable before/after content. Findings become stale when HEAD or the index changes. |
 | **Selected edits** | On a proposal card, choose **Choose Hunks → Preview → Apply**. Changing the hunk selection invalidates the preview. Unselected hunks remain unapplied; use normal editor Undo after application. |
 | **Worktree result import** | Start an isolated agent from **More…**. When it is inactive, select **Review Results → Apply Selected** to import reviewed text files into the originating worktree. Remove the task worktree only when recovery is no longer needed. |
-| **Context inspector** | Select **Inspect Context** beside an attachment or under **Add context**. Inspect the exact snapshot, edit or redact it, refresh it explicitly, or pin it for later requests. |
+| **Context inspector** | Select **Inspect Context** beside an attachment or under **Add context**. Inspect the exact snapshot, edit or redact it, refresh it explicitly, or pin it for later requests. After sending, context chips and image thumbnails remain with that user turn; unavailable historical image bytes remain as labeled placeholders. |
 | **Failed-test repair** | Run **Pi: Repair Failed Test (Preview)**. Provide an executable and argument array, select one saved source file, approve a run or select an existing UTF-8 log, inspect the evidence, then preview and apply the repair. |
 | **Request checkpoints** | Choose **More… → Request Checkpoints**. Inspect coverage, select files, preview the restore, then choose **Revert Covered Changes**. This is memory-only file recovery, not a Git or conversation rewind. |
 | **In-flight instructions** | While a normal request is running, Enter sends **Steer** after current tool calls. Alt+Enter sends **Follow Up** on macOS and Linux; Windows uses Ctrl+Q, including remote WSL sessions. The composer shows pending counts, and **Recovered Drafts** preserves cleared or uncertain text. |
@@ -92,6 +92,7 @@ New process and mutation workflows require a trusted, file-backed workspace. Pi 
 - Staged review supports up to 100 text files, 100 KB per blob, 400 KB of total blob content, and a 200 KB diff. Binary files, symlinks, submodules, and unsafe or oversized inputs are skipped.
 - Task import supports additions, modifications, and deletions for regular UTF-8 text files. It does not import symlinks, binary files, unsupported paths, or executable-bit changes. Dirty, overlapping, stale, or unverifiable destinations are rejected.
 - Attachments allow 8 items and 400,000 total text characters, including up to 5 images of 5 MiB each. Pins are memory-only, never refresh silently, and expire when the session changes or VS Code reloads.
+- Transcript metadata is persisted, but image Base64 is not. Valid image payloads use a one-shot Webview channel and bounded 100-asset / 25 MiB caches in the Extension Host and Webview. Pi history can repopulate bytes after reload; evicted, malformed, unsupported, or unrecoverable images remain visible as unavailable placeholders.
 - Test repair accepts an executable plus arguments, not a shell expression. Runs require approval, stop after 60 seconds, cap output at 256 KiB, and allow at most two repair attempts.
 - Checkpoints retain up to 20 requests in memory. Only deterministically observed edits to captured regular text files are restorable; shell effects, file creation/deletion, dirty buffers, and ambiguous changes are excluded.
 - The in-flight queue is limited to 10 plain-text messages and 50,000 characters. Attachments and slash commands cannot be queued, and uncertain delivery is never replayed automatically.
@@ -120,7 +121,11 @@ Pi Sidebar sessions expose Pi's default coding tools and tools contributed by in
 
 Focused edit workflows use a packaged read-only policy while generating proposals. Applying a proposal, importing worktree results, rerunning tests, and restoring checkpoints remain explicit user actions. Project-local Pi resources stay disabled until the workspace is trusted and `piCodingAgent.approveProjectResources` is enabled.
 
-Prompts and context are sent to Pi through standard input, not command-line arguments. The selected Pi provider receives approved prompts and context under that provider's own data policy.
+Prompts and context are sent to Pi through standard input, not command-line arguments. The selected Pi provider receives approved prompts and context under that provider's own data policy. Routine Sidebar state and workspace storage contain transcript image metadata only, not Base64 payloads.
+
+Request tool activity follows the active response in the conversation scroller. Edit proposals, changed files, and background agents remain in the workflow area. Busy, cancellation, reconnect, and failure states share the runtime status surface; short operational errors expose full details only through **Details**.
+
+Conversation deletion first requests Trash. If a remote file provider specifically reports Trash as unavailable, the conversation is kept and permanent deletion is offered in a second modal confirmation. Other deletion failures never fall through to permanent deletion.
 
 ## Extension bridge
 

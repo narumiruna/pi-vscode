@@ -34,7 +34,7 @@ Pi extensions must be reviewed before installation.
 
 ## Change Safety
 
-Deleting a conversation requires modal confirmation and moves its persistent session file to Trash before starting a replacement session.
+Deleting a conversation requires modal confirmation and moves its persistent session file to Trash before starting a replacement session. If and only if the active file provider reports Trash as unsupported, the extension keeps the conversation and offers permanent deletion behind a second modal confirmation. The primary notice does not include the session path; an explicit **Details** action exposes bounded diagnostics. Ordinary permission or I/O failures never fall through to permanent deletion.
 Focused editor edits enter the persistent Pi Chat session as edit proposals.
 A packaged read-only policy gate recognizes only extension-controlled prompt-prefix metadata, narrows active tools, and blocks every non-read-only tool while Pi generates a proposal.
 Apply remains disabled until the user opens Preview for the current hunk selection. Selection changes invalidate Preview. The host computes hunks from captured text, validates IDs, checks document version immediately before one workspace edit, and finishes the proposal without applying the remainder.
@@ -45,16 +45,22 @@ Restore preflights all selected paths/content/dirty buffers and later checkpoint
 
 ## Webview Safety
 
-The Pi conversation webview uses a nonce-based Content Security Policy.
+The Pi conversation webview uses a nonce-based Content Security Policy: scripts and styles remain nonce-only, and transcript images add only `img-src data:`. The Extension Host validates supported MIME, canonical Base64, decoded size, image header, and dimensions before delivery. The Webview independently checks the bounded one-shot payload protocol and constructs labels, image elements, and previews with DOM APIs rather than interpolating attachment values into HTML.
 Assistant Markdown is escaped before supported formatting is added.
-User, model, tool, and persisted text cannot inject raw scripts or HTML.
+User, model, tool, attachment, and persisted text cannot inject raw scripts or HTML. The modal image preview uses a native button trigger, supports Escape/close, clears its image source, and returns focus to the trigger.
 
 ## Data Bounds
 
 Text attachments are limited per item and in aggregate.
-Image attachments are limited by count, MIME type, canonical Base64 encoding, decoded byte size, and active-model capability.
-Clipboard images are validated in both the webview and Extension Host, and SVG payloads are rejected.
+Image attachments are limited by count, MIME type, canonical Base64 encoding, decoded byte size, image dimensions, and active-model capability.
+Clipboard images are validated in both the webview and Extension Host, and SVG payloads are rejected. Transcript descriptors contain only bounded IDs, labels, MIME, dimensions, and availability. Base64 is never written to `workspaceState` or included in routine streamed `state` messages. Payloads are sent once per resolved Webview and retained in oldest-first 100-asset / 25 MiB Extension Host and Webview caches; each image remains capped at 5 MiB. Cache eviction or missing/invalid Pi history produces a labeled unavailable placeholder instead of unbounded recovery or unsafe rendering.
 RPC JSON lines, bridge requests and responses, editor selections, diagnostics, tool output, persisted messages, completion context, change snapshots, and background-task output are bounded.
+
+## Transcript and Status Behavior
+
+Submitted attachment descriptors are captured before asynchronous startup and attached only to that user turn. Acceptance consumes only the captured draft IDs, so context added during startup remains queued; rejected or cancelled submissions keep their draft attachments, and retry retains its original descriptor snapshot. Stable image IDs are SHA-256 hashes of validated bytes and let Pi history recover locally known labels without persisting duplicate payloads.
+
+Foreground tool activity is transient because Pi history does not return it; it appears after the current response in the conversation scroller. Edit proposals, file changes, and background agents keep their separate workflow surface. Thumbnail decode adjusts the scroller only to preserve a bottom-following reader or compensate for inserted height. Cancellable foreground startup, work, tool, settling, and cancellation states expose **Stop**. Composer locks, hints, and runtime status use the same foreground state, and transient lock warnings clear when the lock ends. Operational notices use a short primary summary and an explicit bounded detail surface.
 
 ## Workflow Snapshots
 

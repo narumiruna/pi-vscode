@@ -1,10 +1,21 @@
 import path from "node:path";
 import * as vscode from "vscode";
+import { isSupportedImageMimeType } from "./attachmentUtils";
 import { extractReplacement, parseAgentPrompt } from "./prompts";
-import { limitSidebarMessages, type SidebarMessage } from "./sidebarState";
+import { type ImageAssetCache, unavailableImageAssetId } from "./imageAssets";
+import {
+  contextTranscriptAttachment,
+  maxTranscriptAttachments,
+  maxTranscriptImages,
+  restoreSidebarMessages,
+  shortTranscriptLabel,
+  type SidebarMessage,
+  type TranscriptAttachment,
+  type TranscriptImageAttachment,
+} from "./sidebarState";
 
 export type WebviewMessage =
-  | { readonly type: "ready" | "cancel" | "reconnect" | "refreshHistory" | "retry" | "newSession" | "deleteSession" | "pickContext" | "pickModel" | "attachSelection" | "attachFile" | "attachCurrentFile" | "attachDiagnostics" | "attachImage" | "attachTerminal" | "clearAttachments" | "compact" | "nameSession" | "resumeSession" | "exportSession" | "openTerminal" | "openSourceControl" | "pickCommand" | "inspectContext" | "clearQueue" | "inspectQueue" }
+  | { readonly type: "ready" | "cancel" | "reconnect" | "refreshHistory" | "retry" | "newSession" | "deleteSession" | "showNoticeDetails" | "pickContext" | "pickModel" | "attachSelection" | "attachFile" | "attachCurrentFile" | "attachDiagnostics" | "attachImage" | "attachTerminal" | "clearAttachments" | "compact" | "nameSession" | "resumeSession" | "exportSession" | "openTerminal" | "openSourceControl" | "pickCommand" | "inspectContext" | "clearQueue" | "inspectQueue" }
   | { readonly type: "send"; readonly text: string; readonly revision: number }
   | { readonly type: "queueInstruction"; readonly text: string; readonly revision: number; readonly kind: "steer" | "followUp" }
   | { readonly type: "recoverQueue"; readonly revision: number }
@@ -12,6 +23,7 @@ export type WebviewMessage =
   | { readonly type: "pasteImage"; readonly data: string; readonly mimeType: string; readonly fileName?: string }
   | { readonly type: "setModel"; readonly provider: string; readonly modelId: string }
   | { readonly type: "setThinking"; readonly level: string }
+  | { readonly type: "imageAssetEvicted"; readonly id: string }
   | { readonly type: "reviewChange" | "openChange" | "revertChange" | "cancelBackground" | "resumeBackground" | "openWorktree" | "cleanupWorktree" | "removeAttachment" | "reviewBackground" | "applyBackground"; readonly id: string }
   | { readonly type: "proposalAction"; readonly id: string; readonly action: "preview" | "apply" | "reject" | "select" }
   | { readonly type: "runBackground"; readonly text: string; readonly isolated: boolean; readonly revision: number };
@@ -34,6 +46,7 @@ export function isWebviewMessage(value: unknown, maxImageBytes: number): value i
   }
   if (value.type === "setModel") return typeof value.provider === "string" && typeof value.modelId === "string";
   if (value.type === "setThinking") return typeof value.level === "string";
+  if (value.type === "imageAssetEvicted") return typeof value.id === "string" && /^sha256-[a-f0-9]{64}$/.test(value.id);
   if (value.type === "runBackground") {
     return typeof value.text === "string" && typeof value.isolated === "boolean" && isComposerRevision(value.revision);
   }
@@ -44,40 +57,43 @@ export function isWebviewMessage(value: unknown, maxImageBytes: number): value i
     return typeof value.id === "string";
   }
   return [
-    "ready", "cancel", "reconnect", "refreshHistory", "retry", "newSession", "deleteSession", "pickContext", "pickModel", "attachSelection", "attachFile",
+    "ready", "cancel", "reconnect", "refreshHistory", "retry", "newSession", "deleteSession", "showNoticeDetails", "pickContext", "pickModel", "attachSelection", "attachFile",
     "attachCurrentFile", "attachDiagnostics", "attachImage", "attachTerminal", "clearAttachments", "compact",
     "nameSession", "resumeSession", "exportSession", "openTerminal", "openSourceControl", "pickCommand", "inspectContext", "clearQueue", "inspectQueue",
   ].includes(value.type);
 }
 
 export function restoreMessages(value: unknown, maxMessages: number, maxCharacters: number): SidebarMessage[] {
-  if (!Array.isArray(value)) return [];
-  const messages = value.filter((message): message is SidebarMessage => (
-    isRecord(message) &&
-    typeof message.id === "string" &&
-    (message.role === "user" || message.role === "assistant") &&
-    typeof message.content === "string" &&
-    (message.contextLabel === undefined || typeof message.contextLabel === "string") &&
-    (message.truncated === undefined || typeof message.truncated === "boolean")
-  ));
-  return limitSidebarMessages(messages, maxMessages, maxCharacters);
+  return restoreSidebarMessages(value, maxMessages, maxCharacters);
 }
 
-export function convertPiMessages(values: readonly unknown[]): SidebarMessage[] {
+export interface ConvertPiMessagesOptions {
+  readonly imageAssets: ImageAssetCache;
+  readonly knownMessages?: readonly SidebarMessage[];
+}
+
+export function convertPiMessages(values: readonly unknown[], options: ConvertPiMessagesOptions): SidebarMessage[] {
   const messages: SidebarMessage[] = [];
+  const knownLabels = knownImageLabels(options.knownMessages ?? []);
   for (const [index, value] of values.entries()) {
     if (!isRecord(value) || (value.role !== "user" && value.role !== "assistant")) continue;
     const text = extractMessageText(value.content);
-    if (!text) continue;
     if (value.role === "user") {
-      const parsed = parseAgentPrompt(text);
+      const imageAttachments = extractMessageImages(value.content, index, options.imageAssets, knownLabels);
+      if (!text && imageAttachments.length === 0) continue;
+      const parsed = parseAgentPrompt(text, maxTranscriptAttachments - imageAttachments.length);
+      const attachments: TranscriptAttachment[] = [
+        ...parsed.contextLabels.flatMap(label => contextTranscriptAttachment(label) ?? []),
+        ...imageAttachments,
+      ];
       messages.push({
         id: `pi-user-${String(value.timestamp ?? index)}-${index}`,
         role: "user",
         content: parsed.request,
-        contextLabel: parsed.contextLabels.join(", ") || undefined,
+        ...(attachments.length ? { attachments } : {}),
       });
     } else {
+      if (!text) continue;
       const replacement = extractReplacement(text);
       messages.push({
         id: `pi-assistant-${String(value.timestamp ?? index)}-${index}`,
@@ -86,7 +102,14 @@ export function convertPiMessages(values: readonly unknown[]): SidebarMessage[] 
       });
     }
   }
-  return messages;
+  return messages.map(message => ({
+    ...message,
+    ...(message.attachments ? {
+      attachments: message.attachments.map(attachment => attachment.type === "image"
+        ? { ...attachment, availability: options.imageAssets.has(attachment.assetId) ? "available" as const : "unavailable" as const }
+        : attachment),
+    } : {}),
+  }));
 }
 
 export function extractToolText(value: unknown, maxCharacters: number): string {
@@ -138,4 +161,47 @@ function extractMessageText(content: unknown): string {
     .filter(part => isRecord(part) && part.type === "text" && typeof part.text === "string")
     .map(part => String(part.text))
     .join("\n");
+}
+
+function knownImageLabels(messages: readonly SidebarMessage[]): Map<string, Pick<TranscriptImageAttachment, "label" | "fullLabel">> {
+  const labels = new Map<string, Pick<TranscriptImageAttachment, "label" | "fullLabel">>();
+  for (const message of messages) {
+    for (const attachment of message.attachments ?? []) {
+      if (attachment.type === "image" && attachment.assetId.startsWith("sha256-")) {
+        labels.set(attachment.assetId, { label: attachment.label, fullLabel: attachment.fullLabel });
+      }
+    }
+  }
+  return labels;
+}
+
+function extractMessageImages(
+  content: unknown,
+  messageIndex: number,
+  cache: ImageAssetCache,
+  knownLabels: ReadonlyMap<string, Pick<TranscriptImageAttachment, "label" | "fullLabel">>,
+): TranscriptImageAttachment[] {
+  if (!Array.isArray(content)) return [];
+  const images: TranscriptImageAttachment[] = [];
+  for (const [partIndex, part] of content.entries()) {
+    if (images.length >= maxTranscriptImages) break;
+    if (!isRecord(part) || part.type !== "image") continue;
+    const mimeType = typeof part.mimeType === "string" ? part.mimeType.toLowerCase() : "";
+    const data = typeof part.data === "string" ? part.data : "";
+    const asset = cache.store(mimeType, data);
+    const assetId = asset?.id ?? unavailableImageAssetId(`${messageIndex}:${partIndex}:${mimeType}:${data.slice(0, 10_000)}`);
+    const known = asset ? knownLabels.get(asset.id) : undefined;
+    const fullLabel = known?.fullLabel ?? `Image ${images.length + 1}`;
+    images.push({
+      type: "image",
+      assetId,
+      label: known?.label ?? shortTranscriptLabel(fullLabel),
+      fullLabel,
+      ...(asset
+        ? { mimeType: asset.mimeType, width: asset.width, height: asset.height }
+        : isSupportedImageMimeType(mimeType) ? { mimeType } : {}),
+      availability: asset ? "available" : "unavailable",
+    });
+  }
+  return images;
 }

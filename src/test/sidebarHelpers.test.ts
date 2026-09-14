@@ -1,0 +1,75 @@
+import assert from "node:assert/strict";
+import { ImageAssetCache } from "../imageAssets";
+import { installVscodeMock } from "./vscodeMock";
+
+function gif(width: number, height: number, marker = 0): Buffer {
+  const bytes = Buffer.alloc(11);
+  bytes.write("GIF89a", 0, "ascii");
+  bytes.writeUInt16LE(width, 6);
+  bytes.writeUInt16LE(height, 8);
+  bytes[10] = marker;
+  return bytes;
+}
+
+function imageCache(maxTotalBytes = 1024): ImageAssetCache {
+  return new ImageAssetCache({ maxImageBytes: 100, maxTotalBytes, maxAssets: 10 });
+}
+
+test("Pi history conversion preserves observed text-plus-image user content and merges local labels by stable asset ID", () => {
+  const vscode = installVscodeMock();
+  try {
+    const { convertPiMessages } = require("../sidebarHelpers") as typeof import("../sidebarHelpers");
+    const cache = imageCache();
+    const data = gif(4, 5).toString("base64");
+    const first = convertPiMessages([{ role: "user", timestamp: 10, content: [
+      { type: "text", text: "<<<PI_VSCODE_CONTEXT_START: src/feature.ts:1-3>>>\ncode\n<<<PI_VSCODE_CONTEXT_END>>>\n<<<PI_VSCODE_REQUEST_START>>>\nWhat changed?\n<<<PI_VSCODE_REQUEST_END>>>" },
+      { type: "image", mimeType: "image/gif", data },
+    ] }], { imageAssets: cache });
+    assert.equal(first[0]?.content, "What changed?");
+    assert.deepEqual(first[0]?.attachments?.map(item => item.type), ["context", "image"]);
+    const image = first[0]?.attachments?.[1];
+    assert.equal(image?.type, "image");
+    if (image?.type !== "image") assert.fail("expected image descriptor");
+    assert.deepEqual({ label: image.label, width: image.width, height: image.height, availability: image.availability }, { label: "Image 1", width: 4, height: 5, availability: "available" });
+
+    const known = [{ ...first[0]!, attachments: first[0]!.attachments!.map(item => item.type === "image" ? { ...item, label: "diagram.gif", fullLabel: "screenshots/diagram.gif" } : item) }];
+    const refreshed = convertPiMessages([{ role: "user", timestamp: 10, content: [{ type: "text", text: "What changed?" }, { type: "image", mimeType: "image/gif", data }] }], { imageAssets: cache, knownMessages: known });
+    const refreshedImage = refreshed[0]?.attachments?.[0];
+    assert.equal(refreshedImage?.type, "image");
+    if (refreshedImage?.type === "image") assert.deepEqual({ label: refreshedImage.label, fullLabel: refreshedImage.fullLabel }, { label: "diagram.gif", fullLabel: "screenshots/diagram.gif" });
+  } finally { vscode.restore(); }
+});
+
+test("Pi history conversion deduplicates image payloads and preserves bounded unavailable placeholders", () => {
+  const vscode = installVscodeMock();
+  try {
+    const { convertPiMessages } = require("../sidebarHelpers") as typeof import("../sidebarHelpers");
+    const cache = imageCache();
+    const data = gif(1, 1).toString("base64");
+    const converted = convertPiMessages([
+      { role: "user", content: [{ type: "image", mimeType: "image/gif", data }, { type: "image", mimeType: "image/gif", data }] },
+      { role: "user", content: [{ type: "image", mimeType: "image/svg+xml", data: "PHN2Zz4=" }, { type: "image", mimeType: "image/png", data: "not-base64" }] },
+    ], { imageAssets: cache });
+    const duplicate = converted[0]?.attachments ?? [];
+    assert.equal(duplicate.length, 2);
+    assert.equal(duplicate[0]?.type === "image" && duplicate[0].assetId, duplicate[1]?.type === "image" && duplicate[1].assetId);
+    assert.equal(cache.size, 1);
+    const unavailable = converted[1]?.attachments ?? [];
+    assert.equal(unavailable.length, 2);
+    assert.ok(unavailable.every(item => item.type === "image" && item.availability === "unavailable" && item.assetId.startsWith("unavailable-")));
+  } finally { vscode.restore(); }
+});
+
+test("history conversion marks payloads evicted by the bounded cache unavailable", () => {
+  const vscode = installVscodeMock();
+  try {
+    const { convertPiMessages } = require("../sidebarHelpers") as typeof import("../sidebarHelpers");
+    const cache = imageCache(11);
+    const converted = convertPiMessages([
+      { role: "user", content: [{ type: "image", mimeType: "image/gif", data: gif(1, 1, 1).toString("base64") }] },
+      { role: "user", content: [{ type: "image", mimeType: "image/gif", data: gif(2, 2, 2).toString("base64") }] },
+    ], { imageAssets: cache });
+    assert.equal(converted[0]?.attachments?.[0]?.type === "image" && converted[0].attachments[0].availability, "unavailable");
+    assert.equal(converted[1]?.attachments?.[0]?.type === "image" && converted[1].attachments[0].availability, "available");
+  } finally { vscode.restore(); }
+});

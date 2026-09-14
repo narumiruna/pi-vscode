@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { historySyncFailureState, limitSidebarMessages, type SidebarMessage } from "../sidebarState";
+import {
+  historySyncFailureState,
+  limitSidebarMessages,
+  persistableSidebarMessages,
+  restoreSidebarMessages,
+  shortTranscriptLabel,
+  sidebarMessagesForWebview,
+  type SidebarMessage,
+} from "../sidebarState";
 
 const messages: SidebarMessage[] = [
   { id: "1", role: "user", content: "oldest" },
@@ -26,6 +34,50 @@ test("limitSidebarMessages bounds total content and preserves metadata", () => {
 test("limitSidebarMessages handles disabled limits", () => {
   assert.deepEqual(limitSidebarMessages(messages, 0, 100), []);
   assert.deepEqual(limitSidebarMessages(messages, 10, 0), []);
+});
+
+test("restore accepts legacy text-only records and converts the legacy context label", () => {
+  assert.deepEqual(restoreSidebarMessages([{ id: "legacy", role: "user", content: "hello", contextLabel: "src/legacy.ts:1-2" }], 10, 100), [{
+    id: "legacy",
+    role: "user",
+    content: "hello",
+    attachments: [{ type: "context", label: "src/legacy.ts:1-2", fullLabel: "src/legacy.ts:1-2" }],
+  }]);
+});
+
+test("restore rejects malformed transcript metadata, bounds descriptors, and never restores payload bytes", () => {
+  const assetId = `sha256-${"a".repeat(64)}`;
+  const attachments = [
+    { type: "context", label: "ok", fullLabel: "src/ok.ts" },
+    { type: "context", label: "x".repeat(81), fullLabel: "too long" },
+    { type: "image", assetId, label: "photo.png", fullLabel: "photos/photo.png", mimeType: "image/png", width: 2, height: 3, availability: "available", data: "must-not-survive" },
+    { type: "image", assetId: "unsafe", label: "bad", fullLabel: "bad", mimeType: "image/svg+xml", availability: "available" },
+  ];
+  const restored = restoreSidebarMessages([{ id: "m", role: "user", content: "look", attachments }], 10, 100);
+  assert.deepEqual(restored[0]?.attachments, [
+    { type: "context", label: "ok", fullLabel: "src/ok.ts" },
+    { type: "image", assetId, label: "photo.png", fullLabel: "photos/photo.png", mimeType: "image/png", width: 2, height: 3, availability: "unavailable" },
+  ]);
+  assert.doesNotMatch(JSON.stringify(persistableSidebarMessages(restored)), /must-not-survive|data/);
+  const streamed = sidebarMessagesForWebview(restored, () => true);
+  assert.doesNotMatch(JSON.stringify(streamed), /must-not-survive|data/);
+  const streamedImage = streamed[0]?.attachments?.[1];
+  assert.equal(streamedImage?.type === "image" && streamedImage.availability, "available");
+});
+
+test("restore caps transcript descriptor and image counts", () => {
+  const contexts = Array.from({ length: 10 }, (_, index) => ({ type: "context", label: `c${index}`, fullLabel: `context-${index}` }));
+  const restored = restoreSidebarMessages([{ id: "bounded", role: "user", content: "request", attachments: contexts }], 10, 100);
+  assert.equal(restored[0]?.attachments?.length, 8);
+});
+
+test("transcript labels are single-line and bounded for narrow layouts", () => {
+  const label = `folder/${"nested/".repeat(20)}file.ts:100-200`;
+  const short = shortTranscriptLabel(label);
+  assert.equal(short.length, 80);
+  assert.match(short, /^…/);
+  assert.match(short, /file\.ts:100-200$/);
+  assert.equal(shortTranscriptLabel("line\nname"), "line name");
 });
 
 test("history synchronization failures expose the available recovery path", () => {
