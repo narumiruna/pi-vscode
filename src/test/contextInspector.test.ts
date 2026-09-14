@@ -49,7 +49,11 @@ test("submission snapshots bind descriptors to accepted items while rejection, c
     assert.equal(manager.values.length, 2);
     assert.equal(cancelled.textContexts[0]?.content, "second");
     assert.deepEqual(cancelled.transcriptAttachments.map(item => item.type), ["context", "image"]);
-    assert.doesNotMatch(JSON.stringify(cancelled.transcriptAttachments), /data|R0lGOD/);
+    const composerImage = manager.summaries.find(item => item.image);
+    assert.equal(composerImage?.label, "startup.gif");
+    assert.match(composerImage?.assetId ?? "", /^sha256-/);
+    assert.equal(composerImage?.availability, "available");
+    assert.doesNotMatch(JSON.stringify([cancelled.transcriptAttachments, manager.summaries]), /R0lGOD|\"data\"/);
   } finally { manager.dispose(); vscode.restore(); }
 });
 

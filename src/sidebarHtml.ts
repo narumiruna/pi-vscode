@@ -131,10 +131,18 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .change-actions { margin-top: 0; }
     .section-heading { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin: 4px 0 8px; color: var(--vscode-descriptionForeground); font-size: .85em; font-weight: 500; }
     #source-control { min-height: 24px; font-size: inherit; }
-    #attachments { display: flex; gap: 5px; flex-wrap: wrap; padding: 8px 10px 0; }
-    .attachment { display: inline-flex; max-width: 100%; align-items: center; gap: 4px; padding: 3px 4px 3px 7px; border-radius: 5px; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); font-size: .82em; }
+    #attachments { display: flex; align-items: flex-start; gap: 7px; flex-wrap: wrap; padding: 9px 10px 1px; }
+    .attachment-chip { display: inline-flex; max-width: 100%; align-items: center; gap: 4px; padding: 3px 4px 3px 7px; border-radius: 5px; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); font-size: .82em; }
     .attachment-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .attachment button { min-height: 20px; width: 20px; padding: 0; color: inherit; background: transparent; }
+    .attachment-chip button { min-height: 20px; width: 20px; padding: 0; color: inherit; background: transparent; }
+    .attachment-image { position: relative; display: grid; width: 104px; min-width: 0; overflow: hidden; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--vscode-editor-background); box-shadow: 0 1px 2px rgba(0, 0, 0, .16); }
+    button.composer-image { display: block; width: 100%; height: 72px; min-height: 72px; padding: 0; overflow: hidden; border: 0; border-radius: 0; color: var(--vscode-descriptionForeground); background: var(--vscode-input-background); }
+    button.composer-image:hover:not(:disabled) { background: var(--vscode-list-hoverBackground, var(--vscode-toolbar-hoverBackground)); }
+    .composer-image img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .composer-image-placeholder { display: grid; width: 100%; height: 100%; place-items: center; padding: 8px; text-align: center; font-size: .78em; line-height: 1.25; }
+    .composer-image-label { display: block; min-width: 0; padding: 5px 7px 6px; overflow: hidden; color: var(--vscode-descriptionForeground); font-size: .76em; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+    button.attachment-remove { position: absolute; top: 5px; right: 5px; width: 21px; min-height: 21px; padding: 0; border: 1px solid rgba(255, 255, 255, .35); border-radius: 50%; color: #fff; background: rgba(0, 0, 0, .66); font-size: 15px; line-height: 1; }
+    button.attachment-remove:hover:not(:disabled) { background: rgba(0, 0, 0, .86); }
     #composer { min-width: 0; padding-top: 10px; }
     .composer-box { background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--pi-border)); border-radius: 10px; }
     .composer-box:focus-within { border-color: var(--vscode-focusBorder); }
@@ -159,7 +167,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     #preview-close { flex: 0 0 auto; }
     #preview-image { display: block; max-width: 100%; max-height: calc(92vh - 62px); margin: auto; object-fit: contain; }
     body.vscode-high-contrast .composer-box, body.vscode-high-contrast-light .composer-box,
-    body.vscode-high-contrast .welcome-action, body.vscode-high-contrast-light .welcome-action { border-color: var(--vscode-contrastBorder); }
+    body.vscode-high-contrast .welcome-action, body.vscode-high-contrast-light .welcome-action,
+    body.vscode-high-contrast .attachment-image, body.vscode-high-contrast-light .attachment-image { border-color: var(--vscode-contrastBorder); }
     body.vscode-high-contrast .composer-box:focus-within, body.vscode-high-contrast-light .composer-box:focus-within { border-color: var(--vscode-focusBorder); }
     @media (max-width: 340px) { #app { padding: 0 8px 8px; } .header { gap: 2px; } #session { display: none; } #add-context span { display: none; } #model-picker { max-width: 96px; } #thinking-level { max-width: 90px; } .empty { padding-left: 2px; padding-right: 2px; } .empty h2 { font-size: 1.5em; } button.welcome-action { gap: 9px; padding: 10px; } }
     @media (max-height: 500px) { .empty { padding-top: 8px; padding-bottom: 16px; } .welcome-mark { display: none; } .empty-actions { margin-top: 16px; } }
@@ -380,7 +389,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
               button.type = 'button';
               button.dataset.previewAsset = attachment.assetId;
               const targets = imageTargets.get(attachment.assetId) || [];
-              targets.push({ button, attachment });
+              targets.push({ button, attachment, composer: false });
               imageTargets.set(attachment.assetId, targets);
               imageGrid.appendChild(button);
               renderTranscriptImage(button, attachment);
@@ -438,6 +447,34 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       button.appendChild(label);
     }
 
+    function renderComposerImage(button, attachment) {
+      button.replaceChildren();
+      button.title = attachment.fullLabel;
+      const cached = imageAssetCache.get(attachment.assetId);
+      if (cached) {
+        button.disabled = false;
+        button.setAttribute('aria-label', 'Preview ' + attachment.fullLabel);
+        const image = document.createElement('img');
+        image.alt = attachment.fullLabel;
+        if (attachment.width && attachment.height) { image.width = attachment.width; image.height = attachment.height; }
+        image.addEventListener('error', () => rejectImageAsset(attachment.assetId));
+        image.src = cached.url;
+        button.appendChild(image);
+      } else {
+        button.disabled = attachment.availability !== 'available';
+        button.setAttribute('aria-label', (button.disabled ? 'Unavailable image: ' : 'Loading image: ') + attachment.fullLabel);
+        const placeholder = document.createElement('span');
+        placeholder.className = 'composer-image-placeholder';
+        placeholder.textContent = button.disabled ? 'Preview unavailable' : 'Loading preview…';
+        button.appendChild(placeholder);
+      }
+    }
+
+    function rerenderImageTarget(target) {
+      if (target.composer) renderComposerImage(target.button, target.attachment);
+      else renderTranscriptImage(target.button, target.attachment);
+    }
+
     function acceptImageAsset(message) {
       if (typeof message.id !== 'string' || !/^sha256-[a-f0-9]{64}$/.test(message.id)) return;
       if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(message.mimeType)) return;
@@ -454,13 +491,13 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         imageAssetCacheBytes -= oldest.byteLength;
         for (const target of imageTargets.get(oldestId) || []) {
           target.attachment.availability = 'unavailable';
-          renderTranscriptImage(target.button, target.attachment);
+          rerenderImageTarget(target);
         }
         vscode.postMessage({ type: 'imageAssetEvicted', id: oldestId });
       }
       imageAssetCache.set(message.id, { url: 'data:' + message.mimeType + ';base64,' + message.data, byteLength: message.byteLength });
       imageAssetCacheBytes += message.byteLength;
-      for (const target of imageTargets.get(message.id) || []) renderTranscriptImage(target.button, target.attachment);
+      for (const target of imageTargets.get(message.id) || []) rerenderImageTarget(target);
     }
 
     function rejectImageAsset(id) {
@@ -470,7 +507,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       imageAssetCacheBytes -= asset.byteLength;
       for (const target of imageTargets.get(id) || []) {
         target.attachment.availability = 'unavailable';
-        renderTranscriptImage(target.button, target.attachment);
+        rerenderImageTarget(target);
       }
       if (previewAssetId === id) closeImagePreview();
       vscode.postMessage({ type: 'imageAssetRejected', id });
@@ -608,8 +645,35 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       attachedImages = attachments.some(attachment => attachment.image);
       attachmentsElement.hidden = attachments.length === 0;
       for (const attachment of attachments) {
+        if (attachment.image && attachment.assetId) {
+          const card = document.createElement('span');
+          card.className = 'attachment-image';
+          const preview = document.createElement('button');
+          preview.className = 'secondary composer-image';
+          preview.type = 'button';
+          preview.dataset.previewAsset = attachment.assetId;
+          const targets = imageTargets.get(attachment.assetId) || [];
+          targets.push({ button: preview, attachment, composer: true });
+          imageTargets.set(attachment.assetId, targets);
+          renderComposerImage(preview, attachment);
+          const label = document.createElement('span');
+          label.className = 'composer-image-label';
+          label.textContent = attachment.label;
+          label.title = attachment.fullLabel;
+          const remove = document.createElement('button');
+          remove.className = 'attachment-remove';
+          remove.type = 'button';
+          remove.textContent = '×';
+          remove.title = 'Remove ' + attachment.fullLabel;
+          remove.setAttribute('aria-label', 'Remove ' + attachment.fullLabel);
+          remove.dataset.removeAttachment = attachment.id;
+          remove.disabled = busy;
+          card.append(preview, label, remove);
+          attachmentsElement.appendChild(card);
+          continue;
+        }
         const chip = document.createElement('span');
-        chip.className = 'attachment';
+        chip.className = 'attachment-chip';
         const label = document.createElement('span');
         label.className = 'attachment-label';
         label.textContent = (attachment.image ? 'Image · ' : '') + attachment.label;
@@ -909,8 +973,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       }
     });
     attachmentsElement.addEventListener('click', event => {
-      const button = event.target instanceof Element ? event.target.closest('button[data-remove-attachment]') : undefined;
-      if (button) vscode.postMessage({ type: 'removeAttachment', id: button.dataset.removeAttachment });
+      const target = event.target instanceof Element ? event.target : undefined;
+      const remove = target?.closest('button[data-remove-attachment]');
+      if (remove && !remove.disabled) { vscode.postMessage({ type: 'removeAttachment', id: remove.dataset.removeAttachment }); return; }
+      const preview = target?.closest('button[data-preview-asset]');
+      if (preview?.dataset.previewAsset && !preview.disabled) openImagePreview(preview);
     });
     proposalsElement.addEventListener('click', event => {
       const button = event.target instanceof Element ? event.target.closest('button[data-proposal-action]') : undefined;
