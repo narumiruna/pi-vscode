@@ -3,7 +3,6 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
 import { CheckpointHistory, expectedToolText } from "../checkpointHistory";
 import { installVscodeMock, MockUri } from "./vscodeMock";
 

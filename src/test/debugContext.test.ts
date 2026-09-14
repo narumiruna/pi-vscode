@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import test from "node:test";
 import { captureDebug, DebugPauseTracker, supportedDebugAdapter } from "../debugContext";
 
 test("debug capture uses only bounded stack/scopes/local variables, omitting lazy and environment containers", async () => {

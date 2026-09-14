@@ -3,7 +3,6 @@ import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
 import { gitEnvironment, gitIdentity, gitRevision } from "../gitSnapshots";
 import { acquireOperation, hasOperation } from "../operationLocks";
 import { buildRpcArguments, PiRpcClient } from "../piRpcClient";

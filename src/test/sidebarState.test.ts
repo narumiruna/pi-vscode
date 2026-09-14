@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import test from "node:test";
 import { historySyncFailureState, limitSidebarMessages, type SidebarMessage } from "../sidebarState";
 
 const messages: SidebarMessage[] = [

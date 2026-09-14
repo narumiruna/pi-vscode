@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import test from "node:test";
 import { computeEditHunks, selectedReplacement } from "../editHunks";
 import { EditProposalStore } from "../editProposals";
 

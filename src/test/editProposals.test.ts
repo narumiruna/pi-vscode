@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import test from "node:test";
 import { EditProposalStore } from "../editProposals";
 
 test("edit proposals retain content until terminal state and reject concurrent actions", async () => {

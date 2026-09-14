@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import test from "node:test";
 import { canSafelyRevert, fileVersion, hasFileChanged } from "../changeState";
 
 test("fileVersion distinguishes missing, created, modified, and unchanged files", () => {
