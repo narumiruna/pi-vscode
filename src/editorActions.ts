@@ -30,11 +30,15 @@ export function registerEditorActions(
   conversation: PiConversationController,
 ): void {
   const previews = new EditPreviewProvider();
+  const selectionActionKind = vscode.CodeActionKind.RefactorRewrite.append("pi");
   context.subscriptions.push(
     previews,
     vscode.workspace.registerTextDocumentContentProvider(previewScheme, previews),
     vscode.languages.registerCodeActionsProvider("*", new PiQuickFixProvider(), {
       providedCodeActionKinds: [vscode.CodeActionKind.QuickFix],
+    }),
+    vscode.languages.registerCodeActionsProvider("*", new PiSelectionCodeActionProvider(selectionActionKind), {
+      providedCodeActionKinds: [selectionActionKind],
     }),
     vscode.commands.registerCommand("piCodingAgent.askSelection", () => askSelection(conversation)),
     vscode.commands.registerCommand("piCodingAgent.modifySelection", () => inlineEdit(previews, conversation)),
@@ -362,6 +366,38 @@ async function reportError(error: unknown): Promise<void> {
   const action = await vscode.window.showErrorMessage(message, "Open Pi Settings");
   if (action === "Open Pi Settings") {
     await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:narumi.pi-coding-agent");
+  }
+}
+
+class PiSelectionCodeActionProvider implements vscode.CodeActionProvider {
+  public constructor(private readonly kind: vscode.CodeActionKind) {}
+
+  public async provideCodeActions(
+    document: vscode.TextDocument,
+    range: vscode.Range | vscode.Selection,
+    _context: vscode.CodeActionContext,
+    token: vscode.CancellationToken,
+  ): Promise<vscode.CodeAction[]> {
+    if (range.isEmpty || token.isCancellationRequested) {
+      return [];
+    }
+
+    const ask = new vscode.CodeAction("Ask Pi", this.kind);
+    ask.command = {
+      command: "piCodingAgent.askSelection",
+      title: ask.title,
+    };
+
+    if (!(await isDocumentWritable(document)) || token.isCancellationRequested) {
+      return [ask];
+    }
+
+    const modify = new vscode.CodeAction("Modify with Pi", this.kind);
+    modify.command = {
+      command: "piCodingAgent.modifySelection",
+      title: modify.title,
+    };
+    return [ask, modify];
   }
 }
 

@@ -65,7 +65,8 @@ Editor shortcuts and actions:
 - **Ctrl/Cmd+I** fixes an error or warning at the cursor. Without a diagnostic, it opens the focused inline-edit prompt.
 - **Alt+]** manually requests an inline completion.
 - **Ctrl+Alt+N** (**Cmd+Alt+N** on macOS) suggests the next edit.
-- The editor's **Pi** context menu sends selection requests to the persistent Pi Chat session.
+- The editor lightbulb's **Rewrite** section offers **Ask Pi** and **Modify with Pi** for a selection.
+- The editor's **Pi** context menu provides the same selection workflows plus focused presets.
 
 Use `@pi` in VS Code's native Chat view when you prefer the native participant workflow. Native Chat history is separate from the Pi Sidebar session.
 
