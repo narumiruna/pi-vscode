@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { ImageAssetCache } from "../imageAssets";
+import { ImageAssetCache, imageAssetId } from "../imageAssets";
 import { installVscodeMock } from "./vscodeMock";
 
 function gif(width: number, height: number, marker = 0): Buffer {
@@ -85,6 +85,32 @@ test("history synchronization aligns retained labels with the newest surviving i
     const refreshed = convertPiMessages(history, { imageAssets: cache, knownMessages: knownSuffix });
     const labels = refreshed.flatMap(message => message.attachments ?? []).filter(attachment => attachment.type === "image").map(attachment => attachment.fullLabel);
     assert.deepEqual(labels, ["Image 1", "kept/middle.gif", "kept/newest.gif"]);
+  } finally { vscode.restore(); }
+});
+
+test("history conversion bounds the retained suffix before decoding image payloads", () => {
+  const vscode = installVscodeMock();
+  try {
+    const { convertPiMessages } = require("../sidebarHelpers") as typeof import("../sidebarHelpers");
+    const cache = imageCache();
+    const images = [1, 2, 3, 4].map(marker => gif(marker, marker, marker));
+    const history = images.flatMap((bytes, index) => [
+      {
+        role: "user",
+        timestamp: index,
+        content: [{ type: "text", text: `message ${index}` }, { type: "image", mimeType: "image/gif", data: bytes.toString("base64") }],
+      },
+      { role: "toolResult", content: [{ type: "text", text: `tool ${index}` }] },
+    ]);
+    const converted = convertPiMessages(history, { imageAssets: cache, maxMessages: 2 });
+
+    assert.deepEqual(converted.map(message => message.content), ["message 2", "message 3"]);
+    assert.deepEqual(converted.map(message => message.id), ["pi-user-2-4", "pi-user-3-6"], "non-transcript entries do not reduce the retained count or change original indices");
+    assert.equal(cache.size, 2);
+    assert.equal(cache.has(imageAssetId(images[0]!)), false, "discarded history is never decoded or cached");
+    assert.equal(cache.has(imageAssetId(images[1]!)), false, "only the retained suffix reaches image extraction");
+    assert.equal(cache.has(imageAssetId(images[2]!)), true);
+    assert.equal(cache.has(imageAssetId(images[3]!)), true);
   } finally { vscode.restore(); }
 });
 

@@ -25,7 +25,9 @@ test("webview protocol rejects removed mode messages", () => {
     assert.equal(isWebviewMessage({ type: "handoffAgent" }, 1024), false);
     assert.equal(isWebviewMessage({ type: "queueInstruction", kind: "steer", text: "adjust", revision: 1 }, 1024), true);
     assert.equal(isWebviewMessage({ type: "imageAssetEvicted", id: `sha256-${"a".repeat(64)}` }, 1024), true);
+    assert.equal(isWebviewMessage({ type: "imageAssetRejected", id: `sha256-${"b".repeat(64)}` }, 1024), true);
     assert.equal(isWebviewMessage({ type: "imageAssetEvicted", id: "../../session" }, 1024), false);
+    assert.equal(isWebviewMessage({ type: "imageAssetRejected", id: "../../session" }, 1024), false);
   } finally { vscode.restore(); }
 });
 
@@ -327,6 +329,36 @@ test("transcript image assets render without HTML injection and preview restores
   const unavailable = sidebar.run(`imageTargets.get(${JSON.stringify(`unavailable-${"a".repeat(64)}`)})[0].button`) as SidebarTestElement;
   assert.equal(unavailable.disabled, true);
   assert.match(unavailable.children[0]!.textContent, /unavailable/i);
+});
+
+test("thumbnail and preview decode failures become unavailable without retrying corrupt payloads", () => {
+  const bytes = Buffer.alloc(11);
+  bytes.write("GIF89a", 0, "ascii"); bytes.writeUInt16LE(3, 6); bytes.writeUInt16LE(2, 8);
+  const data = bytes.toString("base64");
+  const id = imageAssetId(bytes);
+  const attachment = { type: "image", assetId: id, label: "broken.gif", fullLabel: "broken.gif", mimeType: "image/gif", width: 3, height: 2, availability: "available" };
+
+  const thumbnailSidebar = createSidebarScriptHarness();
+  thumbnailSidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, cancellable: false, connected: true }, messages: [{ role: "user", html: "<p>Broken</p>", attachments: [attachment] }] });
+  thumbnailSidebar.receive({ type: "imageAsset", id, mimeType: "image/gif", data, byteLength: bytes.length, width: 3, height: 2 });
+  const thumbnail = thumbnailSidebar.run(`imageTargets.get(${JSON.stringify(id)})[0].button`) as SidebarTestElement;
+  thumbnail.children[0]!.listeners.get("error")!();
+  assert.equal(thumbnail.disabled, true);
+  assert.match(thumbnail.children[0]!.textContent, /unavailable/i);
+  assert.equal(thumbnailSidebar.posted.at(-1)?.type, "imageAssetRejected");
+  assert.equal(thumbnailSidebar.posted.at(-1)?.id, id);
+
+  const previewSidebar = createSidebarScriptHarness();
+  previewSidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, cancellable: false, connected: true }, messages: [{ role: "user", html: "<p>Broken preview</p>", attachments: [{ ...attachment }] }] });
+  previewSidebar.receive({ type: "imageAsset", id, mimeType: "image/gif", data, byteLength: bytes.length, width: 3, height: 2 });
+  const previewTrigger = previewSidebar.run(`imageTargets.get(${JSON.stringify(id)})[0].button`) as SidebarTestElement;
+  previewSidebar.element("messages").listeners.get("click")!({ target: previewTrigger });
+  assert.equal(previewSidebar.element("image-preview").open, true);
+  previewSidebar.element("preview-image").listeners.get("error")!();
+  assert.equal(previewSidebar.element("image-preview").open, false);
+  assert.equal(previewTrigger.disabled, true);
+  assert.equal(previewSidebar.posted.at(-1)?.type, "imageAssetRejected");
+  assert.equal(previewSidebar.posted.at(-1)?.id, id);
 });
 
 test("image decode keeps scroll position when the thumbnail is below the viewport", () => {

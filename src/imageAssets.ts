@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { decodeBoundedBase64Image, isSupportedImageMimeType } from "./attachmentUtils";
 
 export const transcriptImageAssetIdPattern = /^sha256-[a-f0-9]{64}$/;
-const maxImagePixels = 100_000_000;
+const maxImagePixels = 4_096 * 4_096;
 
 export interface ImageAssetDimensions {
   readonly width: number;
@@ -69,7 +69,7 @@ export class ImageAssetCache {
     ) {
       const oldestId = this.assets.keys().next().value as string | undefined;
       if (!oldestId) break;
-      this.delete(oldestId);
+      this.discard(oldestId);
     }
     const asset: CachedImageAsset = {
       id,
@@ -85,14 +85,16 @@ export class ImageAssetCache {
 
   public get(id: string): CachedImageAsset | undefined { return this.assets.get(id); }
   public has(id: string): boolean { return this.assets.has(id); }
-  public clear(): void { this.assets.clear(); this.retainedBytes = 0; }
 
-  private delete(id: string): void {
+  public discard(id: string): boolean {
     const asset = this.assets.get(id);
-    if (!asset) return;
+    if (!asset) return false;
     this.assets.delete(id);
     this.retainedBytes -= asset.byteLength;
+    return true;
   }
+
+  public clear(): void { this.assets.clear(); this.retainedBytes = 0; }
 }
 
 export function imageAssetId(bytes: Uint8Array): string {
