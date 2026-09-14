@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- Source for icon.png. Render at 256 x 256 using CairoSVG 2.9.0. -->
+  <defs>
+    <linearGradient id="background" x1="24" y1="16" x2="232" y2="256" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#172D46"/>
+      <stop offset="1" stop-color="#0B1426"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="44" y1="48" x2="212" y2="224" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7CF5D5"/>
+      <stop offset="1" stop-color="#38BDF8"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#background)"/>
+  <path d="M76 48H180A32 32 0 0 1 212 80V160A32 32 0 0 1 180 192H113L68 224V191A32 32 0 0 1 44 160V80A32 32 0 0 1 76 48Z"
+        fill="none" stroke="url(#accent)" stroke-width="12" stroke-linejoin="round"/>
+  <path d="M86 100H170M110 100V126Q110 145 100 156M149 100V143Q149 156 163 156"
+        fill="none" stroke="#F4FAFF" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
