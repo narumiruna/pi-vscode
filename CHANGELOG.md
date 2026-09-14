@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Keep submitted context chips and validated image thumbnails on their user turn across history refresh and session restore, with labeled unavailable placeholders when image bytes cannot be recovered.
+- Add bounded one-shot transcript image delivery, responsive thumbnail grids, and a keyboard-accessible modal preview without persisting Base64 image payloads.
+- Place foreground tool activity after its response in the conversation scroller, compact the empty composer, normalize inline-code sizing, preserve scroll position as images decode, and consolidate cancellable/status/error UI.
+- Keep remote conversations intact when Trash is unsupported and require a second modal confirmation before permanent deletion.
 - Move the Pi connection, session, and context status below the composer.
 - Show the active Pi thinking level in the Chat header and allow direct changes between model-supported levels.
 - Add confirmed read-only staged Git review with immutable finding navigation, stale-index detection, and explicit skipped-file coverage.

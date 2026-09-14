@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createContext, Script } from "node:vm";
+import { imageAssetId } from "../imageAssets";
 import { getSidebarHtml } from "../sidebarHtml";
 import { installVscodeMock } from "./vscodeMock";
 
@@ -23,6 +24,8 @@ test("webview protocol rejects removed mode messages", () => {
     assert.equal(isWebviewMessage({ type: "setMode", mode: "agent" }, 1024), false);
     assert.equal(isWebviewMessage({ type: "handoffAgent" }, 1024), false);
     assert.equal(isWebviewMessage({ type: "queueInstruction", kind: "steer", text: "adjust", revision: 1 }, 1024), true);
+    assert.equal(isWebviewMessage({ type: "imageAssetEvicted", id: `sha256-${"a".repeat(64)}` }, 1024), true);
+    assert.equal(isWebviewMessage({ type: "imageAssetEvicted", id: "../../session" }, 1024), false);
   } finally { vscode.restore(); }
 });
 
@@ -93,7 +96,7 @@ test("sidebar preserves hidden semantics, themed layout, and keyboard accessibil
   assert.match(html, /#runtime \{[^}]*border-top: 1px solid var\(--pi-border\)/);
   assert.match(html, /\[hidden\] \{ display: none !important; \}/);
   assert.match(html, /id="activity"[^>]*hidden/);
-  assert.match(html, /activity'\)\.hidden = !\[state\.proposals, state\.tools, state\.changes, state\.backgroundTasks\]/);
+  assert.match(html, /activity'\)\.hidden = !\[state\.proposals, state\.changes, state\.backgroundTasks\]/);
   assert.match(html, /attachmentsElement\.hidden = attachments\.length === 0/);
   assert.match(html, /id="attachments"[^>]*hidden/);
   assert.match(html, /#notice:empty \{ display: none; \}/);
@@ -104,10 +107,44 @@ test("sidebar preserves hidden semantics, themed layout, and keyboard accessibil
   assert.match(html, /<label for="input" class="sr-only">Message Pi<\/label>/);
   assert.match(html, /<textarea[^>]*maxlength="42"[^>]*aria-describedby="composer-hint"/);
   assert.match(html, /id="send"[^>]*aria-label="Send message"[^>]*disabled/);
-  assert.match(html, /sendButton\.hidden = busy/);
-  assert.match(html, /cancelButton\.hidden = !busy/);
+  assert.match(html, /sendButton\.hidden = cancellable/);
+  assert.match(html, /cancelButton\.hidden = !cancellable/);
   assert.match(html, /if \(event\.isComposing\) return/);
   assert.match(html, /input\.scrollHeight/);
+});
+
+test("transcript images, context chips, compact composer, and in-flow tools use bounded responsive markup", () => {
+  const html = getSidebarHtml(100_000, 5 * 1024 * 1024);
+  const conversation = html.indexOf('id="conversation"');
+  const messages = html.indexOf('id="messages"');
+  const tools = html.indexOf('id="tools-group"');
+  const activity = html.indexOf('id="activity"');
+  assert.ok(conversation < messages && messages < tools && tools < activity, "request tools follow the active response inside the conversation scroller");
+  assert.match(html, /grid-template-columns: repeat\(auto-fit, minmax\(min\(124px, 100%\), 1fr\)\)/);
+  assert.match(html, /imageGrid\.className = 'transcript-images'/);
+  assert.match(html, /attachment\.fullLabel/);
+  assert.match(html, /context\.textContent = attachment\.label/);
+  assert.match(html, /context\.title = attachment\.fullLabel/);
+  assert.match(html, /<textarea[^>]*rows="1"/);
+  assert.match(html, /textarea \{[^}]*height: 42px; min-height: 42px/);
+  assert.match(html, /\.content code \{[^}]*font-size: \.95em/);
+  assert.match(html, /heightDelta = conversationElement\.scrollHeight - beforeHeight/);
+  assert.match(html, /wasNearBottom \? conversationElement\.scrollHeight : beforeTop \+ Math\.max\(0, heightDelta\)/);
+  assert.match(html, /@media \(max-width: 340px\)/);
+  assert.doesNotMatch(html, /context\.innerHTML|label\.innerHTML|image\.innerHTML/);
+});
+
+test("responsive transcript constraints and VS Code theme tokens cover 280, 400, and 600 pixel Sidebar widths", () => {
+  const html = getSidebarHtml(100_000, 5 * 1024 * 1024);
+  for (const width of [280, 400, 600]) {
+    assert.ok(width >= 280);
+    assert.match(html, /min-width: 0/);
+    assert.match(html, /max-width: 100%/);
+    assert.match(html, /minmax\(min\(124px, 100%\), 1fr\)/);
+  }
+  for (const token of ["--vscode-sideBar-background", "--vscode-foreground", "--vscode-focusBorder", "--vscode-contrastBorder"]) assert.ok(html.includes(token));
+  assert.match(html, /body\.vscode-light, body\.vscode-high-contrast-light/);
+  assert.match(html, /body\.vscode-dark, body\.vscode-high-contrast/);
 });
 
 test("sidebar groups tools without reopening disclosures on every state update", () => {
@@ -131,7 +168,8 @@ test("sidebar generated script parses with static icons and keeps nonce-only CSP
   assert.ok(html.includes(`script-src 'nonce-${script[1]}'`));
   assert.ok(html.includes(`style-src 'nonce-${script[1]}'`));
   assert.match(html, /default-src 'none'/);
-  assert.doesNotMatch(html, /unsafe-inline|https?:\/\/|<script[^>]*src=/);
+  assert.match(html, /img-src data:/);
+  assert.doesNotMatch(html, /unsafe-inline|https?:\/\/|blob:|<script[^>]*src=/);
   assert.match(html, /<svg[^>]*aria-hidden="true"[^>]*focusable="false"/);
   assert.notEqual(getSidebarHtml(100_000, 1024), html, "each webview gets a fresh nonce");
 });
@@ -146,7 +184,12 @@ class SidebarTestElement {
   value = "";
   textContent = "";
   title = "";
+  className = "";
   disabled = false;
+  hidden = false;
+  open = false;
+  alt = "";
+  src = "";
   scrollHeight = 100;
   scrollTop = 0;
   clientHeight = 100;
@@ -155,12 +198,16 @@ class SidebarTestElement {
 
   append(...elements: SidebarTestElement[]): void { this.children.push(...elements); }
   appendChild(element: SidebarTestElement): void { this.append(element); }
-  replaceChildren(): void { this.children = []; }
+  replaceChildren(...elements: SidebarTestElement[]): void { this.children = [...elements]; }
   querySelector(): { textContent: string } { return { textContent: "" }; }
   querySelectorAll(): never { throw new Error("Unexpected conversation descendant search"); }
   closest(): SidebarTestElement { return this; }
+  setAttribute(name: string, value: string): void { (this as any)[name] = value; }
+  removeAttribute(name: string): void { (this as any)[name] = ""; }
   addEventListener(type: string, listener: (event?: any) => void): void { this.listeners.set(type, listener); }
   focus(): void { this.focusCount += 1; }
+  showModal(): void { this.open = true; }
+  close(): void { this.open = false; this.listeners.get("close")?.(); }
 }
 
 function createSidebarScriptHarness(clientPlatform = "Linux x86_64", userAgent = "") {
@@ -178,6 +225,8 @@ function createSidebarScriptHarness(clientPlatform = "Linux x86_64", userAgent =
     window: { addEventListener: (type: string, listener: typeof receive) => { if (type === "message") receive = listener; } },
     navigator: { platform: clientPlatform, userAgent },
     Element: SidebarTestElement,
+    atob: (data: string) => Buffer.from(data, "base64").toString("binary"),
+    btoa: (data: string) => Buffer.from(data, "binary").toString("base64"),
     acquireVsCodeApi: () => ({ postMessage: (message: unknown) => posted.push(message) }),
   });
   const script = /<script nonce="[^"]+">([\s\S]*?)<\/script>/.exec(html);
@@ -226,6 +275,80 @@ test("sidebar displays and changes the current thinking level", () => {
   });
   assert.equal(picker.value, "off");
   assert.equal(picker.disabled, true);
+});
+
+test("transcript image assets render without HTML injection and preview restores focus after close or Escape", () => {
+  const sidebar = createSidebarScriptHarness();
+  const bytes = Buffer.alloc(11);
+  bytes.write("GIF89a", 0, "ascii"); bytes.writeUInt16LE(3, 6); bytes.writeUInt16LE(2, 8);
+  const data = bytes.toString("base64");
+  const id = imageAssetId(bytes);
+  const image = { type: "image", assetId: id, label: "diagram.gif", fullLabel: "screenshots/diagram.gif", mimeType: "image/gif", width: 3, height: 2, availability: "available" };
+  sidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, cancellable: false, connected: true }, messages: [{ role: "user", html: "<p>See this</p>", attachments: [{ type: "context", label: "…/feature.ts:1-3", fullLabel: "src/deep/feature.ts:1-3" }, image] }] });
+  const contextChip = sidebar.run("messagesElement.children[0].children[2].children[0]") as SidebarTestElement;
+  assert.equal(contextChip.textContent, "…/feature.ts:1-3");
+  assert.equal(contextChip.title, "src/deep/feature.ts:1-3");
+  const trigger = sidebar.run(`imageTargets.get(${JSON.stringify(id)})[0].button`) as SidebarTestElement;
+  assert.match(trigger.children[0]!.textContent, /Loading image/);
+
+  sidebar.receive({ type: "imageAsset", id, mimeType: "image/gif", data, byteLength: bytes.length, width: 3, height: 2 });
+  assert.equal(trigger.children[0]?.alt, "screenshots/diagram.gif");
+  assert.equal(trigger.children[0]?.src, `data:image/gif;base64,${data}`);
+  const click = sidebar.element("messages").listeners.get("click")!;
+  click({ target: trigger });
+  assert.equal(sidebar.element("image-preview").open, true);
+  assert.equal(sidebar.element("preview-close").focusCount, 1);
+  sidebar.element("preview-close").listeners.get("click")!();
+  assert.equal(sidebar.element("image-preview").open, false);
+  assert.equal(sidebar.element("preview-image").src, "");
+  assert.equal(trigger.focusCount, 1);
+
+  click({ target: trigger });
+  let prevented = false;
+  sidebar.element("image-preview").listeners.get("cancel")!({ preventDefault: () => { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.equal(trigger.focusCount, 2);
+
+  for (let marker = 1; marker <= 100; marker += 1) {
+    const other = Buffer.from(bytes); other[10] = marker;
+    sidebar.receive({ type: "imageAsset", id: imageAssetId(other), mimeType: "image/gif", data: other.toString("base64"), byteLength: other.length, width: 3, height: 2 });
+  }
+  assert.equal(trigger.disabled, true);
+  assert.match(trigger.children[0]!.textContent, /unavailable/i);
+  assert.ok(sidebar.posted.some(message => message.type === "imageAssetEvicted" && message.id === id));
+
+  sidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, cancellable: false, connected: true }, messages: [{ role: "user", html: "<p>Missing</p>", attachments: [{ ...image, assetId: `unavailable-${"a".repeat(64)}`, availability: "unavailable" }] }] });
+  const unavailable = sidebar.run(`imageTargets.get(${JSON.stringify(`unavailable-${"a".repeat(64)}`)})[0].button`) as SidebarTestElement;
+  assert.equal(unavailable.disabled, true);
+  assert.match(unavailable.children[0]!.textContent, /unavailable/i);
+});
+
+test("busy, settling, cancellation, failure, and reconnection states expose one status and every cancellable state exposes Stop", () => {
+  const sidebar = createSidebarScriptHarness();
+  const state = (status: string, busy: boolean, cancellable: boolean, connected = true, backgroundSubmissionPending = false) => sidebar.receive({ type: "state", status, backgroundSubmissionPending, runtime: { busy, cancellable, connected } });
+  for (const status of ["Sending to Pi…", "Pi is working…", "Running read…", "Finishing Pi response…", "Cancelling Pi request…"]) {
+    state(status, true, true);
+    assert.equal(sidebar.element("cancel").hidden, false, status);
+    assert.equal(sidebar.element("send").hidden, true, status);
+    assert.equal(sidebar.element("status").textContent, status);
+  }
+  state("Request failed · Retry available", false, false);
+  assert.equal(sidebar.element("cancel").hidden, true);
+  assert.equal(sidebar.element("send").hidden, false);
+  sidebar.receive({ type: "notice", message: "Pi request failed.", level: "error", detailsAvailable: true });
+  const details = sidebar.element("notice").children[0]!;
+  sidebar.element("notice").listeners.get("click")!({ target: details });
+  assert.equal(sidebar.posted.at(-1).type, "showNoticeDetails");
+  state("Ready", false, false, true, true);
+  assert.equal(sidebar.element("status").textContent, "Starting background agent…", "Ready is not shown beside a wait state");
+  state("Disconnected · Reconnect available", false, false, false);
+  assert.match(sidebar.element("status").textContent, /Disconnected/);
+
+  state("Pi is working…", true, true);
+  sidebar.element("input").listeners.get("paste")!({ clipboardData: { items: [{ kind: "file", type: "image/gif", getAsFile: () => ({}) }] }, preventDefault() {} });
+  assert.match(sidebar.element("notice").textContent, /Cancel or wait/);
+  state("Ready", false, false);
+  assert.equal(sidebar.element("notice").textContent, "", "attachment-lock warnings clear when the lock ends");
 });
 
 test("sidebar keystrokes do not search populated conversation descendants", () => {
