@@ -6,12 +6,31 @@ import { installVscodeMock, MockUri } from "./vscodeMock";
 test("existing editor action requests stay read-only; selected preview matches one Apply and manual edits block all writes", async () => {
   const vscode = installVscodeMock();
   const providers = new Map<string, any>();
+  const codeActionProviders: { provider: any; metadata: any }[] = [];
   const position = (line: number, character: number) => ({ line, character });
-  vscode.Range = class { public start: any; public end: any; constructor(start: any, end: any) { this.start = start; this.end = end; } };
+  vscode.Range = class {
+    public start: any;
+    public end: any;
+    public get isEmpty() { return this.start.line === this.end.line && this.start.character === this.end.character; }
+    constructor(start: any, end: any) { this.start = start; this.end = end; }
+  };
   vscode.EndOfLine = { LF: 1, CRLF: 2 };
   vscode.FilePermission = { Readonly: 1 };
-  vscode.CodeActionKind = { QuickFix: "quickfix" };
-  vscode.languages = { registerCodeActionsProvider: () => ({ dispose() {} }) };
+  const refactorRewrite = {
+    value: "refactor.rewrite",
+    append: (part: string) => ({ value: `refactor.rewrite.${part}` }),
+  };
+  vscode.CodeActionKind = { QuickFix: "quickfix", RefactorRewrite: refactorRewrite };
+  vscode.CodeAction = class {
+    public command: any;
+    constructor(public title: string, public kind: any) {}
+  };
+  vscode.languages = {
+    registerCodeActionsProvider: (_selector: unknown, provider: any, metadata: any) => {
+      codeActionProviders.push({ provider, metadata });
+      return { dispose() {} };
+    },
+  };
   vscode.workspace.registerTextDocumentContentProvider = (scheme: string, provider: unknown) => { providers.set(scheme, provider); return { dispose() {} }; };
   vscode.workspace.fs = { isWritableFileSystem: () => true, stat: async () => ({ permissions: 0 }) };
   let text = "a\nb\nc\n", version = 1, applications = 0;
@@ -29,6 +48,24 @@ test("existing editor action requests stay read-only; selected preview matches o
     addEditProposal: input => { proposal = input; return "id"; },
   });
   try {
+    const selectionProvider = codeActionProviders.find(({ metadata }) =>
+      metadata.providedCodeActionKinds.some((kind: any) => kind.value === "refactor.rewrite.pi"),
+    )?.provider;
+    assert.ok(selectionProvider);
+    const selectionActions = await selectionProvider.provideCodeActions(
+      document,
+      new vscode.Range(position(0, 0), position(1, 0)),
+      {},
+      { isCancellationRequested: false },
+    );
+    assert.deepEqual(
+      selectionActions.map((action: any) => [action.title, action.kind.value, action.command.command]),
+      [
+        ["Ask Pi", "refactor.rewrite.pi", "piCodingAgent.askSelection"],
+        ["Modify with Pi", "refactor.rewrite.pi", "piCodingAgent.modifySelection"],
+      ],
+    );
+
     await vscode.registrations.get("piCodingAgent.fixSelection")();
     assert.ok(proposal); assert.equal(proposal.hunks?.length, 2);
     await proposal.onPreview(["h0"]); assert.equal(previewText, "A\nb\nc\n");
