@@ -332,6 +332,11 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           this.imageAssetDelivery.retry(message.id);
           this.postState();
           break;
+        case "imageAssetRejected":
+          this.imageAssets.discard(message.id);
+          this.imageAssetDelivery.retry(message.id);
+          this.postState();
+          break;
         case "attachTerminal":
           await this.attachments.attachTerminalSelection();
           break;
@@ -1151,7 +1156,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       throw new Error("Wait for Pi to finish before refreshing conversation history.");
     }
     try {
-      const messages = convertPiMessages(await this.runtime.getMessages(), { imageAssets: this.imageAssets, knownMessages: this.messages });
+      const messages = convertPiMessages(await this.runtime.getMessages(), { imageAssets: this.imageAssets, knownMessages: this.messages, maxMessages });
       if (messages.length > 0 || this.runtime.currentState.sessionId) {
         this.messages = limitSidebarMessages(messages, maxMessages, maxStoredCharacters);
         await this.persistMessages();

@@ -23,7 +23,7 @@ export type WebviewMessage =
   | { readonly type: "pasteImage"; readonly data: string; readonly mimeType: string; readonly fileName?: string }
   | { readonly type: "setModel"; readonly provider: string; readonly modelId: string }
   | { readonly type: "setThinking"; readonly level: string }
-  | { readonly type: "imageAssetEvicted"; readonly id: string }
+  | { readonly type: "imageAssetEvicted" | "imageAssetRejected"; readonly id: string }
   | { readonly type: "reviewChange" | "openChange" | "revertChange" | "cancelBackground" | "resumeBackground" | "openWorktree" | "cleanupWorktree" | "removeAttachment" | "reviewBackground" | "applyBackground"; readonly id: string }
   | { readonly type: "proposalAction"; readonly id: string; readonly action: "preview" | "apply" | "reject" | "select" }
   | { readonly type: "runBackground"; readonly text: string; readonly isolated: boolean; readonly revision: number };
@@ -46,7 +46,7 @@ export function isWebviewMessage(value: unknown, maxImageBytes: number): value i
   }
   if (value.type === "setModel") return typeof value.provider === "string" && typeof value.modelId === "string";
   if (value.type === "setThinking") return typeof value.level === "string";
-  if (value.type === "imageAssetEvicted") return typeof value.id === "string" && /^sha256-[a-f0-9]{64}$/.test(value.id);
+  if (value.type === "imageAssetEvicted" || value.type === "imageAssetRejected") return typeof value.id === "string" && /^sha256-[a-f0-9]{64}$/.test(value.id);
   if (value.type === "runBackground") {
     return typeof value.text === "string" && typeof value.isolated === "boolean" && isComposerRevision(value.revision);
   }
@@ -70,12 +70,25 @@ export function restoreMessages(value: unknown, maxMessages: number, maxCharacte
 export interface ConvertPiMessagesOptions {
   readonly imageAssets: ImageAssetCache;
   readonly knownMessages?: readonly SidebarMessage[];
+  readonly maxMessages?: number;
 }
 
 export function convertPiMessages(values: readonly unknown[], options: ConvertPiMessagesOptions): SidebarMessage[] {
-  const messages: SidebarMessage[] = [];
-  for (const [index, value] of values.entries()) {
+  const requestedLimit = options.maxMessages ?? values.length;
+  const retainedCount = Number.isSafeInteger(requestedLimit)
+    ? Math.max(0, Math.min(values.length, requestedLimit))
+    : values.length;
+  const retainedEntries: Array<{ readonly index: number; readonly value: Record<string, unknown> }> = [];
+  for (let index = values.length - 1; index >= 0 && retainedEntries.length < retainedCount; index -= 1) {
+    const value = values[index];
     if (!isRecord(value) || (value.role !== "user" && value.role !== "assistant")) continue;
+    if (!hasMessageText(value.content) && (value.role !== "user" || !hasMessageImages(value.content))) continue;
+    retainedEntries.push({ index, value });
+  }
+  retainedEntries.reverse();
+
+  const messages: SidebarMessage[] = [];
+  for (const { index, value } of retainedEntries) {
     const text = extractMessageText(value.content);
     if (value.role === "user") {
       const imageAttachments = extractMessageImages(value.content, index, options.imageAssets);
@@ -161,6 +174,16 @@ function extractMessageText(content: unknown): string {
     .filter(part => isRecord(part) && part.type === "text" && typeof part.text === "string")
     .map(part => String(part.text))
     .join("\n");
+}
+
+function hasMessageText(content: unknown): boolean {
+  return typeof content === "string"
+    ? content.length > 0
+    : Array.isArray(content) && content.some(part => isRecord(part) && part.type === "text" && typeof part.text === "string" && part.text.length > 0);
+}
+
+function hasMessageImages(content: unknown): boolean {
+  return Array.isArray(content) && content.some(part => isRecord(part) && part.type === "image");
 }
 
 interface ImageLabelQueue {

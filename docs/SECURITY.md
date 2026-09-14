@@ -52,8 +52,8 @@ User, model, tool, attachment, and persisted text cannot inject raw scripts or H
 ## Data Bounds
 
 Text attachments are limited per item and in aggregate.
-Image attachments are limited by count, MIME type, canonical Base64 encoding, decoded byte size, image dimensions, and active-model capability.
-Clipboard images are validated in both the webview and Extension Host, and SVG payloads are rejected. Transcript descriptors contain only bounded IDs, labels, MIME, dimensions, and availability. Base64 is never written to `workspaceState` or included in routine streamed `state` messages. Payloads are sent once per resolved Webview and retained in oldest-first 100-asset / 25 MiB Extension Host and Webview caches; each image remains capped at 5 MiB. Cache eviction or missing/invalid Pi history produces a labeled unavailable placeholder instead of unbounded recovery or unsafe rendering.
+Image attachments are limited by count, MIME type, canonical Base64 encoding, decoded byte size, a 16,777,216 decoded-pixel ceiling, and active-model capability.
+Clipboard images are validated in both the webview and Extension Host, and SVG payloads are rejected. Transcript descriptors contain only bounded IDs, labels, MIME, dimensions, and availability. Base64 is never written to `workspaceState` or included in routine streamed `state` messages. Payloads are sent once per resolved Webview and retained in oldest-first 100-asset / 25 MiB Extension Host and Webview caches; each image remains capped at 5 MiB. Pi history image extraction starts only after selecting the retained 100-message suffix. Cache eviction, browser decode rejection, or missing/invalid Pi history produces a labeled unavailable placeholder instead of repeated corrupt delivery, unbounded recovery, or unsafe rendering.
 RPC JSON lines, bridge requests and responses, editor selections, diagnostics, tool output, persisted messages, completion context, change snapshots, and background-task output are bounded.
 
 ## Transcript and Status Behavior

@@ -24,12 +24,16 @@ test("image assets validate MIME, canonical Base64, decoded size, format, and di
   assert.equal(assets.store("image/gif", "not base64"), undefined);
   assert.equal(assets.store("image/gif", Buffer.alloc(101).toString("base64")), undefined);
   assert.equal(assets.store("image/png", bytes.toString("base64")), undefined, "declared MIME must match a supported image header");
-  const oversizedDimensions = Buffer.alloc(24);
-  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(oversizedDimensions);
-  oversizedDimensions.write("IHDR", 12);
-  oversizedDimensions.writeUInt32BE(100_000, 16);
-  oversizedDimensions.writeUInt32BE(100_000, 20);
-  assert.equal(assets.store("image/png", oversizedDimensions.toString("base64")), undefined, "pathological decoded dimensions are rejected");
+  const maximumDimensions = Buffer.alloc(24);
+  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(maximumDimensions);
+  maximumDimensions.write("IHDR", 12);
+  maximumDimensions.writeUInt32BE(4_096, 16);
+  maximumDimensions.writeUInt32BE(4_096, 20);
+  assert.ok(assets.store("image/png", maximumDimensions.toString("base64")), "the documented 4096-square boundary remains available");
+  const oversizedDimensions = Buffer.from(maximumDimensions);
+  oversizedDimensions.writeUInt32BE(4_097, 16);
+  oversizedDimensions.writeUInt32BE(4_097, 20);
+  assert.equal(assets.store("image/png", oversizedDimensions.toString("base64")), undefined, "images above the decoded-pixel budget are rejected");
 });
 
 test("PNG, JPEG, GIF, and WebP dimensions are parsed from bounded headers", () => {
@@ -58,6 +62,10 @@ test("image cache deduplicates stable content and evicts oldest payloads within 
   assert.equal(assets.has(second.id), true);
   assert.equal(assets.has(third.id), true);
   assert.equal(assets.totalBytes, 22);
+  assert.equal(assets.discard(second.id), true);
+  assert.equal(assets.discard(second.id), false);
+  assert.equal(assets.size, 1);
+  assert.equal(assets.totalBytes, 11);
 });
 
 test("one-shot delivery deduplicates state updates, skips evicted payloads, retries failed posts, and resets for a recreated webview", () => {

@@ -420,6 +420,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
             ? conversationElement.scrollHeight
             : wasBelowViewport ? beforeTop : beforeTop + Math.max(0, heightDelta);
         });
+        image.addEventListener('error', () => rejectImageAsset(attachment.assetId));
         image.src = cached.url;
         button.appendChild(image);
       } else {
@@ -460,6 +461,19 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       imageAssetCache.set(message.id, { url: 'data:' + message.mimeType + ';base64,' + message.data, byteLength: message.byteLength });
       imageAssetCacheBytes += message.byteLength;
       for (const target of imageTargets.get(message.id) || []) renderTranscriptImage(target.button, target.attachment);
+    }
+
+    function rejectImageAsset(id) {
+      const asset = imageAssetCache.get(id);
+      if (!asset) return;
+      imageAssetCache.delete(id);
+      imageAssetCacheBytes -= asset.byteLength;
+      for (const target of imageTargets.get(id) || []) {
+        target.attachment.availability = 'unavailable';
+        renderTranscriptImage(target.button, target.attachment);
+      }
+      if (previewAssetId === id) closeImagePreview();
+      vscode.postMessage({ type: 'imageAssetRejected', id });
     }
 
     function renderProposals(proposals) {
@@ -813,6 +827,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     });
     $('image-preview').addEventListener('cancel', event => { event.preventDefault(); closeImagePreview(); });
     $('image-preview').addEventListener('click', event => { if (event.target === $('image-preview')) closeImagePreview(); });
+    $('preview-image').addEventListener('error', () => { if (previewAssetId) rejectImageAsset(previewAssetId); });
     $('preview-close').addEventListener('click', closeImagePreview);
 
     window.addEventListener('message', event => {
