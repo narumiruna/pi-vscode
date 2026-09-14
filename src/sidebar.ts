@@ -127,6 +127,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   private renderTimer: NodeJS.Timeout | undefined;
   private foregroundCancellable = false;
   private noticeDetails: string | undefined;
+  private noticeRevision = 0;
 
   public constructor(
     private readonly context: vscode.ExtensionContext,
@@ -245,6 +246,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       return;
     }
 
+    const noticeRevision = this.noticeRevision;
     try {
       switch (message.type) {
         case "ready":
@@ -411,7 +413,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       if (message.type === "send" || message.type === "queueInstruction") {
         this.postMessage({ type: "sendRejected" });
       }
-      this.postNotice(actionErrorSummary(message.type), "error", formatError(error));
+      if (this.noticeRevision === noticeRevision) {
+        this.postNotice(actionErrorSummary(message.type), "error", formatError(error));
+      }
       this.postState();
     }
   }
@@ -602,6 +606,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     const releaseRequest = this.requestGate.acquire();
     this.requestLifecycle.begin();
     this.foregroundCancellable = true;
+    this.postState();
     this.trackCurrentRequestChanges = false;
     this.currentRequestSideEffects.reset();
     this.historyRecoveryAvailable = false;
@@ -838,10 +843,10 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           "Delete Permanently",
         ) === "Delete Permanently";
       },
-      deletePermanently: async () => {
+      deletePermanently: async trashError => {
         this.status = "Permanently deleting conversation…";
         this.postState();
-        await this.runtime.deleteSessionPermanently();
+        await this.runtime.deleteSessionPermanently(trashError.sessionFile);
       },
     });
     if (outcome.status === "deleted") {
@@ -1226,6 +1231,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private postNotice(message: string, level: "info" | "warning" | "error", details?: string): void {
+    this.noticeRevision += 1;
     this.noticeDetails = details?.slice(0, maxToolOutputCharacters);
     this.postMessage({ type: "notice", message, level, detailsAvailable: Boolean(this.noticeDetails) });
   }
@@ -1236,7 +1242,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
 }
 
 function actionErrorSummary(action: WebviewMessage["type"]): string {
-  if (action === "send" || action === "retry" || action === "queueInstruction") return "Pi could not accept the message. Review details, then retry when safe.";
+  if (action === "queueInstruction") return "Pi could not confirm queued message delivery. Inspect history and recovered drafts before resending.";
+  if (action === "send" || action === "retry") return "Pi could not accept the message. Review details, then retry when safe.";
   if (action === "reconnect") return "Pi could not reconnect. Review details and try again.";
   if (action === "refreshHistory") return "Conversation history could not be refreshed. Review details and try again.";
   if (action === "deleteSession") return "The conversation could not be deleted and was kept.";

@@ -395,7 +395,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         }
       }
       if (visibleMessages.length === 0) conversationElement.scrollTop = 0;
-      else if (nearBottom || busy) conversationElement.scrollTop = conversationElement.scrollHeight;
+      return visibleMessages.length > 0 && (nearBottom || busy);
     }
 
     function renderTranscriptImage(button, attachment) {
@@ -706,8 +706,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       deletableSession = Boolean(state.runtime.sessionFile);
       imageSupported = Boolean(state.imageSupported);
       backgroundSubmissionPending = Boolean(state.backgroundSubmissionPending);
-      renderMessages(state.messages || []);
+      const followConversation = renderMessages(state.messages || []);
       renderTools(state.tools || []);
+      if (followConversation) conversationElement.scrollTop = conversationElement.scrollHeight;
       renderProposals(state.proposals || []);
       renderChanges(state.changes || []);
       renderBackground(state.backgroundTasks || []);

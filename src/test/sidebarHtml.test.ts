@@ -352,6 +352,25 @@ test("image decode keeps scroll position when the thumbnail is below the viewpor
   assert.equal(conversation.scrollTop, 50);
 });
 
+test("bottom-following scroll includes newly rendered tool activity", () => {
+  const sidebar = createSidebarScriptHarness();
+  const conversation = sidebar.element("conversation");
+  conversation.scrollHeight = 100;
+  conversation.scrollTop = 0;
+  conversation.clientHeight = 100;
+  const tools = sidebar.element("tools");
+  const appendTool = tools.appendChild.bind(tools);
+  tools.appendChild = element => { appendTool(element); conversation.scrollHeight = 180; };
+  sidebar.receive({
+    type: "state",
+    status: "Running read…",
+    runtime: { busy: true, cancellable: true, connected: true },
+    messages: [{ role: "assistant", html: "<p>Reply</p>" }],
+    tools: [{ id: "tool-1", name: "read", status: "running", input: "file.ts", output: "" }],
+  });
+  assert.equal(conversation.scrollTop, 180);
+});
+
 test("busy, settling, cancellation, failure, and reconnection states expose one status and every cancellable state exposes Stop", () => {
   const sidebar = createSidebarScriptHarness();
   const state = (status: string, busy: boolean, cancellable: boolean, connected = true, backgroundSubmissionPending = false) => sidebar.receive({ type: "state", status, backgroundSubmissionPending, runtime: { busy, cancellable, connected } });

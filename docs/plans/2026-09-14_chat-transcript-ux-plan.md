@@ -71,7 +71,7 @@ Make Pi Chat trustworthy and easier to scan by showing submitted images and cont
 
 ## Verification Evidence
 
-- `npm test`: 143 tests pass across 30 files.
+- `npm test`: 145 tests pass across 30 files.
 - `npm run package`: repeats the passing suite and creates a 53-entry VSIX containing 42 compiled runtime modules; production dependency audit reports zero vulnerabilities.
 - Chrome for Testing 153 renders generated packaged-equivalent Webview HTML at 280, 400, and 600 px in light, dark, and high-contrast fixtures without horizontal overflow; keyboard preview open/close and focus return pass.
 - Native screen-reader output, live Pi provider image history/reload/session resume, and an actual remote provider's Trash behavior remain unverified in an interactive Extension Development Host and are explicitly recorded in `docs/WORKFLOW_VALIDATION.md`.
