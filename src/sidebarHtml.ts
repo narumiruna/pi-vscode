@@ -42,7 +42,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     /* Author display rules must never override native hidden state. */
     [hidden] { display: none !important; }
     body { margin: 0; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); line-height: 1.5; overflow: hidden; }
-    #app { height: 100vh; min-width: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto auto; padding: 0 12px 10px; }
+    #app { height: 100vh; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto auto auto; padding: 0 12px 10px; }
     button, select { min-height: 28px; border: 1px solid var(--vscode-button-border, transparent); border-radius: 6px; padding: 4px 9px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); cursor: pointer; font: inherit; }
     button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
     button:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
@@ -60,7 +60,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     #model-picker { min-width: 0; max-width: 132px; justify-content: flex-start; color: var(--vscode-descriptionForeground); }
     #model-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #model-picker .icon { width: 12px; height: 12px; }
-    #runtime { display: flex; flex-wrap: wrap; min-width: 0; gap: 6px; align-items: center; padding: 0 2px 9px; color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--pi-border); font-size: .82em; }
+    #runtime { display: flex; flex-wrap: wrap; min-width: 0; gap: 6px; align-items: center; margin-top: 7px; padding: 7px 2px 0; color: var(--vscode-descriptionForeground); border-top: 1px solid var(--pi-border); font-size: .82em; }
     .status-dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--vscode-descriptionForeground); }
     #runtime[data-connection="connected"] .status-dot { background: var(--vscode-testing-iconPassed, var(--pi-accent)); }
     #runtime[data-connection="busy"] .status-dot { background: var(--vscode-progressBar-background); }
@@ -157,7 +157,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       <button id="delete-session" class="secondary danger icon-button" type="button" title="Delete conversation" aria-label="Delete current Pi conversation" hidden>${icon("trash")}</button>
       <button id="more" class="secondary icon-button" type="button" title="More… · Session and advanced actions" aria-label="More Pi actions">${icon("more")}</button>
     </header>
-    <div id="runtime"><span class="status-dot" aria-hidden="true"></span><span id="status" role="status" aria-live="polite">Connecting…</span><span id="session"></span><span id="usage"></span><button id="retry" class="secondary" type="button" hidden>Retry</button><button id="refresh-history" class="secondary" type="button" hidden>Refresh history</button><button id="reconnect" class="secondary" type="button" hidden>Reconnect</button></div>
     <section id="messages" aria-live="off" aria-label="Pi conversation"></section>
     <section id="activity" aria-label="Pi activity" hidden>
       <div id="proposals-heading" class="section-heading" hidden><span>Edit proposals</span></div><section id="proposals" aria-label="Pi edit proposals"></section>
@@ -189,6 +188,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       <div id="composer-hint">Enter to send · Shift+Enter for newline</div>
     </section>
     <div id="notice" role="status" aria-live="polite"></div>
+    <div id="runtime"><span class="status-dot" aria-hidden="true"></span><span id="status" role="status" aria-live="polite">Connecting…</span><span id="session"></span><span id="usage"></span><button id="retry" class="secondary" type="button" hidden>Retry</button><button id="refresh-history" class="secondary" type="button" hidden>Refresh history</button><button id="reconnect" class="secondary" type="button" hidden>Reconnect</button></div>
   </main>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
