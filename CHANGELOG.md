@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Move the Pi connection, session, and context status below the composer.
 - Show the active Pi thinking level in the Chat header and allow direct changes between model-supported levels.
 - Add confirmed read-only staged Git review with immutable finding navigation, stale-index detection, and explicit skipped-file coverage.
 - Add deterministic hunk selection, revision-bound Preview, and single-Apply partial proposals without applying the remainder.

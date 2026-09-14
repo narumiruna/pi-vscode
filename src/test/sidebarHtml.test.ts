@@ -85,7 +85,13 @@ test("sidebar places model and thinking controls before Send and exposes recover
 
 test("sidebar preserves hidden semantics, themed layout, and keyboard accessibility", () => {
   const html = getSidebarHtml(42, 1024);
+  const composerPosition = html.indexOf('id="composer"');
+  const noticePosition = html.indexOf('id="notice"');
+  const runtimePosition = html.indexOf('id="runtime"');
 
+  assert.ok(composerPosition < noticePosition && noticePosition < runtimePosition, "runtime status belongs below the composer and notices");
+  assert.match(html, /grid-template-rows: auto minmax\(0, 1fr\) auto auto auto auto/);
+  assert.match(html, /#runtime \{[^}]*border-top: 1px solid var\(--pi-border\)/);
   assert.match(html, /\[hidden\] \{ display: none !important; \}/);
   assert.match(html, /id="activity"[^>]*hidden/);
   assert.match(html, /activity'\)\.hidden = !\[state\.proposals, state\.tools, state\.changes, state\.backgroundTasks\]/);
