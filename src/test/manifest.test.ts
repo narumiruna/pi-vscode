@@ -7,6 +7,10 @@ interface MenuContribution {
 }
 
 interface ExtensionManifest {
+  readonly name: string;
+  readonly displayName: string;
+  readonly publisher: string;
+  readonly scripts: Record<string, string>;
   readonly engines: { readonly vscode: string };
   readonly extensionKind: readonly string[];
   readonly devDependencies: Record<string, string>;
@@ -18,6 +22,20 @@ interface ExtensionManifest {
 }
 
 const manifest = JSON.parse(readFileSync("package.json", "utf8")) as ExtensionManifest;
+
+test("extension identity stays consistent across packaging, settings, and documentation", () => {
+  assert.equal(manifest.name, "pi-agent");
+  assert.equal(manifest.displayName, "Pi Agent");
+  assert.equal(manifest.publisher, "narumi");
+  const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+  assert.equal(lock.name, manifest.name);
+  assert.equal(lock.packages[""].name, manifest.name);
+  const id = `${manifest.publisher}.${manifest.name}`;
+  assert.ok(readFileSync("src/editorActions.ts", "utf8").includes(`"@ext:${id}"`));
+  assert.ok(readFileSync("README.md", "utf8").includes(`The current extension ID is \`${id}\``));
+  assert.ok(manifest.scripts.package.includes(`--out ${manifest.name}.vsix`));
+  assert.ok(readFileSync("justfile", "utf8").includes(`/${manifest.name}.vsix`));
+});
 
 test("workflow commands are contributed, registered, documented and keep minimum stable workspace-host compatibility", () => {
   assert.equal(manifest.engines.vscode, "^1.106.0");
@@ -51,17 +69,19 @@ test("quick-fix menu contributions are hidden for read-only editors", () => {
   }
 });
 
-test("development launchers disable the legacy Pi ID without disabling unrelated extensions", () => {
-  const legacyFlag = "--disable-extension=narumitw.pi-coding-agent";
+test("development launchers disable legacy Pi IDs without disabling unrelated extensions", () => {
+  const legacyFlags = [
+    "--disable-extension=narumitw.pi-coding-agent",
+    "--disable-extension=narumi.pi-coding-agent",
+  ];
   const launch = JSON.parse(readFileSync(".vscode/launch.json", "utf8")) as {
     configurations: { type: string; args: string[] }[];
   };
   const hosts = launch.configurations.filter(configuration => configuration.type === "extensionHost");
   assert.ok(hosts.length > 0, "missing Extension Development Host configuration");
   for (const host of hosts) {
-    assert.ok(host.args.includes(legacyFlag), "F5 must not activate both Pi extension IDs");
     assert.ok(host.args.includes("--extensionDevelopmentPath=${workspaceFolder}"));
-    assert.deepEqual(host.args.filter(arg => arg.startsWith("--disable-extension")), [legacyFlag]);
+    assert.deepEqual(host.args.filter(arg => arg.startsWith("--disable-extension")), legacyFlags);
   }
 
   const recipes = readFileSync("justfile", "utf8");
@@ -69,7 +89,6 @@ test("development launchers disable the legacy Pi ID without disabling unrelated
   assert.ok(dev, "missing just dev recipe");
   const launchLine = dev.split("\n").find(line => line.trimStart().startsWith("code "));
   assert.ok(launchLine, "just dev must launch VS Code");
-  assert.ok(launchLine.includes(legacyFlag));
   assert.ok(launchLine.includes('--extensionDevelopmentPath="{{justfile_directory()}}"'));
-  assert.deepEqual(launchLine.match(/--disable-extension\S*/g), [legacyFlag]);
+  assert.deepEqual(launchLine.match(/--disable-extension\S*/g), legacyFlags);
 });
