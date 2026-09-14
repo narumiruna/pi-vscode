@@ -1,7 +1,10 @@
-# Compile, open an Extension Development Host without the legacy Pi extension, and run Pi with the bridge extension.
+# Compile and launch the VS Code extension.
 dev:
     npm run compile
     code --new-window --disable-extension=narumitw.pi-coding-agent --extensionDevelopmentPath="{{justfile_directory()}}" "{{invocation_directory()}}"
+
+# Launch Pi with the bridge extension.
+dev-pi:
     pi -ne -e "{{justfile_directory()}}/resources/pi-vscode-bridge.ts"
 
 # Package and install the Pi and VS Code extensions.
