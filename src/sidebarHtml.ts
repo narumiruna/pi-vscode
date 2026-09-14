@@ -174,10 +174,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         <textarea id="input" rows="3" maxlength="${maxInputCharacters}" placeholder="Ask, plan, or build something…" aria-describedby="composer-hint"></textarea>
         <div id="queue-status" class="proposal-meta" role="status"></div>
         <div class="proposal-actions">
-          <button id="steer" class="secondary" type="button" hidden title="Delivered after current tool calls, not an immediate interruption">Steer</button>
-          <button id="follow-up" class="secondary" type="button" hidden>Follow Up</button>
-          <button id="inspect-queue" class="secondary" type="button" hidden>Inspect Queue</button>
-          <button id="clear-queue" class="secondary" type="button" hidden>Clear Queue</button>
           <button id="recover-queue" class="secondary" type="button" hidden>Recovered Drafts</button>
         </div>
         <div class="composer-actions">
@@ -519,8 +515,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('add-context').disabled = interactionLocked;
       for (const button of emptyActionButtons) button.disabled = interactionLocked;
       sendButton.disabled = interactionLocked || !connected || !input.value.trim() || imageBlocked;
-      $('steer').disabled = $('follow-up').disabled = !queueable || !input.value.trim() || !connected || submissionPending;
-      $('clear-queue').disabled = !queueable || submissionPending;
       sendButton.title = imageLoading
         ? 'Wait for pasted images to finish loading.'
         : submissionPending
@@ -546,7 +540,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     function render(state) {
       busy = Boolean(state.runtime.busy);
       queueable = Boolean(state.runtime.queueable) && busy;
-      $('steer').hidden = $('follow-up').hidden = $('clear-queue').hidden = $('inspect-queue').hidden = !queueable;
       const queue = state.runtime.queue || { steering: [], followUp: [] };
       $('queue-status').textContent = queueable ? queue.steering.length + ' steering · ' + queue.followUp.length + ' follow-ups pending · text only; attachments excluded · steering waits for tool calls' : '';
       $('recover-queue').hidden = !(state.runtime.recoveredDrafts || []).length;
@@ -664,11 +657,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       }
       else if (message.type === 'sendRejected') { submissionPending = false; updateSendState(); input.focus(); }
     });
-    for (const [id, kind] of [['steer', 'steer'], ['follow-up', 'followUp']]) {
-      $(id).addEventListener('click', () => submit(kind));
-    }
-    $('clear-queue').addEventListener('click', () => vscode.postMessage({ type: 'clearQueue' }));
-    $('inspect-queue').addEventListener('click', () => vscode.postMessage({ type: 'inspectQueue' }));
     $('recover-queue').addEventListener('click', () => vscode.postMessage({ type: 'recoverQueue', revision: composerRevision }));
     sendButton.addEventListener('click', () => submit());
     cancelButton.addEventListener('click', () => vscode.postMessage({ type: 'cancel' }));
