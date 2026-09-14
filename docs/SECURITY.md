@@ -34,7 +34,7 @@ Pi extensions must be reviewed before installation.
 
 ## Change Safety
 
-Deleting a conversation requires modal confirmation and moves its persistent session file to Trash before starting a replacement session. If and only if the active file provider reports Trash as unsupported, the extension keeps the conversation and offers permanent deletion behind a second modal confirmation. The primary notice does not include the session path; an explicit **Details** action exposes bounded diagnostics. Ordinary permission or I/O failures never fall through to permanent deletion.
+Deleting a conversation requires modal confirmation and moves its persistent session file to Trash before starting a replacement session. If and only if the active file provider reports Trash as unsupported, the extension keeps the conversation and offers permanent deletion behind a second modal confirmation that remains bound to the original session even if Pi starts a replacement. The primary notice does not include the session path; an explicit **Details** action exposes bounded diagnostics. Ordinary permission or I/O failures never fall through to permanent deletion.
 Focused editor edits enter the persistent Pi Chat session as edit proposals.
 A packaged read-only policy gate recognizes only extension-controlled prompt-prefix metadata, narrows active tools, and blocks every non-read-only tool while Pi generates a proposal.
 Apply remains disabled until the user opens Preview for the current hunk selection. Selection changes invalidate Preview. The host computes hunks from captured text, validates IDs, checks document version immediately before one workspace edit, and finishes the proposal without applying the remainder.

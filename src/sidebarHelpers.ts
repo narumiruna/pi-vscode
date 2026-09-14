@@ -74,12 +74,11 @@ export interface ConvertPiMessagesOptions {
 
 export function convertPiMessages(values: readonly unknown[], options: ConvertPiMessagesOptions): SidebarMessage[] {
   const messages: SidebarMessage[] = [];
-  const knownLabels = knownImageLabels(options.knownMessages ?? []);
   for (const [index, value] of values.entries()) {
     if (!isRecord(value) || (value.role !== "user" && value.role !== "assistant")) continue;
     const text = extractMessageText(value.content);
     if (value.role === "user") {
-      const imageAttachments = extractMessageImages(value.content, index, options.imageAssets, knownLabels);
+      const imageAttachments = extractMessageImages(value.content, index, options.imageAssets);
       if (!text && imageAttachments.length === 0) continue;
       const parsed = parseAgentPrompt(text, maxTranscriptAttachments - imageAttachments.length);
       const attachments: TranscriptAttachment[] = [
@@ -102,7 +101,7 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
       });
     }
   }
-  return messages.map(message => ({
+  const availableMessages = messages.map(message => ({
     ...message,
     ...(message.attachments ? {
       attachments: message.attachments.map(attachment => attachment.type === "image"
@@ -110,6 +109,7 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
         : attachment),
     } : {}),
   }));
+  return mergeKnownImageLabels(availableMessages, options.knownMessages ?? []);
 }
 
 export function extractToolText(value: unknown, maxCharacters: number): string {
@@ -163,26 +163,52 @@ function extractMessageText(content: unknown): string {
     .join("\n");
 }
 
-type KnownImageLabels = Map<string, Array<Pick<TranscriptImageAttachment, "label" | "fullLabel">>>;
+interface ImageLabelQueue {
+  skip: number;
+  readonly labels: Array<Pick<TranscriptImageAttachment, "label" | "fullLabel">>;
+}
 
-function knownImageLabels(messages: readonly SidebarMessage[]): KnownImageLabels {
-  const labels: KnownImageLabels = new Map();
-  for (const message of messages) {
+function mergeKnownImageLabels(messages: readonly SidebarMessage[], knownMessages: readonly SidebarMessage[]): SidebarMessage[] {
+  const knownLabels = new Map<string, Array<Pick<TranscriptImageAttachment, "label" | "fullLabel">>>();
+  for (const message of knownMessages) {
     for (const attachment of message.attachments ?? []) {
       if (attachment.type !== "image" || !attachment.assetId.startsWith("sha256-")) continue;
-      const occurrences = labels.get(attachment.assetId) ?? [];
+      const occurrences = knownLabels.get(attachment.assetId) ?? [];
       occurrences.push({ label: attachment.label, fullLabel: attachment.fullLabel });
-      labels.set(attachment.assetId, occurrences);
+      knownLabels.set(attachment.assetId, occurrences);
     }
   }
-  return labels;
+  const currentCounts = new Map<string, number>();
+  for (const message of messages) {
+    for (const attachment of message.attachments ?? []) {
+      if (attachment.type === "image") currentCounts.set(attachment.assetId, (currentCounts.get(attachment.assetId) ?? 0) + 1);
+    }
+  }
+  const queues = new Map<string, ImageLabelQueue>();
+  for (const [assetId, count] of currentCounts) {
+    const labels = knownLabels.get(assetId) ?? [];
+    queues.set(assetId, { skip: Math.max(0, count - labels.length), labels: labels.slice(-count) });
+  }
+  return messages.map(message => ({
+    ...message,
+    ...(message.attachments ? { attachments: message.attachments.map(attachment => {
+      if (attachment.type !== "image") return attachment;
+      const queue = queues.get(attachment.assetId);
+      if (!queue) return attachment;
+      if (queue.skip > 0) {
+        queue.skip -= 1;
+        return attachment;
+      }
+      const known = queue.labels.shift();
+      return known ? { ...attachment, ...known } : attachment;
+    }) } : {}),
+  }));
 }
 
 function extractMessageImages(
   content: unknown,
   messageIndex: number,
   cache: ImageAssetCache,
-  knownLabels: KnownImageLabels,
 ): TranscriptImageAttachment[] {
   if (!Array.isArray(content)) return [];
   const images: TranscriptImageAttachment[] = [];
@@ -193,12 +219,11 @@ function extractMessageImages(
     const data = typeof part.data === "string" ? part.data : "";
     const asset = cache.store(mimeType, data);
     const assetId = asset?.id ?? unavailableImageAssetId(`${messageIndex}:${partIndex}:${mimeType}:${data.slice(0, 10_000)}`);
-    const known = asset ? knownLabels.get(asset.id)?.shift() : undefined;
-    const fullLabel = known?.fullLabel ?? `Image ${images.length + 1}`;
+    const fullLabel = `Image ${images.length + 1}`;
     images.push({
       type: "image",
       assetId,
-      label: known?.label ?? shortTranscriptLabel(fullLabel),
+      label: shortTranscriptLabel(fullLabel),
       fullLabel,
       ...(asset
         ? { mimeType: asset.mimeType, width: asset.width, height: asset.height }
