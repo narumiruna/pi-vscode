@@ -127,6 +127,7 @@ test("transcript images, context chips, compact composer, and in-flow tools use 
   assert.match(html, /card\.className = 'attachment-image'/);
   assert.match(html, /renderComposerImage\(preview, attachment\)/);
   assert.match(html, /button\.composer-image \{[^}]*height: 72px/);
+  assert.match(html, /button\.composer-image:focus-visible, button\.attachment-remove:focus-visible \{[^}]*box-shadow: inset 0 0 0 2px var\(--vscode-focusBorder\)/);
   assert.match(html, /attachment\.fullLabel/);
   assert.match(html, /context\.textContent = attachment\.label/);
   assert.match(html, /context\.title = attachment\.fullLabel/);

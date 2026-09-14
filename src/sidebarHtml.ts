@@ -143,6 +143,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .composer-image-label { display: block; min-width: 0; padding: 5px 7px 6px; overflow: hidden; color: var(--vscode-descriptionForeground); font-size: .76em; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
     button.attachment-remove { position: absolute; top: 5px; right: 5px; width: 21px; min-height: 21px; padding: 0; border: 1px solid rgba(255, 255, 255, .35); border-radius: 50%; color: #fff; background: rgba(0, 0, 0, .66); font-size: 15px; line-height: 1; }
     button.attachment-remove:hover:not(:disabled) { background: rgba(0, 0, 0, .86); }
+    button.composer-image:focus-visible, button.attachment-remove:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--vscode-focusBorder); }
     #composer { min-width: 0; padding-top: 10px; }
     .composer-box { background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--pi-border)); border-radius: 10px; }
     .composer-box:focus-within { border-color: var(--vscode-focusBorder); }
