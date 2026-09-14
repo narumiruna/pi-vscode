@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { consumedUnpinnedIds, contextMetadata, contextWarnings, inspectContext } from "../contextInspector";
+import { ImageAssetCache } from "../imageAssets";
 import { installVscodeMock, MockUri } from "./vscodeMock";
+
+function freshSidebarAttachments(): typeof import("../sidebarAttachments") {
+  for (const modulePath of ["../sidebarAttachments", "../sidebarHelpers", "../workflowUi"]) delete require.cache[require.resolve(modulePath)];
+  return require("../sidebarAttachments") as typeof import("../sidebarAttachments");
+}
 
 test("context estimates disclose multilingual bytes, image unknowns, malformed metadata and truncation", () => {
   const content = "漢字🙂";
@@ -19,14 +25,42 @@ test("context estimates disclose multilingual bytes, image unknowns, malformed m
   assert.deepEqual(consumedUnpinnedIds([{ ...item, metadata: { ...item.metadata, pinned: true } }, { id: "newer", label: "new" }], ["snapshot", "old"]), []);
 });
 
+test("submission snapshots bind descriptors to accepted items while rejection, cancellation, retry, and startup races preserve the right draft", async () => {
+  const vscode = installVscodeMock();
+  const { SidebarAttachmentManager } = freshSidebarAttachments();
+  const makeManager = () => new SidebarAttachmentManager({ maxAttachments: 8, maxImageAttachments: 5, maxImageBytes: 5 * 1024 * 1024, maxAttachedCharacters: 100, maxTotalContextCharacters: 200, imageAssets: new ImageAssetCache({ maxImageBytes: 5 * 1024 * 1024, maxTotalBytes: 25 * 1024 * 1024, maxAssets: 100 }), onChange: () => {}, onNotice: () => {} });
+  const manager = makeManager();
+  try {
+    vscode.window.activeTextEditor = { document: { uri: MockUri.file("/tmp/first.ts"), version: 1, getText: () => "first" } };
+    await manager.attachCurrentFile();
+    const rejected = manager.captureSubmission();
+    assert.equal(rejected.transcriptAttachments[0]?.type, "context");
+    assert.equal(manager.values.length, 1, "rejected or cancelled submissions do not consume the captured draft");
+
+    vscode.window.activeTextEditor = { document: { uri: MockUri.file("/tmp/second.ts"), version: 1, getText: () => "second" } };
+    await manager.attachCurrentFile();
+    const image = Buffer.alloc(11); image.write("GIF89a", 0, "ascii"); image.writeUInt16LE(2, 6); image.writeUInt16LE(3, 8);
+    manager.attachPastedImage({ type: "pasteImage", data: image.toString("base64"), mimeType: "image/gif", fileName: "startup.gif" });
+    rejected.consumeAccepted();
+    assert.deepEqual(manager.values.map(item => item.label), ["second.ts", "Pasted image: startup.gif"], "acceptance consumes only IDs captured before startup");
+    assert.equal(rejected.transcriptAttachments[0]?.fullLabel, "first.ts", "the accepted turn and retry retain their original descriptor snapshot");
+
+    const cancelled = manager.captureSubmission();
+    assert.equal(manager.values.length, 2);
+    assert.equal(cancelled.textContexts[0]?.content, "second");
+    assert.deepEqual(cancelled.transcriptAttachments.map(item => item.type), ["context", "image"]);
+    assert.doesNotMatch(JSON.stringify(cancelled.transcriptAttachments), /data|R0lGOD/);
+  } finally { manager.dispose(); vscode.restore(); }
+});
+
 test("attachment snapshots retain pins, survive failed sends, consume only old revisions and send redacted text", async () => {
   const vscode = installVscodeMock();
-  const { SidebarAttachmentManager } = require("../sidebarAttachments") as typeof import("../sidebarAttachments");
+  const { SidebarAttachmentManager } = freshSidebarAttachments();
   let text = "token=originalsecret";
   vscode.window.activeTextEditor = { document: { uri: MockUri.file("/tmp/context.ts"), version: 1, getText: () => text } };
   vscode.workspace.openTextDocument = async (input: unknown) => ({ getText: () => "redacted", input });
   vscode.window.showTextDocument = async () => undefined;
-  const manager = new SidebarAttachmentManager({ maxAttachments: 8, maxImageAttachments: 5, maxImageBytes: 5 * 1024 * 1024, maxAttachedCharacters: 20, maxTotalContextCharacters: 40, onChange: () => {}, onNotice: () => {} });
+  const manager = new SidebarAttachmentManager({ maxAttachments: 8, maxImageAttachments: 5, maxImageBytes: 5 * 1024 * 1024, maxAttachedCharacters: 20, maxTotalContextCharacters: 40, imageAssets: new ImageAssetCache({ maxImageBytes: 5 * 1024 * 1024, maxTotalBytes: 25 * 1024 * 1024, maxAssets: 100 }), onChange: () => {}, onNotice: () => {} });
   try {
     await manager.attachCurrentFile();
     const original = manager.values[0]!;

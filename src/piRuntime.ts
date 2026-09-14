@@ -15,6 +15,48 @@ import {
 
 const sessionPathKey = "piCodingAgent.rpc.sessionPath.v1";
 
+export class SessionTrashUnavailableError extends Error {
+  public constructor(public readonly sessionFile: string, options?: ErrorOptions) {
+    super("This file provider cannot move the conversation to Trash.", options);
+    this.name = "SessionTrashUnavailableError";
+  }
+}
+
+export function isTrashUnavailableError(error: unknown): boolean {
+  const code = isRecord(error) && typeof error.code === "string" ? error.code.toLowerCase() : "";
+  const message = (isRecord(error) && typeof error.message === "string" ? error.message : formatError(error)).toLowerCase();
+  return code === "notsupported" || code === "not_supported" ||
+    /trash.{0,80}(?:unavailable|unsupported|not supported|not implemented)/.test(message) ||
+    /(?:provider|filesystem).{0,40}(?:does not support|unsupported).{0,40}trash/.test(message);
+}
+
+export type DeleteConversationOutcome =
+  | { readonly status: "deleted"; readonly permanently: boolean }
+  | { readonly status: "kept" }
+  | { readonly status: "failed"; readonly error: unknown; readonly permanently: boolean };
+
+export async function deleteConversationWithTrashFallback(actions: {
+  readonly moveToTrash: () => Promise<void>;
+  readonly confirmPermanent: (error: SessionTrashUnavailableError) => Promise<boolean>;
+  readonly deletePermanently: (error: SessionTrashUnavailableError) => Promise<void>;
+}): Promise<DeleteConversationOutcome> {
+  let trashUnavailable: SessionTrashUnavailableError;
+  try {
+    await actions.moveToTrash();
+    return { status: "deleted", permanently: false };
+  } catch (error) {
+    if (!(error instanceof SessionTrashUnavailableError)) return { status: "failed", error, permanently: false };
+    trashUnavailable = error;
+  }
+  if (!await actions.confirmPermanent(trashUnavailable)) return { status: "kept" };
+  try {
+    await actions.deletePermanently(trashUnavailable);
+    return { status: "deleted", permanently: true };
+  } catch (error) {
+    return { status: "failed", error, permanently: true };
+  }
+}
+
 export interface PiRuntimeState {
   readonly connected: boolean;
   readonly busy: boolean;
@@ -30,6 +72,16 @@ export interface PiRuntimeState {
   readonly queue?: PiRpcQueue;
   readonly queueable?: boolean;
   readonly recoveredDrafts?: readonly { id: string; text: string; uncertain: boolean }[];
+}
+
+export function runtimeSessionIdentityChanged(
+  before: Pick<PiRuntimeState, "sessionFile" | "sessionId">,
+  after: Pick<PiRuntimeState, "sessionFile" | "sessionId">,
+): boolean {
+  return Boolean(
+    (before.sessionFile && after.sessionFile && before.sessionFile !== after.sessionFile) ||
+    (before.sessionId && after.sessionId && before.sessionId !== after.sessionId)
+  );
 }
 
 export class PiRuntimeManager implements vscode.Disposable {
@@ -219,26 +271,64 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   public async deleteSession(): Promise<void> {
+    await this.deleteSessionFile(true);
+  }
+
+  public async deleteSessionPermanently(sessionFile: string): Promise<void> {
     return this.owned(async () => {
-    await this.ensureStarted(this.resource);
-    if (this.state.busy) {
-      throw new Error("Cancel or wait for the active request before deleting the conversation.");
-    }
-    const sessionFile = this.state.sessionFile;
-    await this.stopClient();
-    if (sessionFile) {
+      if (this.state.busy) throw new Error("Cancel or wait for the active request before deleting the conversation.");
+      await assertSessionWorkspace(sessionFile, this.currentCwd);
+      if (this.state.sessionFile !== sessionFile) {
+        await vscode.workspace.fs.delete(vscode.Uri.file(sessionFile), { useTrash: false });
+        return;
+      }
+      if (this.state.connected) await this.stopClient();
       try {
-        await vscode.workspace.fs.delete(vscode.Uri.file(sessionFile), { useTrash: true });
+        await vscode.workspace.fs.delete(vscode.Uri.file(sessionFile), { useTrash: false });
       } catch (error) {
         await this.ensureStarted(this.resource).catch(() => undefined);
         throw error;
       }
+      await this.finishDeletedSession();
+    });
+  }
+
+  private async deleteSessionFile(useTrash: boolean): Promise<void> {
+    return this.owned(async () => {
+      await this.ensureStarted(this.resource);
+      if (this.state.busy) throw new Error("Cancel or wait for the active request before deleting the conversation.");
+      const sessionFile = this.state.sessionFile;
+      await this.stopClient();
+      if (sessionFile) {
+        try {
+          await vscode.workspace.fs.delete(vscode.Uri.file(sessionFile), { useTrash });
+        } catch (error) {
+          const failure = useTrash && isTrashUnavailableError(error)
+            ? new SessionTrashUnavailableError(sessionFile, { cause: error })
+            : error;
+          await this.ensureStarted(this.resource).catch(() => undefined);
+          throw failure;
+        }
+      }
+      await this.finishDeletedSession();
+    });
+  }
+
+  private async finishDeletedSession(): Promise<void> {
+    const warnings: string[] = [];
+    try {
+      await this.context.workspaceState.update(sessionPathKey, undefined);
+    } catch (error) {
+      warnings.push(`Session storage cleanup failed: ${formatError(error)}`);
     }
-    await this.context.workspaceState.update(sessionPathKey, undefined);
     this.state = emptyState();
     this.stateEmitter.fire(this.state);
-    await this.ensureStarted(this.resource);
-    });
+    try {
+      await this.ensureStarted(this.resource);
+    } catch (error) {
+      warnings.push(`A replacement Pi session could not start: ${formatError(error)}`);
+    }
+    if (warnings.length) this.eventEmitter.fire({ type: "runtime_warning", message: `The conversation was deleted. ${warnings.join(" ")}` });
   }
 
   public async setSessionName(name: string): Promise<void> {
