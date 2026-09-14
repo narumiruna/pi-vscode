@@ -40,6 +40,30 @@ test("Pi history conversion preserves observed text-plus-image user content and 
   } finally { vscode.restore(); }
 });
 
+test("history synchronization preserves labels for each repeated image occurrence", () => {
+  const vscode = installVscodeMock();
+  try {
+    const { convertPiMessages } = require("../sidebarHelpers") as typeof import("../sidebarHelpers");
+    const cache = imageCache();
+    const data = gif(6, 7).toString("base64");
+    const history = [
+      { role: "user", timestamp: 1, content: [{ type: "text", text: "first" }, { type: "image", mimeType: "image/gif", data }] },
+      { role: "assistant", timestamp: 2, content: [{ type: "text", text: "reply" }] },
+      { role: "user", timestamp: 3, content: [{ type: "text", text: "second" }, { type: "image", mimeType: "image/gif", data }] },
+    ];
+    const initial = convertPiMessages(history, { imageAssets: cache });
+    const known = initial.map((message, messageIndex) => ({
+      ...message,
+      attachments: message.attachments?.map(attachment => attachment.type === "image"
+        ? { ...attachment, label: messageIndex === 0 ? "first.gif" : "second.gif", fullLabel: messageIndex === 0 ? "one/first.gif" : "two/second.gif" }
+        : attachment),
+    }));
+    const refreshed = convertPiMessages(history, { imageAssets: cache, knownMessages: known });
+    const labels = refreshed.flatMap(message => message.attachments ?? []).filter(attachment => attachment.type === "image").map(attachment => attachment.fullLabel);
+    assert.deepEqual(labels, ["one/first.gif", "two/second.gif"]);
+  } finally { vscode.restore(); }
+});
+
 test("Pi history conversion deduplicates image payloads and preserves bounded unavailable placeholders", () => {
   const vscode = installVscodeMock();
   try {

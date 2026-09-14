@@ -129,7 +129,7 @@ test("transcript images, context chips, compact composer, and in-flow tools use 
   assert.match(html, /textarea \{[^}]*height: 42px; min-height: 42px/);
   assert.match(html, /\.content code \{[^}]*font-size: \.95em/);
   assert.match(html, /heightDelta = conversationElement\.scrollHeight - beforeHeight/);
-  assert.match(html, /wasNearBottom \? conversationElement\.scrollHeight : beforeTop \+ Math\.max\(0, heightDelta\)/);
+  assert.match(html, /wasBelowViewport \? beforeTop : beforeTop \+ Math\.max\(0, heightDelta\)/);
   assert.match(html, /@media \(max-width: 340px\)/);
   assert.doesNotMatch(html, /context\.innerHTML|label\.innerHTML|image\.innerHTML/);
 });
@@ -193,6 +193,7 @@ class SidebarTestElement {
   scrollHeight = 100;
   scrollTop = 0;
   clientHeight = 100;
+  rect = { top: 0, bottom: 100 };
   focusCount = 0;
   listeners = new Map<string, (event?: any) => void>();
 
@@ -204,6 +205,7 @@ class SidebarTestElement {
   closest(): SidebarTestElement { return this; }
   setAttribute(name: string, value: string): void { (this as any)[name] = value; }
   removeAttribute(name: string): void { (this as any)[name] = ""; }
+  getBoundingClientRect(): { top: number; bottom: number } { return this.rect; }
   addEventListener(type: string, listener: (event?: any) => void): void { this.listeners.set(type, listener); }
   focus(): void { this.focusCount += 1; }
   showModal(): void { this.open = true; }
@@ -288,7 +290,7 @@ test("transcript image assets render without HTML injection and preview restores
   const contextChip = sidebar.run("messagesElement.children[0].children[2].children[0]") as SidebarTestElement;
   assert.equal(contextChip.textContent, "…/feature.ts:1-3");
   assert.equal(contextChip.title, "src/deep/feature.ts:1-3");
-  const trigger = sidebar.run(`imageTargets.get(${JSON.stringify(id)})[0].button`) as SidebarTestElement;
+  let trigger = sidebar.run(`imageTargets.get(${JSON.stringify(id)})[0].button`) as SidebarTestElement;
   assert.match(trigger.children[0]!.textContent, /Loading image/);
 
   sidebar.receive({ type: "imageAsset", id, mimeType: "image/gif", data, byteLength: bytes.length, width: 3, height: 2 });
@@ -304,10 +306,14 @@ test("transcript image assets render without HTML injection and preview restores
   assert.equal(trigger.focusCount, 1);
 
   click({ target: trigger });
+  sidebar.receive({ type: "state", status: "Pi is working…", runtime: { busy: true, cancellable: true, connected: true }, messages: [{ role: "user", html: "<p>See this</p>", attachments: [image] }] });
+  const detachedTrigger = trigger;
+  trigger = sidebar.run(`imageTargets.get(${JSON.stringify(id)})[0].button`) as SidebarTestElement;
   let prevented = false;
   sidebar.element("image-preview").listeners.get("cancel")!({ preventDefault: () => { prevented = true; } });
   assert.equal(prevented, true);
-  assert.equal(trigger.focusCount, 2);
+  assert.equal(detachedTrigger.focusCount, 1, "the detached trigger is not focused again");
+  assert.equal(trigger.focusCount, 1, "focus returns to the rerendered visible thumbnail");
 
   for (let marker = 1; marker <= 100; marker += 1) {
     const other = Buffer.from(bytes); other[10] = marker;
@@ -321,6 +327,29 @@ test("transcript image assets render without HTML injection and preview restores
   const unavailable = sidebar.run(`imageTargets.get(${JSON.stringify(`unavailable-${"a".repeat(64)}`)})[0].button`) as SidebarTestElement;
   assert.equal(unavailable.disabled, true);
   assert.match(unavailable.children[0]!.textContent, /unavailable/i);
+});
+
+test("image decode keeps scroll position when the thumbnail is below the viewport", () => {
+  const sidebar = createSidebarScriptHarness();
+  const bytes = Buffer.alloc(11);
+  bytes.write("GIF89a", 0, "ascii"); bytes.writeUInt16LE(3, 6); bytes.writeUInt16LE(2, 8);
+  const data = bytes.toString("base64");
+  const id = imageAssetId(bytes);
+  const image = { type: "image", assetId: id, label: "below.gif", fullLabel: "below.gif", mimeType: "image/gif", width: 3, height: 2, availability: "available" };
+  sidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, cancellable: false, connected: true }, messages: [{ role: "user", html: "<p>Below</p>", attachments: [image] }] });
+  const conversation = sidebar.element("conversation");
+  conversation.scrollHeight = 300;
+  conversation.scrollTop = 50;
+  conversation.clientHeight = 100;
+  conversation.rect = { top: 0, bottom: 100 };
+  const trigger = sidebar.run(`imageTargets.get(${JSON.stringify(id)})[0].button`) as SidebarTestElement;
+  trigger.rect = { top: 120, bottom: 190 };
+
+  sidebar.receive({ type: "imageAsset", id, mimeType: "image/gif", data, byteLength: bytes.length, width: 3, height: 2 });
+  const loadedImage = trigger.children[0]!;
+  conversation.scrollHeight = 360;
+  loadedImage.listeners.get("load")!();
+  assert.equal(conversation.scrollTop, 50);
 });
 
 test("busy, settling, cancellation, failure, and reconnection states expose one status and every cancellable state exposes Stop", () => {
