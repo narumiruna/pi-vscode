@@ -43,11 +43,12 @@ test("sidebar composer forwards pasted clipboard images with client-side bounds"
   assert.match(html, /current model does not support image attachments/i);
 });
 
-test("sidebar places model and thinking controls before Send and exposes recovery and proposal actions", () => {
+test("sidebar places model and thinking controls before Send and exposes recovery without queue buttons", () => {
   const html = getSidebarHtml(100_000, 5 * 1024 * 1024);
 
   assert.match(html, /<div class="composer-actions">[\s\S]*id="model-picker"[\s\S]*id="thinking-level"[\s\S]*id="send"/);
   assert.match(html, /id="thinking-level"[^>]*aria-label="Pi thinking level"/);
+  assert.doesNotMatch(html, /id="steer"|id="follow-up"|id="inspect-queue"|id="clear-queue"/);
   assert.doesNotMatch(html, /id="mode"|id="handoff-agent"|type: 'setMode'|type: 'handoffAgent'/);
   assert.match(html, /renderThinkingLevel\(state\.runtime\)/);
   assert.match(html, /type: 'setThinking', level: thinkingLevel\.value/);
@@ -84,7 +85,13 @@ test("sidebar places model and thinking controls before Send and exposes recover
 
 test("sidebar preserves hidden semantics, themed layout, and keyboard accessibility", () => {
   const html = getSidebarHtml(42, 1024);
+  const composerPosition = html.indexOf('id="composer"');
+  const noticePosition = html.indexOf('id="notice"');
+  const runtimePosition = html.indexOf('id="runtime"');
 
+  assert.ok(composerPosition < noticePosition && noticePosition < runtimePosition, "runtime status belongs below the composer and notices");
+  assert.match(html, /grid-template-rows: auto minmax\(0, 1fr\) auto auto auto auto/);
+  assert.match(html, /#runtime \{[^}]*border-top: 1px solid var\(--pi-border\)/);
   assert.match(html, /\[hidden\] \{ display: none !important; \}/);
   assert.match(html, /id="activity"[^>]*hidden/);
   assert.match(html, /activity'\)\.hidden = !\[state\.proposals, state\.tools, state\.changes, state\.backgroundTasks\]/);
@@ -384,13 +391,15 @@ test("isolated background sessions offer Open Worktree instead of an unusable Re
   assert.equal(actions({ status: "running" }).includes("resumeBackground"), false);
 });
 
-test("queue and accepted-send messages preserve newer drafts and never create transcript copies", () => {
+test("keyboard queue and accepted-send messages preserve newer drafts and never create transcript copies", () => {
   const sidebar = createSidebarScriptHarness();
   const input = sidebar.element("input");
   const change = input.listeners.get("input")!;
+  const keydown = input.listeners.get("keydown")!;
+  const pressEnter = () => keydown({ key: "Enter", shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, isComposing: false, preventDefault() {} });
   sidebar.run("busy = true; connected = true; queueable = true; updateSendState()");
   input.value = "steer text"; change();
-  sidebar.element("steer").listeners.get("click")!();
+  pressEnter();
   const queued = sidebar.posted.at(-1);
   assert.equal(queued.type, "queueInstruction"); assert.equal(queued.kind, "steer");
   assert.equal(queued.text, "steer text"); assert.equal(queued.revision, 1);
@@ -404,9 +413,9 @@ test("queue and accepted-send messages preserve newer drafts and never create tr
   assert.equal(input.value, "new draft\n\nrecovered");
   sidebar.receive({ type: "clearInput", expectedText: input.value, expectedRevision: 3 });
   assert.equal(input.value, "");
-  sidebar.run("queueable = false; updateSendState()");
+  sidebar.run("queueable = false; submissionPending = false; updateSendState()");
   input.value = "callback continuation"; change();
   const count = sidebar.posted.length;
-  sidebar.element("follow-up").listeners.get("click")!();
+  pressEnter();
   assert.equal(sidebar.posted.length, count);
 });
