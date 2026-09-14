@@ -63,6 +63,10 @@ export function isWebviewMessage(value: unknown, maxImageBytes: number): value i
   ].includes(value.type);
 }
 
+export function shouldPostActionErrorNotice(action: WebviewMessage["type"], initialRevision: number, currentRevision: number): boolean {
+  return action === "queueInstruction" || initialRevision === currentRevision;
+}
+
 export function restoreMessages(value: unknown, maxMessages: number, maxCharacters: number): SidebarMessage[] {
   return restoreSidebarMessages(value, maxMessages, maxCharacters);
 }
@@ -87,11 +91,20 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
   }
   retainedEntries.reverse();
 
+  const imageAttachmentsByIndex = new Map<number, TranscriptImageAttachment[]>();
+  const imageWorkBudget = { remainingBytes: options.imageAssets.maxTotalBytes };
+  for (let entryIndex = retainedEntries.length - 1; entryIndex >= 0; entryIndex -= 1) {
+    const { index, value } = retainedEntries[entryIndex]!;
+    if (value.role === "user") {
+      imageAttachmentsByIndex.set(index, extractMessageImages(value.content, index, options.imageAssets, imageWorkBudget));
+    }
+  }
+
   const messages: SidebarMessage[] = [];
   for (const { index, value } of retainedEntries) {
     const text = extractMessageText(value.content);
     if (value.role === "user") {
-      const imageAttachments = extractMessageImages(value.content, index, options.imageAssets);
+      const imageAttachments = imageAttachmentsByIndex.get(index) ?? [];
       if (!text && imageAttachments.length === 0) continue;
       const parsed = parseAgentPrompt(text, maxTranscriptAttachments - imageAttachments.length);
       const attachments: TranscriptAttachment[] = [
@@ -232,6 +245,7 @@ function extractMessageImages(
   content: unknown,
   messageIndex: number,
   cache: ImageAssetCache,
+  workBudget: { remainingBytes: number },
 ): TranscriptImageAttachment[] {
   if (!Array.isArray(content)) return [];
   const images: TranscriptImageAttachment[] = [];
@@ -240,7 +254,10 @@ function extractMessageImages(
     if (!isRecord(part) || part.type !== "image") continue;
     const mimeType = typeof part.mimeType === "string" ? part.mimeType.toLowerCase() : "";
     const data = typeof part.data === "string" ? part.data : "";
-    const asset = cache.store(mimeType, data);
+    const estimatedBytes = estimatedBase64Bytes(data);
+    const canProcess = estimatedBytes <= workBudget.remainingBytes;
+    if (canProcess) workBudget.remainingBytes -= estimatedBytes;
+    const asset = canProcess ? cache.store(mimeType, data) : undefined;
     const assetId = asset?.id ?? unavailableImageAssetId(`${messageIndex}:${partIndex}:${mimeType}:${data.slice(0, 10_000)}`);
     const fullLabel = `Image ${images.length + 1}`;
     images.push({
@@ -255,4 +272,11 @@ function extractMessageImages(
     });
   }
   return images;
+}
+
+function estimatedBase64Bytes(data: string): number {
+  if (!data) return 0;
+  if (data.length % 4 !== 0) return Math.ceil(data.length * 3 / 4);
+  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+  return Math.max(0, data.length / 4 * 3 - padding);
 }

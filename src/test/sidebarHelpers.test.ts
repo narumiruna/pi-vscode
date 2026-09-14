@@ -15,6 +15,16 @@ function imageCache(maxTotalBytes = 1024): ImageAssetCache {
   return new ImageAssetCache({ maxImageBytes: 100, maxTotalBytes, maxAssets: 10 });
 }
 
+test("action error notices preserve queued delivery uncertainty after nested warnings", () => {
+  const vscode = installVscodeMock();
+  try {
+    const { shouldPostActionErrorNotice } = require("../sidebarHelpers") as typeof import("../sidebarHelpers");
+    assert.equal(shouldPostActionErrorNotice("send", 1, 2), false);
+    assert.equal(shouldPostActionErrorNotice("send", 2, 2), true);
+    assert.equal(shouldPostActionErrorNotice("queueInstruction", 1, 2), true);
+  } finally { vscode.restore(); }
+});
+
 test("Pi history conversion preserves observed text-plus-image user content and merges local labels by stable asset ID", () => {
   const vscode = installVscodeMock();
   try {
@@ -111,6 +121,32 @@ test("history conversion bounds the retained suffix before decoding image payloa
     assert.equal(cache.has(imageAssetId(images[1]!)), false, "only the retained suffix reaches image extraction");
     assert.equal(cache.has(imageAssetId(images[2]!)), true);
     assert.equal(cache.has(imageAssetId(images[3]!)), true);
+  } finally { vscode.restore(); }
+});
+
+test("history conversion caps aggregate image processing and prioritizes the newest messages", () => {
+  const vscode = installVscodeMock();
+  try {
+    const { convertPiMessages } = require("../sidebarHelpers") as typeof import("../sidebarHelpers");
+    class TrackingImageCache extends ImageAssetCache {
+      public readonly processedMarkers: number[] = [];
+      public override store(mimeType: string, data: string) {
+        this.processedMarkers.push(Buffer.from(data, "base64")[10] ?? -1);
+        return super.store(mimeType, data);
+      }
+    }
+    const cache = new TrackingImageCache({ maxImageBytes: 100, maxTotalBytes: 22, maxAssets: 10 });
+    const history = [1, 2, 3, 4].map(marker => ({
+      role: "user",
+      content: [{ type: "image", mimeType: "image/gif", data: gif(marker, marker, marker).toString("base64") }],
+    }));
+    const converted = convertPiMessages(history, { imageAssets: cache, maxMessages: 100 });
+
+    assert.deepEqual(cache.processedMarkers, [4, 3], "the 22-byte budget admits only two 11-byte images, newest first");
+    assert.deepEqual(converted.map(message => {
+      const attachment = message.attachments?.[0];
+      return attachment?.type === "image" ? attachment.availability : undefined;
+    }), ["unavailable", "unavailable", "available", "available"]);
   } finally { vscode.restore(); }
 });
 

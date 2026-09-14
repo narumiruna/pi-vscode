@@ -74,6 +74,16 @@ export interface PiRuntimeState {
   readonly recoveredDrafts?: readonly { id: string; text: string; uncertain: boolean }[];
 }
 
+export function runtimeSessionIdentityChanged(
+  before: Pick<PiRuntimeState, "sessionFile" | "sessionId">,
+  after: Pick<PiRuntimeState, "sessionFile" | "sessionId">,
+): boolean {
+  return Boolean(
+    (before.sessionFile && after.sessionFile && before.sessionFile !== after.sessionFile) ||
+    (before.sessionId && after.sessionId && before.sessionId !== after.sessionId)
+  );
+}
+
 export class PiRuntimeManager implements vscode.Disposable {
   private readonly eventEmitter = new vscode.EventEmitter<PiRpcEvent>();
   private readonly stateEmitter = new vscode.EventEmitter<PiRuntimeState>();
