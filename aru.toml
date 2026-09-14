@@ -1,9 +1,0 @@
-[project]
-targets = ["pi"]
-
-[instructions]
-
-[skills]
-"narumiruna/skills" = { include = ["creating-agent-skills"], exclude = [] }
-
-[mcp]
