@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Show composer image attachments as compact, labeled thumbnail cards with preview and remove actions.
 - Keep submitted context chips and validated image thumbnails on their user turn across history refresh and session restore, with labeled unavailable placeholders when image bytes cannot be recovered.
 - Add bounded one-shot transcript image delivery, newest-first aggregate history processing limits, browser-rejection memory, responsive thumbnail grids, and a keyboard-accessible modal preview without persisting Base64 image payloads.
 - Place foreground tool activity after its response in the conversation scroller, compact the empty composer, normalize inline-code sizing, preserve scroll position as images decode, and consolidate cancellable/status/error UI.

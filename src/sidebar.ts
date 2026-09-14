@@ -1203,6 +1203,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   private postState(): void {
     const requestBusy = this.isForegroundRequestActive();
     const estimate = this.attachments.estimate;
+    const attachmentSummaries = this.attachments.summaries;
     const messages = sidebarMessagesForWebview(
       this.messages,
       assetId => this.imageAssets.has(assetId) || this.imageAssetDelivery.has(assetId),
@@ -1215,7 +1216,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       proposals: this.proposals.states,
       backgroundTasks: this.backgroundAgents.states,
       status: this.status,
-      attachments: this.attachments.summaries,
+      attachments: attachmentSummaries,
       attachmentEstimate: { characters: estimate.characters, bytes: estimate.bytes, estimatedTextTokens: estimate.estimatedTextTokens, imageUsage: estimate.imageUsage },
       imageSupported: modelSupportsImages(this.runtime.currentState.model),
       retryAvailable: Boolean(this.retryRequest) && !requestBusy,
@@ -1223,13 +1224,16 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       backgroundSubmissionPending: this.backgroundSubmissionGate.isPending,
       runtime: { ...this.runtime.currentState, busy: requestBusy, cancellable: this.foregroundCancellable },
     });
-    this.deliverReferencedImageAssets(messages);
+    this.deliverReferencedImageAssets(messages, attachmentSummaries.flatMap(attachment => attachment.assetId ? [attachment.assetId] : []));
   }
 
-  private deliverReferencedImageAssets(messages: readonly SidebarMessage[]): void {
+  private deliverReferencedImageAssets(messages: readonly SidebarMessage[], composerAssetIds: readonly string[] = []): void {
     const webview = this.view?.webview;
     if (!webview) return;
-    const referenced = new Set(messages.flatMap(message => (message.attachments ?? []).flatMap(attachment => attachment.type === "image" ? [attachment.assetId] : [])));
+    const referenced = new Set([
+      ...messages.flatMap(message => (message.attachments ?? []).flatMap(attachment => attachment.type === "image" ? [attachment.assetId] : [])),
+      ...composerAssetIds,
+    ]);
     for (const asset of this.imageAssetDelivery.pending(referenced, this.imageAssets)) {
       void webview.postMessage({
         type: "imageAsset",
