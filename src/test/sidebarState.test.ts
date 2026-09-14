@@ -37,12 +37,18 @@ test("limitSidebarMessages handles disabled limits", () => {
 });
 
 test("restore accepts legacy text-only records and converts the legacy context label", () => {
-  assert.deepEqual(restoreSidebarMessages([{ id: "legacy", role: "user", content: "hello", contextLabel: "src/legacy.ts:1-2" }], 10, 100), [{
-    id: "legacy",
-    role: "user",
+  const expected = {
+    role: "user" as const,
     content: "hello",
-    attachments: [{ type: "context", label: "src/legacy.ts:1-2", fullLabel: "src/legacy.ts:1-2" }],
-  }]);
+    attachments: [{ type: "context" as const, label: "src/legacy.ts:1-2", fullLabel: "src/legacy.ts:1-2" }],
+  };
+  assert.deepEqual(restoreSidebarMessages([
+    { id: "legacy", role: "user", content: "hello", contextLabel: "src/legacy.ts:1-2" },
+    { id: "malformed", role: "user", content: "hello", contextLabel: "src/legacy.ts:1-2", attachments: "invalid" },
+  ], 10, 100), [
+    { id: "legacy", ...expected },
+    { id: "malformed", ...expected },
+  ]);
 });
 
 test("restore rejects malformed transcript metadata, bounds descriptors, and never restores payload bytes", () => {
@@ -71,13 +77,22 @@ test("restore caps transcript descriptor and image counts", () => {
   assert.equal(restored[0]?.attachments?.length, 8);
 });
 
-test("transcript labels are single-line and bounded for narrow layouts", () => {
-  const label = `folder/${"nested/".repeat(20)}file.ts:100-200`;
+test("transcript labels are single-line and preserve long path suffixes within bounds", () => {
+  const label = `folder/${"nested/".repeat(80)}file.ts:100-200`;
   const short = shortTranscriptLabel(label);
   assert.equal(short.length, 80);
   assert.match(short, /^…/);
   assert.match(short, /file\.ts:100-200$/);
   assert.equal(shortTranscriptLabel("line\nname"), "line name");
+
+  const restored = restoreSidebarMessages([{ id: "legacy", role: "user", content: "hello", contextLabel: label }], 10, 100);
+  const context = restored[0]?.attachments?.[0];
+  assert.equal(context?.type, "context");
+  if (context?.type !== "context") assert.fail("expected a restored context attachment");
+  assert.equal(context.fullLabel.length, 500);
+  assert.match(context.fullLabel, /^folder\//);
+  assert.match(context.fullLabel, /file\.ts:100-200$/);
+  assert.match(context.label, /file\.ts:100-200$/);
 });
 
 test("history synchronization failures expose the available recovery path", () => {

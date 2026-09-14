@@ -240,7 +240,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     const maxImageAssetCacheBytes = 25 * 1024 * 1024;
     const maxImageAssets = 100;
     let imageAssetCacheBytes = 0;
-    let previewTrigger;
+    let previewAssetId;
+    let previewTargetIndex = 0;
     let busy = false;
     let cancellable = false;
     let queueable = false;
@@ -351,6 +352,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           content.className = 'content';
           content.innerHTML = message.html || (message.role === 'assistant' ? '…' : '');
           wrapper.append(role, content);
+          messagesElement.appendChild(wrapper);
           const attachments = Array.isArray(message.attachments) ? message.attachments : [];
           const contexts = attachments.filter(attachment => attachment.type === 'context');
           if (contexts.length) {
@@ -371,6 +373,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
             const imageGrid = document.createElement('div');
             imageGrid.className = 'transcript-images';
             imageGrid.setAttribute('aria-label', 'Images used for this message');
+            wrapper.appendChild(imageGrid);
             for (const attachment of images) {
               const button = document.createElement('button');
               button.className = 'secondary transcript-image';
@@ -379,10 +382,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
               const targets = imageTargets.get(attachment.assetId) || [];
               targets.push({ button, attachment });
               imageTargets.set(attachment.assetId, targets);
-              renderTranscriptImage(button, attachment);
               imageGrid.appendChild(button);
+              renderTranscriptImage(button, attachment);
             }
-            wrapper.appendChild(imageGrid);
           }
           if (message.truncated) {
             const truncated = document.createElement('div');
@@ -390,7 +392,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
             truncated.textContent = 'Older content not shown';
             wrapper.appendChild(truncated);
           }
-          messagesElement.appendChild(wrapper);
         }
       }
       if (visibleMessages.length === 0) conversationElement.scrollTop = 0;
@@ -407,12 +408,17 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         const beforeHeight = conversationElement.scrollHeight;
         const beforeTop = conversationElement.scrollTop;
         const wasNearBottom = beforeHeight - beforeTop - conversationElement.clientHeight < 80;
+        const thumbnailRect = button.getBoundingClientRect();
+        const viewportRect = conversationElement.getBoundingClientRect();
+        const wasBelowViewport = thumbnailRect.top >= viewportRect.bottom;
         const image = document.createElement('img');
         image.alt = attachment.fullLabel;
         if (attachment.width && attachment.height) { image.width = attachment.width; image.height = attachment.height; }
         image.addEventListener('load', () => {
           const heightDelta = conversationElement.scrollHeight - beforeHeight;
-          conversationElement.scrollTop = wasNearBottom ? conversationElement.scrollHeight : beforeTop + Math.max(0, heightDelta);
+          conversationElement.scrollTop = wasNearBottom
+            ? conversationElement.scrollHeight
+            : wasBelowViewport ? beforeTop : beforeTop + Math.max(0, heightDelta);
         });
         image.src = cached.url;
         button.appendChild(image);
@@ -779,9 +785,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     }
 
     function openImagePreview(button) {
-      const asset = imageAssetCache.get(button.dataset.previewAsset);
+      const assetId = button.dataset.previewAsset;
+      const asset = imageAssetCache.get(assetId);
       if (!asset) return;
-      previewTrigger = button;
+      previewAssetId = assetId;
+      previewTargetIndex = Math.max(0, (imageTargets.get(assetId) || []).findIndex(target => target.button === button));
       $('preview-label').textContent = button.title;
       $('preview-image').src = asset.url;
       $('preview-image').alt = button.title;
@@ -796,9 +804,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     $('image-preview').addEventListener('close', () => {
       $('preview-image').removeAttribute('src');
       $('preview-image').alt = '';
-      const trigger = previewTrigger;
-      previewTrigger = undefined;
-      trigger?.focus();
+      const trigger = imageTargets.get(previewAssetId)?.[previewTargetIndex]?.button;
+      previewAssetId = undefined;
+      previewTargetIndex = 0;
+      if (trigger && !trigger.disabled) trigger.focus();
+      else input.focus();
     });
     $('image-preview').addEventListener('cancel', event => { event.preventDefault(); closeImagePreview(); });
     $('image-preview').addEventListener('click', event => { if (event.target === $('image-preview')) closeImagePreview(); });

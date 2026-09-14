@@ -47,13 +47,13 @@ export interface SidebarMessage {
 }
 
 export function shortTranscriptLabel(label: string): string {
-  const normalized = label.replace(/[\r\n\t]+/g, " ").trim().slice(0, maxTranscriptLabelCharacters);
+  const normalized = normalizeTranscriptLabel(label);
   if (normalized.length <= maxTranscriptShortLabelCharacters) return normalized;
   return `…${normalized.slice(-(maxTranscriptShortLabelCharacters - 1))}`;
 }
 
 export function contextTranscriptAttachment(fullLabel: string): TranscriptContextAttachment | undefined {
-  const normalized = fullLabel.replace(/[\r\n\t]+/g, " ").trim().slice(0, maxTranscriptLabelCharacters);
+  const normalized = boundedTranscriptLabel(fullLabel, maxTranscriptLabelCharacters);
   if (!normalized) return undefined;
   return { type: "context", label: shortTranscriptLabel(normalized), fullLabel: normalized };
 }
@@ -85,7 +85,7 @@ export function restoreSidebarMessages(value: unknown, maxMessages: number, maxC
     if ((candidate.role !== "user" && candidate.role !== "assistant") || typeof candidate.content !== "string") continue;
     if (candidate.truncated !== undefined && typeof candidate.truncated !== "boolean") continue;
     const attachments = restoreTranscriptAttachments(candidate.attachments);
-    const legacyContext = candidate.attachments === undefined && typeof candidate.contextLabel === "string"
+    const legacyContext = !Array.isArray(candidate.attachments) && typeof candidate.contextLabel === "string"
       ? contextTranscriptAttachment(candidate.contextLabel)
       : undefined;
     const restoredAttachments = attachments.length ? attachments : legacyContext ? [legacyContext] : [];
@@ -166,6 +166,17 @@ function restoreTranscriptAttachments(value: unknown): TranscriptAttachment[] {
     imageCount += 1;
   }
   return restored;
+}
+
+function normalizeTranscriptLabel(label: string): string {
+  return label.replace(/[\r\n\t]+/g, " ").trim();
+}
+
+function boundedTranscriptLabel(label: string, maxCharacters: number): string {
+  const normalized = normalizeTranscriptLabel(label);
+  if (normalized.length <= maxCharacters) return normalized;
+  const prefixLength = Math.floor((maxCharacters - 1) / 2);
+  return `${normalized.slice(0, prefixLength)}…${normalized.slice(-(maxCharacters - prefixLength - 1))}`;
 }
 
 function validLabel(value: unknown, maxCharacters: number): value is string {

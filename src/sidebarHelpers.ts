@@ -163,13 +163,16 @@ function extractMessageText(content: unknown): string {
     .join("\n");
 }
 
-function knownImageLabels(messages: readonly SidebarMessage[]): Map<string, Pick<TranscriptImageAttachment, "label" | "fullLabel">> {
-  const labels = new Map<string, Pick<TranscriptImageAttachment, "label" | "fullLabel">>();
+type KnownImageLabels = Map<string, Array<Pick<TranscriptImageAttachment, "label" | "fullLabel">>>;
+
+function knownImageLabels(messages: readonly SidebarMessage[]): KnownImageLabels {
+  const labels: KnownImageLabels = new Map();
   for (const message of messages) {
     for (const attachment of message.attachments ?? []) {
-      if (attachment.type === "image" && attachment.assetId.startsWith("sha256-")) {
-        labels.set(attachment.assetId, { label: attachment.label, fullLabel: attachment.fullLabel });
-      }
+      if (attachment.type !== "image" || !attachment.assetId.startsWith("sha256-")) continue;
+      const occurrences = labels.get(attachment.assetId) ?? [];
+      occurrences.push({ label: attachment.label, fullLabel: attachment.fullLabel });
+      labels.set(attachment.assetId, occurrences);
     }
   }
   return labels;
@@ -179,7 +182,7 @@ function extractMessageImages(
   content: unknown,
   messageIndex: number,
   cache: ImageAssetCache,
-  knownLabels: ReadonlyMap<string, Pick<TranscriptImageAttachment, "label" | "fullLabel">>,
+  knownLabels: KnownImageLabels,
 ): TranscriptImageAttachment[] {
   if (!Array.isArray(content)) return [];
   const images: TranscriptImageAttachment[] = [];
@@ -190,7 +193,7 @@ function extractMessageImages(
     const data = typeof part.data === "string" ? part.data : "";
     const asset = cache.store(mimeType, data);
     const assetId = asset?.id ?? unavailableImageAssetId(`${messageIndex}:${partIndex}:${mimeType}:${data.slice(0, 10_000)}`);
-    const known = asset ? knownLabels.get(asset.id) : undefined;
+    const known = asset ? knownLabels.get(asset.id)?.shift() : undefined;
     const fullLabel = known?.fullLabel ?? `Image ${images.length + 1}`;
     images.push({
       type: "image",
