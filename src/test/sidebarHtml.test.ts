@@ -124,6 +124,9 @@ test("transcript images, context chips, compact composer, and in-flow tools use 
   assert.ok(conversation < messages && messages < tools && tools < activity, "request tools follow the active response inside the conversation scroller");
   assert.match(html, /grid-template-columns: repeat\(auto-fit, minmax\(min\(124px, 100%\), 1fr\)\)/);
   assert.match(html, /imageGrid\.className = 'transcript-images'/);
+  assert.match(html, /card\.className = 'attachment-image'/);
+  assert.match(html, /renderComposerImage\(preview, attachment\)/);
+  assert.match(html, /button\.composer-image \{[^}]*height: 72px/);
   assert.match(html, /attachment\.fullLabel/);
   assert.match(html, /context\.textContent = attachment\.label/);
   assert.match(html, /context\.title = attachment\.fullLabel/);
@@ -204,7 +207,10 @@ class SidebarTestElement {
   replaceChildren(...elements: SidebarTestElement[]): void { this.children = [...elements]; }
   querySelector(): { textContent: string } { return { textContent: "" }; }
   querySelectorAll(): never { throw new Error("Unexpected conversation descendant search"); }
-  closest(): SidebarTestElement { return this; }
+  closest(selector: string): SidebarTestElement | undefined {
+    const key = /\[data-([a-z-]+)\]/.exec(selector)?.[1]?.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
+    return key && this.dataset[key] === undefined ? undefined : this;
+  }
   setAttribute(name: string, value: string): void { (this as any)[name] = value; }
   removeAttribute(name: string): void { (this as any)[name] = ""; }
   getBoundingClientRect(): { top: number; bottom: number } { return this.rect; }
@@ -329,6 +335,32 @@ test("transcript image assets render without HTML injection and preview restores
   const unavailable = sidebar.run(`imageTargets.get(${JSON.stringify(`unavailable-${"a".repeat(64)}`)})[0].button`) as SidebarTestElement;
   assert.equal(unavailable.disabled, true);
   assert.match(unavailable.children[0]!.textContent, /unavailable/i);
+});
+
+test("composer image attachments use thumbnail cards with preview and remove actions", () => {
+  const sidebar = createSidebarScriptHarness();
+  const bytes = Buffer.alloc(11);
+  bytes.write("GIF89a", 0, "ascii"); bytes.writeUInt16LE(3, 6); bytes.writeUInt16LE(2, 8);
+  const data = bytes.toString("base64");
+  const id = imageAssetId(bytes);
+  const attachment = { id: "draft-image", image: true, type: "image", assetId: id, label: "image.png", fullLabel: "image.png", mimeType: "image/gif", width: 3, height: 2, availability: "available" };
+
+  sidebar.receive({ type: "state", status: "Ready", imageSupported: true, runtime: { busy: false, cancellable: false, connected: true }, attachments: [attachment] });
+  const card = sidebar.element("attachments").children[0]!;
+  assert.equal(card.className, "attachment-image");
+  assert.equal(card.children[1]?.textContent, "image.png");
+  const preview = sidebar.run(`imageTargets.get(${JSON.stringify(id)})[0].button`) as SidebarTestElement;
+  assert.match(preview.children[0]!.textContent, /Loading preview/);
+
+  sidebar.receive({ type: "imageAsset", id, mimeType: "image/gif", data, byteLength: bytes.length, width: 3, height: 2 });
+  assert.equal(preview.children[0]?.src, `data:image/gif;base64,${data}`);
+  const click = sidebar.element("attachments").listeners.get("click")!;
+  click({ target: preview });
+  assert.equal(sidebar.element("image-preview").open, true);
+  sidebar.element("preview-close").listeners.get("click")!();
+  click({ target: card.children[2] });
+  assert.equal(sidebar.posted.at(-1)?.type, "removeAttachment");
+  assert.equal(sidebar.posted.at(-1)?.id, "draft-image");
 });
 
 test("thumbnail and preview decode failures become unavailable without retrying corrupt payloads", () => {

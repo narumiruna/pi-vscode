@@ -14,7 +14,7 @@ import type { ImageAssetCache } from "./imageAssets";
 import type { PiRpcImage } from "./piRpcClient";
 import { limitReferenceContent, type ChatReferenceContext } from "./prompts";
 import { relativeDocumentPath, type WebviewMessage } from "./sidebarHelpers";
-import { contextTranscriptAttachment, shortTranscriptLabel, type TranscriptAttachment } from "./sidebarState";
+import { contextTranscriptAttachment, shortTranscriptLabel, type TranscriptAttachment, type TranscriptImageAttachment } from "./sidebarState";
 
 export interface AttachedContext {
   readonly id: string;
@@ -124,23 +124,45 @@ export class SidebarAttachmentManager {
         const descriptor = contextTranscriptAttachment(item.label);
         return descriptor ? [descriptor] : [];
       }
-      const asset = this.options.imageAssets.store(item.image.mimeType, item.image.data);
-      const assetId = asset?.id ?? item.imageAssetId;
-      if (!assetId) return [];
-      const fullLabel = item.label.replace(/^(?:Image|Pasted image):\s*/i, "") || "Image";
-      return [{
-        type: "image" as const,
-        assetId,
-        label: shortTranscriptLabel(fullLabel),
-        fullLabel,
-        ...(asset ? { mimeType: asset.mimeType, width: asset.width, height: asset.height } : {}),
-        availability: asset ? "available" as const : "unavailable" as const,
-      }];
+      const descriptor = this.imageDescriptor(item);
+      return descriptor ? [descriptor] : [];
     });
   }
 
-  public get summaries(): Array<{ id: string; label: string; image: boolean }> {
-    return this.attachments.map(context => ({ id: context.id, label: context.label, image: Boolean(context.image) }));
+  public get summaries(): Array<{
+    id: string;
+    label: string;
+    image: boolean;
+    assetId?: string;
+    fullLabel?: string;
+    mimeType?: string;
+    width?: number;
+    height?: number;
+    availability?: "available" | "unavailable";
+  }> {
+    return this.attachments.map(item => {
+      if (!item.image) return { id: item.id, label: item.label, image: false };
+      const descriptor = this.imageDescriptor(item);
+      return descriptor
+        ? { id: item.id, image: true, ...descriptor }
+        : { id: item.id, label: item.label, fullLabel: item.label, image: true, availability: "unavailable" };
+    });
+  }
+
+  private imageDescriptor(item: AttachedContext): TranscriptImageAttachment | undefined {
+    if (!item.image) return undefined;
+    const asset = this.options.imageAssets.store(item.image.mimeType, item.image.data);
+    const assetId = asset?.id ?? item.imageAssetId;
+    if (!assetId) return undefined;
+    const fullLabel = item.label.replace(/^(?:Image|Pasted image):\s*/i, "") || "Image";
+    return {
+      type: "image",
+      assetId,
+      label: shortTranscriptLabel(fullLabel),
+      fullLabel,
+      ...(asset ? { mimeType: asset.mimeType, width: asset.width, height: asset.height } : {}),
+      availability: asset ? "available" : "unavailable",
+    };
   }
 
   public clear(): void {
