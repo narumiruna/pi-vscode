@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import test from "node:test";
 import { createContext, Script } from "node:vm";
 import { getSidebarHtml } from "../sidebarHtml";
 import { installVscodeMock } from "./vscodeMock";

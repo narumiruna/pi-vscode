@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
 import { parseRpcQueue, PiRpcClient, StrictJsonLineDecoder, type PiRpcEvent } from "../piRpcClient";
 
 test("RPC queue fixtures preserve duplicates, ack before delivery, clear-before-abort and unsupported/ambiguous responses", async () => {

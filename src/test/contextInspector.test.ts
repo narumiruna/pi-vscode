@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import test from "node:test";
 import { consumedUnpinnedIds, contextMetadata, contextWarnings, inspectContext } from "../contextInspector";
 import { installVscodeMock, MockUri } from "./vscodeMock";
 

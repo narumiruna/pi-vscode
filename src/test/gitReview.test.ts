@@ -3,7 +3,6 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
 import { assertStagedCurrent, captureStaged, digest, gitEnvironment, safeRelativePath } from "../gitSnapshots";
 import { parseGitReview } from "../gitReview";
 

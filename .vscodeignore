@@ -13,6 +13,7 @@ scripts/**
 src/**
 .gitignore
 tsconfig.json
+vitest.config.mjs
 node_modules/@types/**
 node_modules/typescript/**
 node_modules/@vscode/**

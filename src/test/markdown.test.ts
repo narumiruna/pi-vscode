@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import test from "node:test";
 import { renderSafeMarkdown } from "../markdown";
 
 test("renderSafeMarkdown renders common code-oriented Markdown", () => {

@@ -326,7 +326,7 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "npm run compile && node --test out/test/workflowControllers.test.js out/test/workflowHost.test.js out/test/editorWorkflow.test.js out/test/checkpointHistory.test.js out/test/contextInspector.test.js out/test/testRepair.test.js out/test/debugContext.test.js out/test/workflowProtocol.test.js out/test/backgroundResults.test.js out/test/backgroundManager.test.js out/test/editHunks.test.js out/test/gitReview.test.js out/test/attachmentUtils.test.js out/test/backgroundAgentLifecycle.test.js out/test/changeState.test.js out/test/completion.test.js out/test/conversationController.test.js out/test/diagnosticQuickFix.test.js out/test/editProposals.test.js out/test/manifest.test.js out/test/markdown.test.js out/test/piClient.test.js out/test/piRpcClient.test.js out/test/prompts.test.js out/test/sidebarHtml.test.js out/test/sidebarState.test.js out/test/vscodeBridgeProtocol.test.js",
+    "test": "npm run compile && vitest run",
     "package": "npm run test && vsce package --out pi-coding-agent.vsix",
     "prepare": "husky"
   },
@@ -335,6 +335,7 @@
     "@types/vscode": "1.106.0",
     "@vscode/vsce": "^3.6.2",
     "husky": "^9.1.7",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.11"
   }
 }
