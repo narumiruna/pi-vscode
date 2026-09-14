@@ -151,7 +151,12 @@ export class SidebarAttachmentManager {
 
   private imageDescriptor(item: AttachedContext): TranscriptImageAttachment | undefined {
     if (!item.image) return undefined;
-    const asset = this.options.imageAssets.store(item.image.mimeType, item.image.data);
+    const cachedAsset = item.imageAssetId ? this.options.imageAssets.get(item.imageAssetId) : undefined;
+    const asset = cachedAsset ?? (
+      item.imageAssetId && this.options.imageAssets.isRejected(item.imageAssetId)
+        ? undefined
+        : this.options.imageAssets.store(item.image.mimeType, item.image.data)
+    );
     const assetId = asset?.id ?? item.imageAssetId;
     if (!assetId) return undefined;
     const fullLabel = item.label.replace(/^(?:Image|Pasted image):\s*/i, "") || "Image";

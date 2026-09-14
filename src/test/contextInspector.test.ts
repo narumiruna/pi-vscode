@@ -28,8 +28,15 @@ test("context estimates disclose multilingual bytes, image unknowns, malformed m
 test("submission snapshots bind descriptors to accepted items while rejection, cancellation, retry, and startup races preserve the right draft", async () => {
   const vscode = installVscodeMock();
   const { SidebarAttachmentManager } = freshSidebarAttachments();
-  const makeManager = () => new SidebarAttachmentManager({ maxAttachments: 8, maxImageAttachments: 5, maxImageBytes: 5 * 1024 * 1024, maxAttachedCharacters: 100, maxTotalContextCharacters: 200, imageAssets: new ImageAssetCache({ maxImageBytes: 5 * 1024 * 1024, maxTotalBytes: 25 * 1024 * 1024, maxAssets: 100 }), onChange: () => {}, onNotice: () => {} });
-  const manager = makeManager();
+  class CountingImageAssetCache extends ImageAssetCache {
+    public storeCalls = 0;
+    public override store(mimeType: string, data: string) {
+      this.storeCalls += 1;
+      return super.store(mimeType, data);
+    }
+  }
+  const imageAssets = new CountingImageAssetCache({ maxImageBytes: 5 * 1024 * 1024, maxTotalBytes: 25 * 1024 * 1024, maxAssets: 100 });
+  const manager = new SidebarAttachmentManager({ maxAttachments: 8, maxImageAttachments: 5, maxImageBytes: 5 * 1024 * 1024, maxAttachedCharacters: 100, maxTotalContextCharacters: 200, imageAssets, onChange: () => {}, onNotice: () => {} });
   try {
     vscode.window.activeTextEditor = { document: { uri: MockUri.file("/tmp/first.ts"), version: 1, getText: () => "first" } };
     await manager.attachCurrentFile();
@@ -45,6 +52,7 @@ test("submission snapshots bind descriptors to accepted items while rejection, c
     assert.deepEqual(manager.values.map(item => item.label), ["second.ts", "Pasted image: startup.gif"], "acceptance consumes only IDs captured before startup");
     assert.equal(rejected.transcriptAttachments[0]?.fullLabel, "first.ts", "the accepted turn and retry retain their original descriptor snapshot");
 
+    const storesAfterAttach = imageAssets.storeCalls;
     const cancelled = manager.captureSubmission();
     assert.equal(manager.values.length, 2);
     assert.equal(cancelled.textContexts[0]?.content, "second");
@@ -53,7 +61,19 @@ test("submission snapshots bind descriptors to accepted items while rejection, c
     assert.equal(composerImage?.label, "startup.gif");
     assert.match(composerImage?.assetId ?? "", /^sha256-/);
     assert.equal(composerImage?.availability, "available");
+    assert.equal(imageAssets.storeCalls, storesAfterAttach, "cached images are not decoded again for descriptors");
     assert.doesNotMatch(JSON.stringify([cancelled.transcriptAttachments, manager.summaries]), /R0lGOD|\"data\"/);
+    assert.equal(imageAssets.storeCalls, storesAfterAttach);
+
+    imageAssets.discard(composerImage!.assetId!);
+    assert.equal(manager.summaries.find(item => item.image)?.availability, "available", "an evicted draft image is recovered from its source data");
+    assert.equal(imageAssets.storeCalls, storesAfterAttach + 1);
+    void manager.summaries;
+    assert.equal(imageAssets.storeCalls, storesAfterAttach + 1, "the recovered image is reused on later reads");
+
+    imageAssets.reject(composerImage!.assetId!);
+    assert.equal(manager.summaries.find(item => item.image)?.availability, "unavailable");
+    assert.equal(imageAssets.storeCalls, storesAfterAttach + 1, "a rejected image is not decoded again");
   } finally { manager.dispose(); vscode.restore(); }
 });
 
