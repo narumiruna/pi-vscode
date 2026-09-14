@@ -1,6 +1,6 @@
 {
-  "name": "pi-coding-agent",
-  "displayName": "Pi Coding Agent",
+  "name": "pi-agent",
+  "displayName": "Pi Agent",
   "description": "Chat with Pi in VS Code, ask about selected code, and apply focused modifications.",
   "version": "0.0.1",
   "publisher": "narumi",
@@ -139,7 +139,7 @@
       {
         "id": "piCodingAgent.chat",
         "name": "pi",
-        "fullName": "Pi Coding Agent",
+        "fullName": "Pi Agent",
         "description": "Ask Pi about code and programming tasks using your local Pi configuration.",
         "isSticky": true,
         "commands": [
@@ -239,7 +239,7 @@
       }
     ],
     "configuration": {
-      "title": "Pi Coding Agent",
+      "title": "Pi Agent",
       "properties": {
         "piCodingAgent.sensitiveContextNames": {
           "type": "array", "items": { "type": "string" }, "default": [".env", "credential", "secret", "id_rsa", "id_ed25519"],
@@ -332,7 +332,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "test": "npm run compile && vitest run",
-    "package": "npm run test && vsce package --out pi-coding-agent.vsix",
+    "package": "npm run test && vsce package --out pi-agent.vsix",
     "prepare": "husky"
   },
   "devDependencies": {

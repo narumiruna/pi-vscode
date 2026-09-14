@@ -1,4 +1,4 @@
-# Pi Coding Agent for VS Code
+# Pi Agent for VS Code
 
 Bring your existing [Pi](https://pi.dev) setup into VS Code. Work in a persistent Pi conversation, use the native `@pi` chat participant, attach editor context, and review proposed changes before applying them.
 
@@ -29,15 +29,16 @@ Building from this repository also requires Node.js, npm, [`just`](https://just.
 
 ## Install from source
 
-If `narumitw.pi-coding-agent` is installed, remove it first. The legacy and current extensions contribute the same views and commands, and VS Code treats them as separate extensions.
+Remove either legacy extension, `narumitw.pi-coding-agent` or `narumi.pi-coding-agent`, if installed. They contribute the same views and commands as the current extension, but VS Code treats each ID as a separate extension.
 
 ```bash
 code --uninstall-extension narumitw.pi-coding-agent
+code --uninstall-extension narumi.pi-coding-agent
 npm install
 just install
 ```
 
-The current extension ID is `narumi.pi-coding-agent`. In WSL, SSH, or a dev container, remove the legacy extension from the connected remote environment as well.
+The current extension ID is `narumi.pi-agent`. In WSL, SSH, or a dev container, remove installed legacy extensions from the connected remote environment as well. VS Code does not automatically migrate extension-scoped state to the new ID; command IDs and `piCodingAgent.*` settings remain unchanged.
 
 `just install` installs the VS Code extension and copies the standalone Pi extension to `${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions/pi-vscode.ts`.
 
@@ -156,7 +157,7 @@ pi.events.on("vscode:event", message => {
 });
 ```
 
-The standalone extension provides `vscode_context`, `vscode_open_file`, and `vscode_notify` when Pi starts from a new integrated terminal or from Pi Chat. VS Code extensions in the same Extension Host can activate `narumi.pi-coding-agent` and call its exported `broadcast(event, data)` API. Event names and payloads are validated and bounded.
+The standalone extension provides `vscode_context`, `vscode_open_file`, and `vscode_notify` when Pi starts from a new integrated terminal or from Pi Chat. VS Code extensions in the same Extension Host can activate `narumi.pi-agent` and call its exported `broadcast(event, data)` API. Event names and payloads are validated and bounded.
 
 ## Development
 
@@ -166,18 +167,18 @@ npm test
 npm run package
 ```
 
-`npm test` compiles the extension and runs the Node test suite. `npm run package` repeats those checks and creates `pi-coding-agent.vsix`.
+`npm test` compiles the extension and runs the Node test suite. `npm run package` repeats those checks and creates `pi-agent.vsix`.
 
-Use `just dev` to compile the extension, open an Extension Development Host, and run Pi with `resources/pi-vscode-bridge.ts` in the invoking terminal. The recipe and the **Run Extension** debug configuration disable `narumitw.pi-coding-agent` only in the development window to prevent duplicate registrations.
+Use `just dev` to compile the extension, open an Extension Development Host, and run Pi with `resources/pi-vscode-bridge.ts` in the invoking terminal. The recipe and the **Run Extension** debug configuration disable both `narumitw.pi-coding-agent` and `narumi.pi-coding-agent` only in the development window to prevent duplicate registrations.
 
 ## Troubleshooting
 
 ### `View provider for piCodingAgent.chatView already registered`
 
-The legacy `narumitw.pi-coding-agent` extension is enabled alongside `narumi.pi-coding-agent`.
+A legacy extension is enabled alongside `narumi.pi-agent`.
 
-1. Search Extensions for `@id:narumitw.pi-coding-agent`.
-2. Disable or uninstall it in the local or connected remote environment.
+1. Search Extensions for `@id:narumitw.pi-coding-agent` and `@id:narumi.pi-coding-agent`.
+2. Disable or uninstall either legacy extension in the local or connected remote environment.
 3. Run **Developer: Reload Window**.
 
 When developing, close the existing Extension Development Host and relaunch it with `just dev` or **Run Extension**. Reloading an already-running development window does not add updated launch arguments.
