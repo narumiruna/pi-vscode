@@ -25,6 +25,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     "default-src 'none'",
     `style-src 'nonce-${nonce}'`,
     `script-src 'nonce-${nonce}'`,
+    "img-src data:",
   ].join("; ");
 
   return `<!DOCTYPE html>
@@ -70,8 +71,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     #session { max-width: 38%; }
     #usage { font-variant-numeric: tabular-nums; }
     #runtime button { min-height: 24px; padding: 2px 6px; font-size: inherit; }
-    #messages { min-width: 0; overflow-y: auto; padding: 18px 2px 8px; scrollbar-width: thin; }
-    #messages.is-empty { display: flex; }
+    #conversation { min-width: 0; overflow-y: auto; padding: 18px 2px 8px; scrollbar-width: thin; }
+    #messages { min-width: 0; }
+    #messages.is-empty { min-height: 100%; display: flex; }
     .empty { width: 100%; max-width: 380px; margin: auto; padding: 24px 8px 40px; text-align: center; color: var(--vscode-descriptionForeground); }
     .welcome-mark { display: grid; place-items: center; width: 44px; height: 44px; margin: 0 auto 18px; border: 1px solid var(--pi-border); border-radius: 12px; background: var(--vscode-editor-background); color: var(--pi-accent); font: 30px Georgia, serif; }
     .empty h2 { margin: 0 0 8px; color: var(--vscode-foreground); font-size: 1.65em; font-weight: 600; letter-spacing: -.035em; line-height: 1.25; }
@@ -94,11 +96,18 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .content > :last-child { margin-bottom: 0; }
     .content h1, .content h2, .content h3, .content h4 { font-size: 1.1em; margin: 16px 0 8px; }
     .content pre { max-width: 100%; overflow: auto; margin: 10px 0; padding: 12px; border: 1px solid var(--pi-border); background: var(--vscode-textCodeBlock-background); border-radius: 7px; white-space: pre; }
-    .content code { font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); }
+    .content code { font-family: var(--vscode-editor-font-family); font-size: .95em; }
+    .content pre code { font-size: var(--vscode-editor-font-size); }
     .content :not(pre) > code { padding: 1px 4px; background: var(--vscode-textCodeBlock-background); border-radius: 4px; }
     .content ul { margin: 8px 0; padding-left: 22px; }
     .user .content { padding: 10px 12px; border-radius: 9px; background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); }
-    .context, .truncated { display: inline-block; max-width: 100%; margin: 6px 4px 0 0; padding: 2px 7px; border-radius: 5px; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); font-size: .8em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .transcript-contexts { display: flex; min-width: 0; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
+    .context, .truncated { display: inline-block; max-width: 100%; padding: 2px 7px; border-radius: 5px; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); font-size: .8em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .transcript-images { display: grid; min-width: 0; grid-template-columns: repeat(auto-fit, minmax(min(124px, 100%), 1fr)); gap: 7px; margin-top: 8px; }
+    .transcript-image { min-width: 0; min-height: 72px; padding: 0; overflow: hidden; border-color: var(--pi-border); color: var(--vscode-foreground); background: var(--vscode-editor-background); }
+    .transcript-image img { display: block; width: 100%; height: auto; max-height: 180px; object-fit: cover; background: var(--vscode-input-background); }
+    .image-placeholder { display: grid; width: 100%; min-height: 72px; place-items: center; padding: 10px; color: var(--vscode-descriptionForeground); text-align: center; overflow-wrap: anywhere; }
+    .image-label { display: block; min-width: 0; padding: 5px 7px; overflow: hidden; color: var(--vscode-descriptionForeground); font-size: .78em; text-overflow: ellipsis; white-space: nowrap; }
     #activity { max-height: min(28vh, 240px); overflow-y: auto; padding: 8px 2px 0; border-top: 1px solid var(--pi-border); scrollbar-width: thin; }
     .proposal, .change, .tool, .background-task { margin: 0 0 6px; border: 1px solid var(--pi-border); border-radius: 7px; }
     .proposal, .background-task { padding: 9px; }
@@ -106,7 +115,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .proposal-meta, .background-meta { color: var(--vscode-descriptionForeground); font-size: .85em; }
     .proposal-error { color: var(--vscode-errorForeground); font-size: .85em; overflow-wrap: anywhere; }
     .proposal-actions, .change-actions, .background-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-    #tools-group { margin-bottom: 6px; }
+    #tools-group { margin: 4px 0 10px; border-top: 1px solid var(--pi-border); padding-top: 5px; }
     #tools-group > summary { padding: 4px 2px; cursor: pointer; color: var(--vscode-descriptionForeground); font-size: .85em; overflow-wrap: anywhere; }
     #tools-summary { margin-left: 3px; }
     #tools-group[data-status="running"] > summary { color: var(--pi-accent); }
@@ -129,7 +138,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     #composer { min-width: 0; padding-top: 10px; }
     .composer-box { background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--pi-border)); border-radius: 10px; }
     .composer-box:focus-within { border-color: var(--vscode-focusBorder); }
-    textarea { display: block; width: 100%; height: 82px; min-height: 82px; max-height: min(220px, 28vh); resize: none; padding: 12px; color: var(--vscode-input-foreground); background: transparent; border: 0; border-radius: 10px; font: inherit; line-height: 1.5; scrollbar-width: thin; }
+    textarea { display: block; width: 100%; height: 42px; min-height: 42px; max-height: min(220px, 28vh); resize: none; padding: 10px 12px; color: var(--vscode-input-foreground); background: transparent; border: 0; border-radius: 10px; font: inherit; line-height: 1.5; scrollbar-width: thin; }
     textarea:focus-visible { outline: none; }
     textarea::placeholder { color: var(--vscode-input-placeholderForeground); }
     .composer-actions { display: flex; flex-wrap: nowrap; min-width: 0; gap: 6px; padding: 0 7px 7px; align-items: center; }
@@ -142,11 +151,18 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     #notice:empty { display: none; }
     #notice.error { color: var(--vscode-errorForeground); }
     #notice.warning { color: var(--vscode-editorWarning-foreground); }
+    #notice button { min-height: 22px; margin-left: 6px; padding: 1px 5px; color: inherit; font-size: inherit; }
+    #image-preview { width: min(92vw, 900px); max-width: 100%; max-height: 92vh; padding: 10px; border: 1px solid var(--vscode-contrastBorder, var(--pi-border)); border-radius: 9px; color: var(--vscode-foreground); background: var(--vscode-editor-background); }
+    #image-preview::backdrop { background: rgba(0, 0, 0, .66); }
+    .preview-header { display: flex; min-width: 0; align-items: center; gap: 8px; margin-bottom: 8px; }
+    #preview-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #preview-close { flex: 0 0 auto; }
+    #preview-image { display: block; max-width: 100%; max-height: calc(92vh - 62px); margin: auto; object-fit: contain; }
     body.vscode-high-contrast .composer-box, body.vscode-high-contrast-light .composer-box,
     body.vscode-high-contrast .welcome-action, body.vscode-high-contrast-light .welcome-action { border-color: var(--vscode-contrastBorder); }
     body.vscode-high-contrast .composer-box:focus-within, body.vscode-high-contrast-light .composer-box:focus-within { border-color: var(--vscode-focusBorder); }
     @media (max-width: 340px) { #app { padding: 0 8px 8px; } .header { gap: 2px; } #session { display: none; } #add-context span { display: none; } #model-picker { max-width: 96px; } #thinking-level { max-width: 90px; } .empty { padding-left: 2px; padding-right: 2px; } .empty h2 { font-size: 1.5em; } button.welcome-action { gap: 9px; padding: 10px; } }
-    @media (max-height: 500px) { .empty { padding-top: 8px; padding-bottom: 16px; } .welcome-mark { display: none; } .empty-actions { margin-top: 16px; } textarea { height: 64px; min-height: 64px; } }
+    @media (max-height: 500px) { .empty { padding-top: 8px; padding-bottom: 16px; } .welcome-mark { display: none; } .empty-actions { margin-top: 16px; } }
     @media (prefers-reduced-motion: no-preference) { button { transition: background-color .12s ease, border-color .12s ease; } }
   </style>
 </head>
@@ -157,10 +173,12 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       <button id="delete-session" class="secondary danger icon-button" type="button" title="Delete conversation" aria-label="Delete current Pi conversation" hidden>${icon("trash")}</button>
       <button id="more" class="secondary icon-button" type="button" title="More… · Session and advanced actions" aria-label="More Pi actions">${icon("more")}</button>
     </header>
-    <section id="messages" aria-live="off" aria-label="Pi conversation"></section>
-    <section id="activity" aria-label="Pi activity" hidden>
-      <div id="proposals-heading" class="section-heading" hidden><span>Edit proposals</span></div><section id="proposals" aria-label="Pi edit proposals"></section>
+    <section id="conversation" aria-label="Pi conversation">
+      <section id="messages" aria-live="off"></section>
       <details id="tools-group" hidden><summary><span id="tools-summary">Tool activity</span></summary><section id="tools" aria-label="Pi tool activity"></section></details>
+    </section>
+    <section id="activity" aria-label="Pi workflow activity" hidden>
+      <div id="proposals-heading" class="section-heading" hidden><span>Edit proposals</span></div><section id="proposals" aria-label="Pi edit proposals"></section>
       <div id="changes-heading" class="section-heading" hidden><span>Pi changes</span><button id="source-control" class="secondary" type="button">Source Control</button></div><section id="changes" aria-label="Pi file changes"></section>
       <div id="background-heading" class="section-heading" hidden><span>Background agents</span></div><section id="background" aria-label="Background Pi agents"></section>
     </section>
@@ -170,7 +188,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         <button id="inspect-context" class="secondary" type="button" hidden>Inspect Context</button>
         <div id="attachment-estimate" class="proposal-meta"></div>
         <label for="input" class="sr-only">Message Pi</label>
-        <textarea id="input" rows="3" maxlength="${maxInputCharacters}" placeholder="Ask, plan, or build something…" aria-describedby="composer-hint"></textarea>
+        <textarea id="input" rows="1" maxlength="${maxInputCharacters}" placeholder="Ask, plan, or build something…" aria-describedby="composer-hint"></textarea>
         <div id="queue-status" class="proposal-meta" role="status"></div>
         <div class="proposal-actions">
           <button id="recover-queue" class="secondary" type="button" hidden>Recovered Drafts</button>
@@ -190,9 +208,14 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     <div id="notice" role="status" aria-live="polite"></div>
     <div id="runtime"><span class="status-dot" aria-hidden="true"></span><span id="status" role="status" aria-live="polite">Connecting…</span><span id="session"></span><span id="usage"></span><button id="retry" class="secondary" type="button" hidden>Retry</button><button id="refresh-history" class="secondary" type="button" hidden>Refresh history</button><button id="reconnect" class="secondary" type="button" hidden>Reconnect</button></div>
   </main>
+  <dialog id="image-preview" aria-labelledby="preview-label">
+    <div class="preview-header"><span id="preview-label"></span><button id="preview-close" class="secondary" type="button" aria-label="Close image preview">Close</button></div>
+    <img id="preview-image" alt="">
+  </dialog>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const $ = id => document.getElementById(id);
+    const conversationElement = $('conversation');
     const messagesElement = $('messages');
     const emptyActionButtons = [];
     const toolsElement = $('tools');
@@ -212,7 +235,15 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       || /\\bwindows\\b/i.test(navigator.userAgent || '');
     const followUpShortcutLabel = useCtrlQForFollowUp ? 'Ctrl+Q' : 'Alt+Enter';
     $('composer-hint').textContent = 'Enter to send · ' + followUpShortcutLabel + ' also sends · Shift+Enter for newline';
+    const imageAssetCache = new Map();
+    const imageTargets = new Map();
+    const maxImageAssetCacheBytes = 25 * 1024 * 1024;
+    const maxImageAssets = 100;
+    let imageAssetCacheBytes = 0;
+    let previewAssetId;
+    let previewTargetIndex = 0;
     let busy = false;
+    let cancellable = false;
     let queueable = false;
     let connected = false;
     let deletableSession = false;
@@ -224,14 +255,48 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let composerRevision = 0;
     let updatingControls = false;
     let thinkingSelectable = false;
+    let latestStatus = 'Connecting…';
+
+    function showNotice(message, level, detailsAvailable = false, transientLock = false) {
+      notice.textContent = message;
+      notice.className = level || '';
+      notice.dataset.transientLock = transientLock ? 'true' : '';
+      if (detailsAvailable) {
+        const details = document.createElement('button');
+        details.className = 'secondary';
+        details.type = 'button';
+        details.textContent = 'Details';
+        details.dataset.noticeDetails = 'true';
+        notice.appendChild(details);
+      }
+    }
+
+    function clearNotice() {
+      notice.replaceChildren();
+      notice.textContent = '';
+      notice.className = '';
+      notice.dataset.transientLock = '';
+    }
+
+    function updateRuntimeStatus() {
+      const imageLoading = pendingImageReads > 0;
+      const displayed = imageLoading
+        ? 'Loading pasted image…'
+        : backgroundSubmissionPending
+          ? 'Starting background agent…'
+          : submissionPending
+            ? 'Sending to Pi…'
+            : latestStatus;
+      $('status').textContent = displayed;
+      $('status').title = displayed;
+    }
 
     function submit(kind = 'steer') {
       const text = input.value.trim();
       if (!text || !connected || submissionPending || backgroundSubmissionPending) return;
       if (busy) {
         if (!queueable) {
-          notice.textContent = 'This request does not accept queued messages.';
-          notice.className = 'warning';
+          showNotice('This request does not accept queued messages.', 'warning', false, true);
           return;
         }
         submissionPending = true;
@@ -243,13 +308,14 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         updateSendState();
         vscode.postMessage({ type: 'send', text: input.value, revision: composerRevision });
       }
-      notice.textContent = '';
+      clearNotice();
     }
 
     function renderMessages(messages) {
-      const nearBottom = messagesElement.scrollHeight - messagesElement.scrollTop - messagesElement.clientHeight < 80;
+      const nearBottom = conversationElement.scrollHeight - conversationElement.scrollTop - conversationElement.clientHeight < 80;
       const visibleMessages = messages.filter(message => message.role !== 'assistant' || Boolean(message.html));
       messagesElement.replaceChildren();
+      imageTargets.clear();
       emptyActionButtons.length = 0;
       messagesElement.classList.toggle('is-empty', visibleMessages.length === 0);
       if (visibleMessages.length === 0) {
@@ -286,12 +352,39 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           content.className = 'content';
           content.innerHTML = message.html || (message.role === 'assistant' ? '…' : '');
           wrapper.append(role, content);
-          if (message.contextLabel) {
-            const context = document.createElement('div');
-            context.className = 'context';
-            context.textContent = message.contextLabel;
-            context.title = message.contextLabel;
-            wrapper.appendChild(context);
+          messagesElement.appendChild(wrapper);
+          const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+          const contexts = attachments.filter(attachment => attachment.type === 'context');
+          if (contexts.length) {
+            const contextList = document.createElement('div');
+            contextList.className = 'transcript-contexts';
+            contextList.setAttribute('aria-label', 'Context used for this message');
+            for (const attachment of contexts) {
+              const context = document.createElement('span');
+              context.className = 'context';
+              context.textContent = attachment.label;
+              context.title = attachment.fullLabel;
+              contextList.appendChild(context);
+            }
+            wrapper.appendChild(contextList);
+          }
+          const images = attachments.filter(attachment => attachment.type === 'image');
+          if (images.length) {
+            const imageGrid = document.createElement('div');
+            imageGrid.className = 'transcript-images';
+            imageGrid.setAttribute('aria-label', 'Images used for this message');
+            wrapper.appendChild(imageGrid);
+            for (const attachment of images) {
+              const button = document.createElement('button');
+              button.className = 'secondary transcript-image';
+              button.type = 'button';
+              button.dataset.previewAsset = attachment.assetId;
+              const targets = imageTargets.get(attachment.assetId) || [];
+              targets.push({ button, attachment });
+              imageTargets.set(attachment.assetId, targets);
+              imageGrid.appendChild(button);
+              renderTranscriptImage(button, attachment);
+            }
           }
           if (message.truncated) {
             const truncated = document.createElement('div');
@@ -299,11 +392,88 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
             truncated.textContent = 'Older content not shown';
             wrapper.appendChild(truncated);
           }
-          messagesElement.appendChild(wrapper);
         }
       }
-      if (visibleMessages.length === 0) messagesElement.scrollTop = 0;
-      else if (nearBottom || busy) messagesElement.scrollTop = messagesElement.scrollHeight;
+      if (visibleMessages.length === 0) conversationElement.scrollTop = 0;
+      return visibleMessages.length > 0 && (nearBottom || busy);
+    }
+
+    function renderTranscriptImage(button, attachment) {
+      button.replaceChildren();
+      button.title = attachment.fullLabel;
+      const cached = imageAssetCache.get(attachment.assetId);
+      if (cached) {
+        button.disabled = false;
+        button.setAttribute('aria-label', 'Preview ' + attachment.fullLabel);
+        const beforeHeight = conversationElement.scrollHeight;
+        const beforeTop = conversationElement.scrollTop;
+        const wasNearBottom = beforeHeight - beforeTop - conversationElement.clientHeight < 80;
+        const thumbnailRect = button.getBoundingClientRect();
+        const viewportRect = conversationElement.getBoundingClientRect();
+        const wasBelowViewport = thumbnailRect.top >= viewportRect.bottom;
+        const image = document.createElement('img');
+        image.alt = attachment.fullLabel;
+        if (attachment.width && attachment.height) { image.width = attachment.width; image.height = attachment.height; }
+        image.addEventListener('load', () => {
+          const heightDelta = conversationElement.scrollHeight - beforeHeight;
+          conversationElement.scrollTop = wasNearBottom
+            ? conversationElement.scrollHeight
+            : wasBelowViewport ? beforeTop : beforeTop + Math.max(0, heightDelta);
+        });
+        image.addEventListener('error', () => rejectImageAsset(attachment.assetId));
+        image.src = cached.url;
+        button.appendChild(image);
+      } else {
+        button.disabled = attachment.availability !== 'available';
+        button.setAttribute('aria-label', (button.disabled ? 'Unavailable image: ' : 'Loading image: ') + attachment.fullLabel);
+        const placeholder = document.createElement('span');
+        placeholder.className = 'image-placeholder';
+        placeholder.textContent = button.disabled ? 'Image unavailable' : 'Loading image…';
+        button.appendChild(placeholder);
+      }
+      const label = document.createElement('span');
+      label.className = 'image-label';
+      label.textContent = attachment.label;
+      label.title = attachment.fullLabel;
+      button.appendChild(label);
+    }
+
+    function acceptImageAsset(message) {
+      if (typeof message.id !== 'string' || !/^sha256-[a-f0-9]{64}$/.test(message.id)) return;
+      if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(message.mimeType)) return;
+      if (!Number.isInteger(message.byteLength) || message.byteLength <= 0 || message.byteLength > ${maxImageBytes}) return;
+      if (typeof message.data !== 'string' || message.data.length > Math.ceil(${maxImageBytes} / 3) * 4 + 4 || message.data.length % 4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(message.data)) return;
+      let decoded;
+      try { decoded = atob(message.data); } catch { return; }
+      if (decoded.length !== message.byteLength || btoa(decoded) !== message.data) return;
+      if (imageAssetCache.has(message.id)) return;
+      while (imageAssetCache.size && (imageAssetCacheBytes + message.byteLength > maxImageAssetCacheBytes || imageAssetCache.size >= maxImageAssets)) {
+        const oldestId = imageAssetCache.keys().next().value;
+        const oldest = imageAssetCache.get(oldestId);
+        imageAssetCache.delete(oldestId);
+        imageAssetCacheBytes -= oldest.byteLength;
+        for (const target of imageTargets.get(oldestId) || []) {
+          target.attachment.availability = 'unavailable';
+          renderTranscriptImage(target.button, target.attachment);
+        }
+        vscode.postMessage({ type: 'imageAssetEvicted', id: oldestId });
+      }
+      imageAssetCache.set(message.id, { url: 'data:' + message.mimeType + ';base64,' + message.data, byteLength: message.byteLength });
+      imageAssetCacheBytes += message.byteLength;
+      for (const target of imageTargets.get(message.id) || []) renderTranscriptImage(target.button, target.attachment);
+    }
+
+    function rejectImageAsset(id) {
+      const asset = imageAssetCache.get(id);
+      if (!asset) return;
+      imageAssetCache.delete(id);
+      imageAssetCacheBytes -= asset.byteLength;
+      for (const target of imageTargets.get(id) || []) {
+        target.attachment.availability = 'unavailable';
+        renderTranscriptImage(target.button, target.attachment);
+      }
+      if (previewAssetId === id) closeImagePreview();
+      vscode.postMessage({ type: 'imageAssetRejected', id });
     }
 
     function renderProposals(proposals) {
@@ -507,6 +677,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const imageBlocked = !busy && attachedImages && !imageSupported;
       const imageLoading = pendingImageReads > 0;
       const interactionLocked = busy || submissionPending || backgroundSubmissionPending || imageLoading;
+      if (!interactionLocked && notice.dataset.transientLock === 'true') clearNotice();
       $('model-picker').disabled = interactionLocked || !connected;
       thinkingLevel.disabled = interactionLocked || !connected || !thinkingSelectable;
       $('new-session').disabled = interactionLocked;
@@ -535,10 +706,12 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
               : busy
                 ? 'This request does not accept queued messages'
                 : 'Enter to send · ' + followUpShortcutLabel + ' also sends · Shift+Enter for newline';
+      updateRuntimeStatus();
     }
 
     function render(state) {
       busy = Boolean(state.runtime.busy);
+      cancellable = Boolean(state.runtime.cancellable);
       queueable = Boolean(state.runtime.queueable) && busy;
       const queue = state.runtime.queue || { steering: [], followUp: [] };
       $('queue-status').textContent = queueable ? queue.steering.length + ' steering · ' + queue.followUp.length + ' follow-ups pending · text only; attachments excluded · steering waits for tool calls' : '';
@@ -547,16 +720,17 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       deletableSession = Boolean(state.runtime.sessionFile);
       imageSupported = Boolean(state.imageSupported);
       backgroundSubmissionPending = Boolean(state.backgroundSubmissionPending);
-      renderMessages(state.messages || []);
-      renderProposals(state.proposals || []);
+      const followConversation = renderMessages(state.messages || []);
       renderTools(state.tools || []);
+      if (followConversation) conversationElement.scrollTop = conversationElement.scrollHeight;
+      renderProposals(state.proposals || []);
       renderChanges(state.changes || []);
       renderBackground(state.backgroundTasks || []);
       renderAttachments(state.attachments || []);
       $('inspect-context').hidden = !(state.attachments || []).length;
       const estimate = state.attachmentEstimate || {};
       $('attachment-estimate').textContent = estimate.characters || attachedImages ? 'Attachments: ' + (estimate.characters || 0) + ' chars · ≈' + (estimate.estimatedTextTokens || 0) + ' heuristic text tokens' + (attachedImages ? ' · image usage unknown' : '') : '';
-      $('activity').hidden = ![state.proposals, state.tools, state.changes, state.backgroundTasks].some(items => items && items.length);
+      $('activity').hidden = ![state.proposals, state.changes, state.backgroundTasks].some(items => items && items.length);
       updatingControls = true;
       renderThinkingLevel(state.runtime);
       thinkingLevel.disabled = busy || !connected || !thinkingSelectable;
@@ -570,8 +744,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('delete-session').disabled = busy || !connected || !deletableSession;
       $('more').disabled = busy || !connected;
       $('runtime').dataset.connection = !connected ? 'disconnected' : busy ? 'busy' : 'connected';
-      $('status').textContent = state.status + (connected ? '' : ' · disconnected');
-      $('status').title = $('status').textContent;
+      latestStatus = state.status + (connected || /disconnected/i.test(state.status) ? '' : ' · disconnected');
       $('session').textContent = state.runtime.sessionName || (state.runtime.sessionId ? 'Session ' + state.runtime.sessionId.slice(0, 8) : '');
       $('session').title = state.runtime.sessionName || state.runtime.sessionId || '';
       const context = (state.runtime.stats || {}).contextUsage || {};
@@ -582,8 +755,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('refresh-history').hidden = !state.historyRecoveryAvailable;
       $('refresh-history').disabled = busy || !connected;
       $('add-context').disabled = busy;
-      cancelButton.hidden = !busy;
-      sendButton.hidden = busy;
+      cancelButton.hidden = !cancellable;
+      sendButton.hidden = cancellable;
       updateSendState();
     }
 
@@ -593,19 +766,16 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       if (files.length === 0) return;
       event.preventDefault();
       if (busy) {
-        notice.textContent = 'Cancel or wait for Pi before changing attachments.';
-        notice.className = 'warning';
+        showNotice('Cancel or wait for Pi before changing attachments.', 'warning', false, true);
         return;
       }
       for (const file of files) {
         if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type.toLowerCase())) {
-          notice.textContent = 'Only PNG, JPEG, GIF, and WebP images can be pasted.';
-          notice.className = 'warning';
+          showNotice('Only PNG, JPEG, GIF, and WebP images can be pasted.', 'warning');
           continue;
         }
         if (file.size > ${maxImageBytes}) {
-          notice.textContent = 'Pasted images are limited to 5 MiB each.';
-          notice.className = 'warning';
+          showNotice('Pasted images are limited to 5 MiB each.', 'warning');
           continue;
         }
         pendingImageReads += 1;
@@ -615,13 +785,12 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           const result = typeof reader.result === 'string' ? reader.result : '';
           const separator = result.indexOf(',');
           if (separator < 0) {
-            notice.textContent = 'Could not read the pasted image.';
-            notice.className = 'error';
+            showNotice('Could not read the pasted image.', 'error');
             return;
           }
           vscode.postMessage({ type: 'pasteImage', data: result.slice(separator + 1), mimeType: file.type, fileName: file.name || 'pasted-image' });
         });
-        reader.addEventListener('error', () => { notice.textContent = 'Could not read the pasted image.'; notice.className = 'error'; });
+        reader.addEventListener('error', () => showNotice('Could not read the pasted image.', 'error'));
         reader.addEventListener('loadend', () => {
           pendingImageReads = Math.max(0, pendingImageReads - 1);
           updateSendState();
@@ -630,15 +799,48 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       }
     }
 
+    function openImagePreview(button) {
+      const assetId = button.dataset.previewAsset;
+      const asset = imageAssetCache.get(assetId);
+      if (!asset) return;
+      previewAssetId = assetId;
+      previewTargetIndex = Math.max(0, (imageTargets.get(assetId) || []).findIndex(target => target.button === button));
+      $('preview-label').textContent = button.title;
+      $('preview-image').src = asset.url;
+      $('preview-image').alt = button.title;
+      $('image-preview').showModal();
+      $('preview-close').focus();
+    }
+
+    function closeImagePreview() {
+      if ($('image-preview').open) $('image-preview').close();
+    }
+
+    $('image-preview').addEventListener('close', () => {
+      $('preview-image').removeAttribute('src');
+      $('preview-image').alt = '';
+      const trigger = imageTargets.get(previewAssetId)?.[previewTargetIndex]?.button;
+      previewAssetId = undefined;
+      previewTargetIndex = 0;
+      if (trigger && !trigger.disabled) trigger.focus();
+      else input.focus();
+    });
+    $('image-preview').addEventListener('cancel', event => { event.preventDefault(); closeImagePreview(); });
+    $('image-preview').addEventListener('click', event => { if (event.target === $('image-preview')) closeImagePreview(); });
+    $('preview-image').addEventListener('error', () => { if (previewAssetId) rejectImageAsset(previewAssetId); });
+    $('preview-close').addEventListener('click', closeImagePreview);
+
     window.addEventListener('message', event => {
       const message = event.data;
+      if (!message || typeof message.type !== 'string') return;
       if (message.type === 'state') render(message);
-      else if (message.type === 'notice') { notice.textContent = message.message; notice.className = message.level; }
+      else if (message.type === 'imageAsset') acceptImageAsset(message);
+      else if (message.type === 'notice') showNotice(message.message, message.level, Boolean(message.detailsAvailable));
       else if (message.type === 'appendDraft') {
         if (composerRevision === message.expectedRevision) {
           input.value += (input.value ? '\\n\\n' : '') + message.text;
           composerRevision += 1; resizeInput(); updateSendState();
-        } else { notice.textContent = 'Your draft changed. The recovered message remains in Recovered Drafts.'; }
+        } else { showNotice('Your draft changed. The recovered message remains in Recovered Drafts.', 'warning'); }
       }
       else if (message.type === 'setInput') {
         setComposerInput(message.text);
@@ -687,8 +889,15 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         submit('steer');
       }
     });
+    notice.addEventListener('click', event => {
+      const button = event.target instanceof Element ? event.target.closest('button[data-notice-details]') : undefined;
+      if (button) vscode.postMessage({ type: 'showNoticeDetails' });
+    });
     messagesElement.addEventListener('click', event => {
-      const button = event.target instanceof Element ? event.target.closest('button[data-empty-action]') : undefined;
+      const target = event.target instanceof Element ? event.target : undefined;
+      const preview = target?.closest('button[data-preview-asset]');
+      if (preview?.dataset.previewAsset && !preview.disabled) { openImagePreview(preview); return; }
+      const button = target?.closest('button[data-empty-action]');
       if (!button || button.disabled) return;
       if (button.dataset.emptyAction === 'selection') {
         vscode.postMessage({ type: 'attachSelection' });

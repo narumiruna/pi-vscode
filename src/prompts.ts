@@ -125,12 +125,13 @@ export function buildAgentPrompt(
   return sections.join("\n");
 }
 
-export function parseAgentPrompt(prompt: string): { request: string; contextLabels: string[] } {
+export function parseAgentPrompt(prompt: string, maxContextLabels = Number.MAX_SAFE_INTEGER): { request: string; contextLabels: string[] } {
   const requestMatch = /<<<PI_VSCODE_REQUEST_START>>>\n([\s\S]*?)\n<<<PI_VSCODE_REQUEST_END>>>\s*$/.exec(prompt);
-  const contextLabels = Array.from(
-    prompt.matchAll(/<<<PI_VSCODE_CONTEXT_START: ([^\r\n>]*)>>>/g),
-    match => match[1],
-  );
+  const contextLabels: string[] = [];
+  for (const match of prompt.matchAll(/<<<PI_VSCODE_CONTEXT_START: ([^\r\n>]*)>>>/g)) {
+    if (contextLabels.length >= maxContextLabels) break;
+    contextLabels.push(match[1]);
+  }
   return {
     request: requestMatch?.[1] ?? prompt,
     contextLabels,

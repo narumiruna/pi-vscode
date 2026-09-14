@@ -10,9 +10,11 @@ import {
   isSupportedImageMimeType,
   withoutAttachmentIds,
 } from "./attachmentUtils";
+import type { ImageAssetCache } from "./imageAssets";
 import type { PiRpcImage } from "./piRpcClient";
 import { limitReferenceContent, type ChatReferenceContext } from "./prompts";
 import { relativeDocumentPath, type WebviewMessage } from "./sidebarHelpers";
+import { contextTranscriptAttachment, shortTranscriptLabel, type TranscriptAttachment } from "./sidebarState";
 
 export interface AttachedContext {
   readonly id: string;
@@ -20,7 +22,17 @@ export interface AttachedContext {
   readonly uri?: vscode.Uri;
   readonly content?: string;
   readonly image?: PiRpcImage;
+  readonly imageAssetId?: string;
   readonly metadata?: ContextMetadata;
+}
+
+export interface SidebarSubmissionSnapshot {
+  readonly ids: readonly string[];
+  readonly textContexts: readonly ChatReferenceContext[];
+  readonly images: readonly PiRpcImage[];
+  readonly resource?: vscode.Uri;
+  readonly transcriptAttachments: readonly TranscriptAttachment[];
+  readonly consumeAccepted: () => void;
 }
 
 export interface SidebarAttachmentOptions {
@@ -29,6 +41,7 @@ export interface SidebarAttachmentOptions {
   readonly maxImageBytes: number;
   readonly maxAttachedCharacters: number;
   readonly maxTotalContextCharacters: number;
+  readonly imageAssets: ImageAssetCache;
   readonly onChange: () => void;
   readonly onNotice: (message: string, level: "info" | "warning" | "error") => void;
 }
@@ -90,6 +103,40 @@ export class SidebarAttachmentManager {
 
   public get resource(): vscode.Uri | undefined {
     return this.attachments.find(context => context.uri)?.uri;
+  }
+
+  public captureSubmission(): SidebarSubmissionSnapshot {
+    const ids = this.attachments.map(item => item.id);
+    return {
+      ids,
+      textContexts: this.textContexts,
+      images: this.images,
+      resource: this.resource,
+      transcriptAttachments: this.transcriptAttachments(ids),
+      consumeAccepted: () => this.consume(ids),
+    };
+  }
+
+  public transcriptAttachments(ids: readonly string[] = this.attachments.map(item => item.id)): TranscriptAttachment[] {
+    const included = new Set(ids);
+    return this.attachments.filter(item => included.has(item.id)).flatMap<TranscriptAttachment>(item => {
+      if (!item.image) {
+        const descriptor = contextTranscriptAttachment(item.label);
+        return descriptor ? [descriptor] : [];
+      }
+      const asset = this.options.imageAssets.store(item.image.mimeType, item.image.data);
+      const assetId = asset?.id ?? item.imageAssetId;
+      if (!assetId) return [];
+      const fullLabel = item.label.replace(/^(?:Image|Pasted image):\s*/i, "") || "Image";
+      return [{
+        type: "image" as const,
+        assetId,
+        label: shortTranscriptLabel(fullLabel),
+        fullLabel,
+        ...(asset ? { mimeType: asset.mimeType, width: asset.width, height: asset.height } : {}),
+        availability: asset ? "available" as const : "unavailable" as const,
+      }];
+    });
   }
 
   public get summaries(): Array<{ id: string; label: string; image: boolean }> {
@@ -227,12 +274,19 @@ export class SidebarAttachmentManager {
         this.options.onNotice(`${path.basename(uri.fsPath)} is not a supported image type.`, "warning");
         continue;
       }
+      const data = Buffer.from(bytes).toString("base64");
+      const asset = this.options.imageAssets.store(mimeType, data);
+      if (!asset) {
+        this.options.onNotice(`${path.basename(uri.fsPath)} is not a valid ${mimeType.replace("image/", "").toUpperCase()} image.`, "warning");
+        continue;
+      }
       this.attachments = [...this.attachments, {
         id: randomUUID(),
         uri,
         label: `Image: ${path.basename(uri.fsPath)}`,
         metadata: contextMetadata(""),
-        image: { type: "image", data: Buffer.from(bytes).toString("base64"), mimeType },
+        image: { type: "image", data: asset.data, mimeType: asset.mimeType },
+        imageAssetId: asset.id,
       }];
     }
     this.options.onChange();
@@ -248,12 +302,18 @@ export class SidebarAttachmentManager {
       this.options.onNotice("The pasted image data is invalid or larger than 5 MiB.", "warning");
       return;
     }
+    const asset = this.options.imageAssets.store(message.mimeType, bytes.toString("base64"));
+    if (!asset) {
+      this.options.onNotice("The pasted image contents do not match a supported image format.", "warning");
+      return;
+    }
     const fileName = path.basename(message.fileName || "pasted-image").slice(0, 200);
     this.attachments = [...this.attachments, {
       id: randomUUID(),
       label: `Pasted image: ${fileName}`,
       metadata: contextMetadata(""),
-      image: { type: "image", data: bytes.toString("base64"), mimeType: message.mimeType.toLowerCase() },
+      image: { type: "image", data: asset.data, mimeType: asset.mimeType },
+      imageAssetId: asset.id,
     }];
     this.options.onChange();
   }
