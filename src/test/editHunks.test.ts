@@ -25,12 +25,28 @@ test("hunk revisions invalidate Preview; empty and invented selections cannot Ap
   assert.equal(store.states[0]?.selectionRevision, 1);
   await assert.rejects(store.handleAction(id, "apply"), /Preview/);
   assert.throws(() => store.select(id, ["unknown"]));
-  store.select(id, []); await store.handleAction(id, "preview");
-  assert.equal(store.states[0]?.status, "failed");
+  store.select(id, []);
+  await assert.rejects(store.handleAction(id, "preview"), /Select at least one hunk/);
+  assert.equal(store.states[0]?.status, "ready");
   store.select(id, ["h0"]);
   await store.handleAction(id, "preview"); await store.handleAction(id, "apply");
   assert.deepEqual(applied, [["h0"]]);
-  assert.match(store.states[0]?.summary ?? "", /1\/2/);
+  assert.equal(store.states[0]?.summary, "Applied 1/2 hunks; 1 not applied.");
+});
+
+test("fully selected hunk proposals do not report an unapplied remainder", async () => {
+  const store = new EditProposalStore(() => {}, () => {});
+  const id = store.add({
+    label: "file",
+    hunks: [{ id: "h0", label: "first" }, { id: "h1", label: "last" }],
+    onPreview: async () => {},
+    onApply: async () => {},
+  });
+
+  await store.handleAction(id, "preview");
+  await store.handleAction(id, "apply");
+
+  assert.equal(store.states[0]?.summary, "Applied 2/2 hunks.");
 });
 
 test("failed Apply requires a fresh Preview and disposed in-flight previews cannot reactivate", async () => {

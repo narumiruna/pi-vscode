@@ -252,6 +252,29 @@ function createSidebarScriptHarness(clientPlatform = "Linux x86_64", userAgent =
   };
 }
 
+test("proposal cards block empty previews and hide dead terminal actions", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({
+    type: "state",
+    status: "Ready",
+    runtime: { busy: false, cancellable: false, connected: true },
+    proposals: [
+      { id: "empty", label: "src/empty.ts:1", status: "ready", selected: [], totalHunks: 1 },
+      { id: "applied", label: "src/applied.ts:1-3", status: "applied", selected: ["h0", "h1", "h2"], totalHunks: 3, summary: "Applied 3/3 hunks." },
+    ],
+  });
+
+  const [empty, applied] = sidebar.element("proposals").children;
+  assert.equal(empty?.children[1]?.textContent, "Ready to preview · 0/1 selected");
+  const [choose, preview, apply, reject] = empty?.children[2]?.children ?? [];
+  assert.equal(choose?.disabled, false);
+  assert.equal(preview?.disabled, true);
+  assert.equal(apply?.disabled, true);
+  assert.equal(reject?.disabled, false);
+  assert.equal(applied?.children[1]?.textContent, "Applied 3/3 hunks.");
+  assert.equal(applied?.children.length, 2);
+});
+
 test("sidebar displays and changes the current thinking level", () => {
   const sidebar = createSidebarScriptHarness();
   sidebar.receive({

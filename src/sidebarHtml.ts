@@ -525,7 +525,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         title.textContent = proposal.label;
         const meta = document.createElement('div');
         meta.className = 'proposal-meta';
-        meta.textContent = (proposal.status === 'ready' ? 'Ready to preview' : proposal.status) + (proposal.totalHunks !== undefined ? ' · ' + (proposal.selected || []).length + '/' + proposal.totalHunks + ' selected' : '') + (proposal.summary ? ' · ' + proposal.summary : '');
+        const statusLabels = { ready: 'Ready to preview', previewing: 'Previewing…', previewed: 'Previewed', applying: 'Applying…', rejecting: 'Rejecting…', applied: 'Applied', rejected: 'Rejected', stale: 'Stale', failed: 'Failed' };
+        const selection = proposal.totalHunks !== undefined ? ' · ' + (proposal.selected || []).length + '/' + proposal.totalHunks + ' selected' : '';
+        meta.textContent = proposal.summary || (statusLabels[proposal.status] || proposal.status) + selection;
         card.append(title, meta);
         if (proposal.error) {
           const error = document.createElement('div');
@@ -533,22 +535,25 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           error.textContent = proposal.error;
           card.appendChild(error);
         }
-        const actions = document.createElement('div');
-        actions.className = 'proposal-actions';
         const terminal = ['applied', 'rejected', 'stale'].includes(proposal.status);
-        const transitioning = ['previewing', 'applying', 'rejecting'].includes(proposal.status);
-        for (const definition of [['select', 'Choose Hunks'], ['preview', 'Preview'], ['apply', 'Apply'], ['reject', 'Reject']]) {
-          if (definition[0] === 'select' && proposal.totalHunks === undefined) continue;
-          const button = document.createElement('button');
-          button.className = definition[0] === 'apply' ? '' : 'secondary';
-          button.type = 'button';
-          button.textContent = definition[1];
-          button.dataset.proposalAction = definition[0];
-          button.dataset.id = proposal.id;
-          button.disabled = busy || terminal || transitioning || (definition[0] === 'apply' && proposal.status !== 'previewed');
-          actions.appendChild(button);
+        if (!terminal) {
+          const actions = document.createElement('div');
+          actions.className = 'proposal-actions';
+          const transitioning = ['previewing', 'applying', 'rejecting'].includes(proposal.status);
+          const noHunksSelected = proposal.totalHunks !== undefined && !(proposal.selected || []).length;
+          for (const definition of [['select', 'Choose Hunks'], ['preview', 'Preview'], ['apply', 'Apply'], ['reject', 'Reject']]) {
+            if (definition[0] === 'select' && proposal.totalHunks === undefined) continue;
+            const button = document.createElement('button');
+            button.className = definition[0] === 'apply' ? '' : 'secondary';
+            button.type = 'button';
+            button.textContent = definition[1];
+            button.dataset.proposalAction = definition[0];
+            button.dataset.id = proposal.id;
+            button.disabled = busy || transitioning || (definition[0] === 'preview' && noHunksSelected) || (definition[0] === 'apply' && proposal.status !== 'previewed');
+            actions.appendChild(button);
+          }
+          card.appendChild(actions);
         }
-        card.appendChild(actions);
         proposalsElement.appendChild(card);
       }
     }

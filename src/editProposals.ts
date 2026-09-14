@@ -104,10 +104,12 @@ export class EditProposalStore {
     }
 
     if (action === "preview") {
+      if (proposal.state.selected?.length === 0) {
+        throw new Error("Select at least one hunk before Preview.");
+      }
       proposal.state = { ...proposal.state, status: "previewing", error: undefined };
       this.onChange();
       try {
-        if (proposal.state.selected?.length === 0) throw new Error("Select at least one hunk before Preview.");
         await input.onPreview(proposal.state.selected);
         if (proposal.disposed) return;
         proposal.state = { ...proposal.state, status: "previewed" };
@@ -134,7 +136,14 @@ export class EditProposalStore {
     try {
       await input.onApply(proposal.state.selected);
       if (proposal.disposed) return;
-      proposal.state = { ...proposal.state, status: "applied", summary: proposal.state.selected ? `Applied ${proposal.state.selected.length}/${proposal.state.totalHunks} hunks; remainder not applied.` : "Applied whole edit." };
+      const selectedCount = proposal.state.selected?.length;
+      const totalHunks = proposal.state.totalHunks;
+      const summary = selectedCount === undefined || totalHunks === undefined
+        ? "Applied whole edit."
+        : selectedCount === totalHunks
+          ? `Applied ${selectedCount}/${totalHunks} hunks.`
+          : `Applied ${selectedCount}/${totalHunks} hunks; ${totalHunks - selectedCount} not applied.`;
+      proposal.state = { ...proposal.state, status: "applied", summary };
       this.release(proposal);
       this.pruneTerminalStates();
       this.onNotice("Pi edit applied. Use Undo to revert it.", "info");
