@@ -3,6 +3,7 @@ import { decodeBoundedBase64Image, isSupportedImageMimeType } from "./attachment
 
 export const transcriptImageAssetIdPattern = /^sha256-[a-f0-9]{64}$/;
 const maxImagePixels = 4_096 * 4_096;
+const maxRejectedAssetIds = 1_000;
 
 export interface ImageAssetDimensions {
   readonly width: number;
@@ -44,11 +45,13 @@ export class ImageAssetDeliveryTracker {
 
 export class ImageAssetCache {
   private readonly assets = new Map<string, CachedImageAsset>();
+  private readonly rejected = new Set<string>();
   private retainedBytes = 0;
 
   public constructor(private readonly options: ImageAssetCacheOptions) {}
 
   public get totalBytes(): number { return this.retainedBytes; }
+  public get maxTotalBytes(): number { return Math.max(0, this.options.maxTotalBytes); }
   public get size(): number { return this.assets.size; }
 
   public store(mimeType: string, data: string): CachedImageAsset | undefined {
@@ -59,6 +62,7 @@ export class ImageAssetCache {
     const dimensions = imageDimensions(bytes, normalizedMimeType);
     if (!dimensions) return undefined;
     const id = imageAssetId(bytes);
+    if (this.rejected.has(id)) return undefined;
     const existing = this.assets.get(id);
     if (existing) return existing.mimeType === normalizedMimeType ? existing : undefined;
     if (bytes.byteLength > this.options.maxTotalBytes || this.options.maxAssets <= 0) return undefined;
@@ -94,7 +98,20 @@ export class ImageAssetCache {
     return true;
   }
 
-  public clear(): void { this.assets.clear(); this.retainedBytes = 0; }
+  public reject(id: string): void {
+    this.discard(id);
+    this.rejected.delete(id);
+    this.rejected.add(id);
+    while (this.rejected.size > maxRejectedAssetIds) {
+      const oldestId = this.rejected.values().next().value as string | undefined;
+      if (!oldestId) break;
+      this.rejected.delete(oldestId);
+    }
+  }
+
+  public isRejected(id: string): boolean { return this.rejected.has(id); }
+
+  public clear(): void { this.assets.clear(); this.rejected.clear(); this.retainedBytes = 0; }
 }
 
 export function imageAssetId(bytes: Uint8Array): string {

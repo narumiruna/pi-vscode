@@ -8,7 +8,12 @@ test("Trash classification is narrow and permanent deletion stays bound to the o
   const vscode = installVscodeMock();
   const root = mkdtempSync(path.join(os.tmpdir(), "pi-delete-target-"));
   try {
-    const { isTrashUnavailableError, PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
+    const { isTrashUnavailableError, PiRuntimeManager, runtimeSessionIdentityChanged } = require("../piRuntime") as typeof import("../piRuntime");
+    const originalIdentity = { sessionFile: "/sessions/original.jsonl", sessionId: "original" };
+    assert.equal(runtimeSessionIdentityChanged(originalIdentity, originalIdentity), false);
+    assert.equal(runtimeSessionIdentityChanged(originalIdentity, { sessionFile: "/sessions/replacement.jsonl", sessionId: "replacement" }), true);
+    assert.equal(runtimeSessionIdentityChanged(originalIdentity, { sessionFile: "/sessions/original.jsonl", sessionId: "replacement" }), true);
+    assert.equal(runtimeSessionIdentityChanged(originalIdentity, {}), false, "a failed restart is not evidence of a replacement session");
     assert.equal(isTrashUnavailableError({ code: "Unavailable", message: "Trash unavailable for /remote/session.jsonl" }), true);
     assert.equal(isTrashUnavailableError({ code: "Unavailable", message: "Remote file system is temporarily unavailable" }), false);
     assert.equal(isTrashUnavailableError(new Error("File system provider does not support Trash")), true);

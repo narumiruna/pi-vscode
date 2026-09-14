@@ -23,7 +23,7 @@ import { WorkspaceChangeTracker, type TrackedFileChange } from "./changeTracker"
 import { getSidebarHtml } from "./sidebarHtml";
 import { renderSafeMarkdown } from "./markdown";
 import { buildAgentPrompt, type AgentRequestPolicy, type ChatReferenceContext } from "./prompts";
-import { deleteConversationWithTrashFallback, type PiRuntimeManager } from "./piRuntime";
+import { deleteConversationWithTrashFallback, runtimeSessionIdentityChanged, type PiRuntimeManager } from "./piRuntime";
 import type { PiRpcEvent, PiRpcImage } from "./piRpcClient";
 import { SidebarAttachmentManager } from "./sidebarAttachments";
 import { ImageAssetCache, ImageAssetDeliveryTracker } from "./imageAssets";
@@ -36,6 +36,7 @@ import {
   modelSupportsImages,
   restoreMessages,
   safeJson,
+  shouldPostActionErrorNotice,
   stringValue,
   type WebviewMessage,
 } from "./sidebarHelpers";
@@ -333,7 +334,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           this.postState();
           break;
         case "imageAssetRejected":
-          this.imageAssets.discard(message.id);
+          this.imageAssets.reject(message.id);
           this.imageAssetDelivery.retry(message.id);
           this.postState();
           break;
@@ -418,7 +419,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       if (message.type === "send" || message.type === "queueInstruction") {
         this.postMessage({ type: "sendRejected" });
       }
-      if (this.noticeRevision === noticeRevision) {
+      if (shouldPostActionErrorNotice(message.type, noticeRevision, this.noticeRevision)) {
         this.postNotice(actionErrorSummary(message.type), "error", formatError(error));
       }
       this.postState();
@@ -834,6 +835,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       "Delete Conversation",
     );
     if (confirmation !== "Delete Conversation") return;
+    const sessionBeforeDelete = this.runtime.currentState;
     this.status = "Deleting conversation…";
     this.postState();
     const outcome = await deleteConversationWithTrashFallback({
@@ -857,13 +859,21 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     if (outcome.status === "deleted") {
       const next = this.runtime.currentState.connected ? "New Pi session" : "Reconnect available";
       await this.resetConversation(`${outcome.permanently ? "Conversation permanently deleted" : "Conversation deleted"} · ${next}`);
-    } else if (outcome.status === "failed") {
-      this.status = "Conversation kept · Delete failed";
+      return;
+    }
+
+    const status = outcome.status === "failed" ? "Conversation kept · Delete failed" : "Conversation kept · Trash unavailable";
+    if (outcome.status === "failed") {
       this.postNotice(
         outcome.permanently ? "The conversation could not be permanently deleted and was kept." : "The conversation could not be moved to Trash and was kept.",
         "error",
         formatError(outcome.error),
       );
+    }
+    if (runtimeSessionIdentityChanged(sessionBeforeDelete, this.runtime.currentState)) {
+      await this.resetConversation(`${status} · Replacement Pi session`);
+    } else {
+      this.status = status;
       this.postState();
     }
   }

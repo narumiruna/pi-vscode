@@ -68,6 +68,23 @@ test("image cache deduplicates stable content and evicts oldest payloads within 
   assert.equal(assets.totalBytes, 11);
 });
 
+test("browser-rejected assets remain blocked across later cache stores", () => {
+  const assets = cache();
+  const bytes = gif(4, 5);
+  const first = assets.store("image/gif", bytes.toString("base64"))!;
+  assets.reject(first.id);
+  assert.equal(assets.isRejected(first.id), true);
+  assert.equal(assets.has(first.id), false);
+  assert.equal(assets.store("image/gif", bytes.toString("base64")), undefined);
+  assets.reject(first.id);
+  assert.equal(assets.isRejected(first.id), true, "rejections remain recorded even after their payload has left the cache");
+
+  const lateBytes = gif(6, 7);
+  const lateId = imageAssetId(lateBytes);
+  assets.reject(lateId);
+  assert.equal(assets.store("image/gif", lateBytes.toString("base64")), undefined, "a late browser rejection still blocks re-admission after host eviction");
+});
+
 test("one-shot delivery deduplicates state updates, skips evicted payloads, retries failed posts, and resets for a recreated webview", () => {
   const assets = cache(11, 1);
   const first = assets.store("image/gif", gif(1, 1, 1).toString("base64"))!;
