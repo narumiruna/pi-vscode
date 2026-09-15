@@ -47,6 +47,16 @@ test("existing editor action requests stay read-only; selected preview matches o
     addEditProposal: input => { proposal = input; return "id"; },
   });
   try {
+    let inputOptions: { title?: string; prompt?: string } | undefined;
+    vscode.window.showInputBox = async (options: typeof inputOptions) => { inputOptions = options; return undefined; };
+    await vscode.registrations.get("picode.inlineEdit")();
+    assert.deepEqual(inputOptions, {
+      title: "Inline Edit with PiCode",
+      prompt: "How should PiCode change the selected code or current line?",
+      placeHolder: "Make this easier to read without changing behavior",
+      ignoreFocusOut: true,
+    });
+
     const selectionProvider = codeActionProviders.find(({ metadata }) =>
       metadata.providedCodeActionKinds.some((kind: any) => kind.value === "refactor.rewrite.picode"),
     )?.provider;

@@ -68,6 +68,27 @@ test("buildAgentPrompt round-trips the user request and context labels", () => {
   });
 });
 
+test("parseAgentPrompt reads source-built transcripts created before the rename", () => {
+  const prompt = [
+    "<<<PI_VSCODE_CONTEXT_START: src/legacy.ts:4-8>>>",
+    "const value = 42;",
+    "<<<PI_VSCODE_CONTEXT_END>>>",
+    "<<<PI_VSCODE_REQUEST_START>>>",
+    "Explain this value",
+    "<<<PI_VSCODE_REQUEST_END>>>",
+  ].join("\n");
+
+  assert.deepEqual(parseAgentPrompt(prompt), {
+    request: "Explain this value",
+    contextLabels: ["src/legacy.ts:4-8"],
+  });
+});
+
+test("parseAgentPrompt does not pair request markers from different namespaces", () => {
+  const prompt = "<<<PI_VSCODE_REQUEST_START>>>\nrequest\n<<<PICODE_REQUEST_END>>>";
+  assert.equal(parseAgentPrompt(prompt).request, prompt);
+});
+
 test("user-controlled policy marker text cannot occupy trusted prompt metadata", () => {
   const marker = "<<<PICODE_POLICY: read-only>>>";
   const prompt = buildAgentPrompt(

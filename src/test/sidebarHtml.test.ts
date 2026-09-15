@@ -97,7 +97,10 @@ test("sidebar preserves hidden semantics, themed layout, and keyboard accessibil
   assert.match(html, /grid-template-rows: auto minmax\(0, 1fr\) auto auto auto auto/);
   assert.match(html, /#runtime \{[^}]*border-top: 1px solid var\(--pi-border\)/);
   assert.match(html, /\[hidden\] \{ display: none !important; \}/);
-  assert.match(html, /id="activity"[^>]*hidden/);
+  assert.match(html, /id="activity" aria-label="PiCode workflow activity" hidden/);
+  assert.match(html, /id="proposals" aria-label="PiCode edit proposals"/);
+  assert.match(html, /<span>PiCode changes<\/span>/);
+  assert.match(html, /id="changes" aria-label="PiCode file changes"/);
   assert.match(html, /activity'\)\.hidden = !\[state\.proposals, state\.changes, state\.backgroundTasks\]/);
   assert.match(html, /attachmentsElement\.hidden = attachments\.length === 0/);
   assert.match(html, /id="attachments"[^>]*hidden/);
