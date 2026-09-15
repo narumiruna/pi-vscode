@@ -140,6 +140,18 @@ npm run package
 - `just dev` compiles the extension and opens an Extension Development Host.
 - `just dev-pi` starts Pi with `resources/picode-bridge.ts` in the current terminal.
 
+## Release
+
+Update the changelog, then bump the stable SemVer version in both package files:
+
+```bash
+npm version patch --no-git-tag-version
+```
+
+Use `minor` or `major` instead of `patch` when appropriate. Commit and push `package.json` and `package-lock.json` to `main`.
+
+A version change on `main` triggers the [Release VSIX workflow](.github/workflows/release.yml). It validates that the version increased, installs locked dependencies, runs the tests, packages and verifies the VSIX, then creates a `v<version>` GitHub release with `pi-coding-agent-vscode.vsix` attached.
+
 ## License
 
 [MIT](LICENSE)
