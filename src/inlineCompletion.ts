@@ -15,7 +15,7 @@ interface CachedCompletion {
 }
 
 export function registerInlineCompletions(context: vscode.ExtensionContext): void {
-  const output = vscode.window.createOutputChannel("PiCode");
+  const output = vscode.window.createOutputChannel("Pi");
   const provider = new PiCodeInlineCompletionProvider(output);
   context.subscriptions.push(
     output,

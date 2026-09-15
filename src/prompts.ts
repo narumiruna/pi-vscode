@@ -146,7 +146,7 @@ export function buildChatPrompt(
 ): string {
   const commandInstruction = chatCommandInstruction(command);
   const sections = [
-    "You are PiCode responding inside the native VS Code Chat view.",
+    "You are Pi responding inside the native VS Code Chat view.",
     "Answer in concise Markdown.",
     "Do not claim to have modified files or run commands because tools are disabled for this chat request.",
   ];

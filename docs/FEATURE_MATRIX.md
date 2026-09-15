@@ -1,9 +1,9 @@
-# PiCode Feature Matrix
+# Pi Feature Matrix
 
-This matrix maps the capabilities advertised by the four requested reference extensions to the PiCode workflow implemented in this repository.
+This matrix maps the capabilities advertised by the four requested reference extensions to the Pi workflow implemented in this repository.
 Vendor-owned hosted services cannot be reproduced by a local extension, so those rows name the external dependency and the available Pi-local alternative.
 
-| Reference capability | PiCode workflow | Status / evidence |
+| Reference capability | Pi workflow | Status / evidence |
 | --- | --- | --- |
 | Staged Git review | Confirm bounded staged snapshots and navigate immutable before/after findings | `gitSnapshots.ts`, `gitReview.ts`; temporary Git and host-controller tests. Unstaged/branch/PR review excluded. |
 | Selective application | Choose deterministic hunks, preview the combined selection, Apply once | `editHunks.ts`, `editProposals.ts`, `editorActions.ts`; selected-preview/one-workspace-edit and stale-version tests. No automatic rebase. |
@@ -12,18 +12,18 @@ Vendor-owned hosted services cannot be reproduced by a local extension, so those
 | Request checkpoints | Bounded pre-prompt snapshots, coverage report, preview and guarded restore | `checkpointHistory.ts`, `changeTracker.ts`; immediate-write subprocess boundary and stale/dirty/dependency tests. Memory-only; no creations/deletions/shell rollback. |
 | In-flight instructions | Enter-to-Steer, platform Follow Up shortcut, pending counts and recovered drafts | `piRpcClient.ts`, `piRuntime.ts`, `sidebarHtml.ts`; deterministic RPC/lifecycle/keyboard fixtures. Ordinary text-only composer requests; unsupported/uncertain queue delivery disconnects without replay. Pi queue grouping settings remain native. |
 | Debug-context questions | Explicit bounded paused Node.js capture, variable selection, inspection/redaction, read-only question | `debugContext.ts`, `debugContextController.ts`; fake DAP/host invalidation tests. Only checked js-debug read paths; no evaluate/recursive capture. |
-| Codex side-by-side chat panel | Dedicated PiCode Secondary Sidebar conversation view | Implemented in `src/sidebar.ts` and `src/sidebarHtml.ts`. |
+| Codex side-by-side chat panel | Dedicated Pi Secondary Sidebar conversation view | Implemented in `src/sidebar.ts` and `src/sidebarHtml.ts`. |
 | Codex context from open files and selections | Selection, current file, file picker, diagnostics, terminal text, and image attachments | Implemented with item, size, and total bounds. |
-| Codex edit and preview changes | Editor actions use the persistent PiCode Chat session, create proposal cards, generate virtual-document diffs, and require Preview before Apply | Implemented in `src/editorActions.ts` and `src/sidebar.ts`. |
-| Codex cloud delegation | Independent background and detached-worktree PiCode agents with streamed tracking | Local equivalent implemented; OpenAI-hosted Codex Cloud remains an OpenAI service dependency. |
+| Codex edit and preview changes | Editor actions use the persistent Pi Chat session, create proposal cards, generate virtual-document diffs, and require Preview before Apply | Implemented in `src/editorActions.ts` and `src/sidebar.ts`. |
+| Codex cloud delegation | Independent background and detached-worktree Pi agents with streamed tracking | Local equivalent implemented; OpenAI-hosted Codex Cloud remains an OpenAI service dependency. |
 | Codex cloud task review locally | Inspect actual isolated-task results and explicitly import selected files into the originating worktree | `backgroundResults.ts`, `backgroundAgents.ts`; Git, partial-failure and metadata/reload tests. Legacy tasks without verified origin cannot import; model test claims are not evidence. |
 | GitHub Copilot inline completion | Manual or opt-in automatic VS Code ghost-text completion | Implemented with cancellation, debounce, cache, and bounded context. |
-| GitHub Copilot next edit suggestion | `PiCode: Suggest Next Edit` predicts one focused whole-file change and opens a diff preview | Implemented local equivalent; Copilot's proprietary ranking model is a GitHub service dependency. |
-| Copilot Chat conversational assistance | Dedicated PiCode view plus native `@picode` Chat participant and slash commands | Implemented. |
-| Copilot inline chat | `PiCode: Inline Edit` targets the selection or current line, routes into persistent PiCode Chat, preserves follow-up context, and previews edits | Implemented with `Ctrl/Cmd+I`. |
+| GitHub Copilot next edit suggestion | `Pi: Suggest Next Edit` predicts one focused whole-file change and opens a diff preview | Implemented local equivalent; Copilot's proprietary ranking model is a GitHub service dependency. |
+| Copilot Chat conversational assistance | Dedicated Pi view plus native `@pi` Chat participant and slash commands | Implemented. |
+| Copilot inline chat | `Pi: Inline Edit` targets the selection or current line, routes into persistent Pi Chat, preserves follow-up context, and previews edits | Implemented with `Ctrl/Cmd+I`. |
 | Copilot Ask/Edit/Plan/Agent modes | Pi-default conversation without extension-defined modes | Deliberately uses Pi's default tools and extension-contributed tools instead of recreating Copilot modes or fixed allowlists. |
 | Copilot autonomous multi-step agent | Persistent Pi RPC conversation reads, edits, runs commands, tests, retries, and self-corrects | Implemented using Pi's default coding toolset. |
-| Copilot central session management | New, name, resume, compact, export, terminal handoff, foreground, and background sessions | Implemented in the PiCode conversation view. |
+| Copilot central session management | New, name, resume, compact, export, terminal handoff, foreground, and background sessions | Implemented in the Pi conversation view. |
 | Copilot Plan-to-implementation handoff | Plan and build welcome actions create ordinary prompt drafts in the same Pi-default session | No special mode transition or runtime restart is required. |
 | Copilot change review and revert | Tool activity beside the active response, changed-file cards, request history, Source Control, diff, open, and stale/dirty-safe revert | Foreground tool activity stays in the conversation flow; proposals, changed files, and background agents remain in the workflow area. Covered pre-captured regular edit/write files only; shell and uncertain effects require Source Control review. |
 | Copilot custom instructions | Pi global/project AGENTS.md and Pi system/settings resources | Implemented through normal Pi resource discovery and explicit project trust. |

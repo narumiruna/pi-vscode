@@ -1,6 +1,6 @@
-# Pi Coding Agent for VS Code
+# Pi for VS Code
 
-Use your existing [Pi](https://pi.dev) setup directly in VS Code. Pi Coding Agent adds a persistent **PiCode** sidebar, the native `@picode` chat participant, editor-aware context, and review-first editing workflows.
+Use your existing [Pi](https://pi.dev) setup directly in VS Code. Pi adds a persistent sidebar, the native `@pi` chat participant, editor-aware context, and review-first editing workflows.
 
 ## Highlights
 
@@ -44,13 +44,13 @@ To install only the standalone Pi bridge extension, run `just install-picode-ext
 
 ## Get started
 
-1. Run **PiCode: Open Chat** from the Command Palette, or open **PiCode** in the Secondary Sidebar.
+1. Run **Pi: Open Chat** from the Command Palette, or open **Pi** in the Secondary Sidebar.
 2. Add context from the composer, or paste a supported image with Ctrl/Cmd+V.
 3. Enter a request. The active model and thinking level appear beside **Send**.
 4. For proposed changes, choose **Preview**, optionally select hunks, and then choose **Apply**.
 5. Open **More…** for session management, export, terminal handoff, staged review, repair tools, checkpoints, and background or worktree agents.
 
-Use `@picode` in VS Code's native Chat view when you prefer the native participant workflow. Native Chat history is separate from the PiCode sidebar session.
+Use `@pi` in VS Code's native Chat view when you prefer the native participant workflow. Native Chat history is separate from the Pi sidebar session.
 
 ### Editor actions
 
@@ -59,7 +59,7 @@ Use `@picode` in VS Code's native Chat view when you prefer the native participa
 | Fix a diagnostic or open inline edit | **Ctrl/Cmd+I** |
 | Request an inline completion | **Alt+]** |
 | Suggest the next edit | **Ctrl+Alt+N** / **Cmd+Alt+N** on macOS |
-| Ask about or modify a selection | Editor lightbulb → **Rewrite**, or editor context menu → **PiCode** |
+| Ask about or modify a selection | Editor lightbulb → **Rewrite**, or editor context menu → **Pi** |
 
 Automatic inline completions are disabled by default. Enable `picode.inlineCompletions.enabled` to request them after a typing pause.
 
@@ -67,14 +67,14 @@ Automatic inline completions are disabled by default. Enable `picode.inlineCompl
 
 | Workflow | How it works |
 | --- | --- |
-| **Staged review** | Run **PiCode: Review Staged Changes**, confirm the bounded snapshot, then use **PiCode: Show Staged Findings** to navigate immutable before/after content. Findings become stale when HEAD or the index changes. |
+| **Staged review** | Run **Pi: Review Staged Changes**, confirm the bounded snapshot, then use **Pi: Show Staged Findings** to navigate immutable before/after content. Findings become stale when HEAD or the index changes. |
 | **Selected edits** | On a proposal card, choose **Choose Hunks → Preview → Apply**. Changing the selection invalidates the preview; normal editor Undo remains available after application. |
 | **Worktree result import** | Start an isolated agent from **More…**. When it becomes inactive, choose **Review Results → Apply Selected** to import reviewed text files into the originating worktree. |
 | **Context inspection** | Choose **Inspect Context** on an attachment to inspect the exact snapshot, redact or edit it, refresh it explicitly, or pin it for later requests. |
-| **Failed-test repair** | Run **PiCode: Repair Failed Test (Preview)**, approve a command or provide an existing UTF-8 log, inspect the evidence, then preview and apply the repair. |
+| **Failed-test repair** | Run **Pi: Repair Failed Test (Preview)**, approve a command or provide an existing UTF-8 log, inspect the evidence, then preview and apply the repair. |
 | **Request checkpoints** | Choose **More… → Request Checkpoints** to inspect coverage, preview a restore, and revert covered changes. Checkpoints are memory-only file recovery, not a Git or conversation rewind. |
 | **In-flight instructions** | While a request is running, press Enter to **Steer** after current tool calls. Use Alt+Enter for **Follow Up** on macOS and Linux, or Ctrl+Q on Windows, including remote WSL sessions. |
-| **Debug questions** | Pause a Node.js debugger and run **PiCode: Ask Debug Context**. Approve capture, choose local variables, inspect or redact the snapshot, and ask a read-only question. |
+| **Debug questions** | Pause a Node.js debugger and run **Pi: Ask Debug Context**. Approve capture, choose local variables, inspect or redact the snapshot, and ask a read-only question. |
 
 Process-launching and mutation workflows require a trusted, file-backed workspace. A Pi session's working directory must match the active workspace. Open an isolated worktree in its own VS Code window before resuming its session.
 
@@ -95,7 +95,7 @@ Additional settings control inline-completion delay, minimum prefix length, and 
 
 ## Security and limits
 
-PiCode sidebar sessions expose Pi's default coding tools and tools contributed by installed Pi extensions. The packaged confirmation policy covers only Pi's built-in `bash`, `edit`, and `write` tools; contributed tools define their own permission behavior.
+Pi sidebar sessions expose Pi's default coding tools and tools contributed by installed Pi extensions. The packaged confirmation policy covers only Pi's built-in `bash`, `edit`, and `write` tools; contributed tools define their own permission behavior.
 
 Focused edit workflows use a packaged read-only policy while generating proposals. Applying edits, importing worktree results, rerunning tests, and restoring checkpoints always require explicit user action. Project-local Pi resources remain disabled until the workspace is trusted and `picode.approveProjectResources` is enabled.
 
@@ -123,7 +123,7 @@ flowchart LR
     P <-->|pi.events| E[Other Pi extensions]
 ```
 
-The bridge provides `vscode_context`, `vscode_open_file`, and `vscode_notify` when Pi starts from a new integrated terminal or PiCode Chat. Other Pi extensions can use `pi.events` to send an allowlisted `vscode:request` and receive a correlated `vscode:response` or `vscode:event`.
+The bridge provides `vscode_context`, `vscode_open_file`, and `vscode_notify` when Pi starts from a new integrated terminal or Pi Chat. Other Pi extensions can use `pi.events` to send an allowlisted `vscode:request` and receive a correlated `vscode:response` or `vscode:event`.
 
 VS Code extensions in the same Extension Host can activate `narumi.pi-coding-agent-vscode` and call its exported `broadcast(event, data)` API. Event names and payloads are validated and bounded.
 

@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-test("source installer replaces the previous bridge with the PiCode bridge", async () => {
+test("source installer replaces the previous bridge with the Pi bridge", async () => {
   const agentDirectory = await mkdtemp(path.join(tmpdir(), "picode-installer-"));
   const extensionsDirectory = path.join(agentDirectory, "extensions");
   const repositoryRoot = path.resolve(__dirname, "..", "..");

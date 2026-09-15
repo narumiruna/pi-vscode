@@ -15,9 +15,12 @@ interface ExtensionManifest {
   readonly extensionKind: readonly string[];
   readonly devDependencies: Record<string, string>;
   readonly contributes: {
-    readonly commands: readonly { command: string; enablement?: string }[];
+    readonly viewsContainers: { readonly secondarySidebar: readonly { readonly title: string }[] };
+    readonly commands: readonly { command: string; title: string; category: string; enablement?: string }[];
+    readonly chatParticipants: readonly { readonly name: string; readonly fullName: string }[];
+    readonly submenus: readonly { readonly label: string }[];
     readonly menus: Record<string, readonly MenuContribution[]>;
-    readonly configuration: { readonly properties: Record<string, unknown> };
+    readonly configuration: { readonly title: string; readonly properties: Record<string, unknown> };
   };
 }
 
@@ -25,7 +28,12 @@ const manifest = JSON.parse(readFileSync("package.json", "utf8")) as ExtensionMa
 
 test("extension identity stays consistent across packaging, settings, and documentation", () => {
   assert.equal(manifest.name, "pi-coding-agent-vscode");
-  assert.equal(manifest.displayName, "Pi Coding Agent");
+  assert.equal(manifest.displayName, "Pi");
+  assert.equal(manifest.contributes.viewsContainers.secondarySidebar[0].title, "Pi");
+  assert.ok(manifest.contributes.commands.every(command => command.category === "Pi" && !command.title.includes("PiCode")));
+  assert.deepEqual(manifest.contributes.chatParticipants.map(({ name, fullName }) => ({ name, fullName })), [{ name: "pi", fullName: "Pi" }]);
+  assert.ok(manifest.contributes.submenus.every(submenu => submenu.label === "Pi"));
+  assert.equal(manifest.contributes.configuration.title, "Pi");
   assert.equal(manifest.publisher, "narumi");
   const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
   assert.equal(lock.name, manifest.name);
@@ -38,7 +46,7 @@ test("extension identity stays consistent across packaging, settings, and docume
   assert.ok(manifest.contributes.commands.every(command => command.command.startsWith("picode.")));
   assert.ok(Object.keys(manifest.contributes.configuration.properties).every(key => key.startsWith("picode.")));
   for (const path of ["resources/picode.svg", "resources/picode-bridge.ts", "resources/picode-permission-gate.ts", "resources/picode-read-only-gate.ts", "scripts/install-picode-extension.mjs"]) {
-    assert.equal(existsSync(path), true, `missing PiCode asset: ${path}`);
+    assert.equal(existsSync(path), true, `missing Pi asset: ${path}`);
   }
 });
 
@@ -61,7 +69,7 @@ test("workflow commands are contributed, registered, documented and keep minimum
     assert.ok(readFileSync(`src/${controller}.ts`, "utf8").includes(`\"${id}\"`));
     assert.ok(entry.includes(`${register}(context, runtime, conversation)`));
   }
-  for (const label of ["Review Staged Changes", "Show Staged Findings", "Repair Failed Test (Preview)", "Ask Debug Context"]) assert.ok(readme.includes(`PiCode: ${label}`));
+  for (const label of ["Review Staged Changes", "Show Staged Findings", "Repair Failed Test (Preview)", "Ask Debug Context"]) assert.ok(readme.includes(`Pi: ${label}`));
 });
 
 test("quick-fix menu contributions are hidden for read-only editors", () => {
@@ -69,7 +77,7 @@ test("quick-fix menu contributions are hidden for read-only editors", () => {
     const contribution = manifest.contributes.menus[menu]
       .find(item => item.command === "picode.quickFix");
 
-    assert.ok(contribution, `missing PiCode quick fix contribution in ${menu}`);
+    assert.ok(contribution, `missing Pi quick fix contribution in ${menu}`);
     assert.match(contribution.when ?? "", /(?:^|&&)\s*!editorReadonly(?:\s*&&|$)/);
   }
 });

@@ -7,9 +7,9 @@ Unify Pi's VS Code workflows around one persistent conversation, simplify the na
 ## Architecture
 
 - `PiRuntimeManager` becomes one foreground runtime shared by the Sidebar and editor context-menu actions.
-- `PiCodeChatViewProvider` owns conversation presentation, native Quick Pick routing, attachment state, recovery actions, and ephemeral edit-proposal callbacks.
+- `PiChatViewProvider` owns conversation presentation, native Quick Pick routing, attachment state, recovery actions, and ephemeral edit-proposal callbacks.
 - Editor actions send bounded selection context through the shared conversation controller instead of one-shot Pi processes.
-- Existing native `@picode` Chat, inline completion, background agents, command identifiers, settings, and persisted Pi sessions remain compatible.
+- Existing native `@pi` Chat, inline completion, background agents, command identifiers, settings, and persisted Pi sessions remain compatible.
 
 ## Risks
 
@@ -31,7 +31,7 @@ Unify Pi's VS Code workflows around one persistent conversation, simplify the na
 
 ## Completion Checklist
 
-- [ ] Context-menu results appear in PiCode Chat and support follow-up in the same session.
+- [ ] Context-menu results appear in Pi Chat and support follow-up in the same session.
 - [ ] Edit actions require Preview and explicit Apply, and stale edits are blocked.
 - [ ] Ctrl/Cmd+V image paste works with existing attachment limits and model checks.
 - [ ] Primary controls remain usable at 280px, 400px, and 600px Sidebar widths.

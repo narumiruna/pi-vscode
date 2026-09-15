@@ -469,7 +469,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
         { label: "$(run) Run Message in Background", action: "background" },
         { label: "$(workspace-trusted) Run Message in Worktree", action: "worktree" },
       ],
-      { title: "PiCode Chat Actions", placeHolder: "Choose a session or advanced action" },
+      { title: "Pi Chat Actions", placeHolder: "Choose a session or advanced action" },
     );
     if (!selected) return;
     if (selected.action === "checkpoints") {
@@ -767,8 +767,8 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     try {
       const confirmation = await vscode.window.showWarningMessage(
         isolated
-          ? "Start an autonomous PiCode agent in a detached Git worktree created from HEAD?"
-          : "Start an autonomous PiCode agent that can edit the current workspace and run shell commands?",
+          ? "Start an autonomous Pi agent in a detached Git worktree created from HEAD?"
+          : "Start an autonomous Pi agent that can edit the current workspace and run shell commands?",
         { modal: true },
         isolated ? "Start Worktree Agent" : "Start Background Agent",
       );

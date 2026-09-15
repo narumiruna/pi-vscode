@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make PiCode Chat trustworthy and easier to scan by showing submitted images and context on the user turn that consumed them, keeping tool activity beside the related response, reducing visual noise, and presenting one consistent actionable status.
+Make Pi Chat trustworthy and easier to scan by showing submitted images and context on the user turn that consumed them, keeping tool activity beside the related response, reducing visual noise, and presenting one consistent actionable status.
 
 ## Context
 
@@ -25,7 +25,7 @@ Make PiCode Chat trustworthy and easier to scan by showing submitted images and 
 
 - Changing Pi's RPC image format, model image limits, or session-file format.
 - Persisting duplicate Base64 image payloads in VS Code workspace storage.
-- Rebuilding the native `@picode` Chat participant or suppressing notifications emitted by other Pi extensions.
+- Rebuilding the native `@pi` Chat participant or suppressing notifications emitted by other Pi extensions.
 - Persisting historical tool output that Pi's `get_messages` API does not return.
 
 ## Assumptions

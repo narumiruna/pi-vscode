@@ -63,7 +63,7 @@ async function askSelection(conversation: PiConversationController): Promise<voi
     return;
   }
   const question = await vscode.window.showInputBox({
-    title: "Ask PiCode About Selection",
+    title: "Ask Pi About Selection",
     prompt: "What would you like to know about this code?",
     placeHolder: "Explain this code and point out possible issues",
     ignoreFocusOut: true,
@@ -106,10 +106,10 @@ async function inlineEdit(
     return;
   }
   const instruction = await vscode.window.showInputBox({
-    title: "Inline Edit with PiCode",
+    title: "Inline Edit with Pi",
     prompt: snapshot.range.isEmpty
-      ? "What should PiCode add at the cursor?"
-      : "How should PiCode change the selected code or current line?",
+      ? "What should Pi add at the cursor?"
+      : "How should Pi change the selected code or current line?",
     placeHolder: "Make this easier to read without changing behavior",
     ignoreFocusOut: true,
   });
@@ -363,8 +363,8 @@ async function reportError(error: unknown): Promise<void> {
   if (/cancelled/i.test(message)) {
     return;
   }
-  const action = await vscode.window.showErrorMessage(message, "Open PiCode Settings");
-  if (action === "Open PiCode Settings") {
+  const action = await vscode.window.showErrorMessage(message, "Open Pi Settings");
+  if (action === "Open Pi Settings") {
     await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:narumi.pi-coding-agent-vscode");
   }
 }
@@ -382,7 +382,7 @@ class PiCodeSelectionCodeActionProvider implements vscode.CodeActionProvider {
       return [];
     }
 
-    const ask = new vscode.CodeAction("Ask PiCode", this.kind);
+    const ask = new vscode.CodeAction("Ask Pi", this.kind);
     ask.command = {
       command: "picode.askSelection",
       title: ask.title,
@@ -392,7 +392,7 @@ class PiCodeSelectionCodeActionProvider implements vscode.CodeActionProvider {
       return [ask];
     }
 
-    const modify = new vscode.CodeAction("Modify with PiCode", this.kind);
+    const modify = new vscode.CodeAction("Modify with Pi", this.kind);
     modify.command = {
       command: "picode.modifySelection",
       title: modify.title,
@@ -412,11 +412,11 @@ class PiCodeQuickFixProvider implements vscode.CodeActionProvider {
     }
     return filterFixableDiagnostics(context.diagnostics)
       .map(diagnostic => {
-        const action = new vscode.CodeAction(`Fix with PiCode: ${truncate(diagnostic.message, 80)}`, vscode.CodeActionKind.QuickFix);
+        const action = new vscode.CodeAction(`Fix with Pi: ${truncate(diagnostic.message, 80)}`, vscode.CodeActionKind.QuickFix);
         action.diagnostics = [diagnostic];
         action.command = {
           command: "picode.quickFix",
-          title: "Quick Fix with PiCode",
+          title: "Quick Fix with Pi",
           arguments: [{ uri: document.uri, diagnostic } satisfies DiagnosticCommandTarget],
         };
         return action;
