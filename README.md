@@ -142,15 +142,11 @@ npm run package
 
 ## Release
 
-Update the changelog, then bump the stable SemVer version in both package files:
+1. Add a repository Actions secret named `PAT_TOKEN`. Use a fine-grained personal access token with **Contents: Read and write** access to this repository.
+2. Update the changelog and push it to `main`.
+3. Run the [Release workflow](.github/workflows/release.yml) from the Actions tab and choose `patch`, `minor`, or `major`.
 
-```bash
-npm version patch --no-git-tag-version
-```
-
-Use `minor` or `major` instead of `patch` when appropriate. Commit and push `package.json` and `package-lock.json` to `main`.
-
-A version change on `main` triggers the [Release VSIX workflow](.github/workflows/release.yml). It validates that the version increased, installs locked dependencies, runs the tests, packages and verifies the VSIX, then creates a `v<version>` GitHub release with `pi-coding-agent-vscode.vsix` attached.
+The workflow checks out `main`, bumps `package.json` and `package-lock.json`, runs the tests, packages and verifies the VSIX, and creates the version commit through GitHub's GraphQL API. It then creates a `v<version>` GitHub release with `pi-coding-agent-vscode.vsix` attached. `PAT_TOKEN` authenticates both the version commit and release.
 
 ## License
 
