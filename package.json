@@ -2,7 +2,7 @@
   "name": "pi-coding-agent-vscode",
   "displayName": "Pi",
   "description": "Use Pi in VS Code to understand code and apply focused modifications.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "narumi",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -58,10 +58,30 @@
       ]
     },
     "commands": [
-      { "command": "picode.repairFailedTest", "title": "Repair Failed Test (Preview)", "category": "Pi", "enablement": "isWorkspaceTrusted" },
-      { "command": "picode.askDebugContext", "title": "Ask Debug Context", "category": "Pi", "enablement": "isWorkspaceTrusted && debugState == stopped" },
-      { "command": "picode.reviewStagedChanges", "title": "Review Staged Changes", "category": "Pi", "enablement": "isWorkspaceTrusted" },
-      { "command": "picode.showStagedFindings", "title": "Show Staged Findings", "category": "Pi", "enablement": "isWorkspaceTrusted" },
+      {
+        "command": "picode.repairFailedTest",
+        "title": "Repair Failed Test (Preview)",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "picode.askDebugContext",
+        "title": "Ask Debug Context",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted && debugState == stopped"
+      },
+      {
+        "command": "picode.reviewStagedChanges",
+        "title": "Review Staged Changes",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "picode.showStagedFindings",
+        "title": "Show Staged Findings",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
       {
         "command": "picode.openChat",
         "title": "Open Chat",
@@ -242,7 +262,17 @@
       "title": "Pi",
       "properties": {
         "picode.sensitiveContextNames": {
-          "type": "array", "items": { "type": "string" }, "default": [".env", "credential", "secret", "id_rsa", "id_ed25519"],
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            ".env",
+            "credential",
+            "secret",
+            "id_rsa",
+            "id_ed25519"
+          ],
           "description": "Best-effort warnings for attachment labels containing these names. Inspect/redact before transmission."
         },
         "picode.inlineCompletions.enabled": {
