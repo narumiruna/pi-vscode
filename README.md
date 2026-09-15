@@ -26,15 +26,19 @@ pi --version
 
 ## Install
 
-Ensure the VS Code `code` command is available, then install the latest release:
+Ensure the VS Code `code` command and `unzip` are available, then install the latest release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/narumiruna/pi-vscode/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/narumiruna/pi-vscode/main/scripts/install.sh -o install-pi-vscode.sh &&
+sh install-pi-vscode.sh &&
+rm install-pi-vscode.sh
 ```
 
-The installer downloads the latest `pi-coding-agent-vscode.vsix` release and installs it with `code --install-extension`. To install a specific version, append it after `sh -s --`, for example `sh -s -- 0.0.2`.
+Review [`scripts/install.sh`](scripts/install.sh) before running it if your environment does not allow downloaded scripts to execute directly. The command stops if the download fails. The installer downloads the latest `pi-coding-agent-vscode.vsix`, installs it with `code --install-extension`, and installs the matching Pi bridge extension.
 
-After installation or an update, run **Developer: Reload Window**.
+To install a specific version, pass it to the downloaded script, for example `sh install-pi-vscode.sh 0.0.2`.
+
+After installation or an update, run **Developer: Reload Window**, then open a new integrated terminal so Pi inherits the authenticated bridge environment.
 
 ## Install from source
 
