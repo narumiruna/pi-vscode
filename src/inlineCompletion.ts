@@ -1,6 +1,7 @@
 import path from "node:path";
 import * as vscode from "vscode";
 import { boundCompletionContext, buildCompletionPrompt, extractCompletion } from "./completion";
+import { picodeConfiguration } from "./configuration";
 import { invokePiWithCancellation } from "./vscodePi";
 
 const maxPrefixCharacters = 12_000;
@@ -14,21 +15,21 @@ interface CachedCompletion {
 }
 
 export function registerInlineCompletions(context: vscode.ExtensionContext): void {
-  const output = vscode.window.createOutputChannel("Pi Coding Agent");
-  const provider = new PiInlineCompletionProvider(output);
+  const output = vscode.window.createOutputChannel("PiCode");
+  const provider = new PiCodeInlineCompletionProvider(output);
   context.subscriptions.push(
     output,
     vscode.languages.registerInlineCompletionItemProvider(
       [{ scheme: "file" }, { scheme: "vscode-remote" }, { scheme: "untitled" }],
       provider,
     ),
-    vscode.commands.registerCommand("piCodingAgent.triggerInlineCompletion", async () => {
+    vscode.commands.registerCommand("picode.triggerInlineCompletion", async () => {
       await vscode.commands.executeCommand("editor.action.inlineSuggest.trigger");
     }),
   );
 }
 
-class PiInlineCompletionProvider implements vscode.InlineCompletionItemProvider {
+class PiCodeInlineCompletionProvider implements vscode.InlineCompletionItemProvider {
   private readonly cache = new Map<string, CachedCompletion>();
 
   public constructor(private readonly output: vscode.OutputChannel) {}
@@ -39,7 +40,7 @@ class PiInlineCompletionProvider implements vscode.InlineCompletionItemProvider 
     completionContext: vscode.InlineCompletionContext,
     token: vscode.CancellationToken,
   ): Promise<vscode.InlineCompletionItem[] | undefined> {
-    const configuration = vscode.workspace.getConfiguration("piCodingAgent.inlineCompletions", document.uri);
+    const configuration = picodeConfiguration("inlineCompletions", document.uri);
     if (
       !configuration.get<boolean>("enabled", false) &&
       completionContext.triggerKind !== vscode.InlineCompletionTriggerKind.Invoke

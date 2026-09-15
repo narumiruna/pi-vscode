@@ -6,7 +6,7 @@ import { registerDebugContext } from "./debugContextController";
 import { registerEditorActions } from "./editorActions";
 import { registerInlineCompletions } from "./inlineCompletion";
 import { PiRuntimeManager } from "./piRuntime";
-import { registerPiSidebar } from "./sidebar";
+import { registerPiCodeSidebar } from "./sidebar";
 import { abortAllPiInvocations } from "./vscodePi";
 
 export interface PiVscodeApi {
@@ -17,7 +17,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<PiVsco
   const runtime = new PiRuntimeManager(context);
   context.subscriptions.push(runtime);
   await runtime.initializeBridge();
-  const conversation = registerPiSidebar(context, runtime);
+  const conversation = registerPiCodeSidebar(context, runtime);
   registerPiChat(context);
   registerEditorActions(context, conversation);
   registerGitReview(context, runtime, conversation);

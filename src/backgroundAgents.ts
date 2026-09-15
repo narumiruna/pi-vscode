@@ -17,8 +17,9 @@ import {
 import { buildAgentPrompt, type ChatReferenceContext } from "./prompts";
 import { PiRpcClient, type PiRpcEvent, type PiRpcImage } from "./piRpcClient";
 import { readPiInvocationOptions } from "./vscodePi";
+import { picodeConfiguration } from "./configuration";
 
-const storageKey = "piCodingAgent.backgroundTasks.v1";
+const storageKey = "picode.backgroundTasks.v1";
 const maxTasks = 20;
 const maxOutputCharacters = 20_000;
 
@@ -107,7 +108,7 @@ export class BackgroundAgentManager implements vscode.Disposable {
     }
 
     const invocation = readPiInvocationOptions(vscode.Uri.file(taskCwd));
-    const configuration = vscode.workspace.getConfiguration("piCodingAgent");
+    const configuration = picodeConfiguration();
     const client = new PiRpcClient({
       executablePath: invocation.executablePath,
       cwd: taskCwd,
@@ -115,10 +116,10 @@ export class BackgroundAgentManager implements vscode.Disposable {
       model: invocation.model,
       thinkingLevel: invocation.thinkingLevel,
       appendSystemPrompt: "This is an independent background task. Work only in the provided working directory.",
-      extensions: [path.join(this.context.extensionUri.fsPath, "resources", "pi-vscode-permission-gate.ts")],
+      extensions: [path.join(this.context.extensionUri.fsPath, "resources", "picode-permission-gate.ts")],
       approveProjectResources: configuration.get<boolean>("approveProjectResources", false),
       env: {
-        PI_VSCODE_PERMISSION_MODE: configuration.get<string>("agent.confirmToolCalls", "dangerous"),
+        PICODE_PERMISSION_MODE: configuration.get<string>("agent.confirmToolCalls", "dangerous"),
       },
     });
     const subscription = client.onEvent(event => this.handleEvent(id, event));

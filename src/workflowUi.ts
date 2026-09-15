@@ -9,7 +9,7 @@ import { contextWarnings } from "./contextInspector";
 /** Immutable, memory-only documents; callers release each result's resources. */
 export class WorkflowDocuments implements vscode.TextDocumentContentProvider, vscode.Disposable {
   private readonly contents = new Map<string, string>();
-  private readonly scheme = `pi-workflow-${randomUUID()}`;
+  private readonly scheme = `picode-workflow-${randomUUID()}`;
   private readonly registration = vscode.workspace.registerTextDocumentContentProvider(this.scheme, this);
   public create(label: string, text: string): vscode.Uri {
     const uri = vscode.Uri.from({ scheme: this.scheme, path: `/${encodeURIComponent(label)}`, query: randomUUID() });

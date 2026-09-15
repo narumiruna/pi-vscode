@@ -12,7 +12,7 @@ import { installVscodeMock, MockUri } from "./vscodeMock";
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
 test("packaged read-only gate blocks mutating default and extension tools and restores tools only at settlement", () => {
-  const source = readFileSync(path.resolve(__dirname, "../../resources/pi-vscode-read-only-gate.ts"), "utf8");
+  const source = readFileSync(path.resolve(__dirname, "../../resources/picode-read-only-gate.ts"), "utf8");
   const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
   const exports: any = {};
   runInNewContext(compiled, { exports });
@@ -36,11 +36,11 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
   };
   const runtime = new PiRuntimeManager(context);
   const internal = runtime as any;
-  const foregroundOptions = internal.buildClientOptions(undefined, { PI_VSCODE_BRIDGE_TOKEN: "token" });
+  const foregroundOptions = internal.buildClientOptions(undefined, { PICODE_BRIDGE_TOKEN: "token" });
   assert.equal(foregroundOptions.tools, undefined);
   assert.equal(foregroundOptions.appendSystemPrompt, undefined);
   assert.equal("mode" in runtime.currentState, false);
-  assert.deepEqual(foregroundOptions.extensions.map((value: string) => path.basename(value)), ["pi-vscode-permission-gate.ts", "pi-vscode-read-only-gate.ts"]);
+  assert.deepEqual(foregroundOptions.extensions.map((value: string) => path.basename(value)), ["picode-permission-gate.ts", "picode-read-only-gate.ts"]);
   const calls: string[] = [];
   let queued = { steering: [] as string[], followUp: [] as string[] };
   const client: any = {
@@ -126,7 +126,7 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
 });
 
 test("session-workspace binding rejects cross-root, malformed and oversized headers without reading full history", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "pi-session-binding-"));
+  const root = await mkdtemp(path.join(tmpdir(), "picode-session-binding-"));
   try {
     const session = path.join(root, "s.jsonl");
     await writeFile(session, JSON.stringify({ type: "session", cwd: root }) + "\n" + "x".repeat(100000));

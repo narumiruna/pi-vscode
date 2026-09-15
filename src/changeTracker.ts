@@ -104,7 +104,7 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
   public async review(id: string): Promise<void> {
     const { record, name } = this.resolve(id);
     const file = record.files.find(file => file.path === name)!;
-    const before = vscode.Uri.from({ scheme: "pi-checkpoint", path: `/${name}`, query: `${record.id}-before` });
+    const before = vscode.Uri.from({ scheme: "picode-checkpoint", path: `/${name}`, query: `${record.id}-before` });
     const after = before.with({ query: `${record.id}-after` });
     this.previews.clear();
     this.previews.set(before.toString(), file.before); this.previews.set(after.toString(), file.after);
@@ -124,7 +124,7 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
     const selected = await vscode.window.showQuickPick(this.history.values.filter(record => record.repository === realpathSync(cwd) && record.sessionId === sessionId).map(record => ({ label: `${new Date(record.startedAt).toLocaleTimeString()} · ${record.files.length} covered · ${record.exclusions.length} excluded · ${record.status}`, record })), { title: "Request checkpoints (memory-only; not a transcript rewind)" });
     if (!selected) return false;
     const record = selected.record;
-    const report = vscode.Uri.from({ scheme: "pi-checkpoint", path: "/coverage.txt", query: record.id });
+    const report = vscode.Uri.from({ scheme: "picode-checkpoint", path: "/coverage.txt", query: record.id });
     this.previews.clear();
     this.previews.set(report.toString(), `Request ${record.id}; session ${record.sessionId}; ${record.status}\nCovered: ${record.files.map(file => `${file.path}${file.reverted ? " (reverted)" : ""}`).join(", ") || "none"}\nExcluded:\n${record.exclusions.join("\n")}\n${record.restoreFailed ? "A restore failed; recovery before/after snapshots are retained." : ""}`);
     await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(report), { preview: true });

@@ -7,7 +7,7 @@ import { assertStagedCurrent, captureStaged, digest, gitEnvironment, safeRelativ
 import { parseGitReview } from "../gitReview";
 
 async function fixture(run: (root: string, git: (...args: string[]) => Buffer) => Promise<void>): Promise<void> {
-  const root = await mkdtemp(path.join(tmpdir(), "pi-git-review-"));
+  const root = await mkdtemp(path.join(tmpdir(), "picode-git-review-"));
   const git = (...args: string[]) => execFileSync("git", ["-c", "commit.gpgsign=false", ...args], { cwd: root, env: { ...gitEnvironment(), GIT_AUTHOR_NAME: "Fixture", GIT_AUTHOR_EMAIL: "fixture@example.invalid", GIT_COMMITTER_NAME: "Fixture", GIT_COMMITTER_EMAIL: "fixture@example.invalid" } });
   try { git("init", "-q"); await run(root, git); } finally { await rm(root, { recursive: true, force: true }); }
 }
