@@ -1,6 +1,6 @@
 {
-  "name": "picode",
-  "displayName": "PiCode",
+  "name": "pi-coding-agent-vscode",
+  "displayName": "Pi Coding Agent",
   "description": "Use PiCode to chat with Pi in VS Code, understand code, and apply focused modifications.",
   "version": "0.0.1",
   "publisher": "narumi",
@@ -332,7 +332,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "test": "npm run compile && vitest run",
-    "package": "npm run test && vsce package --out picode.vsix",
+    "package": "npm run test && vsce package --out pi-coding-agent-vscode.vsix",
     "prepare": "husky"
   },
   "devDependencies": {

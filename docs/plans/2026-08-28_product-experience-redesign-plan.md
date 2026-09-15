@@ -27,7 +27,7 @@ Unify Pi's VS Code workflows around one persistent conversation, simplify the na
 - [x] Make loading, empty, streaming, success, error, disabled, cancellation, truncation, and recovery states explicit in Sidebar state and rendering; old `v1` stored messages remain accepted.
 - [x] Add focused unit tests for prompts, storage compatibility, runtime profiles, request lifecycle and serialization, compaction-safe assistant capture, background-draft preservation, cross-proposal Apply locking, protocol bounds, image validation, and generated Webview behavior; 53 automated tests pass. Manual Extension Host checks remain unavailable in this non-interactive run.
 - [x] Update `README.md`, `CHANGELOG.md`, `docs/FEATURE_MATRIX.md`, and `docs/SECURITY.md` to describe the unified conversation and attachment workflow.
-- [x] Run `npm test`, load the packaged Pi extension, run `npm run package`, inspect VSIX contents, inspect the final diff, and install `narumi.picode@0.0.1`; packaging passes with only the pre-existing missing-repository warning.
+- [x] Run `npm test`, load the packaged Pi extension, run `npm run package`, inspect VSIX contents, inspect the final diff, and install `narumi.pi-coding-agent-vscode@0.0.1`; packaging passes with only the pre-existing missing-repository warning.
 
 ## Completion Checklist
 

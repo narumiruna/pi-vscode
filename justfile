@@ -10,7 +10,7 @@ dev-pi:
 # Package and install the PiCode extensions for VS Code and Pi.
 install: install-picode-extension
     npm run package
-    code --install-extension "{{justfile_directory()}}/picode.vsix" --force
+    code --install-extension "{{justfile_directory()}}/pi-coding-agent-vscode.vsix" --force
 
 # Install the standalone PiCode bridge extension globally.
 install-picode-extension:
