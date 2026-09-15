@@ -24,9 +24,21 @@ Confirm that Pi is available in the environment where VS Code runs the extension
 pi --version
 ```
 
-Building from source also requires Node.js, npm, [`just`](https://just.systems), and the VS Code `code` command.
+## Install
+
+Ensure the VS Code `code` command is available, then install the latest release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/narumiruna/pi-vscode/main/scripts/install.sh | sh
+```
+
+The installer downloads the latest `pi-coding-agent-vscode.vsix` release and installs it with `code --install-extension`. To install a specific version, append it after `sh -s --`, for example `sh -s -- 0.0.2`.
+
+After installation or an update, run **Developer: Reload Window**.
 
 ## Install from source
+
+Building from source additionally requires Node.js, npm, and [`just`](https://just.systems):
 
 ```bash
 npm install
@@ -35,12 +47,7 @@ just install
 
 `just install` packages and installs the VS Code extension, then copies the standalone Pi bridge extension to `${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions/picode.ts`. The extension ID is `narumi.pi-coding-agent-vscode`.
 
-After installation or an update:
-
-1. Run **Developer: Reload Window**.
-2. Open a new integrated terminal so Pi inherits the authenticated bridge environment.
-
-To install only the standalone Pi bridge extension, run `just install-picode-extension`.
+Open a new integrated terminal after installation so Pi inherits the authenticated bridge environment. To install only the standalone Pi bridge extension, run `just install-picode-extension`.
 
 ## Get started
 
