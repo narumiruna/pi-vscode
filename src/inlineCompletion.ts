@@ -1,6 +1,7 @@
 import path from "node:path";
 import * as vscode from "vscode";
 import { boundCompletionContext, buildCompletionPrompt, extractCompletion } from "./completion";
+import { picodeConfiguration } from "./configuration";
 import { invokePiWithCancellation } from "./vscodePi";
 
 const maxPrefixCharacters = 12_000;
@@ -39,7 +40,7 @@ class PiCodeInlineCompletionProvider implements vscode.InlineCompletionItemProvi
     completionContext: vscode.InlineCompletionContext,
     token: vscode.CancellationToken,
   ): Promise<vscode.InlineCompletionItem[] | undefined> {
-    const configuration = vscode.workspace.getConfiguration("picode.inlineCompletions", document.uri);
+    const configuration = picodeConfiguration("inlineCompletions", document.uri);
     if (
       !configuration.get<boolean>("enabled", false) &&
       completionContext.triggerKind !== vscode.InlineCompletionTriggerKind.Invoke

@@ -108,8 +108,8 @@ async function inlineEdit(
   const instruction = await vscode.window.showInputBox({
     title: "Inline Edit with PiCode",
     prompt: snapshot.range.isEmpty
-      ? "What should Pi add at the cursor?"
-      : "How should Pi change the selected code or current line?",
+      ? "What should PiCode add at the cursor?"
+      : "How should PiCode change the selected code or current line?",
     placeHolder: "Make this easier to read without changing behavior",
     ignoreFocusOut: true,
   });

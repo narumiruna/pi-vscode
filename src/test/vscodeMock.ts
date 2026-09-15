@@ -21,7 +21,10 @@ export function installVscodeMock(): any {
     workspace: {
       isTrusted: true, textDocuments: [], workspaceFolders: [],
       registerTextDocumentContentProvider: disposable,
-      getConfiguration: () => ({ get: (_key: string, fallback: unknown) => fallback }),
+      getConfiguration: () => ({
+        get: (_key: string, fallback: unknown) => fallback,
+        inspect: (key: string) => ({ key }),
+      }),
       getWorkspaceFolder: () => undefined,
     },
     window: { showWarningMessage: async () => undefined, showErrorMessage: async () => undefined, showInformationMessage: async () => undefined, showQuickPick: async () => undefined, showInputBox: async () => undefined },

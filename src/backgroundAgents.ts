@@ -17,6 +17,7 @@ import {
 import { buildAgentPrompt, type ChatReferenceContext } from "./prompts";
 import { PiRpcClient, type PiRpcEvent, type PiRpcImage } from "./piRpcClient";
 import { readPiInvocationOptions } from "./vscodePi";
+import { picodeConfiguration } from "./configuration";
 
 const storageKey = "picode.backgroundTasks.v1";
 const maxTasks = 20;
@@ -107,7 +108,7 @@ export class BackgroundAgentManager implements vscode.Disposable {
     }
 
     const invocation = readPiInvocationOptions(vscode.Uri.file(taskCwd));
-    const configuration = vscode.workspace.getConfiguration("picode");
+    const configuration = picodeConfiguration();
     const client = new PiRpcClient({
       executablePath: invocation.executablePath,
       cwd: taskCwd,

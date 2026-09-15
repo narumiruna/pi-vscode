@@ -50,6 +50,32 @@ test("Pi history conversion preserves observed text-plus-image user content and 
   } finally { vscode.restore(); }
 });
 
+test("history conversion renders source-built pre-rename prompt envelopes as requests and context", () => {
+  const vscode = installVscodeMock();
+  try {
+    const { convertPiMessages } = require("../sidebarHelpers") as typeof import("../sidebarHelpers");
+    const serializedPrompt = [
+      "<<<PI_VSCODE_CONTEXT_START: src/legacy.ts:4-8>>>",
+      "const value = 42;",
+      "<<<PI_VSCODE_CONTEXT_END>>>",
+      "<<<PI_VSCODE_REQUEST_START>>>",
+      "Explain this value",
+      "<<<PI_VSCODE_REQUEST_END>>>",
+    ].join("\n");
+    const converted = convertPiMessages([
+      { role: "user", timestamp: 10, content: [{ type: "text", text: serializedPrompt }] },
+    ], { imageAssets: imageCache() });
+
+    assert.equal(converted[0]?.content, "Explain this value");
+    assert.equal(converted[0]?.content.includes("PI_VSCODE_CONTEXT"), false);
+    assert.deepEqual(converted[0]?.attachments, [{
+      type: "context",
+      label: "src/legacy.ts:4-8",
+      fullLabel: "src/legacy.ts:4-8",
+    }]);
+  } finally { vscode.restore(); }
+});
+
 test("history synchronization preserves labels for each repeated image occurrence", () => {
   const vscode = installVscodeMock();
   try {

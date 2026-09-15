@@ -1,10 +1,11 @@
 import * as vscode from "vscode";
 import { invokePi, type PiInvocationOptions } from "./piClient";
+import { picodeConfiguration, type PiCodeConfiguration } from "./configuration";
 
 const activeControllers = new Set<AbortController>();
 
 export function readPiInvocationOptions(resource?: vscode.Uri): PiInvocationOptions {
-  const configuration = vscode.workspace.getConfiguration("picode");
+  const configuration = picodeConfiguration(undefined, resource);
   const resourceFolder = resource ? vscode.workspace.getWorkspaceFolder(resource) : undefined;
   const fallbackFolder = vscode.workspace.workspaceFolders?.[0];
   const cwd = resourceFolder?.uri.fsPath ?? fallbackFolder?.uri.fsPath ?? process.cwd();
@@ -45,7 +46,7 @@ export function abortAllPiInvocations(): void {
   activeControllers.clear();
 }
 
-function optionalSetting(configuration: vscode.WorkspaceConfiguration, key: string): string | undefined {
+function optionalSetting(configuration: PiCodeConfiguration, key: string): string | undefined {
   const value = configuration.get<string>(key, "").trim();
   return value || undefined;
 }

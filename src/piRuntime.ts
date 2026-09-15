@@ -7,6 +7,7 @@ import { assertSessionWorkspace } from "./sessionIdentity";
 import { parseRpcQueue, type PiRpcQueue } from "./piRpcClient";
 import { PiRpcClient, type PiRpcClientOptions, type PiRpcEvent, type PiRpcImage } from "./piRpcClient";
 import { readPiInvocationOptions } from "./vscodePi";
+import { picodeConfiguration } from "./configuration";
 import { VscodeBridgeServer } from "./vscodeBridge";
 import {
   vscodeBridgePortEnvironmentKey,
@@ -464,7 +465,7 @@ export class PiRuntimeManager implements vscode.Disposable {
 
   private buildClientOptions(sessionPath: string | undefined, bridgeEnvironment: NodeJS.ProcessEnv): PiRpcClientOptions {
     const invocation = readPiInvocationOptions(this.resource);
-    const configuration = vscode.workspace.getConfiguration("picode");
+    const configuration = picodeConfiguration();
     return {
       executablePath: invocation.executablePath,
       cwd: invocation.cwd,
