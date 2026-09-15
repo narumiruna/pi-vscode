@@ -21,7 +21,7 @@ test("test command validation, log redaction, no-test matches and finite repair 
 });
 
 test("process test adapter observes success/failure, missing executable, timeout, cancellation, bounded output and child cleanup", async () => {
-  const cwd = await mkdtemp(path.join(tmpdir(), "pi-test-runner-"));
+  const cwd = await mkdtemp(path.join(tmpdir(), "picode-test-runner-"));
   try {
     const result = await runBoundedProcess(process.execPath, ["-e", "console.log('failure');process.exit(2)"], { cwd });
     assert.equal(result.exitCode, 2); assert.match(result.stdout.toString(), /failure/);

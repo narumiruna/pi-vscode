@@ -18,8 +18,8 @@ export interface ChatReferenceContext {
 
 export type AgentRequestPolicy = "read-only";
 
-const replacementStart = "<<<PI_REPLACEMENT_START>>>";
-const replacementEnd = "<<<PI_REPLACEMENT_END>>>";
+const replacementStart = "<<<PICODE_REPLACEMENT_START>>>";
+const replacementEnd = "<<<PICODE_REPLACEMENT_END>>>";
 
 export function buildSelectionReference(context: SelectionContext): ChatReferenceContext {
   return {
@@ -40,9 +40,9 @@ function describeSelection(context: SelectionContext): string {
     `Language: ${context.languageId}`,
     `Lines: ${context.startLine}-${context.endLine}`,
     "",
-    "<<<PI_SELECTED_CODE_START>>>",
+    "<<<PICODE_SELECTED_CODE_START>>>",
     context.code,
-    "<<<PI_SELECTED_CODE_END>>>",
+    "<<<PICODE_SELECTED_CODE_END>>>",
   ].join("\n");
 }
 
@@ -109,26 +109,26 @@ export function buildAgentPrompt(
 ): string {
   const sections: string[] = [];
   if (policy) {
-    sections.push(`<<<PI_VSCODE_POLICY: ${policy}>>>`);
+    sections.push(`<<<PICODE_POLICY: ${policy}>>>`);
   }
   for (const reference of references) {
     sections.push(
-      `<<<PI_VSCODE_CONTEXT_START: ${reference.label.replace(/[\r\n]+/g, " ")}>>>`,
+      `<<<PICODE_CONTEXT_START: ${reference.label.replace(/[\r\n]+/g, " ")}>>>`,
       reference.content,
-      "<<<PI_VSCODE_CONTEXT_END>>>",
+      "<<<PICODE_CONTEXT_END>>>",
     );
   }
   if (instructions) {
-    sections.push("<<<PI_VSCODE_INSTRUCTIONS_START>>>", instructions, "<<<PI_VSCODE_INSTRUCTIONS_END>>>");
+    sections.push("<<<PICODE_INSTRUCTIONS_START>>>", instructions, "<<<PICODE_INSTRUCTIONS_END>>>");
   }
-  sections.push("<<<PI_VSCODE_REQUEST_START>>>", request, "<<<PI_VSCODE_REQUEST_END>>>");
+  sections.push("<<<PICODE_REQUEST_START>>>", request, "<<<PICODE_REQUEST_END>>>");
   return sections.join("\n");
 }
 
 export function parseAgentPrompt(prompt: string, maxContextLabels = Number.MAX_SAFE_INTEGER): { request: string; contextLabels: string[] } {
-  const requestMatch = /<<<PI_VSCODE_REQUEST_START>>>\n([\s\S]*?)\n<<<PI_VSCODE_REQUEST_END>>>\s*$/.exec(prompt);
+  const requestMatch = /<<<PICODE_REQUEST_START>>>\n([\s\S]*?)\n<<<PICODE_REQUEST_END>>>\s*$/.exec(prompt);
   const contextLabels: string[] = [];
-  for (const match of prompt.matchAll(/<<<PI_VSCODE_CONTEXT_START: ([^\r\n>]*)>>>/g)) {
+  for (const match of prompt.matchAll(/<<<PICODE_CONTEXT_START: ([^\r\n>]*)>>>/g)) {
     if (contextLabels.length >= maxContextLabels) break;
     contextLabels.push(match[1]);
   }
@@ -146,7 +146,7 @@ export function buildChatPrompt(
 ): string {
   const commandInstruction = chatCommandInstruction(command);
   const sections = [
-    "You are Pi Coding Agent responding inside the native VS Code Chat view.",
+    "You are PiCode responding inside the native VS Code Chat view.",
     "Answer in concise Markdown.",
     "Do not claim to have modified files or run commands because tools are disabled for this chat request.",
   ];
@@ -162,7 +162,7 @@ export function buildChatPrompt(
     sections.push(
       "Referenced context:",
       references
-        .map(reference => `<<<PI_REFERENCE_START: ${reference.label}>>>\n${reference.content}\n<<<PI_REFERENCE_END>>>`)
+        .map(reference => `<<<PICODE_REFERENCE_START: ${reference.label}>>>\n${reference.content}\n<<<PICODE_REFERENCE_END>>>`)
         .join("\n\n"),
     );
   }

@@ -6,7 +6,7 @@ import { installVscodeMock } from "./vscodeMock";
 
 test("Trash classification is narrow and permanent deletion stays bound to the original session", async () => {
   const vscode = installVscodeMock();
-  const root = mkdtempSync(path.join(os.tmpdir(), "pi-delete-target-"));
+  const root = mkdtempSync(path.join(os.tmpdir(), "picode-delete-target-"));
   try {
     const { isTrashUnavailableError, PiRuntimeManager, runtimeSessionIdentityChanged } = require("../piRuntime") as typeof import("../piRuntime");
     const originalIdentity = { sessionFile: "/sessions/original.jsonl", sessionId: "original" };

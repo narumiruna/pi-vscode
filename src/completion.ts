@@ -5,8 +5,8 @@ export interface CompletionContext {
   readonly suffix: string;
 }
 
-const completionStart = "<<<PI_COMPLETION_START>>>";
-const completionEnd = "<<<PI_COMPLETION_END>>>";
+const completionStart = "<<<PICODE_COMPLETION_START>>>";
+const completionEnd = "<<<PICODE_COMPLETION_END>>>";
 
 export function buildCompletionPrompt(context: CompletionContext): string {
   return [
@@ -19,19 +19,19 @@ export function buildCompletionPrompt(context: CompletionContext): string {
     `File: ${context.file}`,
     `Language: ${context.languageId}`,
     "",
-    "<<<PI_PREFIX_START>>>",
+    "<<<PICODE_PREFIX_START>>>",
     context.prefix,
-    "<<<PI_PREFIX_END>>>",
-    "<<<PI_CURSOR>>>",
-    "<<<PI_SUFFIX_START>>>",
+    "<<<PICODE_PREFIX_END>>>",
+    "<<<PICODE_CURSOR>>>",
+    "<<<PICODE_SUFFIX_START>>>",
     context.suffix,
-    "<<<PI_SUFFIX_END>>>",
+    "<<<PICODE_SUFFIX_END>>>",
   ].join("\n");
 }
 
 export function extractCompletion(output: string): string | undefined {
   const normalized = output.replace(/\r\n/g, "\n");
-  const match = /^\s*<<<PI_COMPLETION_START>>>\n([\s\S]*?)\n<<<PI_COMPLETION_END>>>\s*$/.exec(normalized);
+  const match = /^\s*<<<PICODE_COMPLETION_START>>>\n([\s\S]*?)\n<<<PICODE_COMPLETION_END>>>\s*$/.exec(normalized);
   return match?.[1];
 }
 

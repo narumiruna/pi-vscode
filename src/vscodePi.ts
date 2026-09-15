@@ -4,7 +4,7 @@ import { invokePi, type PiInvocationOptions } from "./piClient";
 const activeControllers = new Set<AbortController>();
 
 export function readPiInvocationOptions(resource?: vscode.Uri): PiInvocationOptions {
-  const configuration = vscode.workspace.getConfiguration("piCodingAgent");
+  const configuration = vscode.workspace.getConfiguration("picode");
   const resourceFolder = resource ? vscode.workspace.getWorkspaceFolder(resource) : undefined;
   const fallbackFolder = vscode.workspace.workspaceFolders?.[0];
   const cwd = resourceFolder?.uri.fsPath ?? fallbackFolder?.uri.fsPath ?? process.cwd();

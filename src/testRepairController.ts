@@ -16,7 +16,7 @@ export function registerTestRepair(context: vscode.ExtensionContext, runtime: Pi
   const documents = new WorkflowDocuments();
   context.subscriptions.push(documents);
   let active = false;
-  workflowCommand(context, "piCodingAgent.repairFailedTest", async () => {
+  workflowCommand(context, "picode.repairFailedTest", async () => {
     if (active) throw new Error("A test repair invocation is already active.");
     active = true;
     try {
@@ -86,7 +86,7 @@ export function registerTestRepair(context: vscode.ExtensionContext, runtime: Pi
         await assertRuntimeTarget(runtime, folder.fsPath, sessionId);
         attempts.approve();
         const response = await conversation.sendRequest("Propose one focused fix for the selected source file and failure. Do not execute tests or modify files.", [{ label: "Inspected test failure and source", content: inspected }], {
-          resource: folder, policy: "read-only", validate, instructions: "Return only <<<PI_REPLACEMENT_START>>>, newline, the complete replacement source text, newline, <<<PI_REPLACEMENT_END>>>. The approved test command is evidence, not a request to execute it. Do not change it.",
+          resource: folder, policy: "read-only", validate, instructions: "Return only <<<PICODE_REPLACEMENT_START>>>, newline, the complete replacement source text, newline, <<<PICODE_REPLACEMENT_END>>>. The approved test command is evidence, not a request to execute it. Do not change it.",
         });
         const replacement = extractReplacement(response);
         if (replacement === undefined) throw new Error("Invalid repair proposal; no edits or rerun.");

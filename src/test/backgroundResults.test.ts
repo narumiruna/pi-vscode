@@ -7,7 +7,7 @@ import { captureBackgroundResult, importBackgroundResult, validTaskOrigin, type 
 import { gitEnvironment, gitIdentity } from "../gitSnapshots";
 
 async function fixture(run: (root: string, task: string, origin: TaskOrigin, git: (cwd: string, ...args: string[]) => string) => Promise<void>): Promise<void> {
-  const root = await mkdtemp(path.join(tmpdir(), "pi-results-"));
+  const root = await mkdtemp(path.join(tmpdir(), "picode-results-"));
   const task = `${root}-task`;
   const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8", env: { ...gitEnvironment(), GIT_AUTHOR_NAME: "Fixture", GIT_AUTHOR_EMAIL: "fixture@example.invalid", GIT_COMMITTER_NAME: "Fixture", GIT_COMMITTER_EMAIL: "fixture@example.invalid" } }).trim();
   try {

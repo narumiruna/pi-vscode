@@ -11,7 +11,7 @@ const dangerousCommandPatterns = [
 
 export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {
-    const mode = process.env.PI_VSCODE_PERMISSION_MODE ?? "dangerous";
+    const mode = process.env.PICODE_PERMISSION_MODE ?? "dangerous";
     if (mode === "off") {
       return undefined;
     }
