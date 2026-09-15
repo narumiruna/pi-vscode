@@ -7,13 +7,14 @@ import { assertSessionWorkspace } from "./sessionIdentity";
 import { parseRpcQueue, type PiRpcQueue } from "./piRpcClient";
 import { PiRpcClient, type PiRpcClientOptions, type PiRpcEvent, type PiRpcImage } from "./piRpcClient";
 import { readPiInvocationOptions } from "./vscodePi";
+import { picodeConfiguration } from "./configuration";
 import { VscodeBridgeServer } from "./vscodeBridge";
 import {
   vscodeBridgePortEnvironmentKey,
   vscodeBridgeTokenEnvironmentKey,
 } from "./vscodeBridgeProtocol";
 
-const sessionPathKey = "piCodingAgent.rpc.sessionPath.v1";
+const sessionPathKey = "picode.rpc.sessionPath.v1";
 
 export class SessionTrashUnavailableError extends Error {
   public constructor(public readonly sessionFile: string, options?: ErrorOptions) {
@@ -406,7 +407,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       shellArgs.push("--session", sessionFile);
     }
     const terminal = vscode.window.createTerminal({
-      name: "Pi Agent",
+      name: "PiCode",
       cwd: invocation.cwd,
       shellPath: invocation.executablePath,
       shellArgs,
@@ -464,7 +465,7 @@ export class PiRuntimeManager implements vscode.Disposable {
 
   private buildClientOptions(sessionPath: string | undefined, bridgeEnvironment: NodeJS.ProcessEnv): PiRpcClientOptions {
     const invocation = readPiInvocationOptions(this.resource);
-    const configuration = vscode.workspace.getConfiguration("piCodingAgent");
+    const configuration = picodeConfiguration();
     return {
       executablePath: invocation.executablePath,
       cwd: invocation.cwd,
@@ -472,14 +473,14 @@ export class PiRuntimeManager implements vscode.Disposable {
       model: invocation.model,
       thinkingLevel: invocation.thinkingLevel,
       extensions: [
-        path.join(this.context.extensionUri.fsPath, "resources", "pi-vscode-permission-gate.ts"),
-        path.join(this.context.extensionUri.fsPath, "resources", "pi-vscode-read-only-gate.ts"),
+        path.join(this.context.extensionUri.fsPath, "resources", "picode-permission-gate.ts"),
+        path.join(this.context.extensionUri.fsPath, "resources", "picode-read-only-gate.ts"),
       ],
       sessionPath,
       approveProjectResources: configuration.get<boolean>("approveProjectResources", false),
       env: {
         ...bridgeEnvironment,
-        PI_VSCODE_PERMISSION_MODE: configuration.get<string>("agent.confirmToolCalls", "dangerous"),
+        PICODE_PERMISSION_MODE: configuration.get<string>("agent.confirmToolCalls", "dangerous"),
       },
     };
   }

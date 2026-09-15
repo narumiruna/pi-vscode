@@ -13,7 +13,7 @@ export function registerGitReview(context: vscode.ExtensionContext, runtime: PiR
     await assertRuntimeTarget(runtime, folder.fsPath, sessionId);
     if (JSON.stringify(await gitIdentity(folder.fsPath)) !== JSON.stringify(snapshot.repository)) throw new Error("Selected workspace Git identity changed; capture a fresh staged review.");
   };
-  workflowCommand(context, "piCodingAgent.reviewStagedChanges", async () => {
+  workflowCommand(context, "picode.reviewStagedChanges", async () => {
     const folder = await pickWorkspace();
     if (!folder) return;
     await assertRuntimeTarget(runtime, folder.fsPath);
@@ -63,5 +63,5 @@ export function registerGitReview(context: vscode.ExtensionContext, runtime: PiR
       });
     } finally { documents.release(before); documents.release(after); }
   };
-  workflowCommand(context, "piCodingAgent.showStagedFindings", navigate);
+  workflowCommand(context, "picode.showStagedFindings", navigate);
 }

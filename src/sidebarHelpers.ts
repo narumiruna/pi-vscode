@@ -112,7 +112,7 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
         ...imageAttachments,
       ];
       messages.push({
-        id: `pi-user-${String(value.timestamp ?? index)}-${index}`,
+        id: `picode-user-${String(value.timestamp ?? index)}-${index}`,
         role: "user",
         content: parsed.request,
         ...(attachments.length ? { attachments } : {}),
@@ -121,7 +121,7 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
       if (!text) continue;
       const replacement = extractReplacement(text);
       messages.push({
-        id: `pi-assistant-${String(value.timestamp ?? index)}-${index}`,
+        id: `picode-assistant-${String(value.timestamp ?? index)}-${index}`,
         role: "assistant",
         content: replacement === undefined ? text : `Prepared an edit proposal.\n\n\`\`\`\n${replacement}\n\`\`\``,
       });

@@ -187,10 +187,10 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       <section id="messages" aria-live="off"></section>
       <details id="tools-group" hidden><summary><span id="tools-summary">Tool activity</span></summary><section id="tools" aria-label="Pi tool activity"></section></details>
     </section>
-    <section id="activity" aria-label="Pi workflow activity" hidden>
-      <div id="proposals-heading" class="section-heading" hidden><span>Edit proposals</span></div><section id="proposals" aria-label="Pi edit proposals"></section>
-      <div id="changes-heading" class="section-heading" hidden><span>Pi changes</span><button id="source-control" class="secondary" type="button">Source Control</button></div><section id="changes" aria-label="Pi file changes"></section>
-      <div id="background-heading" class="section-heading" hidden><span>Background agents</span></div><section id="background" aria-label="Background Pi agents"></section>
+    <section id="activity" aria-label="PiCode workflow activity" hidden>
+      <div id="proposals-heading" class="section-heading" hidden><span>Edit proposals</span></div><section id="proposals" aria-label="PiCode edit proposals"></section>
+      <div id="changes-heading" class="section-heading" hidden><span>PiCode changes</span><button id="source-control" class="secondary" type="button">Source Control</button></div><section id="changes" aria-label="PiCode file changes"></section>
+      <div id="background-heading" class="section-heading" hidden><span>Background agents</span></div><section id="background" aria-label="Background PiCode agents"></section>
     </section>
     <section id="composer" aria-label="Message composer">
       <div class="composer-box">
@@ -337,7 +337,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         for (const item of [
           ['selection', 'Explore your code', 'Ask about the current selection', '${icon("selection")}'],
           ['plan', 'Plan a change', 'Think it through before editing', '${icon("plan")}'],
-          ['agent', 'Build with Pi', 'Work on a task from start to finish', '${icon("agent")}'],
+          ['agent', 'Build with PiCode', 'Work on a task from start to finish', '${icon("agent")}'],
         ]) {
           const button = document.createElement('button');
           button.className = 'secondary welcome-action';

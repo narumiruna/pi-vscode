@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-const readOnlyPolicyMarker = "<<<PI_VSCODE_POLICY: read-only>>>";
+const readOnlyPolicyMarker = "<<<PICODE_POLICY: read-only>>>";
 const readOnlyTools = new Set(["read", "grep", "find", "ls", "vscode_context"]);
 
 export default function (pi: ExtensionAPI) {
