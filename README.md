@@ -1,4 +1,4 @@
-# PiCode for VS Code
+# Pi Coding Agent for VS Code
 
 Bring your existing [Pi](https://pi.dev) setup into VS Code. Work in a persistent Pi conversation, use the native `@picode` chat participant, attach editor context, and review proposed changes before applying them.
 
@@ -34,7 +34,7 @@ npm install
 just install
 ```
 
-The extension ID is `narumi.picode`. `just install` installs the VS Code extension and copies the standalone Pi extension to `${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions/picode.ts`.
+The extension ID is `narumi.pi-coding-agent-vscode`. `just install` installs the VS Code extension and copies the standalone Pi extension to `${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions/picode.ts`.
 
 After installation or an update:
 
@@ -151,7 +151,7 @@ pi.events.on("vscode:event", message => {
 });
 ```
 
-The standalone extension provides `vscode_context`, `vscode_open_file`, and `vscode_notify` when Pi starts from a new integrated terminal or from PiCode Chat. VS Code extensions in the same Extension Host can activate `narumi.picode` and call its exported `broadcast(event, data)` API. Event names and payloads are validated and bounded.
+The standalone extension provides `vscode_context`, `vscode_open_file`, and `vscode_notify` when Pi starts from a new integrated terminal or from PiCode Chat. VS Code extensions in the same Extension Host can activate `narumi.pi-coding-agent-vscode` and call its exported `broadcast(event, data)` API. Event names and payloads are validated and bounded.
 
 ## Development
 
@@ -161,7 +161,7 @@ npm test
 npm run package
 ```
 
-`npm test` compiles the extension and runs the Node test suite. `npm run package` repeats those checks and creates `picode.vsix`.
+`npm test` compiles the extension and runs the Node test suite. `npm run package` repeats those checks and creates `pi-coding-agent-vscode.vsix`.
 
 Use `just dev` to compile the extension, open an Extension Development Host, and run Pi with `resources/picode-bridge.ts` in the invoking terminal.
 

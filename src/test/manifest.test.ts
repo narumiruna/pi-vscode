@@ -24,8 +24,8 @@ interface ExtensionManifest {
 const manifest = JSON.parse(readFileSync("package.json", "utf8")) as ExtensionManifest;
 
 test("extension identity stays consistent across packaging, settings, and documentation", () => {
-  assert.equal(manifest.name, "picode");
-  assert.equal(manifest.displayName, "PiCode");
+  assert.equal(manifest.name, "pi-coding-agent-vscode");
+  assert.equal(manifest.displayName, "Pi Coding Agent");
   assert.equal(manifest.publisher, "narumi");
   const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
   assert.equal(lock.name, manifest.name);
