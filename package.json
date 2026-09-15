@@ -1,7 +1,7 @@
 {
   "name": "pi-coding-agent-vscode",
-  "displayName": "Pi Coding Agent",
-  "description": "Use PiCode to chat with Pi in VS Code, understand code, and apply focused modifications.",
+  "displayName": "Pi",
+  "description": "Use Pi in VS Code to understand code and apply focused modifications.",
   "version": "0.0.1",
   "publisher": "narumi",
   "license": "MIT",
@@ -42,7 +42,7 @@
       "secondarySidebar": [
         {
           "id": "picode",
-          "title": "PiCode",
+          "title": "Pi",
           "icon": "resources/picode.svg"
         }
       ]
@@ -58,89 +58,89 @@
       ]
     },
     "commands": [
-      { "command": "picode.repairFailedTest", "title": "Repair Failed Test (Preview)", "category": "PiCode", "enablement": "isWorkspaceTrusted" },
-      { "command": "picode.askDebugContext", "title": "Ask Debug Context", "category": "PiCode", "enablement": "isWorkspaceTrusted && debugState == stopped" },
-      { "command": "picode.reviewStagedChanges", "title": "Review Staged Changes", "category": "PiCode", "enablement": "isWorkspaceTrusted" },
-      { "command": "picode.showStagedFindings", "title": "Show Staged Findings", "category": "PiCode", "enablement": "isWorkspaceTrusted" },
+      { "command": "picode.repairFailedTest", "title": "Repair Failed Test (Preview)", "category": "Pi", "enablement": "isWorkspaceTrusted" },
+      { "command": "picode.askDebugContext", "title": "Ask Debug Context", "category": "Pi", "enablement": "isWorkspaceTrusted && debugState == stopped" },
+      { "command": "picode.reviewStagedChanges", "title": "Review Staged Changes", "category": "Pi", "enablement": "isWorkspaceTrusted" },
+      { "command": "picode.showStagedFindings", "title": "Show Staged Findings", "category": "Pi", "enablement": "isWorkspaceTrusted" },
       {
         "command": "picode.openChat",
         "title": "Open Chat",
-        "category": "PiCode",
+        "category": "Pi",
         "icon": "resources/picode.svg"
       },
       {
         "command": "picode.askSelection",
         "title": "Ask About Selection",
-        "category": "PiCode",
+        "category": "Pi",
         "icon": "$(comment-discussion)"
       },
       {
         "command": "picode.modifySelection",
         "title": "Modify Selection (Preview)",
-        "category": "PiCode",
+        "category": "Pi",
         "icon": "$(wand)"
       },
       {
         "command": "picode.inlineEdit",
         "title": "Inline Edit (Preview)",
-        "category": "PiCode",
+        "category": "Pi",
         "icon": "$(edit)"
       },
       {
         "command": "picode.quickFix",
-        "title": "Quick Fix with PiCode (Preview)",
-        "category": "PiCode",
+        "title": "Quick Fix with Pi (Preview)",
+        "category": "Pi",
         "icon": "$(lightbulb-sparkle)"
       },
       {
         "command": "picode.explainSelection",
         "title": "Explain Selection",
-        "category": "PiCode",
+        "category": "Pi",
         "icon": "$(info)"
       },
       {
         "command": "picode.fixSelection",
         "title": "Fix Selection (Preview)",
-        "category": "PiCode",
+        "category": "Pi",
         "icon": "$(wrench)"
       },
       {
         "command": "picode.reviewSelection",
         "title": "Review Selection",
-        "category": "PiCode",
+        "category": "Pi",
         "icon": "$(eye)"
       },
       {
         "command": "picode.documentSelection",
         "title": "Document Selection (Preview)",
-        "category": "PiCode",
+        "category": "Pi",
         "icon": "$(book)"
       },
       {
         "command": "picode.generateTests",
         "title": "Generate Tests (Preview)",
-        "category": "PiCode",
+        "category": "Pi",
         "icon": "$(beaker)"
       },
       {
         "command": "picode.triggerInlineCompletion",
         "title": "Trigger Inline Completion",
-        "category": "PiCode",
+        "category": "Pi",
         "icon": "$(sparkle)"
       },
       {
         "command": "picode.suggestNextEdit",
         "title": "Suggest Next Edit (Preview)",
-        "category": "PiCode",
+        "category": "Pi",
         "icon": "$(lightbulb-sparkle)"
       }
     ],
     "chatParticipants": [
       {
         "id": "picode.chat",
-        "name": "picode",
-        "fullName": "PiCode",
-        "description": "Ask PiCode about code and programming tasks using your local Pi configuration.",
+        "name": "pi",
+        "fullName": "Pi",
+        "description": "Ask Pi about code and programming tasks using your local Pi configuration.",
         "isSticky": true,
         "commands": [
           {
@@ -161,7 +161,7 @@
     "submenus": [
       {
         "id": "picode.selectionMenu",
-        "label": "PiCode"
+        "label": "Pi"
       }
     ],
     "menus": {
@@ -239,7 +239,7 @@
       }
     ],
     "configuration": {
-      "title": "PiCode",
+      "title": "Pi",
       "properties": {
         "picode.sensitiveContextNames": {
           "type": "array", "items": { "type": "string" }, "default": [".env", "credential", "secret", "id_rsa", "id_ed25519"],

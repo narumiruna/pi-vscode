@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { installVscodeMock, MockUri } from "./vscodeMock";
 
-test("PiCode settings fall back to explicitly configured pre-rename values", () => {
+test("Pi settings fall back to explicitly configured pre-rename values", () => {
   const vscode = installVscodeMock();
   const resource = MockUri.file("/tmp/project/file.ts");
   const calls: Array<{ section: string; resource: unknown }> = [];

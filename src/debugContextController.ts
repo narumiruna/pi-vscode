@@ -74,7 +74,7 @@ export function registerDebugContext(context: vscode.ExtensionContext, runtime: 
     const inspected = await inspectForTransmission(documents, "Debug snapshot (not live state)", body, 20_000);
     if (inspected === undefined) return;
     check();
-    const question = await vscode.window.showInputBox({ title: "Ask PiCode about the inspected debug snapshot", prompt: "This question is read-only; the capture is not live state." });
+    const question = await vscode.window.showInputBox({ title: "Ask Pi about the inspected debug snapshot", prompt: "This question is read-only; the capture is not live state." });
     if (!question?.trim()) return;
     check();
     await assertRuntimeTarget(runtime, folder.fsPath, sessionId);

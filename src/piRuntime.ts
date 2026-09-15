@@ -407,7 +407,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       shellArgs.push("--session", sessionFile);
     }
     const terminal = vscode.window.createTerminal({
-      name: "PiCode",
+      name: "Pi",
       cwd: invocation.cwd,
       shellPath: invocation.executablePath,
       shellArgs,

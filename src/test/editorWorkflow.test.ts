@@ -51,8 +51,8 @@ test("existing editor action requests stay read-only; selected preview matches o
     vscode.window.showInputBox = async (options: typeof inputOptions) => { inputOptions = options; return undefined; };
     await vscode.registrations.get("picode.inlineEdit")();
     assert.deepEqual(inputOptions, {
-      title: "Inline Edit with PiCode",
-      prompt: "How should PiCode change the selected code or current line?",
+      title: "Inline Edit with Pi",
+      prompt: "How should Pi change the selected code or current line?",
       placeHolder: "Make this easier to read without changing behavior",
       ignoreFocusOut: true,
     });
@@ -70,8 +70,8 @@ test("existing editor action requests stay read-only; selected preview matches o
     assert.deepEqual(
       selectionActions.map((action: any) => [action.title, action.kind.value, action.command.command]),
       [
-        ["Ask PiCode", "refactor.rewrite.picode", "picode.askSelection"],
-        ["Modify with PiCode", "refactor.rewrite.picode", "picode.modifySelection"],
+        ["Ask Pi", "refactor.rewrite.picode", "picode.askSelection"],
+        ["Modify with Pi", "refactor.rewrite.picode", "picode.modifySelection"],
       ],
     );
 

@@ -13,4 +13,4 @@ const previousDestination = join(destinationDirectory, "pi-vscode.ts");
 await mkdir(destinationDirectory, { recursive: true });
 await copyFile(source, destination);
 await rm(previousDestination, { force: true });
-process.stdout.write(`Installed PiCode bridge extension: ${destination}\n`);
+process.stdout.write(`Installed Pi bridge extension: ${destination}\n`);
