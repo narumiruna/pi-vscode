@@ -1,14 +1,20 @@
 name: Release
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - package.json
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-vsix
@@ -16,96 +22,60 @@ concurrency:
 
 jobs:
   release:
-    name: Package and release
+    name: Bump, package, and release
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - name: Check out the release commit
+      - name: Check out main
         uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Detect and validate the version bump
-        id: version
-        env:
-          BEFORE_SHA: ${{ github.event.before }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          node <<'NODE'
-          const { appendFileSync, readFileSync } = require("node:fs");
-          const { execFileSync } = require("node:child_process");
-
-          const manifest = JSON.parse(readFileSync("package.json", "utf8"));
-          const current = manifest.version;
-          const before = process.env.BEFORE_SHA;
-          let previous;
-
-          if (before && !/^0+$/.test(before)) {
-            const source = execFileSync("git", ["show", `${before}:package.json`], { encoding: "utf8" });
-            previous = JSON.parse(source).version;
-          }
-
-          if (current === previous) {
-            console.log(`package.json changed without a version bump (${current}); skipping release.`);
-            appendFileSync(process.env.GITHUB_OUTPUT, "release=false\n");
-            process.exit(0);
-          }
-
-          const parseStableVersion = value => {
-            const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(value);
-            if (!match) throw new Error(`Release version must use stable SemVer (x.y.z), received: ${value}`);
-            return match.slice(1).map(Number);
-          };
-          const currentParts = parseStableVersion(current);
-
-          if (previous !== undefined) {
-            const previousParts = parseStableVersion(previous);
-            const increased = currentParts.some((part, index) =>
-              part > previousParts[index] && currentParts.slice(0, index).every((value, earlier) => value === previousParts[earlier])
-            );
-            if (!increased) throw new Error(`Version must increase from ${previous} to ${current}.`);
-          }
-
-          const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
-          if (lock.version !== current || lock.packages?.[""]?.version !== current) {
-            throw new Error("package.json and package-lock.json versions must match.");
-          }
-
-          appendFileSync(process.env.GITHUB_OUTPUT, `release=true\nversion=${current}\ntag=v${current}\n`);
-          NODE
-
-      - name: Check that the release tag is new
-        if: steps.version.outputs.release == 'true'
-        env:
-          TAG: ${{ steps.version.outputs.tag }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if git show-ref --verify --quiet "refs/tags/${TAG}"; then
-            echo "Tag ${TAG} already exists." >&2
-            exit 1
-          fi
-
       - name: Set up Node.js
-        if: steps.version.outputs.release == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
 
       - name: Install dependencies
-        if: steps.version.outputs.release == 'true'
         run: npm ci
 
+      - name: Bump version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm version "${BUMP}" --no-git-tag-version
+          version="$(node -p 'require("./package.json").version')"
+          lock_version="$(node -p 'require("./package-lock.json").version')"
+          root_lock_version="$(node -p 'require("./package-lock.json").packages[""].version')"
+          test "${version}" = "${lock_version}"
+          test "${version}" = "${root_lock_version}"
+          printf 'version=%s\ntag=v%s\n' "${version}" "${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check that the release tag is new
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN}"
+          matches="$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/${TAG}" --jq 'length')"
+          if test "${matches}" != "0"; then
+            echo "Tag ${TAG} already exists." >&2
+            exit 1
+          fi
+
       - name: Build and package the VSIX
-        if: steps.version.outputs.release == 'true'
         run: npm run package
 
       - name: Verify the VSIX
-        if: steps.version.outputs.release == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
           VSIX_PATH: pi-coding-agent-vscode.vsix
@@ -117,18 +87,60 @@ jobs:
           archive_version="$(unzip -p "${VSIX_PATH}" extension/package.json | node -p 'JSON.parse(require("node:fs").readFileSync(0, "utf8")).version')"
           test "${archive_version}" = "${VERSION}"
 
-      - name: Create the GitHub release
-        if: steps.version.outputs.release == 'true'
+      - name: Commit the version bump
+        id: commit
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const { execFileSync } = require("node:child_process");
+          const { readFileSync, writeFileSync } = require("node:fs");
+
+          const encode = path => readFileSync(path).toString("base64");
+          const input = {
+            branch: {
+              repositoryNameWithOwner: process.env.GITHUB_REPOSITORY,
+              branchName: "main",
+            },
+            expectedHeadOid: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+            message: {
+              headline: `chore(release): v${process.env.VERSION}`,
+            },
+            fileChanges: {
+              additions: ["package.json", "package-lock.json"].map(path => ({
+                path,
+                contents: encode(path),
+              })),
+            },
+          };
+          const query = `mutation CreateReleaseCommit($input: CreateCommitOnBranchInput!) {
+            createCommitOnBranch(input: $input) {
+              commit { oid url }
+            }
+          }`;
+          writeFileSync(process.env.RUNNER_TEMP + "/release-commit.json", JSON.stringify({ query, variables: { input } }));
+          NODE
+
+          gh api graphql --input "${RUNNER_TEMP}/release-commit.json" > "${RUNNER_TEMP}/release-commit-response.json"
+          commit_sha="$(node -p 'require(process.env.RUNNER_TEMP + "/release-commit-response.json").data.createCommitOnBranch.commit.oid')"
+          test -n "${commit_sha}"
+          printf 'sha=%s\n' "${commit_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
           TAG: ${{ steps.version.outputs.tag }}
           VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_SHA: ${{ steps.commit.outputs.sha }}
           VSIX_PATH: pi-coding-agent-vscode.vsix
         shell: bash
         run: |
           set -euo pipefail
           gh release create "${TAG}" "${VSIX_PATH}" \
             --repo "${GITHUB_REPOSITORY}" \
-            --target "${GITHUB_SHA}" \
+            --target "${RELEASE_SHA}" \
             --title "Pi v${VERSION}" \
             --generate-notes
