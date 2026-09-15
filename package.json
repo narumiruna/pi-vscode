@@ -1,14 +1,14 @@
 {
-  "name": "pi-agent",
-  "displayName": "Pi Agent",
-  "description": "Chat with Pi in VS Code, ask about selected code, and apply focused modifications.",
+  "name": "picode",
+  "displayName": "PiCode",
+  "description": "Use PiCode to chat with Pi in VS Code, understand code, and apply focused modifications.",
   "version": "0.0.1",
   "publisher": "narumi",
   "license": "MIT",
   "icon": "resources/icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/narumiruna/pi-vscode.git"
+    "url": "https://github.com/narumiruna/picode.git"
   },
   "engines": {
     "vscode": "^1.106.0"
@@ -41,106 +41,106 @@
     "viewsContainers": {
       "secondarySidebar": [
         {
-          "id": "piCodingAgent",
-          "title": "Pi",
-          "icon": "resources/pi.svg"
+          "id": "picode",
+          "title": "PiCode",
+          "icon": "resources/picode.svg"
         }
       ]
     },
     "views": {
-      "piCodingAgent": [
+      "picode": [
         {
-          "id": "piCodingAgent.chatView",
+          "id": "picode.chatView",
           "name": "Chat",
           "type": "webview",
-          "icon": "resources/pi.svg"
+          "icon": "resources/picode.svg"
         }
       ]
     },
     "commands": [
-      { "command": "piCodingAgent.repairFailedTest", "title": "Repair Failed Test (Preview)", "category": "Pi", "enablement": "isWorkspaceTrusted" },
-      { "command": "piCodingAgent.askDebugContext", "title": "Ask Debug Context", "category": "Pi", "enablement": "isWorkspaceTrusted && debugState == stopped" },
-      { "command": "piCodingAgent.reviewStagedChanges", "title": "Review Staged Changes", "category": "Pi", "enablement": "isWorkspaceTrusted" },
-      { "command": "piCodingAgent.showStagedFindings", "title": "Show Staged Findings", "category": "Pi", "enablement": "isWorkspaceTrusted" },
+      { "command": "picode.repairFailedTest", "title": "Repair Failed Test (Preview)", "category": "PiCode", "enablement": "isWorkspaceTrusted" },
+      { "command": "picode.askDebugContext", "title": "Ask Debug Context", "category": "PiCode", "enablement": "isWorkspaceTrusted && debugState == stopped" },
+      { "command": "picode.reviewStagedChanges", "title": "Review Staged Changes", "category": "PiCode", "enablement": "isWorkspaceTrusted" },
+      { "command": "picode.showStagedFindings", "title": "Show Staged Findings", "category": "PiCode", "enablement": "isWorkspaceTrusted" },
       {
-        "command": "piCodingAgent.openChat",
+        "command": "picode.openChat",
         "title": "Open Chat",
-        "category": "Pi",
-        "icon": "resources/pi.svg"
+        "category": "PiCode",
+        "icon": "resources/picode.svg"
       },
       {
-        "command": "piCodingAgent.askSelection",
+        "command": "picode.askSelection",
         "title": "Ask About Selection",
-        "category": "Pi",
+        "category": "PiCode",
         "icon": "$(comment-discussion)"
       },
       {
-        "command": "piCodingAgent.modifySelection",
+        "command": "picode.modifySelection",
         "title": "Modify Selection (Preview)",
-        "category": "Pi",
+        "category": "PiCode",
         "icon": "$(wand)"
       },
       {
-        "command": "piCodingAgent.inlineEdit",
+        "command": "picode.inlineEdit",
         "title": "Inline Edit (Preview)",
-        "category": "Pi",
+        "category": "PiCode",
         "icon": "$(edit)"
       },
       {
-        "command": "piCodingAgent.quickFix",
-        "title": "Quick Fix with Pi (Preview)",
-        "category": "Pi",
+        "command": "picode.quickFix",
+        "title": "Quick Fix with PiCode (Preview)",
+        "category": "PiCode",
         "icon": "$(lightbulb-sparkle)"
       },
       {
-        "command": "piCodingAgent.explainSelection",
+        "command": "picode.explainSelection",
         "title": "Explain Selection",
-        "category": "Pi",
+        "category": "PiCode",
         "icon": "$(info)"
       },
       {
-        "command": "piCodingAgent.fixSelection",
+        "command": "picode.fixSelection",
         "title": "Fix Selection (Preview)",
-        "category": "Pi",
+        "category": "PiCode",
         "icon": "$(wrench)"
       },
       {
-        "command": "piCodingAgent.reviewSelection",
+        "command": "picode.reviewSelection",
         "title": "Review Selection",
-        "category": "Pi",
+        "category": "PiCode",
         "icon": "$(eye)"
       },
       {
-        "command": "piCodingAgent.documentSelection",
+        "command": "picode.documentSelection",
         "title": "Document Selection (Preview)",
-        "category": "Pi",
+        "category": "PiCode",
         "icon": "$(book)"
       },
       {
-        "command": "piCodingAgent.generateTests",
+        "command": "picode.generateTests",
         "title": "Generate Tests (Preview)",
-        "category": "Pi",
+        "category": "PiCode",
         "icon": "$(beaker)"
       },
       {
-        "command": "piCodingAgent.triggerInlineCompletion",
+        "command": "picode.triggerInlineCompletion",
         "title": "Trigger Inline Completion",
-        "category": "Pi",
+        "category": "PiCode",
         "icon": "$(sparkle)"
       },
       {
-        "command": "piCodingAgent.suggestNextEdit",
+        "command": "picode.suggestNextEdit",
         "title": "Suggest Next Edit (Preview)",
-        "category": "Pi",
+        "category": "PiCode",
         "icon": "$(lightbulb-sparkle)"
       }
     ],
     "chatParticipants": [
       {
-        "id": "piCodingAgent.chat",
-        "name": "pi",
-        "fullName": "Pi Agent",
-        "description": "Ask Pi about code and programming tasks using your local Pi configuration.",
+        "id": "picode.chat",
+        "name": "picode",
+        "fullName": "PiCode",
+        "description": "Ask PiCode about code and programming tasks using your local Pi configuration.",
         "isSticky": true,
         "commands": [
           {
@@ -160,111 +160,111 @@
     ],
     "submenus": [
       {
-        "id": "piCodingAgent.selectionMenu",
-        "label": "Pi"
+        "id": "picode.selectionMenu",
+        "label": "PiCode"
       }
     ],
     "menus": {
       "editor/title": [
         {
-          "command": "piCodingAgent.quickFix",
+          "command": "picode.quickFix",
           "group": "navigation@40",
           "when": "!editorReadonly"
         },
         {
-          "command": "piCodingAgent.openChat",
+          "command": "picode.openChat",
           "group": "navigation@50"
         }
       ],
       "editor/context": [
         {
-          "command": "piCodingAgent.quickFix",
+          "command": "picode.quickFix",
           "group": "1_modification@40",
           "when": "!editorReadonly"
         },
         {
-          "submenu": "piCodingAgent.selectionMenu",
+          "submenu": "picode.selectionMenu",
           "group": "1_modification@50",
           "when": "editorHasSelection"
         }
       ],
-      "piCodingAgent.selectionMenu": [
+      "picode.selectionMenu": [
         {
-          "command": "piCodingAgent.askSelection",
+          "command": "picode.askSelection",
           "group": "1_query@10"
         },
         {
-          "command": "piCodingAgent.modifySelection",
+          "command": "picode.modifySelection",
           "group": "1_query@20"
         },
         {
-          "command": "piCodingAgent.explainSelection",
+          "command": "picode.explainSelection",
           "group": "2_actions@10"
         },
         {
-          "command": "piCodingAgent.fixSelection",
+          "command": "picode.fixSelection",
           "group": "2_actions@20"
         },
         {
-          "command": "piCodingAgent.reviewSelection",
+          "command": "picode.reviewSelection",
           "group": "2_actions@30"
         },
         {
-          "command": "piCodingAgent.documentSelection",
+          "command": "picode.documentSelection",
           "group": "2_actions@40"
         },
         {
-          "command": "piCodingAgent.generateTests",
+          "command": "picode.generateTests",
           "group": "2_actions@50"
         }
       ]
     },
     "keybindings": [
       {
-        "command": "piCodingAgent.quickFix",
+        "command": "picode.quickFix",
         "key": "ctrl+i",
         "mac": "cmd+i",
         "when": "editorTextFocus && !editorReadonly && !suggestWidgetVisible"
       },
       {
-        "command": "piCodingAgent.triggerInlineCompletion",
+        "command": "picode.triggerInlineCompletion",
         "key": "alt+]",
         "when": "editorTextFocus && !editorReadonly"
       },
       {
-        "command": "piCodingAgent.suggestNextEdit",
+        "command": "picode.suggestNextEdit",
         "key": "ctrl+alt+n",
         "mac": "cmd+alt+n",
         "when": "editorTextFocus && !editorReadonly"
       }
     ],
     "configuration": {
-      "title": "Pi Agent",
+      "title": "PiCode",
       "properties": {
-        "piCodingAgent.sensitiveContextNames": {
+        "picode.sensitiveContextNames": {
           "type": "array", "items": { "type": "string" }, "default": [".env", "credential", "secret", "id_rsa", "id_ed25519"],
           "description": "Best-effort warnings for attachment labels containing these names. Inspect/redact before transmission."
         },
-        "piCodingAgent.inlineCompletions.enabled": {
+        "picode.inlineCompletions.enabled": {
           "type": "boolean",
           "default": false,
           "description": "Request automatic Pi inline completions after a typing pause. Disabled by default to avoid unexpected model usage; manual trigger remains available."
         },
-        "piCodingAgent.inlineCompletions.debounceMilliseconds": {
+        "picode.inlineCompletions.debounceMilliseconds": {
           "type": "number",
           "default": 650,
           "minimum": 100,
           "maximum": 5000,
           "description": "Delay before an automatic inline completion request."
         },
-        "piCodingAgent.inlineCompletions.minimumPrefixLength": {
+        "picode.inlineCompletions.minimumPrefixLength": {
           "type": "number",
           "default": 3,
           "minimum": 0,
           "maximum": 100,
           "description": "Minimum non-whitespace characters on the current line before automatic completion."
         },
-        "piCodingAgent.inlineCompletions.excludedLanguages": {
+        "picode.inlineCompletions.excludedLanguages": {
           "type": "array",
           "items": {
             "type": "string"
@@ -275,7 +275,7 @@
           ],
           "description": "Language IDs excluded from Pi inline completions."
         },
-        "piCodingAgent.agent.confirmToolCalls": {
+        "picode.agent.confirmToolCalls": {
           "type": "string",
           "default": "dangerous",
           "enum": [
@@ -290,27 +290,27 @@
           ],
           "description": "Per-tool confirmation policy for built-in mutating tools in foreground and background Pi sessions. Tools contributed by Pi extensions manage their own permissions."
         },
-        "piCodingAgent.approveProjectResources": {
+        "picode.approveProjectResources": {
           "type": "boolean",
           "default": false,
           "description": "Trust and load project-local Pi settings, extensions, skills, and prompts for RPC sessions. Enable only for workspaces you trust."
         },
-        "piCodingAgent.executablePath": {
+        "picode.executablePath": {
           "type": "string",
           "default": "pi",
           "description": "Path or command used to start the Pi CLI."
         },
-        "piCodingAgent.provider": {
+        "picode.provider": {
           "type": "string",
           "default": "",
           "description": "Optional Pi provider override. Leave empty to use Pi settings."
         },
-        "piCodingAgent.model": {
+        "picode.model": {
           "type": "string",
           "default": "",
           "description": "Optional Pi model override. Leave empty to use Pi settings."
         },
-        "piCodingAgent.thinkingLevel": {
+        "picode.thinkingLevel": {
           "type": "string",
           "default": "default",
           "enum": [
@@ -332,7 +332,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "test": "npm run compile && vitest run",
-    "package": "npm run test && vsce package --out pi-agent.vsix",
+    "package": "npm run test && vsce package --out picode.vsix",
     "prepare": "husky"
   },
   "devDependencies": {

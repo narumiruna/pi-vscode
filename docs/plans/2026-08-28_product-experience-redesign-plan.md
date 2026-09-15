@@ -7,9 +7,9 @@ Unify Pi's VS Code workflows around one persistent conversation, simplify the na
 ## Architecture
 
 - `PiRuntimeManager` becomes one foreground runtime shared by the Sidebar and editor context-menu actions.
-- `PiChatViewProvider` owns conversation presentation, native Quick Pick routing, attachment state, recovery actions, and ephemeral edit-proposal callbacks.
+- `PiCodeChatViewProvider` owns conversation presentation, native Quick Pick routing, attachment state, recovery actions, and ephemeral edit-proposal callbacks.
 - Editor actions send bounded selection context through the shared conversation controller instead of one-shot Pi processes.
-- Existing native `@pi` Chat, inline completion, background agents, command identifiers, settings, and persisted Pi sessions remain compatible.
+- Existing native `@picode` Chat, inline completion, background agents, command identifiers, settings, and persisted Pi sessions remain compatible.
 
 ## Risks
 
@@ -27,11 +27,11 @@ Unify Pi's VS Code workflows around one persistent conversation, simplify the na
 - [x] Make loading, empty, streaming, success, error, disabled, cancellation, truncation, and recovery states explicit in Sidebar state and rendering; old `v1` stored messages remain accepted.
 - [x] Add focused unit tests for prompts, storage compatibility, runtime profiles, request lifecycle and serialization, compaction-safe assistant capture, background-draft preservation, cross-proposal Apply locking, protocol bounds, image validation, and generated Webview behavior; 53 automated tests pass. Manual Extension Host checks remain unavailable in this non-interactive run.
 - [x] Update `README.md`, `CHANGELOG.md`, `docs/FEATURE_MATRIX.md`, and `docs/SECURITY.md` to describe the unified conversation and attachment workflow.
-- [x] Run `npm test`, load the packaged Pi extension, run `npm run package`, inspect VSIX contents, inspect the final diff, and install `narumitw.pi-coding-agent@0.0.1`; packaging passes with only the pre-existing missing-repository warning.
+- [x] Run `npm test`, load the packaged Pi extension, run `npm run package`, inspect VSIX contents, inspect the final diff, and install `narumi.picode@0.0.1`; packaging passes with only the pre-existing missing-repository warning.
 
 ## Completion Checklist
 
-- [ ] Context-menu results appear in Pi Chat and support follow-up in the same session.
+- [ ] Context-menu results appear in PiCode Chat and support follow-up in the same session.
 - [ ] Edit actions require Preview and explicit Apply, and stale edits are blocked.
 - [ ] Ctrl/Cmd+V image paste works with existing attachment limits and model checks.
 - [ ] Primary controls remain usable at 280px, 400px, and 600px Sidebar widths.

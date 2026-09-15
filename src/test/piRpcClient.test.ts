@@ -146,7 +146,7 @@ test("PiRpcClient rejects pending commands when the process exits", async () => 
 });
 
 async function withFakePi(run: (options: ConstructorParameters<typeof PiRpcClient>[0]) => Promise<void>): Promise<void> {
-  const directory = await mkdtemp(path.join(tmpdir(), "pi-vscode-rpc-"));
+  const directory = await mkdtemp(path.join(tmpdir(), "picode-rpc-"));
   const scriptPath = path.join(directory, "fake-pi.cjs");
   await writeFile(scriptPath, fakePiScript, "utf8");
   try {

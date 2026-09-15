@@ -259,8 +259,8 @@ function subscribeToBridgeEvents(
 }
 
 function bridgeConnection(): { port: number; token: string } | undefined {
-  const port = Number.parseInt(process.env.PI_VSCODE_BRIDGE_PORT ?? "", 10);
-  const token = process.env.PI_VSCODE_BRIDGE_TOKEN;
+  const port = Number.parseInt(process.env.PICODE_BRIDGE_PORT ?? "", 10);
+  const token = process.env.PICODE_BRIDGE_TOKEN;
   return Number.isInteger(port) && port >= 1 && port <= 65_535 && token
     ? { port, token }
     : undefined;

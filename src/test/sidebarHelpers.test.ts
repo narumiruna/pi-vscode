@@ -32,7 +32,7 @@ test("Pi history conversion preserves observed text-plus-image user content and 
     const cache = imageCache();
     const data = gif(4, 5).toString("base64");
     const first = convertPiMessages([{ role: "user", timestamp: 10, content: [
-      { type: "text", text: "<<<PI_VSCODE_CONTEXT_START: src/feature.ts:1-3>>>\ncode\n<<<PI_VSCODE_CONTEXT_END>>>\n<<<PI_VSCODE_REQUEST_START>>>\nWhat changed?\n<<<PI_VSCODE_REQUEST_END>>>" },
+      { type: "text", text: "<<<PICODE_CONTEXT_START: src/feature.ts:1-3>>>\ncode\n<<<PICODE_CONTEXT_END>>>\n<<<PICODE_REQUEST_START>>>\nWhat changed?\n<<<PICODE_REQUEST_END>>>" },
       { type: "image", mimeType: "image/gif", data },
     ] }], { imageAssets: cache });
     assert.equal(first[0]?.content, "What changed?");
@@ -115,7 +115,7 @@ test("history conversion bounds the retained suffix before decoding image payloa
     const converted = convertPiMessages(history, { imageAssets: cache, maxMessages: 2 });
 
     assert.deepEqual(converted.map(message => message.content), ["message 2", "message 3"]);
-    assert.deepEqual(converted.map(message => message.id), ["pi-user-2-4", "pi-user-3-6"], "non-transcript entries do not reduce the retained count or change original indices");
+    assert.deepEqual(converted.map(message => message.id), ["picode-user-2-4", "picode-user-3-6"], "non-transcript entries do not reduce the retained count or change original indices");
     assert.equal(cache.size, 2);
     assert.equal(cache.has(imageAssetId(images[0]!)), false, "discarded history is never decoded or cached");
     assert.equal(cache.has(imageAssetId(images[1]!)), false, "only the retained suffix reaches image extraction");

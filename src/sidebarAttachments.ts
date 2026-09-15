@@ -380,7 +380,7 @@ export class SidebarAttachmentManager {
     }
     const content = limitReferenceContent(context.content, remainingCharacters, this.options.maxAttachedCharacters);
     this.attachments = [...existing, { ...context, id: randomUUID(), content, metadata: contextMetadata(content, context.metadata?.originalLength ?? context.content.length, context.metadata?.revision ?? 1, context.metadata) }];
-    const warnings = contextWarnings(context.label, content, vscode.workspace.getConfiguration("piCodingAgent").get<string[]>("sensitiveContextNames", [".env", "credential", "secret", "id_rsa"]));
+    const warnings = contextWarnings(context.label, content, vscode.workspace.getConfiguration("picode").get<string[]>("sensitiveContextNames", [".env", "credential", "secret", "id_rsa"]));
     if (warnings.length) this.options.onNotice(`${warnings.join("; ")}. Inspect/redact before sending. Detection is best-effort.`, "warning");
     if (content.length < context.content.length) {
       this.options.onNotice("The attached context was truncated to fit the context limit.", "warning");

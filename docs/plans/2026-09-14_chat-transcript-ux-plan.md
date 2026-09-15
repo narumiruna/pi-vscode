@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make Pi Chat trustworthy and easier to scan by showing submitted images and context on the user turn that consumed them, keeping tool activity beside the related response, reducing visual noise, and presenting one consistent actionable status.
+Make PiCode Chat trustworthy and easier to scan by showing submitted images and context on the user turn that consumed them, keeping tool activity beside the related response, reducing visual noise, and presenting one consistent actionable status.
 
 ## Context
 
@@ -25,7 +25,7 @@ Make Pi Chat trustworthy and easier to scan by showing submitted images and cont
 
 - Changing Pi's RPC image format, model image limits, or session-file format.
 - Persisting duplicate Base64 image payloads in VS Code workspace storage.
-- Rebuilding the native `@pi` Chat participant or suppressing notifications emitted by other Pi extensions.
+- Rebuilding the native `@picode` Chat participant or suppressing notifications emitted by other Pi extensions.
 - Persisting historical tool output that Pi's `get_messages` API does not return.
 
 ## Assumptions
@@ -44,7 +44,7 @@ Make Pi Chat trustworthy and easier to scan by showing submitted images and cont
 
 ## Plan
 
-- [x] Define structured transcript attachment and image-asset types in `src/sidebarState.ts`, plus bounded restore/limit behavior that accepts existing `piCodingAgent.sidebar.messages.v1` records and never persists Base64; verify legacy restore, malformed metadata rejection, descriptor preservation, and character limits with `npm test -- src/test/sidebarState.test.ts`.
+- [x] Define structured transcript attachment and image-asset types in `src/sidebarState.ts`, plus bounded restore/limit behavior that accepts existing `picode.sidebar.messages.v1` records and never persists Base64; verify legacy restore, malformed metadata rejection, descriptor preservation, and character limits with `npm test -- src/test/sidebarState.test.ts`.
 - [x] Add a focused image-asset cache/parser module and update `src/sidebarHelpers.ts` to extract mixed Pi text/image parts, validate image payloads, derive stable IDs, preserve generic placeholders, merge known labels, cap aggregate history image work newest-first, and retain bounded browser-rejection IDs; verify duplicate images, unsupported MIME, malformed/oversized Base64, eviction, re-admission blocking, aggregate processing limits, and the observed text-plus-image history shape with focused Vitest coverage.
 - [x] Update `src/sidebarAttachments.ts` and the foreground submission path in `src/sidebar.ts` to snapshot all consumed text/image descriptors onto the exact user turn before clearing the composer, retain assets for retry/current rendering, and keep attachments added during startup on the next draft; verify successful, rejected, cancelled, retry, and revision-race paths with controller/state tests.
 - [x] Update history synchronization and persistence in `src/sidebar.ts` so refresh, reconnect, session resume, compaction, and Extension Host reload reconstruct image descriptors from Pi history while `workspaceState` stores metadata only; verify that serialized state and routine streamed `state` payloads contain no image Base64 and that restored labels merge by stable asset ID.

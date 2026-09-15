@@ -10,7 +10,7 @@ import {
 } from "./diagnosticQuickFix";
 import { buildSelectionReference, extractReplacement, type SelectionContext } from "./prompts";
 
-const previewScheme = "pi-edit-preview";
+const previewScheme = "picode-edit-preview";
 const maxWholeDocumentEditCharacters = 200_000;
 
 interface SelectionSnapshot {
@@ -30,30 +30,30 @@ export function registerEditorActions(
   conversation: PiConversationController,
 ): void {
   const previews = new EditPreviewProvider();
-  const selectionActionKind = vscode.CodeActionKind.RefactorRewrite.append("pi");
+  const selectionActionKind = vscode.CodeActionKind.RefactorRewrite.append("picode");
   context.subscriptions.push(
     previews,
     vscode.workspace.registerTextDocumentContentProvider(previewScheme, previews),
-    vscode.languages.registerCodeActionsProvider("*", new PiQuickFixProvider(), {
+    vscode.languages.registerCodeActionsProvider("*", new PiCodeQuickFixProvider(), {
       providedCodeActionKinds: [vscode.CodeActionKind.QuickFix],
     }),
-    vscode.languages.registerCodeActionsProvider("*", new PiSelectionCodeActionProvider(selectionActionKind), {
+    vscode.languages.registerCodeActionsProvider("*", new PiCodeSelectionCodeActionProvider(selectionActionKind), {
       providedCodeActionKinds: [selectionActionKind],
     }),
-    vscode.commands.registerCommand("piCodingAgent.askSelection", () => askSelection(conversation)),
-    vscode.commands.registerCommand("piCodingAgent.modifySelection", () => inlineEdit(previews, conversation)),
-    vscode.commands.registerCommand("piCodingAgent.inlineEdit", () => inlineEdit(previews, conversation)),
-    vscode.commands.registerCommand("piCodingAgent.quickFix", (target?: unknown) =>
+    vscode.commands.registerCommand("picode.askSelection", () => askSelection(conversation)),
+    vscode.commands.registerCommand("picode.modifySelection", () => inlineEdit(previews, conversation)),
+    vscode.commands.registerCommand("picode.inlineEdit", () => inlineEdit(previews, conversation)),
+    vscode.commands.registerCommand("picode.quickFix", (target?: unknown) =>
       quickFix(previews, conversation, target),
     ),
-    vscode.commands.registerCommand("piCodingAgent.explainSelection", () => answerPreset(conversation, "Explain this code, including its behavior and assumptions.")),
-    vscode.commands.registerCommand("piCodingAgent.reviewSelection", () => answerPreset(conversation, "Review this code for correctness, security, maintainability, performance, and missing tests. Prioritize actionable findings.")),
-    vscode.commands.registerCommand("piCodingAgent.fixSelection", () => previewPreset(previews, conversation, "Fix bugs and diagnostics in this code while preserving intended behavior.")),
-    vscode.commands.registerCommand("piCodingAgent.documentSelection", () => previewPreset(previews, conversation, "Add or improve idiomatic documentation for this code without changing its behavior.")),
-    vscode.commands.registerCommand("piCodingAgent.generateTests", () =>
+    vscode.commands.registerCommand("picode.explainSelection", () => answerPreset(conversation, "Explain this code, including its behavior and assumptions.")),
+    vscode.commands.registerCommand("picode.reviewSelection", () => answerPreset(conversation, "Review this code for correctness, security, maintainability, performance, and missing tests. Prioritize actionable findings.")),
+    vscode.commands.registerCommand("picode.fixSelection", () => previewPreset(previews, conversation, "Fix bugs and diagnostics in this code while preserving intended behavior.")),
+    vscode.commands.registerCommand("picode.documentSelection", () => previewPreset(previews, conversation, "Add or improve idiomatic documentation for this code without changing its behavior.")),
+    vscode.commands.registerCommand("picode.generateTests", () =>
       previewPreset(previews, conversation, "Keep the selected code and append comprehensive idiomatic tests that cover normal behavior and important edge cases."),
     ),
-    vscode.commands.registerCommand("piCodingAgent.suggestNextEdit", () => suggestNextEdit(previews, conversation)),
+    vscode.commands.registerCommand("picode.suggestNextEdit", () => suggestNextEdit(previews, conversation)),
   );
 }
 
@@ -63,7 +63,7 @@ async function askSelection(conversation: PiConversationController): Promise<voi
     return;
   }
   const question = await vscode.window.showInputBox({
-    title: "Ask Pi About Selection",
+    title: "Ask PiCode About Selection",
     prompt: "What would you like to know about this code?",
     placeHolder: "Explain this code and point out possible issues",
     ignoreFocusOut: true,
@@ -106,7 +106,7 @@ async function inlineEdit(
     return;
   }
   const instruction = await vscode.window.showInputBox({
-    title: "Inline Edit with Pi",
+    title: "Inline Edit with PiCode",
     prompt: snapshot.range.isEmpty
       ? "What should Pi add at the cursor?"
       : "How should Pi change the selected code or current line?",
@@ -235,7 +235,7 @@ async function previewEdit(
         "Rewrite only the selected code according to the user's request.",
         "The replacement must fit in the same location and preserve surrounding behavior unless requested otherwise.",
         "Do not modify files and do not explain the result.",
-        "Return exactly <<<PI_REPLACEMENT_START>>>, a newline, the replacement text, another newline, and <<<PI_REPLACEMENT_END>>>.",
+        "Return exactly <<<PICODE_REPLACEMENT_START>>>, a newline, the replacement text, another newline, and <<<PICODE_REPLACEMENT_END>>>.",
         "Do not use Markdown code fences.",
       ].join(" "),
       resource: snapshot.document.uri,
@@ -363,13 +363,13 @@ async function reportError(error: unknown): Promise<void> {
   if (/cancelled/i.test(message)) {
     return;
   }
-  const action = await vscode.window.showErrorMessage(message, "Open Pi Settings");
-  if (action === "Open Pi Settings") {
-    await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:narumi.pi-agent");
+  const action = await vscode.window.showErrorMessage(message, "Open PiCode Settings");
+  if (action === "Open PiCode Settings") {
+    await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:narumi.picode");
   }
 }
 
-class PiSelectionCodeActionProvider implements vscode.CodeActionProvider {
+class PiCodeSelectionCodeActionProvider implements vscode.CodeActionProvider {
   public constructor(private readonly kind: vscode.CodeActionKind) {}
 
   public async provideCodeActions(
@@ -382,9 +382,9 @@ class PiSelectionCodeActionProvider implements vscode.CodeActionProvider {
       return [];
     }
 
-    const ask = new vscode.CodeAction("Ask Pi", this.kind);
+    const ask = new vscode.CodeAction("Ask PiCode", this.kind);
     ask.command = {
-      command: "piCodingAgent.askSelection",
+      command: "picode.askSelection",
       title: ask.title,
     };
 
@@ -392,16 +392,16 @@ class PiSelectionCodeActionProvider implements vscode.CodeActionProvider {
       return [ask];
     }
 
-    const modify = new vscode.CodeAction("Modify with Pi", this.kind);
+    const modify = new vscode.CodeAction("Modify with PiCode", this.kind);
     modify.command = {
-      command: "piCodingAgent.modifySelection",
+      command: "picode.modifySelection",
       title: modify.title,
     };
     return [ask, modify];
   }
 }
 
-class PiQuickFixProvider implements vscode.CodeActionProvider {
+class PiCodeQuickFixProvider implements vscode.CodeActionProvider {
   public async provideCodeActions(
     document: vscode.TextDocument,
     _range: vscode.Range | vscode.Selection,
@@ -412,11 +412,11 @@ class PiQuickFixProvider implements vscode.CodeActionProvider {
     }
     return filterFixableDiagnostics(context.diagnostics)
       .map(diagnostic => {
-        const action = new vscode.CodeAction(`Fix with Pi: ${truncate(diagnostic.message, 80)}`, vscode.CodeActionKind.QuickFix);
+        const action = new vscode.CodeAction(`Fix with PiCode: ${truncate(diagnostic.message, 80)}`, vscode.CodeActionKind.QuickFix);
         action.diagnostics = [diagnostic];
         action.command = {
-          command: "piCodingAgent.quickFix",
-          title: "Quick Fix with Pi",
+          command: "picode.quickFix",
+          title: "Quick Fix with PiCode",
           arguments: [{ uri: document.uri, diagnostic } satisfies DiagnosticCommandTarget],
         };
         return action;

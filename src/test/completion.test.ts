@@ -14,12 +14,12 @@ test("buildCompletionPrompt places the cursor between bounded code context", () 
   });
 
   assert.match(prompt, /File: src\/math\.ts/);
-  assert.match(prompt, /PI_PREFIX_END>>>\n<<<PI_CURSOR>>>\n<<<PI_SUFFIX_START/);
+  assert.match(prompt, /PICODE_PREFIX_END>>>\n<<<PICODE_CURSOR>>>\n<<<PICODE_SUFFIX_START/);
 });
 
 test("extractCompletion preserves insertion whitespace and rejects prose", () => {
   assert.equal(
-    extractCompletion("<<<PI_COMPLETION_START>>>\nreturn a + b;\n<<<PI_COMPLETION_END>>>\n"),
+    extractCompletion("<<<PICODE_COMPLETION_START>>>\nreturn a + b;\n<<<PICODE_COMPLETION_END>>>\n"),
     "return a + b;",
   );
   assert.equal(extractCompletion("Here is the completion: return a + b;"), undefined);

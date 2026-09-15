@@ -13,7 +13,7 @@ test("background manager restores legacy/interrupted tasks safely, previews canc
   vscode.ProgressLocation = { Notification: 1 };
   vscode.window.withProgress = async (_options: unknown, run: any) => run({}, { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) });
   const { BackgroundAgentManager } = require("../backgroundAgents") as typeof import("../backgroundAgents");
-  const root = await mkdtemp(path.join(tmpdir(), "pi-background-manager-"));
+  const root = await mkdtemp(path.join(tmpdir(), "picode-background-manager-"));
   const repository = path.join(root, "repo"), storage = path.join(root, "storage"), worktree = path.join(storage, "worktrees", "cancelled");
   const git = (...args: string[]) => execFileSync("git", args, { cwd: repository, env: gitEnvironment() });
   const managers: InstanceType<typeof BackgroundAgentManager>[] = [];
@@ -42,7 +42,7 @@ test("background manager restores legacy/interrupted tasks safely, previews canc
       assert.equal(launchOptions.tools, undefined);
       assert.equal(launchOptions.appendSystemPrompt, "This is an independent background task. Work only in the provided working directory.");
       assert.equal(buildRpcArguments(launchOptions).includes("--tools"), false);
-      assert.deepEqual(launchOptions.extensions.map((value: string) => path.basename(value)), ["pi-vscode-permission-gate.ts"]);
+      assert.deepEqual(launchOptions.extensions.map((value: string) => path.basename(value)), ["picode-permission-gate.ts"]);
       await launchManager.cancel(launched);
     } finally {
       clientPrototype.start = originalStart;

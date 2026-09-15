@@ -51,8 +51,8 @@ import {
   type TranscriptAttachment,
 } from "./sidebarState";
 
-const viewId = "piCodingAgent.chatView";
-const storageKey = "piCodingAgent.sidebar.messages.v1";
+const viewId = "picode.chatView";
+const storageKey = "picode.sidebar.messages.v1";
 const maxMessages = 100;
 const maxStoredCharacters = 250_000;
 const maxInputCharacters = 100_000;
@@ -74,29 +74,29 @@ interface ToolActivity {
   readonly output?: string;
 }
 
-export function registerPiSidebar(
+export function registerPiCodeSidebar(
   context: vscode.ExtensionContext,
   runtime: PiRuntimeManager,
 ): PiConversationController {
   const backgroundAgents = new BackgroundAgentManager(context);
   const changeTracker = new WorkspaceChangeTracker();
-  const provider = new PiChatViewProvider(context, runtime, changeTracker, backgroundAgents);
+  const provider = new PiCodeChatViewProvider(context, runtime, changeTracker, backgroundAgents);
   context.subscriptions.push(
     backgroundAgents,
     changeTracker,
     provider,
-    vscode.workspace.registerTextDocumentContentProvider("pi-checkpoint", changeTracker),
+    vscode.workspace.registerTextDocumentContentProvider("picode-checkpoint", changeTracker),
     vscode.window.registerWebviewViewProvider(viewId, provider, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
-    vscode.commands.registerCommand("piCodingAgent.openChat", async () => {
+    vscode.commands.registerCommand("picode.openChat", async () => {
       await vscode.commands.executeCommand(`${viewId}.focus`);
     }),
   );
   return provider;
 }
 
-class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable, PiConversationController {
+class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable, PiConversationController {
   private readonly disposables: vscode.Disposable[] = [];
   private view: vscode.WebviewView | undefined;
   private messages: SidebarMessage[];
@@ -469,7 +469,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         { label: "$(run) Run Message in Background", action: "background" },
         { label: "$(workspace-trusted) Run Message in Worktree", action: "worktree" },
       ],
-      { title: "Pi Chat Actions", placeHolder: "Choose a session or advanced action" },
+      { title: "PiCode Chat Actions", placeHolder: "Choose a session or advanced action" },
     );
     if (!selected) return;
     if (selected.action === "checkpoints") {
@@ -483,9 +483,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         release(); this.postState();
       }
     }
-    else if (selected.action === "staged") await vscode.commands.executeCommand("piCodingAgent.reviewStagedChanges");
-    else if (selected.action === "repair") await vscode.commands.executeCommand("piCodingAgent.repairFailedTest");
-    else if (selected.action === "debug") await vscode.commands.executeCommand("piCodingAgent.askDebugContext");
+    else if (selected.action === "staged") await vscode.commands.executeCommand("picode.reviewStagedChanges");
+    else if (selected.action === "repair") await vscode.commands.executeCommand("picode.repairFailedTest");
+    else if (selected.action === "debug") await vscode.commands.executeCommand("picode.askDebugContext");
     else if (selected.action === "resume") await this.resumeSession();
     else if (selected.action === "rename") await this.nameSession();
     else if (selected.action === "model") await this.pickModel();
@@ -767,8 +767,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     try {
       const confirmation = await vscode.window.showWarningMessage(
         isolated
-          ? "Start an autonomous Pi Agent in a detached Git worktree created from HEAD?"
-          : "Start an autonomous Pi Agent that can edit the current workspace and run shell commands?",
+          ? "Start an autonomous PiCode agent in a detached Git worktree created from HEAD?"
+          : "Start an autonomous PiCode agent that can edit the current workspace and run shell commands?",
         { modal: true },
         isolated ? "Start Worktree Agent" : "Start Background Agent",
       );
