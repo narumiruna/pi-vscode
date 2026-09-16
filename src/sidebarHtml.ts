@@ -279,6 +279,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let renderedMessageHtml = [];
     let renderedToolIds = '';
     let toolActivityRunning = false;
+    let toolRequestBusy = false;
     let renderedProposals = '';
     let renderedChanges = '';
     let renderedBackground = '';
@@ -366,7 +367,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
 
       messagesElement.replaceChildren();
       forgetImageTargets(false);
-      renderedAttachments = '';
       emptyActionButtons.length = 0;
       if (visibleMessages.length === 0) {
         const empty = document.createElement('div');
@@ -613,9 +613,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const running = tools.filter(tool => tool.status === 'running');
       const failed = tools.filter(tool => tool.status === 'error');
       const isRunning = running.length > 0;
-      if (!tools.length || (!isRunning && toolActivityRunning)) group.open = false;
+      const requestSettled = toolRequestBusy && !busy;
+      if (!tools.length || requestSettled) group.open = false;
       else if (isRunning && !toolActivityRunning) group.open = true;
       toolActivityRunning = isRunning;
+      toolRequestBusy = busy;
       group.dataset.status = running.length ? 'running' : failed.length ? 'error' : 'success';
       $('tools-summary').textContent = running.length
         ? 'Running · ' + running[running.length - 1].name + (running.length > 1 ? ' · ' + running.length + ' active' : '')
@@ -628,7 +630,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           const previousStatus = details.dataset.status;
           details.className = 'tool ' + tool.status;
           details.dataset.status = tool.status;
-          if (previousStatus === 'running' && tool.status !== 'running') details.open = false;
+          if (requestSettled || (previousStatus === 'running' && tool.status !== 'running' && !busy)) details.open = false;
           details.children[0].textContent = (tool.status === 'running' ? 'Running · ' : tool.status === 'error' ? 'Failed · ' : 'Completed · ') + tool.name;
           const output = details.children[1];
           const outputText = tool.output || tool.input;

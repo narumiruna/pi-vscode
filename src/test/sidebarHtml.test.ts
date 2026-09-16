@@ -165,9 +165,9 @@ test("sidebar groups tools without reopening disclosures on every state update",
   assert.doesNotMatch(html, /<details id="tools-group"[^>]*\bopen\b/);
   assert.match(html, /details\.dataset\.id, details\.open/);
   assert.match(html, /details\.open = openTools\.get\(tool\.id\) \?\? tool\.status === 'running'/);
-  assert.match(html, /!isRunning && toolActivityRunning/);
+  assert.match(html, /requestSettled = toolRequestBusy && !busy/);
   assert.match(html, /isRunning && !toolActivityRunning/);
-  assert.match(html, /previousStatus === 'running' && tool\.status !== 'running'/);
+  assert.match(html, /requestSettled \|\| \(previousStatus === 'running' && tool\.status !== 'running' && !busy\)/);
   assert.match(html, /group\.dataset\.status = running\.length/);
   assert.match(html, /failed\.length \+ ' failed'/);
   assert.doesNotMatch(html, /lastElementChild\.open = true/);
@@ -473,14 +473,14 @@ test("bottom-following scroll includes newly rendered tool activity", () => {
   assert.equal(conversation.scrollTop, 180);
 });
 
-test("tool activity opens while running and collapses when the final response is ready", () => {
+test("tool activity stays open after tool completion and collapses when the request settles", () => {
   const sidebar = createSidebarScriptHarness();
-  const state = (status: "running" | "success", html: string) => sidebar.receive({
+  const state = (phase: "running" | "tool-complete" | "settled", html: string) => sidebar.receive({
     type: "state",
-    status: status === "running" ? "Running bash…" : "Ready",
-    runtime: { busy: status === "running", cancellable: status === "running", connected: true },
+    status: phase === "running" ? "Running bash…" : phase === "tool-complete" ? "Pi is working…" : "Ready",
+    runtime: { busy: phase !== "settled", cancellable: phase !== "settled", connected: true },
     messages: [{ id: "assistant-1", role: "assistant", html }],
-    tools: [{ id: "tool-1", name: "bash", status, input: "npm test", output: status === "running" ? "Running" : "Passed" }],
+    tools: [{ id: "tool-1", name: "bash", status: phase === "running" ? "running" : "success", input: "npm test", output: phase === "running" ? "Running" : "Passed" }],
   });
 
   state("running", "<p>Working</p>");
@@ -494,8 +494,12 @@ test("tool activity opens while running and collapses when the final response is
   assert.equal(group.open, false, "stream updates respect a manual collapse");
 
   group.open = true;
-  state("success", "<p>Final conclusion</p>");
-  assert.equal(group.open, false, "completed output no longer covers the conclusion");
+  state("tool-complete", "<p>Preparing conclusion</p>");
+  assert.equal(group.open, true, "completed tool output remains visible while the request is active");
+  assert.equal(tool.open, true);
+
+  state("settled", "<p>Final conclusion</p>");
+  assert.equal(group.open, false, "completed output no longer covers the final conclusion");
   assert.equal(tool.open, false);
   assert.equal(sidebar.element("messages").children[0]?.children[1]?.innerHTML, "<p>Final conclusion</p>");
 });
@@ -534,11 +538,14 @@ test("streaming continues to follow after the reader returns to the bottom", () 
 
 test("streamed state patches stable conversation, tool, and attachment nodes in place", () => {
   const sidebar = createSidebarScriptHarness();
-  const state = (html: string, output: string) => sidebar.receive({
+  const state = (html: string, output: string, appendMessage = false) => sidebar.receive({
     type: "state",
     status: "Pi is working…",
     runtime: { busy: true, cancellable: true, connected: true },
-    messages: [{ id: "assistant-1", role: "assistant", html }],
+    messages: [
+      { id: "assistant-1", role: "assistant", html },
+      ...(appendMessage ? [{ id: "assistant-2", role: "assistant", html: "<p>Next step</p>" }] : []),
+    ],
     tools: [{ id: "tool-1", name: "read", status: "running", input: "file.ts", output }],
     attachments: [{ id: "next-context", label: "src/next.ts", image: false }],
   });
@@ -555,6 +562,9 @@ test("streamed state patches stable conversation, tool, and attachment nodes in 
   assert.equal(tool.children[1]?.textContent, "one\ntwo");
   assert.equal(sidebar.element("attachments").children[0], attachment);
   assert.equal(sidebar.element("add-context").disabled, false);
+
+  state("<p>First second</p>", "one\ntwo", true);
+  assert.equal(sidebar.element("attachments").children[0], attachment, "message-structure updates keep unchanged composer attachments");
 
   const output = tool.children[1]!;
   output.scrollHeight = 400;
