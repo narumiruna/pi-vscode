@@ -549,6 +549,24 @@ test("tool activity stays open after tool completion and collapses when the requ
   assert.equal(sidebar.element("messages").children[0]?.children[1]?.innerHTML, "<p>Final conclusion</p>");
 });
 
+test("programmatic off-bottom scrolls do not disable streaming follow", () => {
+  const sidebar = createSidebarScriptHarness();
+  const conversation = sidebar.element("conversation");
+  conversation.scrollHeight = 400;
+  conversation.clientHeight = 100;
+  sidebar.run("setConversationScrollTop(40)");
+  conversation.listeners.get("scroll")!({ isTrusted: true });
+
+  assert.equal(sidebar.run("conversationPinnedToBottom"), true);
+  sidebar.receive({
+    type: "state",
+    status: "Pi is working…",
+    runtime: { busy: true, cancellable: true, connected: true },
+    messages: [{ id: "assistant-1", role: "assistant", html: "<p>Streaming reply</p>" }],
+  });
+  assert.equal(conversation.scrollTop, 400);
+});
+
 test("streaming does not force the conversation to the bottom after the reader scrolls up", () => {
   const sidebar = createSidebarScriptHarness();
   const conversation = sidebar.element("conversation");
