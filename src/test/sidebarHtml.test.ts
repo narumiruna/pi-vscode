@@ -81,7 +81,9 @@ test("sidebar places model and thinking controls before Send and exposes recover
   assert.match(html, /busy \|\| submissionPending \|\| backgroundSubmissionPending \|\| imageLoading/);
   assert.match(html, /Starting background agent/);
   assert.match(html, /messages\.filter\(message => message\.role !== 'assistant' \|\| Boolean\(message\.html\)\)/);
-  assert.match(html, /for \(const message of visibleMessages\)/);
+  assert.match(html, /for \(let index = 0; index < visibleMessages\.length; index \+= 1\)/);
+  assert.match(html, /structure === renderedMessageStructure/);
+  assert.match(html, /content\.innerHTML = html\[index\]/);
   assert.match(html, /#add-context span \{ display: none; \}/);
   assert.match(html, /\.composer-actions \{[^}]*flex-wrap: nowrap/);
   assert.doesNotMatch(html, /id="resume-session"/);
@@ -162,8 +164,10 @@ test("sidebar groups tools without reopening disclosures on every state update",
   assert.match(html, /<details id="tools-group" hidden><summary>/);
   assert.doesNotMatch(html, /<details id="tools-group"[^>]*\bopen\b/);
   assert.match(html, /details\.dataset\.id, details\.open/);
-  assert.match(html, /details\.open = openTools\.get\(tool\.id\) \?\? tool\.status !== 'success'/);
-  assert.match(html, /if \(!tools\.length\) group\.open = false/);
+  assert.match(html, /details\.open = openTools\.get\(tool\.id\) \?\? tool\.status === 'running'/);
+  assert.match(html, /!isRunning && toolActivityRunning/);
+  assert.match(html, /isRunning && !toolActivityRunning/);
+  assert.match(html, /previousStatus === 'running' && tool\.status !== 'running'/);
   assert.match(html, /group\.dataset\.status = running\.length/);
   assert.match(html, /failed\.length \+ ' failed'/);
   assert.doesNotMatch(html, /lastElementChild\.open = true/);
@@ -191,6 +195,7 @@ class SidebarTestElement {
   classList = { toggle() {} };
   style = {};
   value = "";
+  innerHTML = "";
   textContent = "";
   title = "";
   className = "";
@@ -239,6 +244,12 @@ function createSidebarScriptHarness(clientPlatform = "Linux x86_64", userAgent =
     window: { addEventListener: (type: string, listener: typeof receive) => { if (type === "message") receive = listener; } },
     navigator: { platform: clientPlatform, userAgent },
     Element: SidebarTestElement,
+    FileReader: class {
+      result = "data:image/gif;base64,R0lGODlhAQABAAAAACw=";
+      listeners = new Map<string, () => void>();
+      addEventListener(type: string, listener: () => void): void { this.listeners.set(type, listener); }
+      readAsDataURL(): void { this.listeners.get("load")?.(); this.listeners.get("loadend")?.(); }
+    },
     atob: (data: string) => Buffer.from(data, "base64").toString("binary"),
     btoa: (data: string) => Buffer.from(data, "binary").toString("base64"),
     acquireVsCodeApi: () => ({ postMessage: (message: unknown) => posted.push(message) }),
@@ -462,6 +473,73 @@ test("bottom-following scroll includes newly rendered tool activity", () => {
   assert.equal(conversation.scrollTop, 180);
 });
 
+test("tool activity opens while running and collapses when the final response is ready", () => {
+  const sidebar = createSidebarScriptHarness();
+  const state = (status: "running" | "success", html: string) => sidebar.receive({
+    type: "state",
+    status: status === "running" ? "Running bash…" : "Ready",
+    runtime: { busy: status === "running", cancellable: status === "running", connected: true },
+    messages: [{ id: "assistant-1", role: "assistant", html }],
+    tools: [{ id: "tool-1", name: "bash", status, input: "npm test", output: status === "running" ? "Running" : "Passed" }],
+  });
+
+  state("running", "<p>Working</p>");
+  const group = sidebar.element("tools-group");
+  const tool = sidebar.element("tools").children[0]!;
+  assert.equal(group.open, true);
+  assert.equal(tool.open, true);
+
+  group.open = false;
+  state("running", "<p>Still working</p>");
+  assert.equal(group.open, false, "stream updates respect a manual collapse");
+
+  group.open = true;
+  state("success", "<p>Final conclusion</p>");
+  assert.equal(group.open, false, "completed output no longer covers the conclusion");
+  assert.equal(tool.open, false);
+  assert.equal(sidebar.element("messages").children[0]?.children[1]?.innerHTML, "<p>Final conclusion</p>");
+});
+
+test("streaming does not force the conversation to the bottom after the reader scrolls up", () => {
+  const sidebar = createSidebarScriptHarness();
+  const conversation = sidebar.element("conversation");
+  conversation.scrollHeight = 400;
+  conversation.clientHeight = 100;
+  conversation.scrollTop = 40;
+  sidebar.receive({
+    type: "state",
+    status: "Pi is working…",
+    runtime: { busy: true, cancellable: true, connected: true },
+    messages: [{ id: "assistant-1", role: "assistant", html: "<p>Streaming reply</p>" }],
+  });
+  assert.equal(conversation.scrollTop, 40);
+});
+
+test("streamed state patches stable conversation, tool, and attachment nodes in place", () => {
+  const sidebar = createSidebarScriptHarness();
+  const state = (html: string, output: string) => sidebar.receive({
+    type: "state",
+    status: "Pi is working…",
+    runtime: { busy: true, cancellable: true, connected: true },
+    messages: [{ id: "assistant-1", role: "assistant", html }],
+    tools: [{ id: "tool-1", name: "read", status: "running", input: "file.ts", output }],
+    attachments: [{ id: "next-context", label: "src/next.ts", image: false }],
+  });
+
+  state("<p>First</p>", "one");
+  const message = sidebar.element("messages").children[0]!;
+  const tool = sidebar.element("tools").children[0]!;
+  const attachment = sidebar.element("attachments").children[0]!;
+
+  state("<p>First second</p>", "one\ntwo");
+  assert.equal(sidebar.element("messages").children[0], message);
+  assert.equal(message.children[1]?.innerHTML, "<p>First second</p>");
+  assert.equal(sidebar.element("tools").children[0], tool);
+  assert.equal(tool.children[1]?.textContent, "one\ntwo");
+  assert.equal(sidebar.element("attachments").children[0], attachment);
+  assert.equal(sidebar.element("add-context").disabled, false);
+});
+
 test("busy, settling, cancellation, failure, and reconnection states expose one status and every cancellable state exposes Stop", () => {
   const sidebar = createSidebarScriptHarness();
   const state = (status: string, busy: boolean, cancellable: boolean, connected = true, backgroundSubmissionPending = false) => sidebar.receive({ type: "state", status, backgroundSubmissionPending, runtime: { busy, cancellable, connected } });
@@ -484,10 +562,10 @@ test("busy, settling, cancellation, failure, and reconnection states expose one 
   assert.match(sidebar.element("status").textContent, /Disconnected/);
 
   state("Pi is working…", true, true);
-  sidebar.element("input").listeners.get("paste")!({ clipboardData: { items: [{ kind: "file", type: "image/gif", getAsFile: () => ({}) }] }, preventDefault() {} });
-  assert.match(sidebar.element("notice").textContent, /Cancel or wait/);
+  sidebar.element("input").listeners.get("paste")!({ clipboardData: { items: [{ kind: "file", type: "image/gif", getAsFile: () => ({ type: "image/gif", size: 25, name: "during-work.gif" }) }] }, preventDefault() {} });
+  assert.doesNotMatch(sidebar.element("notice").textContent, /Cancel or wait/, "pasting images remains available during active requests");
+  assert.equal(sidebar.posted.at(-1).type, "pasteImage");
   state("Ready", false, false);
-  assert.equal(sidebar.element("notice").textContent, "", "attachment-lock warnings clear when the lock ends");
 });
 
 test("sidebar keystrokes do not search populated conversation descendants", () => {
@@ -503,19 +581,12 @@ test("sidebar keystrokes do not search populated conversation descendants", () =
   }
 });
 
-test("sidebar updates only current welcome buttons across locks and message renders", () => {
+test("sidebar keeps stable welcome controls and stops updating them after message renders", () => {
   const sidebar = createSidebarScriptHarness();
   const assertLocked = (expected: boolean) => {
     const buttons = sidebar.welcomeButtons();
     assert.equal(buttons.length, 3);
     for (const button of buttons) assert.equal(button.disabled, expected);
-  };
-  const rejectStaleUpdates = (buttons: SidebarTestElement[]) => {
-    for (const button of buttons) {
-      Object.defineProperty(button, "disabled", {
-        set() { assert.fail("A detached welcome button must not be updated"); },
-      });
-    }
   };
 
   sidebar.run("renderMessages([]); updateSendState()");
@@ -533,14 +604,18 @@ test("sidebar updates only current welcome buttons across locks and message rend
   }
 
   const firstButtons = sidebar.welcomeButtons();
-  rejectStaleUpdates(firstButtons);
   sidebar.run("busy = true; renderMessages([]); updateSendState()");
-  assert.notEqual(sidebar.welcomeButtons()[0], firstButtons[0]);
+  assert.equal(sidebar.welcomeButtons()[0], firstButtons[0], "unchanged state keeps the existing DOM");
   assertLocked(true);
 
-  rejectStaleUpdates(sidebar.welcomeButtons());
-  sidebar.run("renderMessages([{ role: 'user', html: '<p>Question</p>' }]); updateSendState()");
-  sidebar.run("busy = false; renderMessages([{ role: 'assistant', html: '' }]); updateSendState()");
+  sidebar.run("renderMessages([{ id: 'user-1', role: 'user', html: '<p>Question</p>' }])");
+  for (const button of firstButtons) {
+    Object.defineProperty(button, "disabled", {
+      set() { assert.fail("A detached welcome button must not be updated"); },
+    });
+  }
+  sidebar.run("updateSendState()");
+  sidebar.run("busy = false; renderMessages([{ id: 'assistant-1', role: 'assistant', html: '' }]); updateSendState()");
   assertLocked(false);
 });
 
