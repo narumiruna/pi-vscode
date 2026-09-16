@@ -78,6 +78,7 @@ export interface PiRuntimeState {
 
 export interface QueueInstructionOptions {
   readonly images?: readonly PiRpcImage[];
+  readonly resource?: vscode.Uri;
   readonly recoveryText?: string;
   readonly restoreAttachments?: () => void;
   readonly hasAttachments?: boolean;
@@ -184,6 +185,12 @@ export class PiRuntimeManager implements vscode.Disposable {
     }
   }
 
+  private async assertResourceMatchesActiveWorkspace(resource: vscode.Uri): Promise<void> {
+    if (!["file", "untitled"].includes(resource.scheme)) throw new Error("Pi requests require file-backed resources.");
+    const target = readPiInvocationOptions(resource).cwd;
+    if (await realpath(target) !== await realpath(this.currentCwd)) throw new Error("The target workspace differs from Pi's active working directory. Switch workspace/session explicitly.");
+  }
+
   public async prompt(
     message: string,
     resource?: vscode.Uri,
@@ -194,11 +201,7 @@ export class PiRuntimeManager implements vscode.Disposable {
   ): Promise<string | undefined> {
     return this.owned(async () => {
     await this.ensureStarted(resource);
-    if (resource) {
-      if (!["file", "untitled"].includes(resource.scheme)) throw new Error("Pi requests require file-backed resources.");
-      const target = readPiInvocationOptions(resource).cwd;
-      if (await realpath(target) !== await realpath(this.currentCwd)) throw new Error("The target workspace differs from Pi's active working directory. Switch workspace/session explicitly.");
-    }
+    if (resource) await this.assertResourceMatchesActiveWorkspace(resource);
     const client = this.requireClient();
     if (this.state.busy) {
       throw new Error("Pi is already working. Send a steering message or cancel the active request first.");
@@ -232,6 +235,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     if (!this.state.busy || !this.state.queueable || this.queueStopping || text.trimStart().startsWith("/")) throw new Error("Only an active ordinary composer request accepts queued instructions that are not slash commands.");
     const release = this.queueGate.acquire();
     try {
+      if (options.resource) await this.assertResourceMatchesActiveWorkspace(options.resource);
       const queue = this.state.queue ?? { steering: [], followUp: [] };
       const queueKind = kind === "steer" ? "steering" : "followUp";
       parseRpcQueue({
@@ -701,19 +705,31 @@ export class PiRuntimeManager implements vscode.Disposable {
       this.client = undefined;
       const queue = this.state.queue ?? { steering: [], followUp: [] };
       const records: TrackedQueueInstruction[] = [];
+      const pending = this.pendingInstruction;
       for (const kind of ["steering", "followUp"] as const) {
         const tracked = this.trackedQueue[kind];
-        for (let index = 0; index < queue[kind].length; index += 1) {
-          const text = queue[kind][index]!;
+        const remote = queue[kind];
+        let delivered = -1;
+        if (remote.length > 0) {
+          const texts = tracked.map(record => record.message);
+          for (let offset = 0; offset <= texts.length; offset += 1) {
+            if (arraysEqual(texts.slice(offset), remote)) { delivered = offset; break; }
+          }
+        }
+        if (delivered >= 0) {
+          records.push(...tracked.slice(delivered));
+          continue;
+        }
+        for (let index = 0; index < remote.length; index += 1) {
+          const text = remote[index]!;
           const record = tracked[index];
           records.push(record?.message === text ? record : this.textOnlyQueueRecord(kind, text));
         }
+        for (const record of tracked) {
+          if (record.id !== pending?.record.id && !records.some(candidate => candidate.id === record.id)) records.push(record);
+        }
       }
-      const pending = this.pendingInstruction;
       if (pending && (!pending.observed || !queue[pending.record.kind].includes(pending.record.message)) && !records.some(record => record.id === pending.record.id)) records.push(pending.record);
-      for (const record of [...this.trackedQueue.steering, ...this.trackedQueue.followUp]) {
-        if (!records.some(candidate => candidate.id === record.id) && record.id !== pending?.record.id) records.push(record);
-      }
       this.trackedQueue.steering.splice(0);
       this.trackedQueue.followUp.splice(0);
       this.recoverQueue(records, true);
