@@ -26,6 +26,9 @@ test("webview protocol rejects removed mode messages", () => {
     assert.equal(isWebviewMessage({ type: "queueInstruction", kind: "steer", text: "adjust", revision: 1 }, 1024), true);
     assert.equal(isWebviewMessage({ type: "imageAssetEvicted", id: `sha256-${"a".repeat(64)}` }, 1024), true);
     assert.equal(isWebviewMessage({ type: "imageAssetRejected", id: `sha256-${"b".repeat(64)}` }, 1024), true);
+    assert.equal(isWebviewMessage({ type: "refreshSessions" }, 1024), true);
+    assert.equal(isWebviewMessage({ type: "switchRecentSession", id: "a".repeat(24) }, 1024), true);
+    assert.equal(isWebviewMessage({ type: "switchRecentSession", id: "../../session" }, 1024), false);
     assert.equal(isWebviewMessage({ type: "imageAssetEvicted", id: "../../session" }, 1024), false);
     assert.equal(isWebviewMessage({ type: "imageAssetRejected", id: "../../session" }, 1024), false);
   } finally { vscode.restore(); }
@@ -61,6 +64,12 @@ test("sidebar places model and thinking controls before Send and exposes recover
   assert.match(html, /type: 'deleteSession'/);
   assert.match(html, /delete-session'\)\.disabled = interactionLocked \|\| !connected \|\| !deletableSession/);
   assert.match(html, /id="more"/);
+  assert.match(html, /id="chats" aria-label="Pi conversations"/);
+  assert.match(html, /id="recent-chat-list"/);
+  assert.match(html, /id="view-all-chats"/);
+  assert.match(html, /id="chat-search-input"[^>]*placeholder="Search recent chats"/);
+  assert.match(html, /type: 'switchRecentSession', id/);
+  assert.match(html, /type: 'refreshSessions'/);
   assert.match(html, /id="reconnect"/);
   assert.match(html, /id="retry"/);
   assert.match(html, /id="refresh-history"/);
@@ -78,7 +87,8 @@ test("sidebar places model and thinking controls before Send and exposes recover
   assert.match(html, /let backgroundSubmissionPending = false/);
   assert.match(html, /\(!text && !attachedItems\) \|\| !connected \|\| submissionPending \|\| backgroundSubmissionPending/);
   assert.match(html, /backgroundSubmissionPending = Boolean\(state\.backgroundSubmissionPending\)/);
-  assert.match(html, /busy \|\| submissionPending \|\| backgroundSubmissionPending \|\| imageLoading/);
+  assert.match(html, /function isInteractionLocked\(\) \{\s+return busy \|\| submissionPending \|\| backgroundSubmissionPending \|\| pendingImageReads > 0/);
+  assert.match(html, /const interactionLocked = isInteractionLocked\(\)/);
   assert.match(html, /Starting background agent/);
   assert.match(html, /messages\.filter\(message => message\.role !== 'assistant' \|\| Boolean\(message\.html\)\)/);
   assert.match(html, /for \(let index = 0; index < visibleMessages\.length; index \+= 1\)/);
@@ -265,6 +275,72 @@ function createSidebarScriptHarness(clientPlatform = "Linux x86_64", userAgent =
     welcomeButtons: () => element("messages").children[0].children[0].children,
   };
 }
+
+test("recent chats expand into a searchable session browser and switch by opaque id", () => {
+  const sidebar = createSidebarScriptHarness();
+  const ids = ["a", "b", "c", "d"].map(character => character.repeat(24));
+  sidebar.receive({
+    type: "state",
+    status: "Ready",
+    runtime: { busy: false, cancellable: false, connected: true },
+    sessions: [
+      { id: ids[0], title: "Current work", updatedAt: Date.now(), current: true },
+      { id: ids[1], title: "Fix sidebar", updatedAt: Date.now() - 60_000, current: false },
+      { id: ids[2], title: "Write tests", updatedAt: Date.now() - 120_000, current: false },
+      { id: ids[3], title: "Release notes", updatedAt: Date.now() - 180_000, current: false },
+    ],
+  });
+
+  assert.equal(sidebar.element("recent-chat-list").children.length, 3);
+  assert.equal(sidebar.element("view-all-chats").textContent, "View all (4)");
+  sidebar.element("view-all-chats").listeners.get("click")!();
+  assert.equal(sidebar.element("chats-browser").hidden, false);
+  assert.equal(sidebar.element("back-to-chat").hidden, false);
+  assert.equal(sidebar.posted.at(-1).type, "refreshSessions");
+
+  const search = sidebar.element("chat-search-input");
+  search.value = "sidebar";
+  search.listeners.get("input")!();
+  assert.equal(sidebar.element("all-chat-list").children.length, 1);
+  const result = sidebar.element("all-chat-list").children[0]!;
+  sidebar.element("all-chat-list").listeners.get("click")!({ target: result });
+  assert.equal(sidebar.posted.at(-1).type, "switchRecentSession");
+  assert.equal(sidebar.posted.at(-1).id, ids[1]);
+  assert.equal(sidebar.element("all-chat-list").children[0]?.disabled, true);
+
+  sidebar.receive({ type: "sessionSwitchRejected" });
+  assert.equal(sidebar.element("all-chat-list").children[0]?.disabled, false);
+});
+
+test("recent chat switching respects every non-busy interaction lock", () => {
+  const sidebar = createSidebarScriptHarness();
+  const currentId = "a".repeat(24);
+  const targetId = "b".repeat(24);
+  sidebar.receive({
+    type: "state",
+    status: "Starting background agent…",
+    runtime: { busy: false, cancellable: false, connected: true },
+    backgroundSubmissionPending: true,
+    sessions: [
+      { id: currentId, title: "Current work", updatedAt: Date.now(), current: true },
+      { id: targetId, title: "Other work", updatedAt: Date.now() - 60_000, current: false },
+    ],
+  });
+  sidebar.element("view-all-chats").listeners.get("click")!();
+
+  for (const [lock, unlock] of [
+    ["backgroundSubmissionPending = true", "backgroundSubmissionPending = false"],
+    ["submissionPending = true", "submissionPending = false"],
+    ["pendingImageReads = 1", "pendingImageReads = 0"],
+  ]) {
+    sidebar.run(`${lock}; renderChats()`);
+    assert.equal(sidebar.element("all-chat-list").children[1]?.disabled, true);
+    const postedCount = sidebar.posted.length;
+    sidebar.run(`selectRecentSession("${targetId}")`);
+    assert.equal(sidebar.posted.length, postedCount);
+    sidebar.run(unlock);
+  }
+});
 
 test("proposal cards block empty previews and hide dead terminal actions", () => {
   const sidebar = createSidebarScriptHarness();
