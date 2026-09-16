@@ -37,6 +37,7 @@ test("recent Pi sessions are workspace-scoped, newest-first, and use names befor
     await utimes(foreign, now, now);
 
     const result = await listRecentPiSessions(newer, workspace);
+    assert.ok(result);
     assert.deepEqual(result.map(item => ({ id: item.sessionId, title: item.title })), [
       { id: "newer-id", title: "Named conversation" },
       { id: "older-id", title: "Fix the sidebar" },
@@ -67,7 +68,62 @@ test("recent Pi sessions rank every directory entry before capping metadata read
     await utimes(newest, future, future);
 
     const result = await listRecentPiSessions(newest, workspace, 1);
+    assert.ok(result);
     assert.equal(result[0]?.path, newest);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("recent Pi sessions validate workspace headers before limiting candidates", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "picode-session-workspace-cap-"));
+  const workspace = path.join(root, "workspace");
+  const otherWorkspace = path.join(root, "other");
+  const sessions = path.join(root, "sessions");
+  await Promise.all([mkdir(workspace), mkdir(otherWorkspace), mkdir(sessions)]);
+  try {
+    const matching = path.join(sessions, "matching.jsonl");
+    await writeFile(matching, session([
+      { type: "session", version: 3, id: "matching", cwd: workspace },
+      { type: "message", id: "1", parentId: null, message: { role: "user", content: "Matching prompt" } },
+    ]));
+    await Promise.all(Array.from({ length: 501 }, (_, index) => writeFile(
+      path.join(sessions, `foreign-${String(index).padStart(3, "0")}.jsonl`),
+      session([
+        { type: "session", version: 3, id: `foreign-${index}`, cwd: otherWorkspace },
+        { type: "message", id: "1", parentId: null, message: { role: "user", content: `Foreign ${index}` } },
+      ]),
+    )));
+    const old = new Date(Date.now() - 60_000);
+    await utimes(matching, old, old);
+
+    const result = await listRecentPiSessions(matching, workspace, 1);
+    assert.ok(result);
+    assert.equal(result[0]?.path, matching);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("recent Pi sessions bound inspections of empty candidates", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "picode-session-empty-cap-"));
+  const workspace = path.join(root, "workspace");
+  const sessions = path.join(root, "sessions");
+  await Promise.all([mkdir(workspace), mkdir(sessions)]);
+  try {
+    const matching = path.join(sessions, "matching.jsonl");
+    await writeFile(matching, session([
+      { type: "session", version: 3, id: "matching", cwd: workspace },
+      { type: "message", id: "1", parentId: null, message: { role: "user", content: "Matching prompt" } },
+    ]));
+    await Promise.all(Array.from({ length: 1_024 }, (_, index) => writeFile(
+      path.join(sessions, `empty-${String(index).padStart(4, "0")}.jsonl`),
+      "",
+    )));
+    await utimes(matching, new Date(0), new Date(0));
+
+    const result = await listRecentPiSessions(matching, workspace, 1);
+    assert.deepEqual(result, []);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -92,9 +148,10 @@ test("recent Pi sessions recover a bounded prompt before a large image and skip 
     await writeFile(invalid, "not-json\n");
 
     const result = await listRecentPiSessions(large, workspace, 1);
+    assert.ok(result);
     assert.equal(result.length, 1);
     assert.equal(result[0]?.title, "Describe this image");
-    assert.deepEqual(await listRecentPiSessions(large, path.join(root, "missing")), []);
+    assert.equal(await listRecentPiSessions(large, path.join(root, "missing")), undefined);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -115,8 +172,20 @@ test("recent Pi sessions find the latest name between oversized records", async 
       { type: "message", id: "3", parentId: "2", message: { role: "user", content: [{ type: "text", text: "Later prompt" }, image("b")] } },
     ]));
 
-    const result = await listRecentPiSessions(named, workspace, 1);
+    let result = await listRecentPiSessions(named, workspace, 1);
+    assert.ok(result);
     assert.equal(result[0]?.title, "Middle name");
+
+    const bounded = path.join(sessions, "bounded.jsonl");
+    await writeFile(bounded, session([
+      { type: "session", version: 3, id: "bounded-id", cwd: workspace },
+      { type: "message", id: "1", parentId: null, message: { role: "user", content: "Bounded prompt" } },
+      { type: "session_info", id: "2", parentId: "1", name: "Out of budget" },
+      { type: "message", id: "3", parentId: "2", message: { role: "user", content: [{ type: "text", text: "Later prompt" }, image("c"), image("d")] } },
+    ]));
+    result = await listRecentPiSessions(bounded, workspace, 1);
+    assert.ok(result);
+    assert.equal(result[0]?.title, "Bounded prompt");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
