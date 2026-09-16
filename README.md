@@ -84,7 +84,7 @@ Automatic inline completions are disabled by default. Enable `picode.inlineCompl
 | **Context inspection** | Choose **Inspect Context** on an attachment to inspect the exact snapshot, redact or edit it, refresh it explicitly, or pin it for later requests. |
 | **Failed-test repair** | Run **Pi: Repair Failed Test (Preview)**, approve a command or provide an existing UTF-8 log, inspect the evidence, then preview and apply the repair. |
 | **Request checkpoints** | Choose **More… → Request Checkpoints** to inspect coverage, preview a restore, and revert covered changes. Checkpoints are memory-only file recovery, not a Git or conversation rewind. |
-| **In-flight instructions** | While a request is running, press Enter to **Steer** after current tool calls. Use Alt+Enter for **Follow Up** on macOS and Linux, or Ctrl+Q on Windows, including remote WSL sessions. |
+| **In-flight instructions** | While a request is running, press Enter to **Steer** after current tool calls. Use Alt+Enter for **Follow Up** on macOS and Linux, or Ctrl+Q on Windows, including remote WSL sessions. Pending text stays visible with its queue type, then moves into the transcript as soon as Pi starts that user message. |
 | **Debug questions** | Pause a Node.js debugger and run **Pi: Ask Debug Context**. Approve capture, choose local variables, inspect or redact the snapshot, and ask a read-only question. |
 
 Process-launching and mutation workflows require a trusted, file-backed workspace. A Pi session's working directory must match the active workspace. Open an isolated worktree in its own VS Code window before resuming its session.
@@ -118,7 +118,7 @@ Key operational limits:
 - Staged review supports up to 100 text files, 100 KB per blob, 400 KB of blob content, and a 200 KB diff.
 - Failed-test repair accepts an executable and argument array, not a shell expression. Runs stop after 60 seconds, output is capped at 256 KiB, and repair is limited to two attempts.
 - Checkpoints keep up to 20 requests in memory and restore only deterministically observed edits to captured regular text files.
-- In-flight instructions are limited to 10 messages and 50,000 characters. Ordinary composer steering/follow-ups can include captured text context and up to 5 images; slash commands cannot be queued, and pending/recovered attachment snapshots are memory-only and capped at 30 MiB.
+- In-flight instructions are limited to 10 messages and 50,000 characters. Ordinary composer steering/follow-ups can include captured text context and up to 5 images; slash commands cannot be queued. Pending transcript presentation is memory-only, public pending previews are capped at 1,000 characters per message, and pending/recovered attachment snapshots are memory-only and capped at 30 MiB.
 - Debug capture supports paused `node` and `pwa-node` js-debug sessions only; it does not evaluate expressions or mutate debugger state.
 
 Read [Security and Privacy](docs/SECURITY.md) for trust boundaries and safeguards, and [Workflow Validation](docs/WORKFLOW_VALIDATION.md) for tested and deferred behavior.
