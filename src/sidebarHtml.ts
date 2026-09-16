@@ -334,7 +334,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       if ((!text && !attachedItems) || !connected || submissionPending || backgroundSubmissionPending) return;
       if (busy) {
         if (!text) {
-          showNotice('The attached context is ready for the next message. Wait for Pi to finish before sending it.', 'info');
+          showNotice('The attached context is ready for the next message. Wait for Pi to finish before sending it.', 'info', false, true);
           return;
         }
         if (!queueable) {
@@ -1050,8 +1050,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     conversationElement.addEventListener('wheel', event => {
       if (event.deltaY < 0) conversationPinnedToBottom = false;
     });
-    conversationElement.addEventListener('pointerdown', () => { conversationPinnedToBottom = false; });
-    conversationElement.addEventListener('touchstart', () => { conversationPinnedToBottom = false; });
     input.addEventListener('paste', attachPastedImages);
     input.addEventListener('keydown', event => {
       if (event.isComposing) return;
