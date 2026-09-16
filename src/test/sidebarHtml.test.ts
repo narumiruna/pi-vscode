@@ -76,7 +76,7 @@ test("sidebar places model and thinking controls before Send and exposes recover
   assert.match(html, /submissionPending = true;\s+updateSendState\(\);\s+vscode\.postMessage/);
   assert.match(html, /message\.type === 'sendRejected'[\s\S]*submissionPending = false/);
   assert.match(html, /let backgroundSubmissionPending = false/);
-  assert.match(html, /!text \|\| !connected \|\| submissionPending \|\| backgroundSubmissionPending/);
+  assert.match(html, /\(!text && !attachedItems\) \|\| !connected \|\| submissionPending \|\| backgroundSubmissionPending/);
   assert.match(html, /backgroundSubmissionPending = Boolean\(state\.backgroundSubmissionPending\)/);
   assert.match(html, /busy \|\| submissionPending \|\| backgroundSubmissionPending \|\| imageLoading/);
   assert.match(html, /Starting background agent/);
@@ -401,6 +401,20 @@ test("composer image attachments use thumbnail cards with preview and remove act
   assert.equal(sidebar.posted.at(-1)?.id, "draft-image");
 });
 
+test("an attached image can be sent without additional text", () => {
+  const sidebar = createSidebarScriptHarness();
+  const attachment = { id: "draft-image", image: true, type: "image", assetId: `sha256-${"a".repeat(64)}`, label: "image.png", fullLabel: "image.png", mimeType: "image/png", availability: "available" };
+  sidebar.receive({ type: "state", status: "Ready", imageSupported: true, runtime: { busy: false, cancellable: false, connected: true }, attachments: [attachment] });
+
+  assert.equal(sidebar.element("input").value, "");
+  assert.equal(sidebar.element("send").disabled, false);
+  assert.equal(sidebar.element("send").title, "Send attached context");
+  sidebar.element("send").listeners.get("click")!();
+  assert.equal(sidebar.posted.at(-1)?.type, "send");
+  assert.equal(sidebar.posted.at(-1)?.text, "");
+  assert.equal(sidebar.posted.at(-1)?.revision, 0);
+});
+
 test("thumbnail and preview decode failures become unavailable without retrying corrupt payloads", () => {
   const bytes = Buffer.alloc(11);
   bytes.write("GIF89a", 0, "ascii"); bytes.writeUInt16LE(3, 6); bytes.writeUInt16LE(2, 8);
@@ -510,6 +524,7 @@ test("streaming does not force the conversation to the bottom after the reader s
   conversation.scrollHeight = 400;
   conversation.clientHeight = 100;
   conversation.scrollTop = 40;
+  conversation.listeners.get("wheel")!({ deltaY: -1 });
   conversation.listeners.get("scroll")!();
   sidebar.receive({
     type: "state",
