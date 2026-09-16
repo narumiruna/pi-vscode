@@ -13,6 +13,8 @@ const iconPaths = {
   attachment: '<path d="m6 9 4-4a2 2 0 0 1 3 3l-5 5a3.5 3.5 0 0 1-5-5l5-5"/>',
   send: '<path d="M8 13V3m-4 4 4-4 4 4"/>',
   stop: '<rect x="4" y="4" width="8" height="8" rx="1"/>',
+  back: '<path d="m10.5 3-5 5 5 5"/>',
+  search: '<circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/>',
 } as const;
 
 function icon(name: keyof typeof iconPaths): string {
@@ -44,6 +46,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     [hidden] { display: none !important; }
     body { margin: 0; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); line-height: 1.5; overflow: hidden; }
     #app { height: 100vh; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto auto auto; padding: 0 12px 10px; }
+    #app.chats-expanded { grid-template-rows: minmax(0, 1fr); }
+    #app.chats-expanded > :not(#chats) { display: none; }
     button, select { min-height: 28px; border: 1px solid var(--vscode-button-border, transparent); border-radius: 7px; padding: 4px 9px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); cursor: pointer; font: inherit; }
     button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
     button:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
@@ -56,8 +60,30 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .icon { width: 16px; height: 16px; flex: 0 0 auto; }
     .icon-button { width: 28px; padding: 5px; }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
-    .header { display: flex; gap: 4px; align-items: center; justify-content: flex-end; padding: 10px 0 8px; }
-    .header button { min-width: 0; white-space: nowrap; }
+    #chats { min-width: 0; padding: 8px 0 7px; border-bottom: 1px solid var(--pi-border); }
+    .chats-header { display: flex; min-width: 0; align-items: center; gap: 6px; min-height: 30px; }
+    .chats-title { flex: 1; min-width: 0; color: var(--vscode-descriptionForeground); font-size: .9em; font-weight: 500; }
+    .chats-actions { display: flex; flex: 0 0 auto; gap: 2px; }
+    .chats-actions button { min-width: 0; white-space: nowrap; }
+    #back-to-chat .icon { width: 15px; height: 15px; }
+    .chat-list { display: grid; min-width: 0; gap: 1px; }
+    button.chat-row { width: 100%; min-width: 0; min-height: 28px; justify-content: flex-start; gap: 8px; padding: 3px 7px; border: 0; border-radius: 6px; color: var(--vscode-foreground); text-align: left; }
+    button.chat-row.current { background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-hoverBackground)); color: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground)); }
+    .chat-row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chat-row-time { flex: 0 0 auto; color: var(--vscode-descriptionForeground); font-size: .82em; font-variant-numeric: tabular-nums; }
+    button.chat-row.current .chat-row-time { color: inherit; opacity: .72; }
+    #view-all-chats { min-height: 24px; margin-top: 2px; padding: 1px 7px; color: var(--vscode-descriptionForeground); font-size: .82em; }
+    #chats-browser { display: grid; min-height: 0; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 8px; padding-top: 4px; }
+    .chat-search { display: flex; min-width: 0; align-items: center; gap: 7px; padding: 0 9px; border: 1px solid var(--vscode-input-border, transparent); border-radius: 7px; color: var(--vscode-input-placeholderForeground); background: var(--vscode-input-background); }
+    .chat-search .icon { width: 14px; height: 14px; }
+    #chat-search-input { width: 100%; min-width: 0; height: 32px; padding: 4px 0; border: 0; outline: 0; color: var(--vscode-input-foreground); background: transparent; font: inherit; }
+    #chat-search-input::placeholder { color: var(--vscode-input-placeholderForeground); }
+    .chat-search:focus-within { border-color: var(--vscode-focusBorder); outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+    .chat-filter { padding: 2px 7px; color: var(--vscode-descriptionForeground); font-size: .85em; font-weight: 500; }
+    #all-chat-list { min-height: 0; overflow-y: auto; align-content: start; scrollbar-width: thin; }
+    #no-chats { margin: 12px 7px; color: var(--vscode-descriptionForeground); font-size: .85em; }
+    #app.chats-expanded #chats { display: grid; min-height: 0; grid-template-rows: auto minmax(0, 1fr); border-bottom: 0; }
+    #app.chats-expanded .chats-title { color: var(--vscode-foreground); font-size: 1em; }
     #thinking-level { min-width: 0; max-width: 104px; color: var(--vscode-foreground); background: var(--vscode-input-background); border-color: var(--vscode-input-border, var(--pi-border)); }
     #model-picker { min-width: 0; max-width: 132px; justify-content: flex-start; color: var(--vscode-descriptionForeground); }
     #model-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -179,18 +205,32 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     body.vscode-high-contrast .welcome-action, body.vscode-high-contrast-light .welcome-action,
     body.vscode-high-contrast .attachment-image, body.vscode-high-contrast-light .attachment-image { border-color: var(--vscode-contrastBorder); }
     body.vscode-high-contrast .composer-box:focus-within, body.vscode-high-contrast-light .composer-box:focus-within { border-color: var(--vscode-focusBorder); }
-    @media (max-width: 340px) { #app { padding: 0 8px 8px; } .header { gap: 2px; } #session { display: none; } .composer-actions { gap: 4px; padding-left: 6px; padding-right: 6px; } #add-context span { display: none; } #model-picker { max-width: 88px; } #thinking-level { max-width: 84px; } .empty { padding-left: 2px; padding-right: 2px; } .empty h2 { font-size: 1.5em; } button.welcome-action { gap: 9px; padding: 10px; } }
+    @media (max-width: 340px) { #app { padding: 0 8px 8px; } .chats-actions { gap: 0; } #session { display: none; } .composer-actions { gap: 4px; padding-left: 6px; padding-right: 6px; } #add-context span { display: none; } #model-picker { max-width: 88px; } #thinking-level { max-width: 84px; } .empty { padding-left: 2px; padding-right: 2px; } .empty h2 { font-size: 1.5em; } button.welcome-action { gap: 9px; padding: 10px; } }
     @media (max-height: 500px) { .empty { padding-top: 8px; padding-bottom: 16px; } .welcome-mark { display: none; } .empty-actions { margin-top: 16px; } }
     @media (prefers-reduced-motion: no-preference) { button { transition: background-color .12s ease, border-color .12s ease, transform .08s ease; } .composer-box { transition: border-color .12s ease, box-shadow .12s ease; } }
   </style>
 </head>
 <body>
   <main id="app">
-    <header class="header" aria-label="Pi conversation controls">
-      <button id="new-session" class="secondary icon-button" type="button" title="New conversation" aria-label="New Pi conversation">${icon("plus")}</button>
-      <button id="delete-session" class="secondary danger icon-button" type="button" title="Delete conversation" aria-label="Delete current Pi conversation" hidden>${icon("trash")}</button>
-      <button id="more" class="secondary icon-button" type="button" title="More… · Session and advanced actions" aria-label="More Pi actions">${icon("more")}</button>
-    </header>
+    <section id="chats" aria-label="Pi conversations">
+      <div class="chats-header">
+        <button id="back-to-chat" class="secondary icon-button" type="button" title="Back to conversation" aria-label="Back to current conversation" hidden>${icon("back")}</button>
+        <span class="chats-title">Chats</span>
+        <div class="chats-actions" aria-label="Pi conversation controls">
+          <button id="new-session" class="secondary icon-button" type="button" title="New conversation" aria-label="New Pi conversation">${icon("plus")}</button>
+          <button id="delete-session" class="secondary danger icon-button" type="button" title="Delete conversation" aria-label="Delete current Pi conversation" hidden>${icon("trash")}</button>
+          <button id="more" class="secondary icon-button" type="button" title="More… · Session and advanced actions" aria-label="More Pi actions">${icon("more")}</button>
+        </div>
+      </div>
+      <div id="recent-chat-list" class="chat-list" aria-label="Recent conversations"></div>
+      <button id="view-all-chats" class="secondary" type="button">View all</button>
+      <div id="chats-browser" hidden>
+        <label class="chat-search" for="chat-search-input">${icon("search")}<span class="sr-only">Search recent chats</span><input id="chat-search-input" type="search" placeholder="Search recent chats" autocomplete="off"></label>
+        <div class="chat-filter">This workspace</div>
+        <div id="all-chat-list" class="chat-list" aria-label="All conversations in this workspace"></div>
+        <p id="no-chats" hidden>No conversations found.</p>
+      </div>
+    </section>
     <section id="conversation" aria-label="Pi conversation">
       <section id="messages" aria-live="off"></section>
       <details id="tools-group" hidden><summary><span id="tools-summary">Tool activity</span></summary><section id="tools" aria-label="Pi tool activity"></section></details>
@@ -233,8 +273,12 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const $ = id => document.getElementById(id);
+    const appElement = $('app');
     const conversationElement = $('conversation');
     const messagesElement = $('messages');
+    const recentChatList = $('recent-chat-list');
+    const allChatList = $('all-chat-list');
+    const chatSearchInput = $('chat-search-input');
     const emptyActionButtons = [];
     const toolsElement = $('tools');
     const proposalsElement = $('proposals');
@@ -286,6 +330,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let renderedChanges = '';
     let renderedBackground = '';
     let renderedAttachments = '';
+    let recentSessions = [];
+    let chatsExpanded = false;
+    let sessionSwitchPending;
+    let recoveredDraftPending;
+    let chatButtons = [];
 
     function showNotice(message, level, detailsAvailable = false, transientLock = false) {
       notice.textContent = message;
@@ -844,10 +893,89 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       thinkingLevel.title = current ? 'Pi thinking level: ' + formatThinkingLevel(current) : 'Pi thinking level unavailable';
     }
 
+    function formatSessionAge(updatedAt) {
+      const elapsed = Math.max(0, Date.now() - Number(updatedAt || 0));
+      const minute = 60 * 1000;
+      const hour = 60 * minute;
+      const day = 24 * hour;
+      if (elapsed < minute) return 'now';
+      if (elapsed < hour) return Math.floor(elapsed / minute) + 'm';
+      if (elapsed < day) return Math.floor(elapsed / hour) + 'h';
+      if (elapsed < 7 * day) return Math.floor(elapsed / day) + 'd';
+      const date = new Date(Number(updatedAt));
+      return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+
+    function isInteractionLocked() {
+      return busy || submissionPending || backgroundSubmissionPending || pendingImageReads > 0 || Boolean(recoveredDraftPending);
+    }
+
+    function createChatRow(session) {
+      const button = document.createElement('button');
+      button.className = 'secondary chat-row';
+      button.classList.toggle('current', Boolean(session.current));
+      button.type = 'button';
+      button.dataset.sessionId = session.id;
+      button.title = session.title;
+      button.disabled = isInteractionLocked() || Boolean(sessionSwitchPending);
+      if (session.current) button.setAttribute('aria-current', 'page');
+      const title = document.createElement('span');
+      title.className = 'chat-row-title';
+      title.textContent = session.title;
+      const time = document.createElement('span');
+      time.className = 'chat-row-time';
+      time.textContent = formatSessionAge(session.updatedAt);
+      button.append(title, time);
+      chatButtons.push(button);
+      return button;
+    }
+
+    function renderChats() {
+      const query = chatSearchInput.value.trim().toLocaleLowerCase();
+      const filtered = query
+        ? recentSessions.filter(session => session.title.toLocaleLowerCase().includes(query))
+        : recentSessions;
+      chatButtons = [];
+      recentChatList.replaceChildren(...recentSessions.slice(0, 3).map(createChatRow));
+      allChatList.replaceChildren(...filtered.map(createChatRow));
+      $('no-chats').hidden = filtered.length > 0;
+      $('view-all-chats').textContent = 'View all (' + recentSessions.length + ')';
+      $('view-all-chats').hidden = chatsExpanded || recentSessions.length === 0;
+    }
+
+    function setChatsExpanded(expanded) {
+      chatsExpanded = expanded;
+      appElement.classList.toggle('chats-expanded', expanded);
+      recentChatList.hidden = expanded;
+      $('view-all-chats').hidden = expanded || recentSessions.length === 0;
+      $('chats-browser').hidden = !expanded;
+      $('back-to-chat').hidden = !expanded;
+      renderChats();
+      if (expanded) {
+        vscode.postMessage({ type: 'refreshSessions' });
+        chatSearchInput.focus();
+      } else {
+        chatSearchInput.value = '';
+        input.focus();
+      }
+    }
+
+    function selectRecentSession(id) {
+      const session = recentSessions.find(item => item.id === id);
+      if (!session || isInteractionLocked() || sessionSwitchPending) return;
+      if (session.current) {
+        if (chatsExpanded) setChatsExpanded(false);
+        return;
+      }
+      sessionSwitchPending = id;
+      renderChats();
+      vscode.postMessage({ type: 'switchRecentSession', id });
+    }
+
     function updateSendState() {
       const imageBlocked = attachedImages && !imageSupported;
       const imageLoading = pendingImageReads > 0;
-      const interactionLocked = busy || submissionPending || backgroundSubmissionPending || imageLoading;
+      const interactionLocked = isInteractionLocked();
       if (!interactionLocked && notice.dataset.transientLock === 'true') clearNotice();
       $('model-picker').disabled = interactionLocked || !connected;
       thinkingLevel.disabled = interactionLocked || !connected || !thinkingSelectable;
@@ -855,7 +983,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('delete-session').disabled = interactionLocked || !connected || !deletableSession;
       $('more').disabled = interactionLocked || !connected;
       $('recover-queue').disabled = interactionLocked;
-      $('add-context').disabled = false;
+      for (const button of chatButtons) button.disabled = interactionLocked || Boolean(sessionSwitchPending);
+      input.disabled = Boolean(recoveredDraftPending);
+      $('add-context').disabled = Boolean(recoveredDraftPending);
       for (const button of emptyActionButtons) button.disabled = interactionLocked;
       sendButton.disabled = interactionLocked || !connected || (!input.value.trim() && !attachedItems) || imageBlocked;
       sendButton.title = imageLoading
@@ -894,6 +1024,13 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       deletableSession = Boolean(state.runtime.sessionFile);
       imageSupported = Boolean(state.imageSupported);
       backgroundSubmissionPending = Boolean(state.backgroundSubmissionPending);
+      recentSessions = Array.isArray(state.sessions) ? state.sessions : [];
+      if (sessionSwitchPending && recentSessions.some(session => session.id === sessionSwitchPending && session.current)) {
+        sessionSwitchPending = undefined;
+        if (chatsExpanded) setChatsExpanded(false);
+      } else {
+        renderChats();
+      }
       const followConversation = renderMessages(state.messages || []);
       renderTools(state.tools || []);
       if (followConversation) scrollConversationToBottom();
@@ -1007,11 +1144,30 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       else if (message.type === 'imageAsset') acceptImageAsset(message);
       else if (message.type === 'notice') showNotice(message.message, message.level, Boolean(message.detailsAvailable));
       else if (message.type === 'appendDraft') {
-        if (composerRevision === message.expectedRevision) {
-          input.value += (input.value ? '\\n\\n' : '') + message.text;
-          composerRevision += 1; resizeInput(); updateSendState();
-          if (message.recoveredDraftId) vscode.postMessage({ type: 'restoreQueueAttachments', id: message.recoveredDraftId });
+        if (composerRevision === message.expectedRevision && !recoveredDraftPending) {
+          if (message.recoveredDraftId) {
+            recoveredDraftPending = { id: message.recoveredDraftId, text: message.text };
+            updateSendState();
+            vscode.postMessage({ type: 'restoreQueueAttachments', id: message.recoveredDraftId });
+          } else {
+            input.value += (input.value ? '\\n\\n' : '') + message.text;
+            composerRevision += 1; resizeInput(); updateSendState();
+          }
         } else { showNotice('Your draft changed. The recovered message remains in Recovered Drafts.', 'warning'); }
+      }
+      else if (message.type === 'commitRecoveredDraft') {
+        if (recoveredDraftPending?.id === message.id) {
+          const text = recoveredDraftPending.text;
+          recoveredDraftPending = undefined;
+          input.value += (input.value ? '\\n\\n' : '') + text;
+          composerRevision += 1; resizeInput(); updateSendState(); input.focus();
+        }
+      }
+      else if (message.type === 'rejectRecoveredDraft') {
+        if (recoveredDraftPending?.id === message.id) {
+          recoveredDraftPending = undefined;
+          updateSendState(); input.focus();
+        }
       }
       else if (message.type === 'setInput') {
         setComposerInput(message.text);
@@ -1029,6 +1185,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         updateSendState();
       }
       else if (message.type === 'sendRejected') { submissionPending = false; updateSendState(); input.focus(); }
+      else if (message.type === 'sessionSwitchRejected') { sessionSwitchPending = undefined; renderChats(); }
     });
     $('recover-queue').addEventListener('click', () => vscode.postMessage({ type: 'recoverQueue', revision: composerRevision }));
     sendButton.addEventListener('click', () => submit());
@@ -1039,7 +1196,16 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     $('inspect-context').addEventListener('click', () => vscode.postMessage({ type: 'inspectContext' }));
     $('add-context').addEventListener('click', () => vscode.postMessage({ type: 'pickContext' }));
     $('model-picker').addEventListener('click', () => vscode.postMessage({ type: 'pickModel' }));
-    $('new-session').addEventListener('click', () => vscode.postMessage({ type: 'newSession' }));
+    $('view-all-chats').addEventListener('click', () => setChatsExpanded(true));
+    $('back-to-chat').addEventListener('click', () => setChatsExpanded(false));
+    chatSearchInput.addEventListener('input', renderChats);
+    for (const list of [recentChatList, allChatList]) {
+      list.addEventListener('click', event => {
+        const button = event.target instanceof Element ? event.target.closest('button[data-session-id]') : undefined;
+        if (button?.dataset.sessionId && !button.disabled) selectRecentSession(button.dataset.sessionId);
+      });
+    }
+    $('new-session').addEventListener('click', () => { if (chatsExpanded) setChatsExpanded(false); vscode.postMessage({ type: 'newSession' }); });
     $('delete-session').addEventListener('click', () => vscode.postMessage({ type: 'deleteSession' }));
     $('more').addEventListener('click', () => vscode.postMessage({ type: 'showMoreActions', text: input.value, revision: composerRevision }));
     $('source-control').addEventListener('click', () => vscode.postMessage({ type: 'openSourceControl' }));
