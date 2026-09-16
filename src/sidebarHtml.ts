@@ -36,7 +36,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
   <meta http-equiv="Content-Security-Policy" content="${csp}">
   <style nonce="${nonce}">
     :root { color-scheme: light dark; }
-    body { --pi-border: var(--vscode-sideBar-border, var(--vscode-widget-border, transparent)); --pi-accent: var(--vscode-textLink-foreground); }
+    body { --pi-border: var(--vscode-sideBar-border, var(--vscode-widget-border, transparent)); --pi-accent: var(--vscode-textLink-foreground); --pi-control-background: var(--vscode-dropdown-background, var(--vscode-input-background)); --pi-control-border: var(--vscode-dropdown-border, var(--vscode-input-border, var(--pi-border))); --pi-composer-background: var(--vscode-editorWidget-background, var(--vscode-input-background)); }
     body.vscode-light, body.vscode-high-contrast-light { color-scheme: light; }
     body.vscode-dark, body.vscode-high-contrast { color-scheme: dark; }
     * { box-sizing: border-box; }
@@ -44,9 +44,10 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     [hidden] { display: none !important; }
     body { margin: 0; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); line-height: 1.5; overflow: hidden; }
     #app { height: 100vh; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto auto auto; padding: 0 12px 10px; }
-    button, select { min-height: 28px; border: 1px solid var(--vscode-button-border, transparent); border-radius: 6px; padding: 4px 9px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); cursor: pointer; font: inherit; }
+    button, select { min-height: 28px; border: 1px solid var(--vscode-button-border, transparent); border-radius: 7px; padding: 4px 9px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); cursor: pointer; font: inherit; }
     button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
     button:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
+    button:active:not(:disabled) { transform: translateY(1px); }
     button.secondary { color: var(--vscode-foreground); background: transparent; }
     button.secondary:hover:not(:disabled) { background: var(--vscode-toolbar-hoverBackground); }
     button.danger { color: var(--vscode-errorForeground); }
@@ -144,18 +145,25 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     button.attachment-remove { position: absolute; top: 5px; right: 5px; width: 21px; min-height: 21px; padding: 0; border: 1px solid rgba(255, 255, 255, .35); border-radius: 50%; color: #fff; background: rgba(0, 0, 0, .66); font-size: 15px; line-height: 1; }
     button.attachment-remove:hover:not(:disabled) { background: rgba(0, 0, 0, .86); }
     button.composer-image:focus-visible, button.attachment-remove:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--vscode-focusBorder); }
-    #composer { min-width: 0; padding-top: 10px; }
-    .composer-box { background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--pi-border)); border-radius: 10px; }
-    .composer-box:focus-within { border-color: var(--vscode-focusBorder); }
-    textarea { display: block; width: 100%; height: 42px; min-height: 42px; max-height: min(220px, 28vh); resize: none; padding: 10px 12px; color: var(--vscode-input-foreground); background: transparent; border: 0; border-radius: 10px; font: inherit; line-height: 1.5; scrollbar-width: thin; }
+    #composer { min-width: 0; padding-top: 12px; }
+    .composer-box { position: relative; overflow: hidden; background: var(--pi-composer-background); border: 1px solid var(--vscode-input-border, var(--pi-border)); border-radius: 14px; box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, .2)); }
+    .composer-box:focus-within { border-color: var(--vscode-focusBorder); box-shadow: 0 6px 20px var(--vscode-widget-shadow, rgba(0, 0, 0, .24)); }
+    textarea { display: block; width: 100%; height: 42px; min-height: 42px; max-height: min(220px, 28vh); resize: none; padding: 11px 13px 7px; color: var(--vscode-input-foreground); background: transparent; border: 0; border-radius: 14px 14px 6px 6px; font: inherit; line-height: 1.5; scrollbar-width: thin; }
     textarea:focus-visible { outline: none; }
     textarea::placeholder { color: var(--vscode-input-placeholderForeground); }
-    .composer-actions { display: flex; flex-wrap: nowrap; min-width: 0; gap: 6px; padding: 0 7px 7px; align-items: center; }
-    #add-context { flex: 0 1 auto; min-width: 28px; color: var(--vscode-descriptionForeground); font-size: .9em; }
+    #attachment-estimate, #queue-status { padding: 0 12px; }
+    #inspect-context { margin: 3px 10px 0; }
+    .composer-box > .proposal-actions { padding: 0 10px; }
+    .composer-actions { display: flex; flex-wrap: nowrap; min-width: 0; gap: 6px; padding: 3px 8px 8px; align-items: center; }
+    .composer-actions > button, .composer-actions > select { min-height: 30px; border-radius: 8px; }
+    #add-context { flex: 0 1 auto; min-width: 30px; border-color: transparent; color: var(--vscode-descriptionForeground); font-size: .9em; }
     .composer-spacer { min-width: 0; flex: 1; }
-    #send { width: 28px; flex: 0 0 28px; padding: 5px; }
-    #cancel { font-size: .9em; }
-    #composer-hint { margin: 6px 2px 0; color: var(--vscode-descriptionForeground); font-size: .78em; text-align: right; overflow-wrap: anywhere; }
+    #model-picker, #thinking-level { border-color: var(--pi-control-border); background: var(--pi-control-background); }
+    #model-picker:hover:not(:disabled), #thinking-level:hover:not(:disabled) { background: var(--vscode-list-hoverBackground, var(--vscode-toolbar-hoverBackground)); }
+    #send { width: 30px; flex: 0 0 30px; padding: 6px; }
+    #send:disabled { border-color: transparent; color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground)); background: var(--vscode-toolbar-hoverBackground); opacity: .72; }
+    #cancel { border-color: var(--pi-control-border); font-size: .9em; }
+    #composer-hint { min-height: 16px; margin: 6px 4px 0; color: var(--vscode-descriptionForeground); font-size: .75em; line-height: 1.35; text-align: right; overflow-wrap: anywhere; }
     #notice { max-height: 20vh; overflow-y: auto; padding: 7px 2px 0; color: var(--vscode-descriptionForeground); font-size: .85em; overflow-wrap: anywhere; }
     #notice:empty { display: none; }
     #notice.error { color: var(--vscode-errorForeground); }
@@ -171,9 +179,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     body.vscode-high-contrast .welcome-action, body.vscode-high-contrast-light .welcome-action,
     body.vscode-high-contrast .attachment-image, body.vscode-high-contrast-light .attachment-image { border-color: var(--vscode-contrastBorder); }
     body.vscode-high-contrast .composer-box:focus-within, body.vscode-high-contrast-light .composer-box:focus-within { border-color: var(--vscode-focusBorder); }
-    @media (max-width: 340px) { #app { padding: 0 8px 8px; } .header { gap: 2px; } #session { display: none; } #add-context span { display: none; } #model-picker { max-width: 96px; } #thinking-level { max-width: 90px; } .empty { padding-left: 2px; padding-right: 2px; } .empty h2 { font-size: 1.5em; } button.welcome-action { gap: 9px; padding: 10px; } }
+    @media (max-width: 340px) { #app { padding: 0 8px 8px; } .header { gap: 2px; } #session { display: none; } .composer-actions { gap: 4px; padding-left: 6px; padding-right: 6px; } #add-context span { display: none; } #model-picker { max-width: 88px; } #thinking-level { max-width: 84px; } .empty { padding-left: 2px; padding-right: 2px; } .empty h2 { font-size: 1.5em; } button.welcome-action { gap: 9px; padding: 10px; } }
     @media (max-height: 500px) { .empty { padding-top: 8px; padding-bottom: 16px; } .welcome-mark { display: none; } .empty-actions { margin-top: 16px; } }
-    @media (prefers-reduced-motion: no-preference) { button { transition: background-color .12s ease, border-color .12s ease; } }
+    @media (prefers-reduced-motion: no-preference) { button { transition: background-color .12s ease, border-color .12s ease, transform .08s ease; } .composer-box { transition: border-color .12s ease, box-shadow .12s ease; } }
   </style>
 </head>
 <body>
@@ -266,6 +274,14 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let updatingControls = false;
     let thinkingSelectable = false;
     let latestStatus = 'Connecting…';
+    let renderedMessageStructure = '';
+    let renderedMessageHtml = [];
+    let renderedToolIds = '';
+    let toolActivityRunning = false;
+    let renderedProposals = '';
+    let renderedChanges = '';
+    let renderedBackground = '';
+    let renderedAttachments = '';
 
     function showNotice(message, level, detailsAvailable = false, transientLock = false) {
       notice.textContent = message;
@@ -321,13 +337,36 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       clearNotice();
     }
 
+    function forgetImageTargets(composer) {
+      for (const [assetId, targets] of imageTargets) {
+        const retained = targets.filter(target => target.composer !== composer);
+        if (retained.length) imageTargets.set(assetId, retained);
+        else imageTargets.delete(assetId);
+      }
+    }
+
     function renderMessages(messages) {
       const nearBottom = conversationElement.scrollHeight - conversationElement.scrollTop - conversationElement.clientHeight < 80;
       const visibleMessages = messages.filter(message => message.role !== 'assistant' || Boolean(message.html));
-      messagesElement.replaceChildren();
-      imageTargets.clear();
-      emptyActionButtons.length = 0;
+      const structure = JSON.stringify(visibleMessages.map((message, index) => [message.id || index, message.role, message.attachments || [], Boolean(message.truncated)]));
+      const html = visibleMessages.map(message => message.html || (message.role === 'assistant' ? '…' : ''));
       messagesElement.classList.toggle('is-empty', visibleMessages.length === 0);
+
+      const expectedChildren = visibleMessages.length || 1;
+      if (structure === renderedMessageStructure && messagesElement.children.length === expectedChildren) {
+        for (let index = 0; index < html.length; index += 1) {
+          if (html[index] === renderedMessageHtml[index]) continue;
+          const content = messagesElement.children[index]?.children[1];
+          if (content) content.innerHTML = html[index];
+        }
+        renderedMessageHtml = html;
+        return visibleMessages.length > 0 && nearBottom;
+      }
+
+      messagesElement.replaceChildren();
+      forgetImageTargets(false);
+      renderedAttachments = '';
+      emptyActionButtons.length = 0;
       if (visibleMessages.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'empty';
@@ -352,7 +391,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         empty.appendChild(actions);
         messagesElement.appendChild(empty);
       } else {
-        for (const message of visibleMessages) {
+        for (let index = 0; index < visibleMessages.length; index += 1) {
+          const message = visibleMessages[index];
           const wrapper = document.createElement('article');
           wrapper.className = 'message ' + message.role;
           const role = document.createElement('div');
@@ -360,7 +400,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           role.textContent = message.role === 'user' ? 'You' : 'Pi';
           const content = document.createElement('div');
           content.className = 'content';
-          content.innerHTML = message.html || (message.role === 'assistant' ? '…' : '');
+          content.innerHTML = html[index];
           wrapper.append(role, content);
           messagesElement.appendChild(wrapper);
           const attachments = Array.isArray(message.attachments) ? message.attachments : [];
@@ -404,8 +444,10 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           }
         }
       }
+      renderedMessageStructure = structure;
+      renderedMessageHtml = html;
       if (visibleMessages.length === 0) conversationElement.scrollTop = 0;
-      return visibleMessages.length > 0 && (nearBottom || busy);
+      return visibleMessages.length > 0 && nearBottom;
     }
 
     function renderTranscriptImage(button, attachment) {
@@ -515,6 +557,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     }
 
     function renderProposals(proposals) {
+      const signature = JSON.stringify([busy, proposals]);
+      if (signature === renderedProposals) return;
       proposalsElement.replaceChildren();
       $('proposals-heading').hidden = proposals.length === 0;
       for (const proposal of proposals) {
@@ -556,26 +600,45 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         }
         proposalsElement.appendChild(card);
       }
+      renderedProposals = signature;
     }
 
     function renderTools(tools) {
-      // Preserve user disclosure choices across streamed state updates.
-      const openTools = new Map(Array.from(toolsElement.children, details => [details.dataset.id, details.open]));
       const group = $('tools-group');
       group.hidden = tools.length === 0;
-      if (!tools.length) group.open = false;
       const running = tools.filter(tool => tool.status === 'running');
       const failed = tools.filter(tool => tool.status === 'error');
+      const isRunning = running.length > 0;
+      if (!tools.length || (!isRunning && toolActivityRunning)) group.open = false;
+      else if (isRunning && !toolActivityRunning) group.open = true;
+      toolActivityRunning = isRunning;
       group.dataset.status = running.length ? 'running' : failed.length ? 'error' : 'success';
       $('tools-summary').textContent = running.length
         ? 'Running · ' + running[running.length - 1].name + (running.length > 1 ? ' · ' + running.length + ' active' : '')
         : tools.length + (tools.length === 1 ? ' tool call' : ' tool calls') + (failed.length ? ' · ' + failed.length + ' failed' : ' · completed');
+      const ids = tools.map(tool => tool.id).join('|');
+      if (ids === renderedToolIds && toolsElement.children.length === tools.length) {
+        for (let index = 0; index < tools.length; index += 1) {
+          const details = toolsElement.children[index];
+          const tool = tools[index];
+          const previousStatus = details.dataset.status;
+          details.className = 'tool ' + tool.status;
+          details.dataset.status = tool.status;
+          if (previousStatus === 'running' && tool.status !== 'running') details.open = false;
+          details.children[0].textContent = (tool.status === 'running' ? 'Running · ' : tool.status === 'error' ? 'Failed · ' : 'Completed · ') + tool.name;
+          details.children[1].textContent = tool.output || tool.input;
+        }
+        return;
+      }
+      // Preserve user disclosure choices when the tool list itself changes.
+      const openTools = new Map(Array.from(toolsElement.children, details => [details.dataset.id, details.open]));
       toolsElement.replaceChildren();
       for (const tool of tools) {
         const details = document.createElement('details');
         details.className = 'tool ' + tool.status;
         details.dataset.id = tool.id;
-        details.open = openTools.get(tool.id) ?? tool.status !== 'success';
+        details.dataset.status = tool.status;
+        details.open = openTools.get(tool.id) ?? tool.status === 'running';
         const summary = document.createElement('summary');
         summary.textContent = (tool.status === 'running' ? 'Running · ' : tool.status === 'error' ? 'Failed · ' : 'Completed · ') + tool.name;
         const pre = document.createElement('pre');
@@ -583,9 +646,12 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         details.append(summary, pre);
         toolsElement.appendChild(details);
       }
+      renderedToolIds = ids;
     }
 
     function renderChanges(changes) {
+      const signature = JSON.stringify(changes);
+      if (signature === renderedChanges) return;
       changesElement.replaceChildren();
       $('changes-heading').hidden = changes.length === 0;
       for (const change of changes) {
@@ -610,9 +676,12 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         row.append(label, actions);
         changesElement.appendChild(row);
       }
+      renderedChanges = signature;
     }
 
     function renderBackground(tasks) {
+      const signature = JSON.stringify([busy, tasks]);
+      if (signature === renderedBackground) return;
       backgroundElement.replaceChildren();
       $('background-heading').hidden = tasks.length === 0;
       for (const task of tasks) {
@@ -644,12 +713,16 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         card.append(title, meta, output, actions);
         backgroundElement.appendChild(card);
       }
+      renderedBackground = signature;
     }
 
     function renderAttachments(attachments) {
-      attachmentsElement.replaceChildren();
       attachedImages = attachments.some(attachment => attachment.image);
       attachmentsElement.hidden = attachments.length === 0;
+      const signature = JSON.stringify(attachments);
+      if (signature === renderedAttachments) return;
+      forgetImageTargets(true);
+      attachmentsElement.replaceChildren();
       for (const attachment of attachments) {
         if (attachment.image && attachment.assetId) {
           const card = document.createElement('span');
@@ -673,7 +746,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           remove.title = 'Remove ' + attachment.fullLabel;
           remove.setAttribute('aria-label', 'Remove ' + attachment.fullLabel);
           remove.dataset.removeAttachment = attachment.id;
-          remove.disabled = busy;
           card.append(preview, label, remove);
           attachmentsElement.appendChild(card);
           continue;
@@ -690,10 +762,10 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         remove.title = 'Remove ' + attachment.label;
         remove.setAttribute('aria-label', 'Remove ' + attachment.label);
         remove.dataset.removeAttachment = attachment.id;
-        remove.disabled = busy;
         chip.append(label, remove);
         attachmentsElement.appendChild(chip);
       }
+      renderedAttachments = signature;
     }
 
     function resizeInput() {
@@ -753,7 +825,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('new-session').disabled = interactionLocked;
       $('delete-session').disabled = interactionLocked || !connected || !deletableSession;
       $('more').disabled = interactionLocked || !connected;
-      $('add-context').disabled = interactionLocked;
+      $('add-context').disabled = false;
       for (const button of emptyActionButtons) button.disabled = interactionLocked;
       sendButton.disabled = interactionLocked || !connected || !input.value.trim() || imageBlocked;
       sendButton.title = imageLoading
@@ -824,7 +896,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('retry').disabled = busy || !connected;
       $('refresh-history').hidden = !state.historyRecoveryAvailable;
       $('refresh-history').disabled = busy || !connected;
-      $('add-context').disabled = busy;
+      $('add-context').disabled = false;
       cancelButton.hidden = !cancellable;
       sendButton.hidden = cancellable;
       updateSendState();
@@ -835,10 +907,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const files = items.filter(item => item.kind === 'file' && item.type.startsWith('image/')).map(item => item.getAsFile()).filter(Boolean);
       if (files.length === 0) return;
       event.preventDefault();
-      if (busy) {
-        showNotice('Cancel or wait for Pi before changing attachments.', 'warning', false, true);
-        return;
-      }
       for (const file of files) {
         if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type.toLowerCase())) {
           showNotice('Only PNG, JPEG, GIF, and WebP images can be pasted.', 'warning');
