@@ -2,12 +2,15 @@ import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, open, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
+import { parseAgentPrompt } from "./prompts";
 
 const maxHeadBytes = 256 * 1024;
-const maxTailBytes = 256 * 1024;
+const metadataChunkBytes = 64 * 1024;
+const maxMetadataLineBytes = 256 * 1024;
 const maxTitleCharacters = 160;
 const defaultLimit = 100;
 const maxCandidates = 500;
+const statBatchSize = 50;
 
 export interface PiSessionSummary {
   readonly key: string;
@@ -31,6 +34,13 @@ export async function listRecentPiSessions(
   const requestedLimit = Number.isSafeInteger(limit) ? Math.max(0, Math.min(limit, defaultLimit)) : defaultLimit;
   if (requestedLimit === 0) return [];
 
+  let canonicalCwd: string;
+  try {
+    canonicalCwd = await realpath(cwd);
+  } catch {
+    return [];
+  }
+
   const directory = path.dirname(activeSessionFile);
   let entries;
   try {
@@ -39,10 +49,10 @@ export async function listRecentPiSessions(
     return [];
   }
 
-  const candidates = await Promise.all(entries
-    .filter(entry => entry.isFile() && entry.name.endsWith(".jsonl"))
-    .slice(0, maxCandidates)
-    .map(async entry => {
+  const sessionEntries = entries.filter(entry => entry.name.endsWith(".jsonl"));
+  const candidates: { readonly path: string; readonly updatedAt: number }[] = [];
+  for (let offset = 0; offset < sessionEntries.length; offset += statBatchSize) {
+    const batch = await Promise.all(sessionEntries.slice(offset, offset + statBatchSize).map(async entry => {
       const filePath = path.join(directory, entry.name);
       try {
         const stats = await lstat(filePath);
@@ -51,12 +61,13 @@ export async function listRecentPiSessions(
         return undefined;
       }
     }));
-  candidates.sort((left, right) => (right?.updatedAt ?? 0) - (left?.updatedAt ?? 0));
+    candidates.push(...batch.filter((candidate): candidate is { path: string; updatedAt: number } => Boolean(candidate)));
+  }
+  candidates.sort((left, right) => right.updatedAt - left.updatedAt);
 
-  const canonicalCwd = await realpath(cwd);
   const summaries: PiSessionSummary[] = [];
-  for (const candidate of candidates) {
-    if (!candidate || summaries.length >= requestedLimit) continue;
+  for (const candidate of candidates.slice(0, maxCandidates)) {
+    if (summaries.length >= requestedLimit) break;
     const summary = await readSessionSummary(candidate.path, canonicalCwd, candidate.updatedAt);
     if (summary) summaries.push(summary);
   }
@@ -84,20 +95,8 @@ async function readSessionSummary(
     if (!header || header.type !== "session" || typeof header.id !== "string" || typeof header.cwd !== "string" || !path.isAbsolute(header.cwd)) return undefined;
     if (!await sameWorkspace(header.cwd, canonicalCwd)) return undefined;
 
-    let tail = "";
-    let tailStartsAtFileBeginning = false;
-    if (stats.size > headBytesRead) {
-      const tailLength = Math.min(stats.size, maxTailBytes);
-      const tailOffset = stats.size - tailLength;
-      const tailBuffer = Buffer.alloc(tailLength);
-      const { bytesRead: tailBytesRead } = await handle.read(tailBuffer, 0, tailLength, tailOffset);
-      tail = tailBuffer.subarray(0, tailBytesRead).toString("utf8");
-      tailStartsAtFileBeginning = tailOffset === 0;
-    }
-
-    const parsedHeadLines = completeLines(head, true);
-    const parsedTailLines = tail ? completeLines(tail, tailStartsAtFileBeginning) : [];
-    const sessionName = latestSessionName([...parsedHeadLines, ...parsedTailLines]);
+    const parsedHeadLines = completeLines(head);
+    const sessionName = await readLatestSessionName(handle, stats.size);
     const firstPrompt = firstUserPrompt(parsedHeadLines) ?? extractUserTextPrefix(head);
     return {
       key: piSessionKey(sessionPath),
@@ -121,9 +120,53 @@ async function sameWorkspace(source: string, canonicalCwd: string): Promise<bool
   }
 }
 
-function completeLines(value: string, startsAtFileBeginning: boolean): Record<string, unknown>[] {
+async function readLatestSessionName(handle: Awaited<ReturnType<typeof open>>, size: number): Promise<string | undefined> {
+  let offset = size;
+  let suffix = Buffer.alloc(0);
+  let overlong = false;
+
+  while (offset > 0) {
+    const length = Math.min(metadataChunkBytes, offset);
+    offset -= length;
+    const buffer = Buffer.alloc(length);
+    const { bytesRead } = await handle.read(buffer, 0, length, offset);
+    const chunk = buffer.subarray(0, bytesRead);
+    let lineEnd = chunk.length;
+
+    for (let index = chunk.length - 1; index >= 0; index -= 1) {
+      if (chunk[index] !== 0x0a) continue;
+      const segment = chunk.subarray(index + 1, lineEnd);
+      if (!overlong && segment.length + suffix.length <= maxMetadataLineBytes) {
+        const parsed = parseRecord(Buffer.concat([segment, suffix]).toString("utf8"));
+        if (parsed?.type === "session_info") {
+          return typeof parsed.name === "string" && parsed.name.trim() ? parsed.name : undefined;
+        }
+      }
+      suffix = Buffer.alloc(0);
+      overlong = false;
+      lineEnd = index;
+    }
+
+    const prefix = chunk.subarray(0, lineEnd);
+    if (!overlong && prefix.length + suffix.length <= maxMetadataLineBytes) {
+      suffix = Buffer.concat([prefix, suffix]);
+    } else {
+      suffix = Buffer.alloc(0);
+      overlong = true;
+    }
+  }
+
+  if (!overlong && suffix.length > 0) {
+    const parsed = parseRecord(suffix.toString("utf8"));
+    if (parsed?.type === "session_info") {
+      return typeof parsed.name === "string" && parsed.name.trim() ? parsed.name : undefined;
+    }
+  }
+  return undefined;
+}
+
+function completeLines(value: string): Record<string, unknown>[] {
   const lines = value.split("\n");
-  if (!startsAtFileBeginning) lines.shift();
   if (!value.endsWith("\n")) lines.pop();
   return lines.flatMap(line => {
     const parsed = parseRecord(line);
@@ -139,14 +182,6 @@ function parseRecord(value: string): Record<string, unknown> | undefined {
   } catch {
     return undefined;
   }
-}
-
-function latestSessionName(entries: readonly Record<string, unknown>[]): string | undefined {
-  let name: string | undefined;
-  for (const entry of entries) {
-    if (entry.type === "session_info") name = typeof entry.name === "string" && entry.name.trim() ? entry.name : undefined;
-  }
-  return name;
 }
 
 function firstUserPrompt(entries: readonly Record<string, unknown>[]): string | undefined {
@@ -202,8 +237,7 @@ function scanJsonString(value: string, start: number): string | undefined {
 }
 
 function normalizeTitle(value: string): string {
-  const request = /^\s*<<<PICODE_REQUEST_START>>>\s*([\s\S]*?)(?:\s*<<<PICODE_REQUEST_END>>>|$)/.exec(value)?.[1] ?? value;
-  const compact = request.replace(/\s+/g, " ").trim();
+  const compact = parseAgentPrompt(value).request.replace(/\s+/g, " ").trim();
   if (!compact) return "New conversation";
   return compact.length > maxTitleCharacters ? `${compact.slice(0, maxTitleCharacters - 1).trimEnd()}…` : compact;
 }

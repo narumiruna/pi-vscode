@@ -903,6 +903,10 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     }
 
+    function isInteractionLocked() {
+      return busy || submissionPending || backgroundSubmissionPending || pendingImageReads > 0;
+    }
+
     function createChatRow(session) {
       const button = document.createElement('button');
       button.className = 'secondary chat-row';
@@ -910,7 +914,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       button.type = 'button';
       button.dataset.sessionId = session.id;
       button.title = session.title;
-      button.disabled = busy || Boolean(sessionSwitchPending);
+      button.disabled = isInteractionLocked() || Boolean(sessionSwitchPending);
       if (session.current) button.setAttribute('aria-current', 'page');
       const title = document.createElement('span');
       title.className = 'chat-row-title';
@@ -955,7 +959,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
 
     function selectRecentSession(id) {
       const session = recentSessions.find(item => item.id === id);
-      if (!session || busy || sessionSwitchPending) return;
+      if (!session || isInteractionLocked() || sessionSwitchPending) return;
       if (session.current) {
         if (chatsExpanded) setChatsExpanded(false);
         return;
@@ -968,7 +972,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     function updateSendState() {
       const imageBlocked = !busy && attachedImages && !imageSupported;
       const imageLoading = pendingImageReads > 0;
-      const interactionLocked = busy || submissionPending || backgroundSubmissionPending || imageLoading;
+      const interactionLocked = isInteractionLocked();
       if (!interactionLocked && notice.dataset.transientLock === 'true') clearNotice();
       $('model-picker').disabled = interactionLocked || !connected;
       thinkingLevel.disabled = interactionLocked || !connected || !thinkingSelectable;
