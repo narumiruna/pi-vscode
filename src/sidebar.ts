@@ -1234,7 +1234,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
 
     try {
       const sessions = await listRecentPiSessions(activeSessionFile, this.runtime.currentCwd);
-      if (revision !== this.sessionRefreshRevision || activeSessionFile !== this.runtime.currentState.sessionFile) return;
+      if (revision !== this.sessionRefreshRevision || activeSessionFile !== this.runtime.currentState.sessionFile || !sessions) return;
       this.recentSessions = sessions.some(session => session.path === activeSessionFile)
         ? sessions
         : [{
