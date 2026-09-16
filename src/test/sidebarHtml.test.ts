@@ -415,6 +415,18 @@ test("an attached image can be sent without additional text", () => {
   assert.equal(sidebar.posted.at(-1)?.revision, 0);
 });
 
+test("attachment-only busy notice applies to text context", () => {
+  const sidebar = createSidebarScriptHarness();
+  const attachment = { id: "draft-context", image: false, type: "selection", label: "Selection from example.ts" };
+  sidebar.receive({ type: "state", status: "Pi is working…", runtime: { busy: true, cancellable: true, connected: true, queueable: true }, attachments: [attachment] });
+  const postedBeforeSubmit = sidebar.posted.length;
+
+  sidebar.run("submit()");
+  assert.match(sidebar.element("notice").textContent, /attached context is ready/i);
+  assert.doesNotMatch(sidebar.element("notice").textContent, /image/i);
+  assert.equal(sidebar.posted.length, postedBeforeSubmit);
+});
+
 test("thumbnail and preview decode failures become unavailable without retrying corrupt payloads", () => {
   const bytes = Buffer.alloc(11);
   bytes.write("GIF89a", 0, "ascii"); bytes.writeUInt16LE(3, 6); bytes.writeUInt16LE(2, 8);
@@ -524,8 +536,7 @@ test("streaming does not force the conversation to the bottom after the reader s
   conversation.scrollHeight = 400;
   conversation.clientHeight = 100;
   conversation.scrollTop = 40;
-  conversation.listeners.get("wheel")!({ deltaY: -1 });
-  conversation.listeners.get("scroll")!();
+  conversation.listeners.get("scroll")!({ isTrusted: true });
   sidebar.receive({
     type: "state",
     status: "Pi is working…",
