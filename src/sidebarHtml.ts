@@ -854,6 +854,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('new-session').disabled = interactionLocked;
       $('delete-session').disabled = interactionLocked || !connected || !deletableSession;
       $('more').disabled = interactionLocked || !connected;
+      $('recover-queue').disabled = interactionLocked;
       $('add-context').disabled = false;
       for (const button of emptyActionButtons) button.disabled = interactionLocked;
       sendButton.disabled = interactionLocked || !connected || (!input.value.trim() && !attachedItems) || imageBlocked;
@@ -1009,6 +1010,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         if (composerRevision === message.expectedRevision) {
           input.value += (input.value ? '\\n\\n' : '') + message.text;
           composerRevision += 1; resizeInput(); updateSendState();
+          if (message.recoveredDraftId) vscode.postMessage({ type: 'restoreQueueAttachments', id: message.recoveredDraftId });
         } else { showNotice('Your draft changed. The recovered message remains in Recovered Drafts.', 'warning'); }
       }
       else if (message.type === 'setInput') {

@@ -86,11 +86,16 @@ test("submission snapshots bind descriptors to accepted items while rejection, c
     imageAssets.reject(composerImage!.assetId!);
     assert.equal(manager.summaries.find(item => item.image)?.availability, "unavailable");
     assert.equal(imageAssets.storeCalls, storesAfterAttach + 1, "a rejected image is not decoded again");
+    const rejectedPreview = manager.captureSubmission();
+    assert.deepEqual(rejectedPreview.transcriptAttachments.map(item => item.type), ["context", "image"], "a rejected preview keeps its unavailable transcript descriptor and recovery ownership");
+    const rejectedDescriptor = rejectedPreview.transcriptAttachments[1];
+    assert.equal(rejectedDescriptor?.type === "image" ? rejectedDescriptor.availability : undefined, "unavailable");
+    assert.equal(rejectedPreview.images.length, 1, "the validated image payload remains queueable after preview rejection");
 
-    cancelled.consumeAccepted();
+    rejectedPreview.consumeAccepted();
     assert.equal(manager.values.length, 0);
-    cancelled.restoreConsumed();
-    assert.deepEqual(manager.values.map(item => item.label), ["second.ts", "Pasted image: startup.gif"], "text and image snapshots can be restored after verified queue clearing");
+    rejectedPreview.restoreConsumed();
+    assert.deepEqual(manager.values.map(item => item.label), ["second.ts", "Pasted image: startup.gif"], "text and rejected-preview image snapshots can be restored after verified queue clearing");
   } finally { manager.dispose(); vscode.restore(); }
 });
 

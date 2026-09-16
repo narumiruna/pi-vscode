@@ -285,16 +285,14 @@ export class PiRuntimeManager implements vscode.Disposable {
     } finally { release(); this.queueStopping = false; }
   }
 
-  public restoreRecoveredDraft(id: string): string {
+  public restoreRecoveredDraftAttachments(id: string): void {
     const draft = this.state.recoveredDrafts?.find(candidate => candidate.id === id);
     if (!draft) throw new Error("This recovered queue draft is no longer available.");
     const handle = this.recoveredAttachmentHandles.get(id);
-    if (handle) {
-      handle.restore();
-      this.recoveredAttachmentHandles.delete(id);
-      this.updateState({ recoveredDrafts: this.state.recoveredDrafts?.map(candidate => candidate.id === id ? { ...candidate, hasAttachments: false } : candidate) });
-    }
-    return draft.text;
+    if (!handle) return;
+    handle.restore();
+    this.recoveredAttachmentHandles.delete(id);
+    this.updateState({ recoveredDrafts: this.state.recoveredDrafts?.map(candidate => candidate.id === id ? { ...candidate, hasAttachments: false } : candidate) });
   }
 
   private recoverQueue(records: readonly TrackedQueueInstruction[], uncertain: boolean): void {
