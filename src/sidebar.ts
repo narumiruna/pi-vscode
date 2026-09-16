@@ -589,12 +589,16 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   private async queue(kind: "steer" | "followUp", rawText: string, revision: number): Promise<void> {
     const submission = this.attachments.captureSubmission();
     const resolved = resolveSidebarQueueSubmission(rawText, submission);
-    if (!resolved) return;
+    if (!resolved) {
+      this.postMessage({ type: "sendRejected" });
+      return;
+    }
     if (submission.images.length > 0 && !modelSupportsImages(this.runtime.currentState.model)) {
       throw new Error("The current model does not support images. Change the model or remove image attachments before sending.");
     }
     await this.runtime.queueInstruction(kind, resolved.message, {
       images: submission.images,
+      resource: submission.resource,
       recoveryText: resolved.text,
       restoreAttachments: submission.transcriptAttachments.length ? submission.restoreConsumed : undefined,
       hasAttachments: submission.transcriptAttachments.length > 0,
