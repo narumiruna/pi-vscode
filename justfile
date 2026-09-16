@@ -1,7 +1,6 @@
-# Compile and launch the VS Code extension.
-dev:
-    npm run compile
-    code --new-window --extensionDevelopmentPath="{{justfile_directory()}}" "{{invocation_directory()}}"
+# Rebuild and install the extensions, then open the current directory in VS Code.
+dev: install
+    code --new-window "{{invocation_directory()}}"
 
 # Launch Pi with the Pi bridge extension.
 dev-pi:

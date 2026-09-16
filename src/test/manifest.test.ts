@@ -82,7 +82,7 @@ test("quick-fix menu contributions are hidden for read-only editors", () => {
   }
 });
 
-test("development launchers open only the current development extension", () => {
+test("development launchers target the intended extension mode", () => {
   const launch = JSON.parse(readFileSync(".vscode/launch.json", "utf8")) as {
     configurations: { type: string; args: string[] }[];
   };
@@ -93,10 +93,10 @@ test("development launchers open only the current development extension", () => 
   }
 
   const recipes = readFileSync("justfile", "utf8");
-  const dev = /^dev:\n((?:[ \t].*\n)+)/m.exec(recipes)?.[1];
-  assert.ok(dev, "missing just dev recipe");
+  const dev = /^dev: install\n((?:[ \t].*\n)+)/m.exec(recipes)?.[1];
+  assert.ok(dev, "missing just dev recipe with install dependency");
   const launchLine = dev.split("\n").find(line => line.trimStart().startsWith("code "));
   assert.ok(launchLine, "just dev must launch VS Code");
-  assert.ok(launchLine.includes('--extensionDevelopmentPath="{{justfile_directory()}}"'));
-  assert.equal(launchLine.includes("--disable-extension"), false);
+  assert.ok(launchLine.includes('--new-window "{{invocation_directory()}}"'));
+  assert.equal(launchLine.includes("--extensionDevelopmentPath"), false);
 });
