@@ -1,16 +1,23 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, open, readdir, realpath } from "node:fs/promises";
+import { lstat, open, readdir, realpath, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { parseAgentPrompt } from "./prompts";
 
+const maxHeaderBytes = 16_385;
 const maxHeadBytes = 256 * 1024;
 const metadataChunkBytes = 64 * 1024;
 const maxMetadataLineBytes = 256 * 1024;
+const maxMetadataScanBytes = 512 * 1024;
+const maxDiscoveryReadBytes = 64 * 1024 * 1024;
+const minCandidateBudgetBytes = metadataChunkBytes;
 const maxTitleCharacters = 160;
 const defaultLimit = 100;
-const maxCandidates = 500;
 const statBatchSize = 50;
+
+interface ReadBudget {
+  remaining: number;
+}
 
 export interface PiSessionSummary {
   readonly key: string;
@@ -24,12 +31,12 @@ export function piSessionKey(sessionPath: string): string {
   return createHash("sha256").update(sessionPath).digest("hex").slice(0, 24);
 }
 
-/** List bounded metadata for recent sessions stored beside the active workspace session. */
+/** List bounded metadata for recent sessions, or return undefined when root discovery is unavailable. */
 export async function listRecentPiSessions(
   activeSessionFile: string,
   cwd: string,
   limit = defaultLimit,
-): Promise<PiSessionSummary[]> {
+): Promise<PiSessionSummary[] | undefined> {
   if (!path.isAbsolute(activeSessionFile) || activeSessionFile.includes("\0")) return [];
   const requestedLimit = Number.isSafeInteger(limit) ? Math.max(0, Math.min(limit, defaultLimit)) : defaultLimit;
   if (requestedLimit === 0) return [];
@@ -38,7 +45,7 @@ export async function listRecentPiSessions(
   try {
     canonicalCwd = await realpath(cwd);
   } catch {
-    return [];
+    return undefined;
   }
 
   const directory = path.dirname(activeSessionFile);
@@ -46,7 +53,7 @@ export async function listRecentPiSessions(
   try {
     entries = await readdir(directory, { withFileTypes: true });
   } catch {
-    return [];
+    return undefined;
   }
 
   const sessionEntries = entries.filter(entry => entry.name.endsWith(".jsonl"));
@@ -65,10 +72,14 @@ export async function listRecentPiSessions(
   }
   candidates.sort((left, right) => right.updatedAt - left.updatedAt);
 
+  const budget: ReadBudget = { remaining: maxDiscoveryReadBytes };
   const summaries: PiSessionSummary[] = [];
-  for (const candidate of candidates.slice(0, maxCandidates)) {
-    if (summaries.length >= requestedLimit) break;
-    const summary = await readSessionSummary(candidate.path, canonicalCwd, candidate.updatedAt);
+  for (const candidate of candidates) {
+    if (summaries.length >= requestedLimit || budget.remaining === 0) break;
+    const budgetBefore = budget.remaining;
+    const summary = await readSessionSummary(candidate.path, canonicalCwd, candidate.updatedAt, budget);
+    const consumed = budgetBefore - budget.remaining;
+    budget.remaining = Math.max(0, budget.remaining - Math.max(0, minCandidateBudgetBytes - consumed));
     if (summary) summaries.push(summary);
   }
   return summaries;
@@ -78,6 +89,7 @@ async function readSessionSummary(
   sessionPath: string,
   canonicalCwd: string,
   fallbackUpdatedAt: number,
+  budget: ReadBudget,
 ): Promise<PiSessionSummary | undefined> {
   let handle;
   try {
@@ -87,16 +99,21 @@ async function readSessionSummary(
 
     const headLength = Math.min(stats.size, maxHeadBytes);
     const headBuffer = Buffer.alloc(headLength);
-    const { bytesRead: headBytesRead } = await handle.read(headBuffer, 0, headLength, 0);
-    const head = headBuffer.subarray(0, headBytesRead).toString("utf8");
-    const headerLineEnd = head.indexOf("\n");
-    if (headerLineEnd < 0 || headerLineEnd > 16_384) return undefined;
-    const header = parseRecord(head.slice(0, headerLineEnd));
+    const headerLength = Math.min(headLength, maxHeaderBytes);
+    let headBytesRead = await readBounded(handle, headBuffer, 0, headerLength, 0, budget);
+    const headerText = headBuffer.subarray(0, headBytesRead).toString("utf8");
+    const headerLineEnd = headerText.indexOf("\n");
+    if (headerLineEnd < 0 || headerLineEnd >= maxHeaderBytes) return undefined;
+    const header = parseRecord(headerText.slice(0, headerLineEnd));
     if (!header || header.type !== "session" || typeof header.id !== "string" || typeof header.cwd !== "string" || !path.isAbsolute(header.cwd)) return undefined;
     if (!await sameWorkspace(header.cwd, canonicalCwd)) return undefined;
 
+    if (headBytesRead < headLength) {
+      headBytesRead += await readBounded(handle, headBuffer, headBytesRead, headLength - headBytesRead, headBytesRead, budget);
+    }
+    const head = headBuffer.subarray(0, headBytesRead).toString("utf8");
     const parsedHeadLines = completeLines(head);
-    const sessionName = await readLatestSessionName(handle, stats.size);
+    const sessionName = await readLatestSessionName(handle, stats.size, budget);
     const firstPrompt = firstUserPrompt(parsedHeadLines) ?? extractUserTextPrefix(head);
     return {
       key: piSessionKey(sessionPath),
@@ -120,16 +137,36 @@ async function sameWorkspace(source: string, canonicalCwd: string): Promise<bool
   }
 }
 
-async function readLatestSessionName(handle: Awaited<ReturnType<typeof open>>, size: number): Promise<string | undefined> {
+async function readBounded(
+  handle: FileHandle,
+  buffer: Buffer,
+  bufferOffset: number,
+  length: number,
+  position: number,
+  budget: ReadBudget,
+): Promise<number> {
+  let total = 0;
+  while (total < length && budget.remaining > 0) {
+    const requested = Math.min(length - total, budget.remaining);
+    const { bytesRead } = await handle.read(buffer, bufferOffset + total, requested, position + total);
+    if (bytesRead === 0) break;
+    total += bytesRead;
+    budget.remaining -= bytesRead;
+  }
+  return total;
+}
+
+async function readLatestSessionName(handle: FileHandle, size: number, budget: ReadBudget): Promise<string | undefined> {
+  const scanStart = Math.max(0, size - maxMetadataScanBytes);
   let offset = size;
   let suffix = Buffer.alloc(0);
   let overlong = false;
 
-  while (offset > 0) {
-    const length = Math.min(metadataChunkBytes, offset);
+  while (offset > scanStart && budget.remaining > 0) {
+    const length = Math.min(metadataChunkBytes, offset - scanStart, budget.remaining);
     offset -= length;
     const buffer = Buffer.alloc(length);
-    const { bytesRead } = await handle.read(buffer, 0, length, offset);
+    const bytesRead = await readBounded(handle, buffer, 0, length, offset, budget);
     const chunk = buffer.subarray(0, bytesRead);
     let lineEnd = chunk.length;
 
