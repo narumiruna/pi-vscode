@@ -83,9 +83,9 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
     assert.deepEqual(calls.filter(call => ["clear_queue", "abort"].includes(call)), ["clear_queue", "abort"]);
     assert.deepEqual(runtime.currentState.recoveredDrafts?.map(draft => draft.text), ["same", "same with image", "later"]);
     const recoveredImage = runtime.currentState.recoveredDrafts?.find(draft => draft.hasAttachments);
-    assert.ok(recoveredImage); assert.equal(runtime.restoreRecoveredDraft(recoveredImage.id), "same with image"); assert.equal(restoredAttachments, 1);
+    assert.ok(recoveredImage); runtime.restoreRecoveredDraftAttachments(recoveredImage.id); assert.equal(restoredAttachments, 1);
     assert.equal(runtime.currentState.recoveredDrafts?.find(draft => draft.id === recoveredImage.id)?.hasAttachments, false);
-    runtime.restoreRecoveredDraft(recoveredImage.id); assert.equal(restoredAttachments, 1, "a restored payload handle is released and cannot duplicate attachments");
+    runtime.restoreRecoveredDraftAttachments(recoveredImage.id); assert.equal(restoredAttachments, 1, "a restored payload handle is released and cannot duplicate attachments");
 
     const race = runtime.prompt("composer", undefined, undefined, undefined, undefined, true); await tick();
     await runtime.queueInstruction("steer", "duplicate race");
@@ -99,7 +99,7 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
     await runtime.abort(); await race; await tick();
     const raceDraft = runtime.currentState.recoveredDrafts?.at(-1);
     assert.equal(raceDraft?.text, "race image draft", "a delivery update racing queue acceptance retains the pending attachment record");
-    assert.equal(runtime.restoreRecoveredDraft(raceDraft!.id), "race image draft"); assert.equal(restoredAttachments, 2);
+    runtime.restoreRecoveredDraftAttachments(raceDraft!.id); assert.equal(restoredAttachments, 2);
 
     const deliveredCount = runtime.currentState.recoveredDrafts?.length;
     const delivered = runtime.prompt("composer", undefined, undefined, undefined, undefined, true); await tick();

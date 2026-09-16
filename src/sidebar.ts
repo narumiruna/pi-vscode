@@ -276,11 +276,18 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
             draft,
           })), { title: "Recovered queue drafts (never replayed automatically)" });
           if (picked) {
-            const text = this.runtime.restoreRecoveredDraft(picked.draft.id);
-            this.postMessage({ type: "appendDraft", text, expectedRevision: message.revision });
+            this.postMessage({
+              type: "appendDraft",
+              text: picked.draft.text,
+              expectedRevision: message.revision,
+              ...(picked.draft.hasAttachments ? { recoveredDraftId: picked.draft.id } : {}),
+            });
           }
           break;
         }
+        case "restoreQueueAttachments":
+          this.runtime.restoreRecoveredDraftAttachments(message.id);
+          break;
         case "cancel":
           this.requestLifecycle.cancel();
           await this.runtime.abort();

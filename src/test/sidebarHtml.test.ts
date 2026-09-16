@@ -26,6 +26,8 @@ test("webview protocol rejects removed mode messages", () => {
     assert.equal(isWebviewMessage({ type: "queueInstruction", kind: "steer", text: "adjust", revision: 1 }, 1024), true);
     assert.equal(isWebviewMessage({ type: "imageAssetEvicted", id: `sha256-${"a".repeat(64)}` }, 1024), true);
     assert.equal(isWebviewMessage({ type: "imageAssetRejected", id: `sha256-${"b".repeat(64)}` }, 1024), true);
+    assert.equal(isWebviewMessage({ type: "restoreQueueAttachments", id: "11111111-1111-4111-8111-111111111111" }, 1024), true);
+    assert.equal(isWebviewMessage({ type: "restoreQueueAttachments", id: "../../session" }, 1024), false);
     assert.equal(isWebviewMessage({ type: "imageAssetEvicted", id: "../../session" }, 1024), false);
     assert.equal(isWebviewMessage({ type: "imageAssetRejected", id: "../../session" }, 1024), false);
   } finally { vscode.restore(); }
@@ -868,14 +870,20 @@ test("keyboard queue and accepted-send messages preserve newer drafts and never 
   const queued = sidebar.posted.at(-1);
   assert.equal(queued.type, "queueInstruction"); assert.equal(queued.kind, "steer");
   assert.equal(queued.text, "steer text"); assert.equal(queued.revision, 1);
+  assert.equal(sidebar.element("recover-queue").disabled, true, "recovery cannot start during queue acceptance");
   assert.equal(sidebar.element("messages").children.length, 0);
   input.value = "new draft"; change();
   sidebar.receive({ type: "clearInput", expectedText: queued.text, expectedRevision: queued.revision });
   assert.equal(input.value, "new draft");
-  sidebar.receive({ type: "appendDraft", text: "recovered", expectedRevision: 1 });
+  const recoveredDraftId = "11111111-1111-4111-8111-111111111111";
+  const postedBeforeStaleRecovery = sidebar.posted.length;
+  sidebar.receive({ type: "appendDraft", text: "recovered", expectedRevision: 1, recoveredDraftId });
   assert.equal(input.value, "new draft");
-  sidebar.receive({ type: "appendDraft", text: "recovered", expectedRevision: 2 });
+  assert.equal(sidebar.posted.length, postedBeforeStaleRecovery, "stale text recovery does not consume its attachment handle");
+  sidebar.receive({ type: "appendDraft", text: "recovered", expectedRevision: 2, recoveredDraftId });
   assert.equal(input.value, "new draft\n\nrecovered");
+  assert.equal(sidebar.posted.at(-1)?.type, "restoreQueueAttachments", "attachments restore only after text revision acceptance");
+  assert.equal(sidebar.posted.at(-1)?.id, recoveredDraftId);
   sidebar.receive({ type: "clearInput", expectedText: input.value, expectedRevision: 3 });
   assert.equal(input.value, "");
   sidebar.run("queueable = false; submissionPending = false; updateSendState()");
