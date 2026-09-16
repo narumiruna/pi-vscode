@@ -105,6 +105,30 @@ test("recent Pi sessions validate workspace headers before limiting candidates",
   }
 });
 
+test("recent Pi sessions bound inspections of empty candidates", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "picode-session-empty-cap-"));
+  const workspace = path.join(root, "workspace");
+  const sessions = path.join(root, "sessions");
+  await Promise.all([mkdir(workspace), mkdir(sessions)]);
+  try {
+    const matching = path.join(sessions, "matching.jsonl");
+    await writeFile(matching, session([
+      { type: "session", version: 3, id: "matching", cwd: workspace },
+      { type: "message", id: "1", parentId: null, message: { role: "user", content: "Matching prompt" } },
+    ]));
+    await Promise.all(Array.from({ length: 1_024 }, (_, index) => writeFile(
+      path.join(sessions, `empty-${String(index).padStart(4, "0")}.jsonl`),
+      "",
+    )));
+    await utimes(matching, new Date(0), new Date(0));
+
+    const result = await listRecentPiSessions(matching, workspace, 1);
+    assert.deepEqual(result, []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("recent Pi sessions recover a bounded prompt before a large image and skip invalid files", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "picode-session-bounds-"));
   const workspace = path.join(root, "workspace");
