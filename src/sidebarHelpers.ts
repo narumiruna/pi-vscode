@@ -15,7 +15,8 @@ import {
 } from "./sidebarState";
 
 export type WebviewMessage =
-  | { readonly type: "ready" | "cancel" | "reconnect" | "refreshHistory" | "retry" | "newSession" | "deleteSession" | "showNoticeDetails" | "pickContext" | "pickModel" | "attachSelection" | "attachFile" | "attachCurrentFile" | "attachDiagnostics" | "attachImage" | "attachTerminal" | "clearAttachments" | "compact" | "nameSession" | "resumeSession" | "exportSession" | "openTerminal" | "openSourceControl" | "pickCommand" | "inspectContext" | "clearQueue" | "inspectQueue" }
+  | { readonly type: "ready" | "cancel" | "reconnect" | "refreshHistory" | "refreshSessions" | "retry" | "newSession" | "deleteSession" | "showNoticeDetails" | "pickContext" | "pickModel" | "attachSelection" | "attachFile" | "attachCurrentFile" | "attachDiagnostics" | "attachImage" | "attachTerminal" | "clearAttachments" | "compact" | "nameSession" | "resumeSession" | "exportSession" | "openTerminal" | "openSourceControl" | "pickCommand" | "inspectContext" | "clearQueue" | "inspectQueue" }
+  | { readonly type: "switchRecentSession"; readonly id: string }
   | { readonly type: "send"; readonly text: string; readonly revision: number }
   | { readonly type: "queueInstruction"; readonly text: string; readonly revision: number; readonly kind: "steer" | "followUp" }
   | { readonly type: "recoverQueue"; readonly revision: number }
@@ -31,6 +32,7 @@ export type WebviewMessage =
 export function isWebviewMessage(value: unknown, maxImageBytes: number): value is WebviewMessage {
   if (!isRecord(value) || typeof value.type !== "string") return false;
   if (value.type === "send") return typeof value.text === "string" && isComposerRevision(value.revision);
+  if (value.type === "switchRecentSession") return typeof value.id === "string" && /^[a-f0-9]{24}$/.test(value.id);
   if (value.type === "queueInstruction") return typeof value.text === "string" && value.text.length <= 50_000 && isComposerRevision(value.revision) && ["steer", "followUp"].includes(String(value.kind));
   if (value.type === "recoverQueue") return isComposerRevision(value.revision);
   if (value.type === "showMoreActions") {
@@ -57,7 +59,7 @@ export function isWebviewMessage(value: unknown, maxImageBytes: number): value i
     return typeof value.id === "string";
   }
   return [
-    "ready", "cancel", "reconnect", "refreshHistory", "retry", "newSession", "deleteSession", "showNoticeDetails", "pickContext", "pickModel", "attachSelection", "attachFile",
+    "ready", "cancel", "reconnect", "refreshHistory", "refreshSessions", "retry", "newSession", "deleteSession", "showNoticeDetails", "pickContext", "pickModel", "attachSelection", "attachFile",
     "attachCurrentFile", "attachDiagnostics", "attachImage", "attachTerminal", "clearAttachments", "compact",
     "nameSession", "resumeSession", "exportSession", "openTerminal", "openSourceControl", "pickCommand", "inspectContext", "clearQueue", "inspectQueue",
   ].includes(value.type);
