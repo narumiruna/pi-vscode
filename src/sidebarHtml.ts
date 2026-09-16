@@ -287,10 +287,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let renderedBackground = '';
     let renderedAttachments = '';
 
-    function showNotice(message, level, detailsAvailable = false, transientLock = false) {
+    function showNotice(message, level, detailsAvailable = false, transientLock = false, attachmentWait = false) {
       notice.textContent = message;
       notice.className = level || '';
       notice.dataset.transientLock = transientLock ? 'true' : '';
+      notice.dataset.attachmentWait = attachmentWait ? 'true' : '';
       if (detailsAvailable) {
         const details = document.createElement('button');
         details.className = 'secondary';
@@ -306,6 +307,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       notice.textContent = '';
       notice.className = '';
       notice.dataset.transientLock = '';
+      notice.dataset.attachmentWait = '';
     }
 
     function updateRuntimeStatus() {
@@ -340,7 +342,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       if ((!text && !attachedItems) || !connected || submissionPending || backgroundSubmissionPending) return;
       if (busy) {
         if (!text) {
-          showNotice('The attached context is ready for the next message. Wait for Pi to finish before sending it.', 'info', false, true);
+          showNotice('The attached context is ready for the next message. Wait for Pi to finish before sending it.', 'info', false, true, true);
           return;
         }
         if (!queueable) {
@@ -852,7 +854,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const imageBlocked = !busy && attachedImages && !imageSupported;
       const imageLoading = pendingImageReads > 0;
       const interactionLocked = busy || submissionPending || backgroundSubmissionPending || imageLoading;
-      if ((!interactionLocked || !attachedItems) && notice.dataset.transientLock === 'true') clearNotice();
+      const attachmentWaitEnded = notice.dataset.attachmentWait === 'true' && !attachedItems;
+      if ((!interactionLocked || attachmentWaitEnded) && notice.dataset.transientLock === 'true') clearNotice();
       $('model-picker').disabled = interactionLocked || !connected;
       thinkingLevel.disabled = interactionLocked || !connected || !thinkingSelectable;
       $('new-session').disabled = interactionLocked;

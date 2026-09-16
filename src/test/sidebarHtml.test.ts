@@ -425,6 +425,7 @@ test("attachment-only busy notice applies to text context and clears when Pi set
   assert.match(sidebar.element("notice").textContent, /attached context is ready/i);
   assert.doesNotMatch(sidebar.element("notice").textContent, /image/i);
   assert.equal(sidebar.element("notice").dataset.transientLock, "true");
+  assert.equal(sidebar.element("notice").dataset.attachmentWait, "true");
   assert.equal(sidebar.posted.length, postedBeforeSubmit);
 
   sidebar.receive({ type: "state", status: "Pi is working…", runtime: { busy: true, cancellable: true, connected: true, queueable: true }, attachments: [] });
@@ -793,6 +794,8 @@ test("composer keyboard submission matches Pi queue behavior on Alt+Enter platfo
   assert.equal(sidebar.posted.length, count);
   assert.equal(input.value, "preserved");
   assert.match(sidebar.element("notice").textContent, /does not accept queued messages/);
+  sidebar.receive({ type: "state", status: "Pi is working…", runtime: { busy: true, cancellable: true, connected: true, queueable: false }, attachments: [] });
+  assert.match(sidebar.element("notice").textContent, /does not accept queued messages/, "stream updates keep text-only queue feedback while busy");
 });
 
 test("composer uses Ctrl+Q for Windows-client follow-ups", () => {
