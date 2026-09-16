@@ -166,6 +166,26 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
   } finally { runtime.dispose(); vscode.restore(); }
 });
 
+test("ordinary queue reconciliation validates both kinds before retiring delivered attachment records", () => {
+  const vscode = installVscodeMock();
+  const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
+  const runtime = new PiRuntimeManager({ environmentVariableCollection: { clear() {} } } as any);
+  const internal = runtime as any;
+  const delivered = { id: "delivered", kind: "steering", message: "delivered", recoveryText: "delivered image", hasAttachments: true, recoveryBytes: 10, restoreAttachments() {} };
+  const remaining = { id: "remaining", kind: "steering", message: "remaining", recoveryText: "remaining", hasAttachments: false, recoveryBytes: 0 };
+  const followUp = { id: "follow-up", kind: "followUp", message: "follow", recoveryText: "follow image", hasAttachments: true, recoveryBytes: 20, restoreAttachments() {} };
+  internal.trackedQueue.steering.push(delivered, remaining);
+  internal.trackedQueue.followUp.push(followUp);
+  try {
+    assert.throws(() => internal.reconcileTrackedQueue({ steering: ["remaining"], followUp: ["unexpected"] }), /inconsistent follow-up queue/);
+    assert.deepEqual(internal.trackedQueue.steering, [delivered, remaining], "a later mismatch cannot retire the delivered steering attachment owner");
+    assert.deepEqual(internal.trackedQueue.followUp, [followUp]);
+    internal.reconcileTrackedQueue({ steering: ["remaining"], followUp: ["follow"] });
+    assert.deepEqual(internal.trackedQueue.steering, [remaining]);
+    assert.deepEqual(internal.trackedQueue.followUp, [followUp]);
+  } finally { runtime.dispose(); vscode.restore(); }
+});
+
 test("cleared queue validation preserves both attachment ledgers until every queue kind matches", () => {
   const vscode = installVscodeMock();
   const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");

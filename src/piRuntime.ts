@@ -609,36 +609,35 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   private reconcileTrackedQueue(queue: PiRpcQueue): void {
+    const reconciled: Record<RuntimeQueueKind, TrackedQueueInstruction[]> = { steering: [], followUp: [] };
     for (const kind of ["steering", "followUp"] as const) {
-      const tracked = this.trackedQueue[kind];
+      const records = [...this.trackedQueue[kind]];
       const remote = queue[kind];
       const pending = this.pendingInstruction;
       const protectedPending = pending?.record.kind === kind && !pending.observed ? pending.record : undefined;
-      const protectedIndex = protectedPending ? tracked.findIndex(record => record.id === protectedPending.id) : -1;
-      if (protectedIndex >= 0) tracked.splice(protectedIndex, 1);
-      try {
-        if (!tracked.length) {
-          tracked.push(...remote.map(text => this.textOnlyQueueRecord(kind, text)));
-          continue;
-        }
-        const texts = tracked.map(record => record.message);
+      const protectedIndex = protectedPending ? records.findIndex(record => record.id === protectedPending.id) : -1;
+      if (protectedIndex >= 0) records.splice(protectedIndex, 1);
+      if (!records.length) {
+        records.push(...remote.map(text => this.textOnlyQueueRecord(kind, text)));
+      } else {
+        const texts = records.map(record => record.message);
         let delivered = -1;
         for (let offset = 0; offset <= texts.length; offset += 1) {
           if (arraysEqual(texts.slice(offset), remote)) { delivered = offset; break; }
         }
         if (delivered >= 0) {
-          tracked.splice(0, delivered);
-          continue;
+          records.splice(0, delivered);
+        } else if (arraysEqual(remote.slice(0, texts.length), texts)) {
+          records.push(...remote.slice(texts.length).map(text => this.textOnlyQueueRecord(kind, text)));
+        } else {
+          throw new Error(`Pi reported an inconsistent ${kind === "steering" ? "steering" : "follow-up"} queue.`);
         }
-        if (arraysEqual(remote.slice(0, texts.length), texts)) {
-          tracked.push(...remote.slice(texts.length).map(text => this.textOnlyQueueRecord(kind, text)));
-          continue;
-        }
-        throw new Error(`Pi reported an inconsistent ${kind === "steering" ? "steering" : "follow-up"} queue.`);
-      } finally {
-        if (protectedPending && !tracked.some(record => record.id === protectedPending.id)) tracked.push(protectedPending);
       }
+      if (protectedPending && !records.some(record => record.id === protectedPending.id)) records.push(protectedPending);
+      reconciled[kind] = records;
     }
+    this.trackedQueue.steering.splice(0, this.trackedQueue.steering.length, ...reconciled.steering);
+    this.trackedQueue.followUp.splice(0, this.trackedQueue.followUp.length, ...reconciled.followUp);
   }
 
   private takeClearedInstructions(cleared: PiRpcQueue): TrackedQueueInstruction[] {
