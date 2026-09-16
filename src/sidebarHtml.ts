@@ -274,6 +274,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let updatingControls = false;
     let thinkingSelectable = false;
     let latestStatus = 'Connecting…';
+    let conversationPinnedToBottom = true;
     let renderedMessageStructure = '';
     let renderedMessageHtml = [];
     let renderedToolIds = '';
@@ -346,7 +347,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     }
 
     function renderMessages(messages) {
-      const nearBottom = conversationElement.scrollHeight - conversationElement.scrollTop - conversationElement.clientHeight < 80;
+      const followConversation = conversationPinnedToBottom;
       const visibleMessages = messages.filter(message => message.role !== 'assistant' || Boolean(message.html));
       const structure = JSON.stringify(visibleMessages.map((message, index) => [message.id || index, message.role, message.attachments || [], Boolean(message.truncated)]));
       const html = visibleMessages.map(message => message.html || (message.role === 'assistant' ? '…' : ''));
@@ -360,7 +361,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           if (content) content.innerHTML = html[index];
         }
         renderedMessageHtml = html;
-        return visibleMessages.length > 0 && nearBottom;
+        return visibleMessages.length > 0 && followConversation;
       }
 
       messagesElement.replaceChildren();
@@ -446,8 +447,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       }
       renderedMessageStructure = structure;
       renderedMessageHtml = html;
-      if (visibleMessages.length === 0) conversationElement.scrollTop = 0;
-      return visibleMessages.length > 0 && nearBottom;
+      if (visibleMessages.length === 0) {
+        conversationElement.scrollTop = 0;
+        conversationPinnedToBottom = true;
+      }
+      return visibleMessages.length > 0 && followConversation;
     }
 
     function renderTranscriptImage(button, attachment) {
@@ -626,7 +630,13 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           details.dataset.status = tool.status;
           if (previousStatus === 'running' && tool.status !== 'running') details.open = false;
           details.children[0].textContent = (tool.status === 'running' ? 'Running · ' : tool.status === 'error' ? 'Failed · ' : 'Completed · ') + tool.name;
-          details.children[1].textContent = tool.output || tool.input;
+          const output = details.children[1];
+          const outputText = tool.output || tool.input;
+          if (output.textContent !== outputText) {
+            const followOutput = output.scrollHeight - output.scrollTop - output.clientHeight <= 16;
+            output.textContent = outputText;
+            if (followOutput) output.scrollTop = output.scrollHeight;
+          }
         }
         return;
       }
@@ -864,7 +874,10 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       backgroundSubmissionPending = Boolean(state.backgroundSubmissionPending);
       const followConversation = renderMessages(state.messages || []);
       renderTools(state.tools || []);
-      if (followConversation) conversationElement.scrollTop = conversationElement.scrollHeight;
+      if (followConversation) {
+        conversationElement.scrollTop = conversationElement.scrollHeight;
+        conversationPinnedToBottom = true;
+      }
       renderProposals(state.proposals || []);
       renderChanges(state.changes || []);
       renderBackground(state.backgroundTasks || []);
@@ -1013,6 +1026,12 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     thinkingLevel.addEventListener('change', () => { if (!updatingControls) vscode.postMessage({ type: 'setThinking', level: thinkingLevel.value }); });
     input.addEventListener('input', () => { composerRevision += 1; resizeInput(); updateSendState(); });
     window.addEventListener('resize', resizeInput);
+    conversationElement.addEventListener('scroll', () => {
+      conversationPinnedToBottom = conversationElement.scrollHeight - conversationElement.scrollTop - conversationElement.clientHeight <= 16;
+    });
+    conversationElement.addEventListener('wheel', event => {
+      if (event.deltaY < 0) conversationPinnedToBottom = false;
+    });
     input.addEventListener('paste', attachPastedImages);
     input.addEventListener('keydown', event => {
       if (event.isComposing) return;

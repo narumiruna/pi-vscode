@@ -506,6 +506,7 @@ test("streaming does not force the conversation to the bottom after the reader s
   conversation.scrollHeight = 400;
   conversation.clientHeight = 100;
   conversation.scrollTop = 40;
+  conversation.listeners.get("scroll")!();
   sidebar.receive({
     type: "state",
     status: "Pi is working…",
@@ -513,6 +514,22 @@ test("streaming does not force the conversation to the bottom after the reader s
     messages: [{ id: "assistant-1", role: "assistant", html: "<p>Streaming reply</p>" }],
   });
   assert.equal(conversation.scrollTop, 40);
+});
+
+test("streaming continues to follow after the reader returns to the bottom", () => {
+  const sidebar = createSidebarScriptHarness();
+  const conversation = sidebar.element("conversation");
+  conversation.scrollHeight = 400;
+  conversation.clientHeight = 100;
+  conversation.scrollTop = 300;
+  conversation.listeners.get("scroll")!();
+  sidebar.receive({
+    type: "state",
+    status: "Pi is working…",
+    runtime: { busy: true, cancellable: true, connected: true },
+    messages: [{ id: "assistant-1", role: "assistant", html: "<p>More output</p>" }],
+  });
+  assert.equal(conversation.scrollTop, 400);
 });
 
 test("streamed state patches stable conversation, tool, and attachment nodes in place", () => {
@@ -538,6 +555,16 @@ test("streamed state patches stable conversation, tool, and attachment nodes in 
   assert.equal(tool.children[1]?.textContent, "one\ntwo");
   assert.equal(sidebar.element("attachments").children[0], attachment);
   assert.equal(sidebar.element("add-context").disabled, false);
+
+  const output = tool.children[1]!;
+  output.scrollHeight = 400;
+  output.clientHeight = 100;
+  output.scrollTop = 40;
+  state("<p>First second third</p>", "one\ntwo\nthree");
+  assert.equal(output.scrollTop, 40, "streamed tool output preserves a reader's position");
+  output.scrollTop = 300;
+  state("<p>First second third</p>", "one\ntwo\nthree\nfour");
+  assert.equal(output.scrollTop, 400, "tool output follows updates when already at the bottom");
 });
 
 test("busy, settling, cancellation, failure, and reconnection states expose one status and every cancellable state exposes Stop", () => {
