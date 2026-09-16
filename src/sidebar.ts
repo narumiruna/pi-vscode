@@ -25,7 +25,7 @@ import { renderSafeMarkdown } from "./markdown";
 import { buildAgentPrompt, type AgentRequestPolicy, type ChatReferenceContext } from "./prompts";
 import { deleteConversationWithTrashFallback, runtimeSessionIdentityChanged, type PiRuntimeManager } from "./piRuntime";
 import type { PiRpcEvent, PiRpcImage } from "./piRpcClient";
-import { SidebarAttachmentManager } from "./sidebarAttachments";
+import { resolveSidebarSubmissionText, SidebarAttachmentManager } from "./sidebarAttachments";
 import { ImageAssetCache, ImageAssetDeliveryTracker } from "./imageAssets";
 import {
   convertPiMessages,
@@ -554,11 +554,9 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   }
 
   private async send(rawText: string, revision: number): Promise<void> {
-    const text = rawText.trim();
-    if (!text) {
-      return;
-    }
     const submission = this.attachments.captureSubmission();
+    const text = resolveSidebarSubmissionText(rawText, submission);
+    if (!text) return;
     if (submission.images.length > 0 && !modelSupportsImages(this.runtime.currentState.model)) {
       throw new Error("The current model does not support images. Change the model or remove image attachments before sending.");
     }
