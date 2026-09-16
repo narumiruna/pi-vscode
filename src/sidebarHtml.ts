@@ -320,6 +320,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let thinkingSelectable = false;
     let latestStatus = 'Connecting…';
     let conversationPinnedToBottom = true;
+    let programmaticConversationScrollTop;
     let renderedMessageStructure = '';
     let renderedMessageHtml = [];
     let renderedToolIds = '';
@@ -334,10 +335,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let sessionSwitchPending;
     let chatButtons = [];
 
-    function showNotice(message, level, detailsAvailable = false, transientLock = false) {
+    function showNotice(message, level, detailsAvailable = false, transientLock = false, attachmentWait = false) {
       notice.textContent = message;
       notice.className = level || '';
       notice.dataset.transientLock = transientLock ? 'true' : '';
+      notice.dataset.attachmentWait = attachmentWait ? 'true' : '';
       if (detailsAvailable) {
         const details = document.createElement('button');
         details.className = 'secondary';
@@ -353,6 +355,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       notice.textContent = '';
       notice.className = '';
       notice.dataset.transientLock = '';
+      notice.dataset.attachmentWait = '';
     }
 
     function updateRuntimeStatus() {
@@ -368,10 +371,15 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('status').title = displayed;
     }
 
+    function setConversationScrollTop(scrollTop) {
+      conversationElement.scrollTop = scrollTop;
+      programmaticConversationScrollTop = conversationElement.scrollTop;
+    }
+
     function scrollConversationToBottom() {
       conversationPinnedToBottom = true;
       const scroll = () => {
-        if (conversationPinnedToBottom) conversationElement.scrollTop = conversationElement.scrollHeight;
+        if (conversationPinnedToBottom) setConversationScrollTop(conversationElement.scrollHeight);
       };
       scroll();
       if (typeof requestAnimationFrame === 'function') requestAnimationFrame(scroll);
@@ -382,7 +390,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       if ((!text && !attachedItems) || !connected || submissionPending || backgroundSubmissionPending) return;
       if (busy) {
         if (!text) {
-          showNotice('The image is attached for the next message. Wait for Pi to finish before sending it.', 'info');
+          showNotice('The attached context is ready for the next message. Wait for Pi to finish before sending it.', 'info', false, true, true);
           return;
         }
         if (!queueable) {
@@ -510,7 +518,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       renderedMessageStructure = structure;
       renderedMessageHtml = html;
       if (visibleMessages.length === 0) {
-        conversationElement.scrollTop = 0;
+        setConversationScrollTop(0);
         conversationPinnedToBottom = true;
       }
       return visibleMessages.length > 0 && followConversation;
@@ -534,9 +542,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         if (attachment.width && attachment.height) { image.width = attachment.width; image.height = attachment.height; }
         image.addEventListener('load', () => {
           const heightDelta = conversationElement.scrollHeight - beforeHeight;
-          conversationElement.scrollTop = wasNearBottom
+          setConversationScrollTop(wasNearBottom
             ? conversationElement.scrollHeight
-            : wasBelowViewport ? beforeTop : beforeTop + Math.max(0, heightDelta);
+            : wasBelowViewport ? beforeTop : beforeTop + Math.max(0, heightDelta));
         });
         image.addEventListener('error', () => rejectImageAsset(attachment.assetId));
         image.src = cached.url;
@@ -973,7 +981,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const imageBlocked = !busy && attachedImages && !imageSupported;
       const imageLoading = pendingImageReads > 0;
       const interactionLocked = isInteractionLocked();
-      if (!interactionLocked && notice.dataset.transientLock === 'true') clearNotice();
+      const attachmentWaitEnded = notice.dataset.attachmentWait === 'true' && !attachedItems;
+      if ((!interactionLocked || attachmentWaitEnded) && notice.dataset.transientLock === 'true') clearNotice();
       $('model-picker').disabled = interactionLocked || !connected;
       thinkingLevel.disabled = interactionLocked || !connected || !thinkingSelectable;
       $('new-session').disabled = interactionLocked;
@@ -1187,14 +1196,16 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     thinkingLevel.addEventListener('change', () => { if (!updatingControls) vscode.postMessage({ type: 'setThinking', level: thinkingLevel.value }); });
     input.addEventListener('input', () => { composerRevision += 1; resizeInput(); updateSendState(); });
     window.addEventListener('resize', resizeInput);
-    conversationElement.addEventListener('scroll', () => {
-      if (conversationElement.scrollHeight - conversationElement.scrollTop - conversationElement.clientHeight <= 16) conversationPinnedToBottom = true;
+    conversationElement.addEventListener('scroll', event => {
+      const atBottom = conversationElement.scrollHeight - conversationElement.scrollTop - conversationElement.clientHeight <= 16;
+      if (atBottom) conversationPinnedToBottom = true;
+      else if (conversationElement.scrollTop === programmaticConversationScrollTop) return;
+      else if (event.isTrusted) conversationPinnedToBottom = false;
+      programmaticConversationScrollTop = undefined;
     });
     conversationElement.addEventListener('wheel', event => {
       if (event.deltaY < 0) conversationPinnedToBottom = false;
     });
-    conversationElement.addEventListener('pointerdown', () => { conversationPinnedToBottom = false; });
-    conversationElement.addEventListener('touchstart', () => { conversationPinnedToBottom = false; });
     input.addEventListener('paste', attachPastedImages);
     input.addEventListener('keydown', event => {
       if (event.isComposing) return;

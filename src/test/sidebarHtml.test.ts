@@ -491,6 +491,43 @@ test("an attached image can be sent without additional text", () => {
   assert.equal(sidebar.posted.at(-1)?.revision, 0);
 });
 
+test("attachment-only busy notice applies to text context and clears when Pi settles", () => {
+  const sidebar = createSidebarScriptHarness();
+  const attachment = { id: "draft-context", image: false, type: "selection", label: "Selection from example.ts" };
+  sidebar.receive({ type: "state", status: "Pi is working…", runtime: { busy: true, cancellable: true, connected: true, queueable: true }, attachments: [attachment] });
+  const postedBeforeSubmit = sidebar.posted.length;
+
+  sidebar.run("submit()");
+  assert.match(sidebar.element("notice").textContent, /attached context is ready/i);
+  assert.doesNotMatch(sidebar.element("notice").textContent, /image/i);
+  assert.equal(sidebar.element("notice").dataset.transientLock, "true");
+  assert.equal(sidebar.element("notice").dataset.attachmentWait, "true");
+  assert.equal(sidebar.posted.length, postedBeforeSubmit);
+
+  sidebar.receive({ type: "state", status: "Pi is working…", runtime: { busy: true, cancellable: true, connected: true, queueable: true }, attachments: [] });
+  assert.equal(sidebar.element("notice").textContent, "");
+
+  sidebar.receive({ type: "state", status: "Pi is working…", runtime: { busy: true, cancellable: true, connected: true, queueable: true }, attachments: [attachment] });
+  sidebar.run("submit()");
+  sidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, cancellable: false, connected: true }, attachments: [attachment] });
+  assert.equal(sidebar.element("notice").textContent, "");
+});
+
+test("an attachment removal race can release a pending submission", () => {
+  const sidebar = createSidebarScriptHarness();
+  const attachment = { id: "draft-context", image: false, type: "selection", label: "Selection from example.ts" };
+  sidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, cancellable: false, connected: true }, attachments: [attachment] });
+
+  sidebar.element("send").listeners.get("click")!();
+  assert.equal(sidebar.run("submissionPending"), true);
+  assert.equal(sidebar.element("status").textContent, "Sending to Pi…");
+
+  sidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, cancellable: false, connected: true }, attachments: [] });
+  sidebar.receive({ type: "sendRejected" });
+  assert.equal(sidebar.run("submissionPending"), false);
+  assert.equal(sidebar.element("status").textContent, "Ready");
+});
+
 test("thumbnail and preview decode failures become unavailable without retrying corrupt payloads", () => {
   const bytes = Buffer.alloc(11);
   bytes.write("GIF89a", 0, "ascii"); bytes.writeUInt16LE(3, 6); bytes.writeUInt16LE(2, 8);
@@ -594,14 +631,33 @@ test("tool activity stays open after tool completion and collapses when the requ
   assert.equal(sidebar.element("messages").children[0]?.children[1]?.innerHTML, "<p>Final conclusion</p>");
 });
 
-test("streaming does not force the conversation to the bottom after the reader scrolls up", () => {
+test("programmatic off-bottom scrolls do not disable streaming follow", () => {
   const sidebar = createSidebarScriptHarness();
   const conversation = sidebar.element("conversation");
   conversation.scrollHeight = 400;
   conversation.clientHeight = 100;
+  sidebar.run("setConversationScrollTop(40)");
+  conversation.listeners.get("scroll")!({ isTrusted: true });
+
+  assert.equal(sidebar.run("conversationPinnedToBottom"), true);
+  sidebar.receive({
+    type: "state",
+    status: "Pi is working…",
+    runtime: { busy: true, cancellable: true, connected: true },
+    messages: [{ id: "assistant-1", role: "assistant", html: "<p>Streaming reply</p>" }],
+  });
+  assert.equal(conversation.scrollTop, 400);
+});
+
+test("streaming does not force the conversation to the bottom after the reader scrolls up", () => {
+  const sidebar = createSidebarScriptHarness();
+  const conversation = sidebar.element("conversation");
+  assert.equal(conversation.listeners.has("pointerdown"), false, "ordinary clicks must not disable bottom-following");
+  assert.equal(conversation.listeners.has("touchstart"), false, "ordinary taps must not disable bottom-following");
+  conversation.scrollHeight = 400;
+  conversation.clientHeight = 100;
   conversation.scrollTop = 40;
-  conversation.listeners.get("wheel")!({ deltaY: -1 });
-  conversation.listeners.get("scroll")!();
+  conversation.listeners.get("scroll")!({ isTrusted: true });
   sidebar.receive({
     type: "state",
     status: "Pi is working…",
@@ -814,6 +870,8 @@ test("composer keyboard submission matches Pi queue behavior on Alt+Enter platfo
   assert.equal(sidebar.posted.length, count);
   assert.equal(input.value, "preserved");
   assert.match(sidebar.element("notice").textContent, /does not accept queued messages/);
+  sidebar.receive({ type: "state", status: "Pi is working…", runtime: { busy: true, cancellable: true, connected: true, queueable: false }, attachments: [] });
+  assert.match(sidebar.element("notice").textContent, /does not accept queued messages/, "stream updates keep text-only queue feedback while busy");
 });
 
 test("composer uses Ctrl+Q for Windows-client follow-ups", () => {
