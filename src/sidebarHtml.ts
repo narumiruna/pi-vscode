@@ -180,6 +180,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     textarea:focus-visible { outline: none; }
     textarea::placeholder { color: var(--vscode-input-placeholderForeground); }
     #attachment-estimate, #queue-status { padding: 0 12px; }
+    #pending-queue { display: grid; gap: 4px; padding: 5px 10px 1px; }
+    #pending-queue[hidden] { display: none; }
+    .pending-queue-item { display: flex; min-width: 0; gap: 5px; padding: 4px 7px; border-radius: 5px; color: var(--vscode-descriptionForeground); background: var(--vscode-editorWidget-background, var(--vscode-input-background)); font-size: .8em; line-height: 1.3; }
+    .pending-queue-kind { flex: 0 0 auto; font-weight: 600; }
+    .pending-queue-text { min-width: 0; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
     #inspect-context { margin: 3px 10px 0; }
     .composer-box > .proposal-actions { padding: 0 10px; }
     .composer-actions { display: flex; flex-wrap: nowrap; min-width: 0; gap: 6px; padding: 3px 8px 8px; align-items: center; }
@@ -249,6 +254,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         <div id="attachments" aria-label="Context attached to the next message" hidden></div>
         <button id="inspect-context" class="secondary" type="button" hidden>Inspect Context</button>
         <div id="attachment-estimate" class="proposal-meta"></div>
+        <div id="pending-queue" role="list" aria-label="Pending Pi messages" hidden></div>
         <label for="input" class="sr-only">Message Pi</label>
         <textarea id="input" rows="1" maxlength="${maxInputCharacters}" placeholder="Ask, plan, or build something…" aria-describedby="composer-hint"></textarea>
         <div id="queue-status" class="proposal-meta" role="status"></div>
@@ -1009,6 +1015,36 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       vscode.postMessage({ type: 'switchRecentSession', id });
     }
 
+    function renderPendingQueue(runtime) {
+      const pending = runtime.pendingQueue || { steering: [], followUp: [] };
+      const steering = Array.isArray(pending.steering) ? pending.steering : [];
+      const followUp = Array.isArray(pending.followUp) ? pending.followUp : [];
+      const rows = [];
+      for (const [kind, label, items] of [['steering', 'Steering:', steering], ['followUp', 'Follow-up:', followUp]]) {
+        for (const item of items) {
+          if (!item || typeof item.text !== 'string') continue;
+          const row = document.createElement('div');
+          row.className = 'pending-queue-item';
+          row.dataset.kind = kind;
+          row.setAttribute('role', 'listitem');
+          row.title = item.text;
+          const kindLabel = document.createElement('span');
+          kindLabel.className = 'pending-queue-kind';
+          kindLabel.textContent = label;
+          const text = document.createElement('span');
+          text.className = 'pending-queue-text';
+          text.textContent = item.text + (item.hasAttachments ? ' · attachments included' : '');
+          row.append(kindLabel, text);
+          rows.push(row);
+        }
+      }
+      $('pending-queue').replaceChildren(...rows);
+      $('pending-queue').hidden = rows.length === 0;
+      $('queue-status').textContent = queueable || rows.length
+        ? steering.length + ' steering · ' + followUp.length + ' follow-ups pending · steering waits for tool calls'
+        : '';
+    }
+
     function updateSendState() {
       const imageBlocked = attachedImages && !imageSupported;
       const imageLoading = pendingImageReads > 0;
@@ -1061,8 +1097,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       busy = Boolean(state.runtime.busy);
       cancellable = Boolean(state.runtime.cancellable);
       queueable = Boolean(state.runtime.queueable) && busy;
-      const queue = state.runtime.queue || { steering: [], followUp: [] };
-      $('queue-status').textContent = queueable ? queue.steering.length + ' steering · ' + queue.followUp.length + ' follow-ups pending · attachments included · steering waits for tool calls' : '';
+      renderPendingQueue(state.runtime);
       $('recover-queue').hidden = !(state.runtime.recoveredDrafts || []).length;
       connected = Boolean(state.runtime.connected);
       deletableSession = Boolean(state.runtime.sessionFile);

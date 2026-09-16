@@ -16,6 +16,7 @@ import {
 
 const sessionPathKey = "picode.rpc.sessionPath.v1";
 const maxQueueRecoveryBytes = 30 * 1024 * 1024;
+const maxPendingQueueDisplayCharacters = 1_000;
 
 export class SessionTrashUnavailableError extends Error {
   public constructor(public readonly sessionFile: string, options?: ErrorOptions) {
@@ -59,6 +60,23 @@ export async function deleteConversationWithTrashFallback(actions: {
   }
 }
 
+export interface PendingQueueInstruction {
+  readonly id: string;
+  readonly kind: "steering" | "followUp";
+  readonly text: string;
+  readonly hasAttachments: boolean;
+}
+
+export interface PiRuntimePendingQueue {
+  readonly steering: readonly PendingQueueInstruction[];
+  readonly followUp: readonly PendingQueueInstruction[];
+}
+
+export interface QueueInstructionDeliveredEvent extends PiRpcEvent {
+  readonly type: "queue_instruction_delivered";
+  readonly instruction: PendingQueueInstruction;
+}
+
 export interface PiRuntimeState {
   readonly connected: boolean;
   readonly busy: boolean;
@@ -72,11 +90,13 @@ export interface PiRuntimeState {
   readonly commands: readonly Record<string, unknown>[];
   readonly stats?: Record<string, unknown>;
   readonly queue?: PiRpcQueue;
+  readonly pendingQueue?: PiRuntimePendingQueue;
   readonly queueable?: boolean;
   readonly recoveredDrafts?: readonly { id: string; text: string; uncertain: boolean; hasAttachments?: boolean }[];
 }
 
 export interface QueueInstructionOptions {
+  readonly instructionId?: string;
   readonly images?: readonly PiRpcImage[];
   readonly resource?: vscode.Uri;
   readonly recoveryText?: string;
@@ -122,8 +142,9 @@ export class PiRuntimeManager implements vscode.Disposable {
   private promptActive = false;
   private queueRevision = 0;
   private readonly trackedQueue: Record<RuntimeQueueKind, TrackedQueueInstruction[]> = { steering: [], followUp: [] };
+  private readonly awaitingQueueStarts: TrackedQueueInstruction[] = [];
   private readonly recoveredAttachmentHandles = new Map<string, { readonly restore: () => void; readonly bytes: number }>();
-  private pendingInstruction: { record: TrackedQueueInstruction; minimumOccurrences: number; observed: boolean } | undefined;
+  private pendingInstruction: { record: TrackedQueueInstruction; minimumOccurrences: number; observed: boolean; delivered: boolean } | undefined;
 
   public readonly onEvent = this.eventEmitter.event;
   public readonly onDidChangeState = this.stateEmitter.event;
@@ -213,7 +234,8 @@ export class PiRuntimeManager implements vscode.Disposable {
     this.promptActive = true;
     this.trackedQueue.steering.splice(0);
     this.trackedQueue.followUp.splice(0);
-    this.updateState({ busy: true, queueable: allowQueue, queue: { steering: [], followUp: [] } });
+    this.awaitingQueueStarts.splice(0);
+    this.updateState({ busy: true, queueable: allowQueue, queue: { steering: [], followUp: [] }, pendingQueue: emptyPendingQueue() });
     try {
       await client.prompt(message, images);
       onAccepted?.();
@@ -244,13 +266,16 @@ export class PiRuntimeManager implements vscode.Disposable {
       });
       this.seedTrackedQueue(queue);
       const recoveryBytes = options.recoveryBytes ?? 0;
-      const trackedRecoveryBytes = [...this.trackedQueue.steering, ...this.trackedQueue.followUp].reduce((total, record) => total + record.recoveryBytes, 0);
+      const pendingRecoveryBytes = [...this.trackedQueue.steering, ...this.trackedQueue.followUp, ...this.awaitingQueueStarts]
+        .reduce((total, record) => total + record.recoveryBytes, 0);
       const recoveredBytes = [...this.recoveredAttachmentHandles.values()].reduce((total, handle) => total + handle.bytes, 0);
-      if (!Number.isSafeInteger(recoveryBytes) || recoveryBytes < 0 || recoveredBytes + trackedRecoveryBytes + recoveryBytes > maxQueueRecoveryBytes) {
+      if (!Number.isSafeInteger(recoveryBytes) || recoveryBytes < 0 || recoveredBytes + pendingRecoveryBytes + recoveryBytes > maxQueueRecoveryBytes) {
         throw new Error("Queued attachment snapshots exceed the 30 MiB in-memory recovery limit.");
       }
+      const id = options.instructionId ?? randomUUID();
+      if (!id || id.length > 200 || this.hasQueueInstruction(id)) throw new Error("Queued instruction identity is invalid or already active.");
       const record: TrackedQueueInstruction = {
-        id: randomUUID(),
+        id,
         kind: queueKind,
         message: text,
         recoveryText: options.recoveryText ?? text,
@@ -261,14 +286,19 @@ export class PiRuntimeManager implements vscode.Disposable {
       this.trackedQueue[queueKind].push(record);
       const client = this.requireClient();
       const revision = this.queueRevision;
-      this.pendingInstruction = { record, minimumOccurrences: queue[queueKind].filter(item => item === text).length, observed: false };
+      this.pendingInstruction = { record, minimumOccurrences: queue[queueKind].filter(item => item === text).length, observed: false, delivered: false };
       try {
         await client[kind](text, options.images);
-        if (!this.state.busy || !this.state.queueable || this.queueRevision === revision || !this.pendingInstruction.observed) throw new Error("Pi settled during acceptance or did not report the queued instruction; delivery is uncertain.");
+        if (!this.state.busy || !this.state.queueable || this.queueRevision === revision || (!this.pendingInstruction.observed && !this.pendingInstruction.delivered)) throw new Error("Pi settled during acceptance or did not report the queued instruction; delivery is uncertain.");
       }
       catch (error) {
+        const delivered = this.pendingInstruction?.record.id === record.id && this.pendingInstruction.delivered;
         // process_exit owns recovery, including an unacknowledged submission.
         await client.stop();
+        if (delivered) {
+          this.eventEmitter.fire({ type: "runtime_warning", message: `Pi delivered the queued instruction but its acknowledgement failed. Pi disconnected without replay. ${formatError(error)}` });
+          return;
+        }
         throw new Error(`Queue acceptance is uncertain or unsupported. Pi disconnected; do not blindly resend. ${formatError(error)}`);
       }
     } finally { this.pendingInstruction = undefined; release(); }
@@ -282,8 +312,9 @@ export class PiRuntimeManager implements vscode.Disposable {
       const client = this.requireClient();
       try {
         const cleared = await client.clearQueue();
+        if (this.awaitingQueueStarts.length) throw new Error("A queued instruction left the pending queue without a delivery event.");
         this.recoverQueue(this.takeClearedInstructions(cleared), false);
-        this.updateState({ queue: { steering: [], followUp: [] } });
+        this.updateState({ queue: { steering: [], followUp: [] }, pendingQueue: emptyPendingQueue() });
       }
       catch (error) { await client.stop(); throw new Error(`Queue clearing unsupported/uncertain; disconnected without replay. ${formatError(error)}`); }
     } finally { release(); this.queueStopping = false; }
@@ -332,8 +363,9 @@ export class PiRuntimeManager implements vscode.Disposable {
     const release = this.queueGate.acquire();
     try {
       const cleared = await client.clearQueue();
+      if (this.awaitingQueueStarts.length) throw new Error("A queued instruction left the pending queue without a delivery event.");
       this.recoverQueue(this.takeClearedInstructions(cleared), false);
-      this.updateState({ queue: { steering: [], followUp: [] } });
+      this.updateState({ queue: { steering: [], followUp: [] }, pendingQueue: emptyPendingQueue() });
       await client.abort();
     } catch (error) {
       await client.stop();
@@ -347,7 +379,8 @@ export class PiRuntimeManager implements vscode.Disposable {
     if (this.state.busy) throw new Error("Stop or wait for Pi before starting a session.");
     const result = await this.requireClient().newSession();
     if (isRecord(result) && result.cancelled) throw new Error("Pi cancelled the session switch.");
-    this.updateState({ queue: { steering: [], followUp: [] }, queueable: false });
+    this.resetQueueTracking();
+    this.updateState({ queue: { steering: [], followUp: [] }, pendingQueue: emptyPendingQueue(), queueable: false });
     await this.refreshState(true);
     });
   }
@@ -404,6 +437,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       warnings.push(`Session storage cleanup failed: ${formatError(error)}`);
     }
     this.recoveredAttachmentHandles.clear();
+    this.resetQueueTracking();
     this.state = emptyState();
     this.stateEmitter.fire(this.state);
     try {
@@ -427,7 +461,8 @@ export class PiRuntimeManager implements vscode.Disposable {
     await assertSessionWorkspace(sessionPath, this.currentCwd);
     const result = await this.requireClient().switchSession(sessionPath);
     if (isRecord(result) && result.cancelled) throw new Error("Pi cancelled the session switch.");
-    this.updateState({ queue: { steering: [], followUp: [] }, queueable: false });
+    this.resetQueueTracking();
+    this.updateState({ queue: { steering: [], followUp: [] }, pendingQueue: emptyPendingQueue(), queueable: false });
     await this.refreshState(true);
     });
   }
@@ -598,6 +633,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       commands: commands.filter(isRecord),
       stats,
       queue: this.state.queue,
+      pendingQueue: this.state.pendingQueue,
       queueable: this.state.queueable,
       recoveredDrafts: this.state.recoveredDrafts,
     };
@@ -612,8 +648,9 @@ export class PiRuntimeManager implements vscode.Disposable {
     }
   }
 
-  private reconcileTrackedQueue(queue: PiRpcQueue): void {
+  private reconcileTrackedQueue(queue: PiRpcQueue): TrackedQueueInstruction[] {
     const reconciled: Record<RuntimeQueueKind, TrackedQueueInstruction[]> = { steering: [], followUp: [] };
+    const delivered: Record<RuntimeQueueKind, TrackedQueueInstruction[]> = { steering: [], followUp: [] };
     for (const kind of ["steering", "followUp"] as const) {
       const records = [...this.trackedQueue[kind]];
       const remote = queue[kind];
@@ -625,12 +662,12 @@ export class PiRuntimeManager implements vscode.Disposable {
         records.push(...remote.map(text => this.textOnlyQueueRecord(kind, text)));
       } else {
         const texts = records.map(record => record.message);
-        let delivered = -1;
+        let deliveredCount = -1;
         for (let offset = 0; offset <= texts.length; offset += 1) {
-          if (arraysEqual(texts.slice(offset), remote)) { delivered = offset; break; }
+          if (arraysEqual(texts.slice(offset), remote)) { deliveredCount = offset; break; }
         }
-        if (delivered >= 0) {
-          records.splice(0, delivered);
+        if (deliveredCount >= 0) {
+          delivered[kind].push(...records.splice(0, deliveredCount));
         } else if (arraysEqual(remote.slice(0, texts.length), texts)) {
           records.push(...remote.slice(texts.length).map(text => this.textOnlyQueueRecord(kind, text)));
         } else {
@@ -642,6 +679,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     }
     this.trackedQueue.steering.splice(0, this.trackedQueue.steering.length, ...reconciled.steering);
     this.trackedQueue.followUp.splice(0, this.trackedQueue.followUp.length, ...reconciled.followUp);
+    return [...delivered.steering, ...delivered.followUp];
   }
 
   private takeClearedInstructions(cleared: PiRpcQueue): TrackedQueueInstruction[] {
@@ -664,6 +702,44 @@ export class PiRuntimeManager implements vscode.Disposable {
     return { id: randomUUID(), kind, message: text, recoveryText: text, hasAttachments: false, recoveryBytes: 0 };
   }
 
+  private resetQueueTracking(): void {
+    this.trackedQueue.steering.splice(0);
+    this.trackedQueue.followUp.splice(0);
+    this.awaitingQueueStarts.splice(0);
+    this.pendingInstruction = undefined;
+  }
+
+  private hasQueueInstruction(id: string): boolean {
+    return [...this.trackedQueue.steering, ...this.trackedQueue.followUp, ...this.awaitingQueueStarts]
+      .some(record => record.id === id);
+  }
+
+  private pendingQueueState(): PiRuntimePendingQueue {
+    const awaiting = (kind: RuntimeQueueKind) => this.awaitingQueueStarts
+      .filter(record => record.kind === kind)
+      .map(record => publicQueueInstruction(record));
+    return {
+      steering: [...awaiting("steering"), ...this.trackedQueue.steering.map(record => publicQueueInstruction(record))],
+      followUp: [...awaiting("followUp"), ...this.trackedQueue.followUp.map(record => publicQueueInstruction(record))],
+    };
+  }
+
+  private confirmQueueStart(event: PiRpcEvent): void {
+    const text = userMessageText(event);
+    if (text === undefined) return;
+    const index = this.awaitingQueueStarts.findIndex(record => record.message === text);
+    if (index < 0) return;
+    const [record] = this.awaitingQueueStarts.splice(index, 1);
+    if (!record) return;
+    if (this.pendingInstruction?.record.id === record.id) this.pendingInstruction.delivered = true;
+    const delivered: QueueInstructionDeliveredEvent = {
+      type: "queue_instruction_delivered",
+      instruction: publicQueueInstruction(record),
+    };
+    this.eventEmitter.fire(delivered);
+    this.updateState({ pendingQueue: this.pendingQueueState() });
+  }
+
   private handleEvent(event: PiRpcEvent): void {
     this.eventEmitter.fire(event);
     if (event.type === "queue_update") {
@@ -676,25 +752,37 @@ export class PiRuntimeManager implements vscode.Disposable {
       }
       this.queueRevision++;
       if (!this.queueStopping) {
-        try { this.reconcileTrackedQueue(queue); }
+        try {
+          const awaitingStarts = this.reconcileTrackedQueue(queue);
+          for (const record of awaitingStarts) {
+            if (!this.awaitingQueueStarts.some(candidate => candidate.id === record.id)) this.awaitingQueueStarts.push(record);
+          }
+        }
         catch (error) {
           this.eventEmitter.fire({ type: "runtime_warning", message: `${formatError(error)} Pi disconnected without replay.` });
           void this.client?.stop();
           return;
         }
       }
-      this.updateState({ queue });
+      this.updateState({ queue, pendingQueue: this.pendingQueueState() });
       if (this.queueStopping && (queue.steering.length || queue.followUp.length)) {
         void this.client?.stop();
         this.eventEmitter.fire({ type: "runtime_warning", message: "Queue changed during cancellation; disconnected to prevent hidden continuation." });
       }
+    } else if (event.type === "message_start") {
+      this.confirmQueueStart(event);
     } else if (event.type === "agent_start") {
       this.updateState({ busy: true });
     } else if (event.type === "agent_settled") {
       this.promptActive = false;
       this.trackedQueue.steering.splice(0);
       this.trackedQueue.followUp.splice(0);
-      this.updateState({ busy: false, queueable: false, queue: { steering: [], followUp: [] } });
+      if (this.awaitingQueueStarts.length) {
+        const uncertain = this.awaitingQueueStarts.splice(0);
+        this.recoverQueue(uncertain, true);
+        this.eventEmitter.fire({ type: "runtime_warning", message: "Pi settled after removing queued instructions without matching user-message delivery events. Review recovered drafts before resending." });
+      }
+      this.updateState({ busy: false, queueable: false, queue: { steering: [], followUp: [] }, pendingQueue: emptyPendingQueue() });
       void this.refreshState(false).catch(error => {
         this.eventEmitter.fire({ type: "runtime_warning", message: formatError(error) });
       });
@@ -704,7 +792,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       this.clientSubscription = undefined;
       this.client = undefined;
       const queue = this.state.queue ?? { steering: [], followUp: [] };
-      const records: TrackedQueueInstruction[] = [];
+      const records: TrackedQueueInstruction[] = [...this.awaitingQueueStarts];
       const pending = this.pendingInstruction;
       for (const kind of ["steering", "followUp"] as const) {
         const tracked = this.trackedQueue[kind];
@@ -729,12 +817,13 @@ export class PiRuntimeManager implements vscode.Disposable {
           if (record.id !== pending?.record.id && !records.some(candidate => candidate.id === record.id)) records.push(record);
         }
       }
-      if (pending && (!pending.observed || !queue[pending.record.kind].includes(pending.record.message)) && !records.some(record => record.id === pending.record.id)) records.push(pending.record);
+      if (pending && !pending.delivered && (!pending.observed || !queue[pending.record.kind].includes(pending.record.message)) && !records.some(record => record.id === pending.record.id)) records.push(pending.record);
       this.trackedQueue.steering.splice(0);
       this.trackedQueue.followUp.splice(0);
+      this.awaitingQueueStarts.splice(0);
       this.recoverQueue(records, true);
       this.pendingInstruction = undefined;
-      this.updateState({ connected: false, busy: false, queueable: false, queue: { steering: [], followUp: [] } });
+      this.updateState({ connected: false, busy: false, queueable: false, queue: { steering: [], followUp: [] }, pendingQueue: emptyPendingQueue() });
     }
   }
 
@@ -803,8 +892,36 @@ export class PiRuntimeManager implements vscode.Disposable {
     if (client) {
       await client.stop();
     }
-    this.updateState({ connected: false, busy: false });
+    this.resetQueueTracking();
+    this.updateState({ connected: false, busy: false, queueable: false, queue: { steering: [], followUp: [] }, pendingQueue: emptyPendingQueue() });
   }
+}
+
+function publicQueueInstruction(record: TrackedQueueInstruction): PendingQueueInstruction {
+  const text = record.recoveryText.length > maxPendingQueueDisplayCharacters
+    ? `${record.recoveryText.slice(0, maxPendingQueueDisplayCharacters - 1)}…`
+    : record.recoveryText;
+  return {
+    id: record.id,
+    kind: record.kind,
+    text,
+    hasAttachments: record.hasAttachments,
+  };
+}
+
+function emptyPendingQueue(): PiRuntimePendingQueue {
+  return { steering: [], followUp: [] };
+}
+
+function userMessageText(event: PiRpcEvent): string | undefined {
+  if (event.type !== "message_start" || !isRecord(event.message) || event.message.role !== "user") return undefined;
+  const content = event.message.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return undefined;
+  return content
+    .filter(part => isRecord(part) && part.type === "text" && typeof part.text === "string")
+    .map(part => String(part.text))
+    .join("");
 }
 
 function emptyState(): PiRuntimeState {
@@ -814,6 +931,7 @@ function emptyState(): PiRuntimeState {
     availableModels: [],
     availableThinkingLevels: [],
     commands: [],
+    pendingQueue: emptyPendingQueue(),
   };
 }
 

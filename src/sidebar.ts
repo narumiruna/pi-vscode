@@ -75,6 +75,11 @@ interface ToolActivity {
   readonly output?: string;
 }
 
+interface QueuedTranscriptPresentation {
+  readonly id: string;
+  readonly message: SidebarMessage;
+}
+
 export function registerPiCodeSidebar(
   context: vscode.ExtensionContext,
   runtime: PiRuntimeManager,
@@ -124,6 +129,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     readonly transcriptAttachments: readonly TranscriptAttachment[];
   } | undefined;
   private streamingAssistantId: string | undefined;
+  private readonly queuedTranscriptPresentations = new Map<string, QueuedTranscriptPresentation>();
   private renderTimer: NodeJS.Timeout | undefined;
   private foregroundCancellable = false;
   private noticeDetails: string | undefined;
@@ -192,6 +198,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       disposable.dispose();
     }
     this.proposals.clear();
+    this.queuedTranscriptPresentations.clear();
     this.attachments.dispose();
     this.imageAssets.clear();
   }
@@ -272,6 +279,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
           break;
         case "clearQueue":
           await this.runtime.clearInstructions();
+          this.queuedTranscriptPresentations.clear();
           break;
         case "inspectQueue": {
           const documents = new WorkflowDocuments();
@@ -308,6 +316,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
         case "cancel":
           this.requestLifecycle.cancel();
           await this.runtime.abort();
+          this.queuedTranscriptPresentations.clear();
           this.status = "Cancelled · Ready to retry";
           this.postState();
           break;
@@ -605,14 +614,30 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     if (submission.images.length > 0 && !modelSupportsImages(this.runtime.currentState.model)) {
       throw new Error("The current model does not support images. Change the model or remove image attachments before sending.");
     }
-    await this.runtime.queueInstruction(kind, resolved.message, {
-      images: submission.images,
-      resource: submission.resource,
-      recoveryText: resolved.text,
-      restoreAttachments: submission.transcriptAttachments.length ? submission.restoreConsumed : undefined,
-      hasAttachments: submission.transcriptAttachments.length > 0,
-      recoveryBytes: submission.recoveryBytes,
+    const instructionId = randomUUID();
+    this.queuedTranscriptPresentations.set(instructionId, {
+      id: instructionId,
+      message: {
+        id: `picode-queued-${instructionId}`,
+        role: "user",
+        content: resolved.text,
+        ...(submission.transcriptAttachments.length ? { attachments: [...submission.transcriptAttachments] } : {}),
+      },
     });
+    try {
+      await this.runtime.queueInstruction(kind, resolved.message, {
+        instructionId,
+        images: submission.images,
+        resource: submission.resource,
+        recoveryText: resolved.text,
+        restoreAttachments: submission.transcriptAttachments.length ? submission.restoreConsumed : undefined,
+        hasAttachments: submission.transcriptAttachments.length > 0,
+        recoveryBytes: submission.recoveryBytes,
+      });
+    } catch (error) {
+      this.queuedTranscriptPresentations.delete(instructionId);
+      throw error;
+    }
     submission.consumeAccepted();
     this.postMessage({ type: "clearInput", expectedText: rawText, expectedRevision: revision });
   }
@@ -887,6 +912,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     }
     const sessionFile = await this.backgroundAgents.openSession(id);
     await this.runtime.switchSession(sessionFile);
+    this.queuedTranscriptPresentations.clear();
     this.attachments.clear();
     this.proposals.clear();
     this.retryRequest = undefined;
@@ -967,6 +993,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   }
 
   private async resetConversation(status: string, preserveAttachments = false): Promise<void> {
+    this.queuedTranscriptPresentations.clear();
     this.messages = [];
     this.tools = [];
     this.changes = [];
@@ -1041,6 +1068,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
 
   private async switchToSession(sessionFile: string, status: string): Promise<void> {
     await this.runtime.switchSession(sessionFile);
+    this.queuedTranscriptPresentations.clear();
     this.attachments.clear();
     this.proposals.clear();
     this.retryRequest = undefined;
@@ -1119,7 +1147,20 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   }
 
   private handleRuntimeEvent(event: PiRpcEvent): void {
-    if (event.type === "agent_start") {
+    if (event.type === "queue_instruction_delivered") {
+      const instruction = isRecord(event.instruction) ? event.instruction : undefined;
+      const id = instruction ? stringValue(instruction.id) : undefined;
+      const text = instruction ? stringValue(instruction.text) : undefined;
+      if (id && text !== undefined) {
+        const presentation = this.queuedTranscriptPresentations.get(id);
+        const message = presentation?.message ?? { id: `picode-queued-${id}`, role: "user" as const, content: text };
+        this.queuedTranscriptPresentations.delete(id);
+        if (!this.messages.some(candidate => candidate.id === message.id)) {
+          this.messages = limitSidebarMessages([...this.messages, message], maxMessages, maxStoredCharacters);
+          void this.persistMessages();
+        }
+      }
+    } else if (event.type === "agent_start") {
       this.status = "Pi is working…";
       this.tools = [];
     } else if (event.type === "message_start") {
@@ -1169,11 +1210,13 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     } else if (event.type === "agent_settled") {
       this.status = this.requestLifecycle.wasCancelled ? "Cancelling Pi request…" : "Finishing Pi response…";
       this.streamingAssistantId = undefined;
+      this.queuedTranscriptPresentations.clear();
       if (this.trackCurrentRequestChanges) {
         this.changes = this.changeTracker.finishRequest(this.requestLifecycle.wasCancelled ? "cancelled" : "completed");
         this.trackCurrentRequestChanges = false;
       }
     } else if (event.type === "process_exit") {
+      this.queuedTranscriptPresentations.clear();
       if (this.trackCurrentRequestChanges) {
         this.changes = this.changeTracker.finishRequest("process-exit");
         this.trackCurrentRequestChanges = false;
