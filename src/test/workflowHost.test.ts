@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
+import { imageAssetId } from "../imageAssets";
 import { buildAgentPrompt } from "../prompts";
 import { assertSessionWorkspace } from "../sessionIdentity";
 import { installVscodeMock, MockUri } from "./vscodeMock";
@@ -44,6 +45,10 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
   };
   const runtime = new PiRuntimeManager(context);
   const internal = runtime as any;
+  const deliveredInstructions: Array<Record<string, unknown>> = [];
+  runtime.onEvent(event => {
+    if (event.type === "queue_instruction_delivered" && event.instruction && typeof event.instruction === "object") deliveredInstructions.push(event.instruction as Record<string, unknown>);
+  });
   const foregroundOptions = internal.buildClientOptions(undefined, { PICODE_BRIDGE_TOKEN: "token" });
   assert.equal(foregroundOptions.tools, undefined);
   assert.equal(foregroundOptions.appendSystemPrompt, undefined);
@@ -90,6 +95,11 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
     await runtime.queueInstruction("steer", "same", { images: [queuedImage], recoveryText: "same with image", restoreAttachments: () => { restoredAttachments += 1; }, hasAttachments: true });
     await runtime.queueInstruction("followUp", "later");
     assert.deepEqual(receivedImages.slice(0, 2), [undefined, [queuedImage]]);
+    assert.deepEqual(runtime.currentState.pendingQueue?.steering.map(item => ({ text: item.text, hasAttachments: item.hasAttachments })), [
+      { text: "same", hasAttachments: false },
+      { text: "same with image", hasAttachments: true },
+    ]);
+    assert.deepEqual(runtime.currentState.pendingQueue?.followUp.map(item => item.text), ["later"]);
     assert.doesNotMatch(JSON.stringify(runtime.currentState), /R0lGOD/, "public runtime state never contains queued image bytes");
     internal.handleEvent({ type: "agent_end" }); assert.equal(runtime.currentState.busy, true);
     await runtime.abort(); await composer; await tick();
@@ -105,6 +115,7 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
     const ordinarySteer = client.steer;
     client.steer = async (text: string) => {
       queued = { steering: [], followUp: [] }; internal.handleEvent({ type: "queue_update", ...queued });
+      internal.handleEvent({ type: "message_start", message: { role: "user", content: [{ type: "text", text: "duplicate race" }] } });
       queued = { steering: [text], followUp: [] }; internal.handleEvent({ type: "queue_update", ...queued });
     };
     await runtime.queueInstruction("steer", "duplicate race", { images: [queuedImage], recoveryText: "race image draft", restoreAttachments: () => { restoredAttachments += 1; }, hasAttachments: true });
@@ -121,9 +132,19 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
     await runtime.queueInstruction("followUp", "delivered later");
     queued = { steering: ["second delivered"], followUp: ["delivered later"] };
     internal.handleEvent({ type: "queue_update", ...queued });
+    internal.handleEvent({ type: "message_start", message: { role: "user", content: [{ type: "text", text: "first delivered" }] } });
+    queued = { steering: [], followUp: ["delivered later"] };
+    internal.handleEvent({ type: "queue_update", ...queued });
+    internal.handleEvent({ type: "message_start", message: { role: "user", content: [{ type: "text", text: "second delivered" }] } });
     queued = { steering: [], followUp: [] };
     internal.handleEvent({ type: "queue_update", ...queued });
+    internal.handleEvent({ type: "message_start", message: { role: "user", content: [{ type: "text", text: "delivered later" }] } });
     internal.handleEvent({ type: "agent_settled" }); await delivered; await tick();
+    assert.deepEqual(deliveredInstructions.slice(-3).map(item => [item.kind, item.text]), [
+      ["steering", "first delivered"],
+      ["steering", "second delivered"],
+      ["followUp", "delivered later"],
+    ]);
     assert.equal(runtime.currentState.recoveredDrafts?.length, deliveredCount, "one-at-a-time and grouped deliveries retire attachment handles instead of offering replay");
     assert.equal(restoredAttachments, 2, "delivered attachments are never restored");
 
@@ -168,7 +189,22 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
       throw new Error("Malformed acknowledgement after consumption");
     };
     await assert.rejects(runtime.queueInstruction("steer", "new"), /uncertain/);
-    assert.deepEqual(recovered(), [...old, "distinct", "new"]);
+    assert.deepEqual(recovered(), [...old, "same", "new", "distinct"], "queue removal without a user start remains recoverable and is never displayed as delivered");
+
+    client.isRunning = true; internal.client = client;
+    queued = { steering: [], followUp: [] };
+    internal.updateState({ connected: true, busy: true, queueable: true, queue: queued, pendingQueue: { steering: [], followUp: [] }, recoveredDrafts: old.map((text, index) => ({ id: String(index), text, uncertain: false })) });
+    client.steer = async (text: string) => {
+      queued = { steering: [text], followUp: [] }; internal.handleEvent({ type: "queue_update", ...queued });
+      queued = { steering: [], followUp: [] }; internal.handleEvent({ type: "queue_update", ...queued });
+      internal.handleEvent({ type: "message_start", message: { role: "user", content: [{ type: "text", text }] } });
+      throw new Error("Malformed acknowledgement after confirmed delivery");
+    };
+    await runtime.queueInstruction("steer", "confirmed", { instructionId: "confirmed-delivery" });
+    assert.equal(runtime.currentState.connected, false, "an invalid acknowledgement still disconnects the protocol");
+    assert.deepEqual(recovered(), old, "an authoritative user start prevents delivered text from being offered for replay");
+    assert.deepEqual(deliveredInstructions.at(-1), { id: "confirmed-delivery", kind: "steering", text: "confirmed", hasAttachments: false });
+
     resetQueue();
     let rejectQueue!: (reason: Error) => void;
     client.steer = () => new Promise((_resolve, reject) => { rejectQueue = reject; });
@@ -177,6 +213,37 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
     rejectQueue(new Error("Process exited")); await interrupted;
     assert.deepEqual(recovered(), [...old, "same", "distinct", "new"], "abort and the later queue rejection share one recovery owner");
   } finally { runtime.dispose(); vscode.restore(); await rm(workspaceRoot, { recursive: true, force: true }); }
+});
+
+test("runtime correlates duplicate queue delivery starts in FIFO order and recovers missing starts", () => {
+  const vscode = installVscodeMock();
+  const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
+  const runtime = new PiRuntimeManager({ environmentVariableCollection: { clear() {} } } as any);
+  const internal = runtime as any;
+  const delivered: string[] = [];
+  runtime.onEvent(event => {
+    if (event.type === "queue_instruction_delivered" && event.instruction && typeof event.instruction === "object" && "id" in event.instruction) delivered.push(String(event.instruction.id));
+  });
+  const record = (id: string) => ({ id, kind: "steering", message: "same", recoveryText: id === "second" ? "x".repeat(1_200) : `display-${id}`, hasAttachments: false, recoveryBytes: 0 });
+  internal.trackedQueue.steering.push(record("first"), record("second"));
+  internal.updateState({ connected: true, busy: true, queueable: true, queue: { steering: ["same", "same"], followUp: [] } });
+  try {
+    internal.handleEvent({ type: "queue_update", steering: ["same"], followUp: [] });
+    assert.deepEqual(runtime.currentState.pendingQueue?.steering.map(item => item.id), ["first", "second"], "a removed queue item remains visibly pending until its user start");
+    assert.equal(runtime.currentState.pendingQueue?.steering[1]?.text.length, 1_000, "public pending text is bounded");
+    assert.match(runtime.currentState.pendingQueue?.steering[1]?.text ?? "", /…$/);
+    assert.deepEqual(delivered, [], "queue removal alone is not delivery evidence");
+    internal.handleEvent({ type: "message_start", message: { role: "user", content: [{ type: "text", text: "same" }] } });
+    assert.deepEqual(runtime.currentState.pendingQueue?.steering.map(item => item.id), ["second"], "delivery atomically promotes only the confirmed FIFO record");
+    internal.handleEvent({ type: "queue_update", steering: [], followUp: [] });
+    internal.handleEvent({ type: "message_start", message: { role: "user", content: [{ type: "text", text: "same" }] } });
+    assert.deepEqual(delivered, ["first", "second"]);
+
+    internal.trackedQueue.followUp.push({ id: "missing", kind: "followUp", message: "later", recoveryText: "later", hasAttachments: false, recoveryBytes: 0 });
+    internal.handleEvent({ type: "queue_update", steering: [], followUp: [] });
+    internal.handleEvent({ type: "agent_settled" });
+    assert.deepEqual(runtime.currentState.recoveredDrafts?.map(draft => ({ text: draft.text, uncertain: draft.uncertain })), [{ text: "later", uncertain: true }]);
+  } finally { runtime.dispose(); vscode.restore(); }
 });
 
 test("process exit recovers only the undelivered queue suffix with its attachment owner", () => {
@@ -207,13 +274,15 @@ test("sidebar rejects an empty queued snapshot and forwards an attachment resour
   vscode.window.registerWebviewViewProvider = () => ({ dispose() {} });
   const { registerPiCodeSidebar } = require("../sidebar") as typeof import("../sidebar");
   const subscription = () => ({ dispose() {} });
+  let runtimeListener: ((event: Record<string, unknown>) => void) | undefined;
   const posted: Array<Record<string, unknown>> = [];
   const queued: Array<{ text: string; options: Record<string, unknown> }> = [];
   const runtime: any = {
-    currentState: { model: undefined },
-    onEvent: subscription,
+    currentState: { model: { input: ["image"] }, connected: true, sessionId: "session" },
+    onEvent: (listener: (event: Record<string, unknown>) => void) => { runtimeListener = listener; return { dispose() {} }; },
     onDidChangeState: subscription,
     queueInstruction: async (_kind: string, text: string, options: Record<string, unknown>) => { queued.push({ text, options }); },
+    getMessages: async () => [],
   };
   const context: any = {
     workspaceState: { get: () => undefined },
@@ -228,14 +297,19 @@ test("sidebar rejects an empty queued snapshot and forwards an attachment resour
     assert.equal(posted.at(-1)?.type, "sendRejected", "an attachment-removal race releases webview submissionPending");
 
     const resource = MockUri.file("/other/context.ts");
+    const image = { type: "image" as const, data: "R0lGODlhAgADAAAAAA==", mimeType: "image/gif" };
+    const assetId = imageAssetId(Buffer.from(image.data, "base64"));
     let consumed = false;
     internal.attachments.captureSubmission = () => ({
-      ids: ["context"],
+      ids: ["context", "image"],
       textContexts: [{ label: "context.ts", content: "context" }],
-      images: [],
+      images: [image],
       resource,
-      transcriptAttachments: [{ type: "context", label: "context.ts" }],
-      recoveryBytes: 7,
+      transcriptAttachments: [
+        { type: "context", label: "context.ts", fullLabel: "context.ts" },
+        { type: "image", assetId, label: "diagram.gif", fullLabel: "images/diagram.gif", mimeType: "image/gif", width: 2, height: 3, availability: "available" },
+      ],
+      recoveryBytes: 7 + Buffer.byteLength(image.data, "base64"),
       consumeAccepted: () => { consumed = true; },
       restoreConsumed() {},
     });
@@ -243,6 +317,35 @@ test("sidebar rejects an empty queued snapshot and forwards an attachment resour
     assert.equal(queued[0]?.options.resource, resource);
     assert.equal(consumed, true);
     assert.equal(posted.at(-1)?.type, "clearInput");
+    const instructionId = String(queued[0]?.options.instructionId);
+    assert.match(instructionId, /^[0-9a-f-]{36}$/);
+
+    runtimeListener?.({ type: "message_start", message: { role: "user", content: queued[0]?.text } });
+    runtimeListener?.({ type: "queue_instruction_delivered", instruction: { id: 42, text: null } });
+    assert.equal(internal.messages.length, 0, "ordinary or malformed user starts do not duplicate the optimistic primary prompt");
+    const delivered = { type: "queue_instruction_delivered", instruction: { id: instructionId, kind: "followUp", text: "use this", hasAttachments: true } };
+    runtimeListener?.(delivered);
+    runtimeListener?.(delivered);
+    assert.deepEqual(internal.messages.map((message: any) => ({ id: message.id, content: message.content, attachments: message.attachments })), [{
+      id: `picode-queued-${instructionId}`,
+      content: "use this",
+      attachments: [
+        { type: "context", label: "context.ts", fullLabel: "context.ts" },
+        { type: "image", assetId, label: "diagram.gif", fullLabel: "images/diagram.gif", mimeType: "image/gif", width: 2, height: 3, availability: "available" },
+      ],
+    }], "delivery appends one live user bubble with its captured attachment labels");
+    runtimeListener?.({ type: "message_start", message: { role: "assistant", content: [] } });
+    runtimeListener?.({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "continuing" } });
+    assert.deepEqual(internal.messages.map((message: any) => message.role), ["user", "assistant"], "the delivered user bubble precedes continuation output");
+
+    runtime.getMessages = async () => [{ role: "user", timestamp: 10, content: [{ type: "text", text: queued[0]?.text }, image] }];
+    await internal.syncMessagesFromPi();
+    assert.equal(internal.messages.length, 1, "authoritative history replaces the live message without duplication");
+    assert.equal(internal.messages[0]?.content, "use this");
+    assert.deepEqual(internal.messages[0]?.attachments?.map((attachment: any) => [attachment.type, attachment.fullLabel]), [
+      ["context", "context.ts"],
+      ["image", "images/diagram.gif"],
+    ], "stable image IDs preserve queued attachment labels during final synchronization");
   } finally {
     for (const disposable of context.subscriptions) disposable.dispose();
     vscode.restore();
