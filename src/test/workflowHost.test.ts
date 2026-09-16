@@ -246,6 +246,30 @@ test("runtime correlates duplicate queue delivery starts in FIFO order and recov
   } finally { runtime.dispose(); vscode.restore(); }
 });
 
+test("awaiting queue delivery snapshots count toward the recovery byte cap", async () => {
+  const vscode = installVscodeMock();
+  const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
+  const runtime = new PiRuntimeManager({ environmentVariableCollection: { clear() {} } } as any);
+  const internal = runtime as any;
+  internal.awaitingQueueStarts.push({
+    id: "awaiting",
+    kind: "steering",
+    message: "first",
+    recoveryText: "first image",
+    hasAttachments: true,
+    recoveryBytes: 25 * 1024 * 1024,
+    restoreAttachments() {},
+  });
+  internal.updateState({ connected: true, busy: true, queueable: true, queue: { steering: [], followUp: [] } });
+  try {
+    await assert.rejects(
+      runtime.queueInstruction("followUp", "second", { recoveryBytes: 6 * 1024 * 1024, hasAttachments: true }),
+      /30 MiB/,
+    );
+    assert.equal(internal.trackedQueue.followUp.length, 0, "the over-budget instruction is rejected before queue mutation");
+  } finally { runtime.dispose(); vscode.restore(); }
+});
+
 test("process exit recovers only the undelivered queue suffix with its attachment owner", () => {
   const vscode = installVscodeMock();
   const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
