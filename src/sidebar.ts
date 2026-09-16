@@ -27,6 +27,7 @@ import { deleteConversationWithTrashFallback, runtimeSessionIdentityChanged, typ
 import type { PiRpcEvent, PiRpcImage } from "./piRpcClient";
 import { resolveSidebarQueueSubmission, resolveSidebarSubmissionText, SidebarAttachmentManager } from "./sidebarAttachments";
 import { ImageAssetCache, ImageAssetDeliveryTracker } from "./imageAssets";
+import { listRecentPiSessions, piSessionKey, type PiSessionSummary } from "./sessionHistory";
 import {
   convertPiMessages,
   extractToolText,
@@ -129,6 +130,8 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   private foregroundCancellable = false;
   private noticeDetails: string | undefined;
   private noticeRevision = 0;
+  private recentSessions: PiSessionSummary[] = [];
+  private sessionRefreshRevision = 0;
 
   public constructor(
     private readonly context: vscode.ExtensionContext,
@@ -226,6 +229,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     try {
       await this.runtime.ensureStarted(vscode.window.activeTextEditor?.document.uri);
       await this.syncMessagesFromPi();
+      await this.refreshRecentSessions(false);
       this.status = "Ready";
     } catch (error) {
       const failure = historySyncFailureState(this.runtime.currentState.connected);
@@ -286,7 +290,13 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
           break;
         }
         case "restoreQueueAttachments":
-          this.runtime.restoreRecoveredDraftAttachments(message.id);
+          try {
+            this.runtime.restoreRecoveredDraftAttachments(message.id);
+            this.postMessage({ type: "commitRecoveredDraft", id: message.id });
+          } catch (error) {
+            this.postMessage({ type: "rejectRecoveredDraft", id: message.id });
+            throw error;
+          }
           break;
         case "cancel":
           this.requestLifecycle.cancel();
@@ -299,6 +309,12 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
           break;
         case "refreshHistory":
           await this.refreshHistory();
+          break;
+        case "refreshSessions":
+          await this.refreshRecentSessions();
+          break;
+        case "switchRecentSession":
+          await this.switchRecentSession(message.id);
           break;
         case "retry":
           await this.retryLastRequest();
@@ -431,6 +447,8 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     } catch (error) {
       if (message.type === "send" || message.type === "queueInstruction") {
         this.postMessage({ type: "sendRejected" });
+      } else if (message.type === "switchRecentSession") {
+        this.postMessage({ type: "sessionSwitchRejected" });
       }
       if (shouldPostActionErrorNotice(message.type, noticeRevision, this.noticeRevision)) {
         this.postNotice(actionErrorSummary(message.type), "error", formatError(error));
@@ -445,6 +463,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     try {
       await this.runtime.ensureStarted(vscode.window.activeTextEditor?.document.uri);
       await this.syncMessagesFromPi();
+      await this.refreshRecentSessions(false);
       this.historyRecoveryAvailable = false;
       this.status = "Ready";
     } catch (error) {
@@ -459,6 +478,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
 
   private async refreshHistory(): Promise<void> {
     await this.syncMessagesFromPi();
+    await this.refreshRecentSessions(false);
     this.historyRecoveryAvailable = false;
     this.status = "Ready";
     this.postState();
@@ -715,6 +735,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       this.retryRequest = undefined;
       synchronizingHistory = true;
       await this.syncMessagesFromPi();
+      await this.refreshRecentSessions(false);
       synchronizingHistory = false;
       await onResponse?.(response);
       this.status = "Ready";
@@ -841,6 +862,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     this.proposals.clear();
     this.retryRequest = undefined;
     await this.syncMessagesFromPi();
+    await this.refreshRecentSessions(false);
     this.status = "Background Pi session resumed";
     this.postState();
   }
@@ -852,6 +874,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     }
     await this.runtime.newSession();
     await this.resetConversation("New Pi session");
+    await this.refreshRecentSessions();
   }
 
   private async deleteSession(): Promise<void> {
@@ -891,6 +914,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     if (outcome.status === "deleted") {
       const next = this.runtime.currentState.connected ? "New Pi session" : "Reconnect available";
       await this.resetConversation(`${outcome.permanently ? "Conversation permanently deleted" : "Conversation deleted"} · ${next}`);
+      await this.refreshRecentSessions();
       return;
     }
 
@@ -965,6 +989,35 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       return;
     }
     await this.runtime.setSessionName(name.trim());
+    await this.refreshRecentSessions();
+  }
+
+  private async switchRecentSession(id: string): Promise<void> {
+    if (this.isForegroundRequestActive()) {
+      this.postMessage({ type: "sessionSwitchRejected" });
+      this.postNotice("Cancel or wait for the active request before switching conversations.", "warning");
+      return;
+    }
+    const selected = this.recentSessions.find(session => session.key === id);
+    if (!selected) throw new Error("The selected conversation is no longer in the recent session list. Refresh Chats and try again.");
+    if (selected.path === this.runtime.currentState.sessionFile) {
+      this.postState();
+      return;
+    }
+    await this.switchToSession(selected.path, "Pi session resumed");
+  }
+
+  private async switchToSession(sessionFile: string, status: string): Promise<void> {
+    await this.runtime.switchSession(sessionFile);
+    this.attachments.clear();
+    this.proposals.clear();
+    this.retryRequest = undefined;
+    await this.syncMessagesFromPi();
+    this.tools = [];
+    this.changes = [];
+    await this.refreshRecentSessions(false);
+    this.status = status;
+    this.postState();
   }
 
   private async resumeSession(): Promise<void> {
@@ -985,15 +1038,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     if (!session) {
       return;
     }
-    await this.runtime.switchSession(session.fsPath);
-    this.attachments.clear();
-    this.proposals.clear();
-    this.retryRequest = undefined;
-    await this.syncMessagesFromPi();
-    this.tools = [];
-    this.changes = [];
-    this.status = "Pi session resumed";
-    this.postState();
+    await this.switchToSession(session.fsPath, "Pi session resumed");
   }
 
   private async pickPiCommand(): Promise<void> {
@@ -1214,6 +1259,35 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     }
   }
 
+  private async refreshRecentSessions(post = true): Promise<void> {
+    const revision = ++this.sessionRefreshRevision;
+    const runtime = this.runtime.currentState;
+    const activeSessionFile = runtime.sessionFile;
+    if (!activeSessionFile) {
+      this.recentSessions = [];
+      if (post) this.postState();
+      return;
+    }
+
+    try {
+      const sessions = await listRecentPiSessions(activeSessionFile, this.runtime.currentCwd);
+      if (revision !== this.sessionRefreshRevision || activeSessionFile !== this.runtime.currentState.sessionFile) return;
+      this.recentSessions = sessions.some(session => session.path === activeSessionFile)
+        ? sessions
+        : [{
+          key: piSessionKey(activeSessionFile),
+          path: activeSessionFile,
+          sessionId: runtime.sessionId ?? "",
+          title: runtime.sessionName?.trim() || "New conversation",
+          updatedAt: Date.now(),
+        }, ...sessions].slice(0, 100);
+    } catch {
+      if (revision !== this.sessionRefreshRevision) return;
+      // Keep the previous index on transient filesystem failures.
+    }
+    if (post) this.postState();
+  }
+
   private async persistMessages(): Promise<void> {
     try {
       await this.context.workspaceState.update(storageKey, persistableSidebarMessages(this.messages));
@@ -1254,6 +1328,12 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       retryAvailable: Boolean(this.retryRequest) && !requestBusy,
       historyRecoveryAvailable: this.historyRecoveryAvailable && !requestBusy,
       backgroundSubmissionPending: this.backgroundSubmissionGate.isPending,
+      sessions: this.recentSessions.map(session => ({
+        id: session.key,
+        title: session.title,
+        updatedAt: session.updatedAt,
+        current: session.path === this.runtime.currentState.sessionFile,
+      })),
       runtime: { ...this.runtime.currentState, busy: requestBusy, cancellable: this.foregroundCancellable },
     });
     this.deliverReferencedImageAssets(messages, attachmentSummaries.flatMap(attachment => attachment.assetId ? [attachment.assetId] : []));
