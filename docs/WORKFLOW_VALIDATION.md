@@ -79,6 +79,17 @@ The final suite passes 150 tests across 30 files. `npm run package` repeats the 
 
 Chrome for Testing 153 rendered the generated Webview at 280, 400, and 600 px in light, dark, and high-contrast token fixtures. All nine cases had zero document/app/composer horizontal overflow, a 42 px empty composer, two decoded thumbnails, full context tooltip/preview labels, keyboard Enter/Space preview, Escape/close focus return, and tool activity geometrically after the response. Three representative screenshots were inspected for truncation, focus visibility, contrast structure, tool spacing, and composer layout. This is real browser rendering of packaged-equivalent HTML, not an interactive Extension Development Host. Native screen-reader output, pointer interaction, a live Pi provider history/reload/session-resume cycle, and a real remote file provider's Trash error remain deferred and are not claimed as manually passed.
 
+## Queued attachments — 2026-09-16
+
+Pi Chat now applies the ordinary composer attachment snapshot to native Pi steering and follow-up queues instead of deferring attachments to a later message.
+
+- `workflowProtocol.test.ts` verifies image-bearing `steer` requests, text-only compatibility, queue image-count rejection, acknowledgement ordering, clearing, timeout, unsupported-command and process-exit behavior.
+- `contextInspector.test.ts` verifies attachment-only prompt generation, text-context framing, slash-command rejection, accepted-ID consumption, restoration of text/image snapshots, preservation of newer and pinned items, and atomic failure when current draft limits are occupied.
+- `workflowHost.test.ts` verifies image handoff, duplicate text, one-at-a-time and grouped queue delivery, clear-before-abort recovery, delivery/acceptance races, uncertain disconnects, count/30 MiB recovery bounds, one-shot restoration handles, no automatic replay, and exclusion of image bytes from public runtime state.
+- `sidebarHtml.test.ts` executes attachment-only Enter steering and Alt+Enter follow-up, pending-image and model-capability gates, and attachment-aware queue status while preserving keyboard-only queue dispatch and composer revision guards.
+- Focused queue/attachment/Webview validation passes 41 tests across four files. The complete suite and `npm run package` each pass 166 tests across 32 files; `git diff --check` passes and `npm audit --omit=dev` reports zero vulnerabilities.
+- The inspected VSIX (`c45d6a4559c4578eb34c9b25539c4a212b99483d596207aa654595ef4f6d3f71`) contains 56 entries and 43 compiled runtime JavaScript files with the queued-attachment markers. It contains no source, tests, docs, source maps or `node_modules`. Live-provider delivery, native Extension Development Host interaction, Windows/WSL shortcuts, remote hosts and recovery across reload are not claimed by these automated checks.
+
 ## Deferred usage checks
 
 Per the user's explicit acceptance decision, later real-world use will cover native Quick Picks/diff editors/Undo, full keyboard navigation and actual theme contrast on minimum/current VS Code, untrusted UI, SSH/container placement, installed Pi versions/provider behavior, and paused Node.js debugger interaction. Unsupported/uncertain queue commands disconnect without replay; unsupported adapters/resources and unverified task inactivity fail closed. These limitations and workflow bounds are documented in the README and Security guide.

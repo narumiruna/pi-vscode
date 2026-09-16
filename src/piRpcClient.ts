@@ -5,6 +5,8 @@ import type * as vscode from "vscode";
 const maxDiagnosticBytes = 1024 * 1024;
 const maxJsonLineBytes = 5 * 1024 * 1024;
 const defaultRequestTimeoutMs = 30_000;
+const maxQueuedImages = 5;
+const maxQueuedImageCharacters = Math.ceil((5 * 1024 * 1024) / 3) * 4 + 4;
 
 export type PiRpcEvent = Record<string, unknown> & { readonly type: string };
 
@@ -222,12 +224,16 @@ export class PiRpcClient {
     await this.command("prompt", { message, images });
   }
 
-  public async steer(message: string): Promise<void> { await this.queueCommand("steer", message); }
-  public async followUp(message: string): Promise<void> { await this.queueCommand("follow_up", message); }
+  public async steer(message: string, images?: readonly PiRpcImage[]): Promise<void> { await this.queueCommand("steer", message, images); }
+  public async followUp(message: string, images?: readonly PiRpcImage[]): Promise<void> { await this.queueCommand("follow_up", message, images); }
   public async clearQueue(): Promise<PiRpcQueue> { return parseRpcQueue((await this.command("clear_queue")).data); }
-  private async queueCommand(type: "steer" | "follow_up", message: string): Promise<void> {
+  private async queueCommand(type: "steer" | "follow_up", message: string, images?: readonly PiRpcImage[]): Promise<void> {
     if (!message.trim() || message.length > 50_000 || message.trimStart().startsWith("/")) throw new Error("Only bounded plain text, not slash commands, can be queued.");
-    await this.command(type, { message });
+    if (images && (
+      images.length > maxQueuedImages ||
+      images.some(image => image.type !== "image" || !image.data || image.data.length > maxQueuedImageCharacters || !image.mimeType || image.mimeType.length > 100)
+    )) throw new Error("Queued images exceed the supported attachment limits.");
+    await this.command(type, { message, ...(images?.length ? { images } : {}) });
   }
 
   public async abort(): Promise<void> {

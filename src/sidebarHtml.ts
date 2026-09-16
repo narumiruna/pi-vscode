@@ -332,11 +332,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     function submit(kind = 'steer') {
       const text = input.value.trim();
       if ((!text && !attachedItems) || !connected || submissionPending || backgroundSubmissionPending) return;
+      if (pendingImageReads > 0 || (attachedImages && !imageSupported)) return;
       if (busy) {
-        if (!text) {
-          showNotice('The image is attached for the next message. Wait for Pi to finish before sending it.', 'info');
-          return;
-        }
         if (!queueable) {
           showNotice('This request does not accept queued messages.', 'warning', false, true);
           return;
@@ -345,7 +342,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         updateSendState();
         vscode.postMessage({ type: 'queueInstruction', kind, text: input.value, revision: composerRevision });
       } else {
-        if (pendingImageReads > 0 || (attachedImages && !imageSupported)) return;
         submissionPending = true;
         updateSendState();
         vscode.postMessage({ type: 'send', text: input.value, revision: composerRevision });
@@ -843,7 +839,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     }
 
     function updateSendState() {
-      const imageBlocked = !busy && attachedImages && !imageSupported;
+      const imageBlocked = attachedImages && !imageSupported;
       const imageLoading = pendingImageReads > 0;
       const interactionLocked = busy || submissionPending || backgroundSubmissionPending || imageLoading;
       if (!interactionLocked && notice.dataset.transientLock === 'true') clearNotice();
@@ -885,7 +881,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       cancellable = Boolean(state.runtime.cancellable);
       queueable = Boolean(state.runtime.queueable) && busy;
       const queue = state.runtime.queue || { steering: [], followUp: [] };
-      $('queue-status').textContent = queueable ? queue.steering.length + ' steering · ' + queue.followUp.length + ' follow-ups pending · text only; attachments excluded · steering waits for tool calls' : '';
+      $('queue-status').textContent = queueable ? queue.steering.length + ' steering · ' + queue.followUp.length + ' follow-ups pending · attachments included · steering waits for tool calls' : '';
       $('recover-queue').hidden = !(state.runtime.recoveredDrafts || []).length;
       connected = Boolean(state.runtime.connected);
       deletableSession = Boolean(state.runtime.sessionFile);

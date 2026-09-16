@@ -13,7 +13,7 @@ import {
 } from "./attachmentUtils";
 import type { ImageAssetCache } from "./imageAssets";
 import type { PiRpcImage } from "./piRpcClient";
-import { limitReferenceContent, type ChatReferenceContext } from "./prompts";
+import { buildAgentPrompt, limitReferenceContent, type ChatReferenceContext } from "./prompts";
 import { relativeDocumentPath, type WebviewMessage } from "./sidebarHelpers";
 import { contextTranscriptAttachment, shortTranscriptLabel, type TranscriptAttachment, type TranscriptImageAttachment } from "./sidebarState";
 
@@ -33,7 +33,9 @@ export interface SidebarSubmissionSnapshot {
   readonly images: readonly PiRpcImage[];
   readonly resource?: vscode.Uri;
   readonly transcriptAttachments: readonly TranscriptAttachment[];
+  readonly recoveryBytes: number;
   readonly consumeAccepted: () => void;
+  readonly restoreConsumed: () => void;
 }
 
 export function resolveSidebarSubmissionText(rawText: string, submission: Pick<SidebarSubmissionSnapshot, "textContexts" | "images">): string {
@@ -43,6 +45,16 @@ export function resolveSidebarSubmissionText(rawText: string, submission: Pick<S
   if (submission.images.length) return submission.images.length === 1 ? "Please analyze the attached image." : "Please analyze the attached images.";
   if (submission.textContexts.length) return "Please analyze the attached context.";
   return "";
+}
+
+export function resolveSidebarQueueSubmission(
+  rawText: string,
+  submission: Pick<SidebarSubmissionSnapshot, "textContexts" | "images">,
+): { readonly text: string; readonly message: string } | undefined {
+  const text = resolveSidebarSubmissionText(rawText, submission);
+  if (!text) return undefined;
+  if (text.trimStart().startsWith("/")) throw new Error("Slash commands cannot be queued while Pi is working.");
+  return { text, message: buildAgentPrompt(text, submission.textContexts) };
 }
 
 export interface SidebarAttachmentOptions {
@@ -117,14 +129,38 @@ export class SidebarAttachmentManager {
 
   public captureSubmission(): SidebarSubmissionSnapshot {
     const ids = this.attachments.map(item => item.id);
+    const consumedIds = new Set(consumedUnpinnedIds(this.attachments, ids));
+    const restorable = this.attachments.filter(item => consumedIds.has(item.id));
     return {
       ids,
       textContexts: this.textContexts,
       images: this.images,
       resource: this.resource,
       transcriptAttachments: this.transcriptAttachments(ids),
+      recoveryBytes: restorable.reduce((total, item) => total + (item.content ? Buffer.byteLength(item.content, "utf8") : item.image ? Buffer.byteLength(item.image.data, "base64") : 0), 0),
       consumeAccepted: () => this.consume(ids),
+      restoreConsumed: () => this.restore(restorable),
     };
+  }
+
+  private restore(items: readonly AttachedContext[]): void {
+    const existingIds = new Set(this.attachments.map(item => item.id));
+    const missing = items.filter(item => !existingIds.has(item.id));
+    if (!missing.length) return;
+    const restored = [...this.attachments, ...missing];
+    const imageCount = restored.filter(item => item.image).length;
+    const textCharacters = restored.reduce((total, item) => total + (item.content?.length ?? 0), 0);
+    if (restored.length > this.options.maxAttachments) {
+      throw new Error(`Remove context items before restoring this queued submission; the limit is ${this.options.maxAttachments}.`);
+    }
+    if (imageCount > this.options.maxImageAttachments) {
+      throw new Error(`Remove images before restoring this queued submission; the limit is ${this.options.maxImageAttachments}.`);
+    }
+    if (textCharacters > this.options.maxTotalContextCharacters) {
+      throw new Error("Remove text context before restoring this queued submission; the context limit would be exceeded.");
+    }
+    this.attachments = restored;
+    this.options.onChange();
   }
 
   public transcriptAttachments(ids: readonly string[] = this.attachments.map(item => item.id)): TranscriptAttachment[] {

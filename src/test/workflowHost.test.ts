@@ -42,11 +42,13 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
   assert.equal("mode" in runtime.currentState, false);
   assert.deepEqual(foregroundOptions.extensions.map((value: string) => path.basename(value)), ["picode-permission-gate.ts", "picode-read-only-gate.ts"]);
   const calls: string[] = [];
+  const queuedImage = { type: "image" as const, data: "R0lGODlhAgADAAAAAA==", mimeType: "image/gif" };
+  const receivedImages: unknown[] = [];
   let queued = { steering: [] as string[], followUp: [] as string[] };
   const client: any = {
     isRunning: true,
     prompt: async () => { calls.push("prompt"); },
-    steer: async (text: string) => { calls.push("steer"); queued.steering.push(text); internal.handleEvent({ type: "queue_update", ...queued }); },
+    steer: async (text: string, images?: unknown) => { calls.push("steer"); receivedImages.push(images); queued.steering.push(text); internal.handleEvent({ type: "queue_update", ...queued }); },
     followUp: async (text: string) => { calls.push("follow_up"); queued.followUp.push(text); internal.handleEvent({ type: "queue_update", ...queued }); },
     clearQueue: async () => { calls.push("clear_queue"); const result = queued; queued = { steering: [], followUp: [] }; internal.handleEvent({ type: "queue_update", ...queued }); return result; },
     abort: async () => { calls.push("abort"); internal.handleEvent({ type: "agent_settled" }); },
@@ -68,18 +70,57 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
     await assert.rejects(runtime.queueInstruction("steer", "unsafe continuation"), /ordinary composer/);
     internal.handleEvent({ type: "agent_settled" }); await feature; await tick();
     const composer = runtime.prompt("composer", undefined, undefined, undefined, undefined, true); await tick();
-    await runtime.queueInstruction("steer", "same"); await runtime.queueInstruction("steer", "same"); await runtime.queueInstruction("followUp", "later");
+    let restoredAttachments = 0;
+    await assert.rejects(runtime.queueInstruction("steer", "oversized recovery", { recoveryBytes: 31 * 1024 * 1024 }), /30 MiB/);
+    assert.equal(runtime.currentState.connected, true, "local recovery bounds do not disconnect a healthy Pi session");
+    await runtime.queueInstruction("steer", "same");
+    await runtime.queueInstruction("steer", "same", { images: [queuedImage], recoveryText: "same with image", restoreAttachments: () => { restoredAttachments += 1; }, hasAttachments: true });
+    await runtime.queueInstruction("followUp", "later");
+    assert.deepEqual(receivedImages.slice(0, 2), [undefined, [queuedImage]]);
+    assert.doesNotMatch(JSON.stringify(runtime.currentState), /R0lGOD/, "public runtime state never contains queued image bytes");
     internal.handleEvent({ type: "agent_end" }); assert.equal(runtime.currentState.busy, true);
     await runtime.abort(); await composer; await tick();
     assert.deepEqual(calls.filter(call => ["clear_queue", "abort"].includes(call)), ["clear_queue", "abort"]);
-    assert.deepEqual(runtime.currentState.recoveredDrafts?.map(draft => draft.text), ["same", "same", "later"]);
+    assert.deepEqual(runtime.currentState.recoveredDrafts?.map(draft => draft.text), ["same", "same with image", "later"]);
+    const recoveredImage = runtime.currentState.recoveredDrafts?.find(draft => draft.hasAttachments);
+    assert.ok(recoveredImage); assert.equal(runtime.restoreRecoveredDraft(recoveredImage.id), "same with image"); assert.equal(restoredAttachments, 1);
+    assert.equal(runtime.currentState.recoveredDrafts?.find(draft => draft.id === recoveredImage.id)?.hasAttachments, false);
+    runtime.restoreRecoveredDraft(recoveredImage.id); assert.equal(restoredAttachments, 1, "a restored payload handle is released and cannot duplicate attachments");
+
+    const race = runtime.prompt("composer", undefined, undefined, undefined, undefined, true); await tick();
+    await runtime.queueInstruction("steer", "duplicate race");
+    const ordinarySteer = client.steer;
+    client.steer = async (text: string) => {
+      queued = { steering: [], followUp: [] }; internal.handleEvent({ type: "queue_update", ...queued });
+      queued = { steering: [text], followUp: [] }; internal.handleEvent({ type: "queue_update", ...queued });
+    };
+    await runtime.queueInstruction("steer", "duplicate race", { images: [queuedImage], recoveryText: "race image draft", restoreAttachments: () => { restoredAttachments += 1; }, hasAttachments: true });
+    client.steer = ordinarySteer;
+    await runtime.abort(); await race; await tick();
+    const raceDraft = runtime.currentState.recoveredDrafts?.at(-1);
+    assert.equal(raceDraft?.text, "race image draft", "a delivery update racing queue acceptance retains the pending attachment record");
+    assert.equal(runtime.restoreRecoveredDraft(raceDraft!.id), "race image draft"); assert.equal(restoredAttachments, 2);
+
+    const deliveredCount = runtime.currentState.recoveredDrafts?.length;
+    const delivered = runtime.prompt("composer", undefined, undefined, undefined, undefined, true); await tick();
+    await runtime.queueInstruction("steer", "first delivered", { images: [queuedImage], restoreAttachments: () => { restoredAttachments += 1; }, hasAttachments: true });
+    await runtime.queueInstruction("steer", "second delivered");
+    await runtime.queueInstruction("followUp", "delivered later");
+    queued = { steering: ["second delivered"], followUp: ["delivered later"] };
+    internal.handleEvent({ type: "queue_update", ...queued });
+    queued = { steering: [], followUp: [] };
+    internal.handleEvent({ type: "queue_update", ...queued });
+    internal.handleEvent({ type: "agent_settled" }); await delivered; await tick();
+    assert.equal(runtime.currentState.recoveredDrafts?.length, deliveredCount, "one-at-a-time and grouped deliveries retire attachment handles instead of offering replay");
+    assert.equal(restoredAttachments, 2, "delivered attachments are never restored");
+
     const pending = runtime.prompt("composer", undefined, undefined, undefined, undefined, true); await tick();
     const failed = assert.rejects(pending, /exited/);
     client.clearQueue = async () => { throw new Error("Unknown command"); };
     await assert.rejects(runtime.abort(), /disconnected.*uncertain/);
     await failed;
     assert.equal(runtime.currentState.connected, false);
-    assert.equal(calls.filter(call => call === "prompt").length, 3, "no automatic replay");
+    assert.equal(calls.filter(call => call === "prompt").length, 5, "no automatic replay");
     const resetQueue = () => {
       client.isRunning = true; internal.client = client;
       queued = { steering: ["same"], followUp: ["distinct"] };
