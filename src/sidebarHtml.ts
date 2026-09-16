@@ -276,6 +276,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let thinkingSelectable = false;
     let latestStatus = 'Connecting…';
     let conversationPinnedToBottom = true;
+    let programmaticConversationScrollTop;
     let renderedMessageStructure = '';
     let renderedMessageHtml = [];
     let renderedToolIds = '';
@@ -320,10 +321,15 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('status').title = displayed;
     }
 
+    function setConversationScrollTop(scrollTop) {
+      conversationElement.scrollTop = scrollTop;
+      programmaticConversationScrollTop = conversationElement.scrollTop;
+    }
+
     function scrollConversationToBottom() {
       conversationPinnedToBottom = true;
       const scroll = () => {
-        if (conversationPinnedToBottom) conversationElement.scrollTop = conversationElement.scrollHeight;
+        if (conversationPinnedToBottom) setConversationScrollTop(conversationElement.scrollHeight);
       };
       scroll();
       if (typeof requestAnimationFrame === 'function') requestAnimationFrame(scroll);
@@ -462,7 +468,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       renderedMessageStructure = structure;
       renderedMessageHtml = html;
       if (visibleMessages.length === 0) {
-        conversationElement.scrollTop = 0;
+        setConversationScrollTop(0);
         conversationPinnedToBottom = true;
       }
       return visibleMessages.length > 0 && followConversation;
@@ -486,9 +492,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         if (attachment.width && attachment.height) { image.width = attachment.width; image.height = attachment.height; }
         image.addEventListener('load', () => {
           const heightDelta = conversationElement.scrollHeight - beforeHeight;
-          conversationElement.scrollTop = wasNearBottom
+          setConversationScrollTop(wasNearBottom
             ? conversationElement.scrollHeight
-            : wasBelowViewport ? beforeTop : beforeTop + Math.max(0, heightDelta);
+            : wasBelowViewport ? beforeTop : beforeTop + Math.max(0, heightDelta));
         });
         image.addEventListener('error', () => rejectImageAsset(attachment.assetId));
         image.src = cached.url;
@@ -1045,7 +1051,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     conversationElement.addEventListener('scroll', event => {
       const atBottom = conversationElement.scrollHeight - conversationElement.scrollTop - conversationElement.clientHeight <= 16;
       if (atBottom) conversationPinnedToBottom = true;
+      else if (conversationElement.scrollTop === programmaticConversationScrollTop) return;
       else if (event.isTrusted) conversationPinnedToBottom = false;
+      programmaticConversationScrollTop = undefined;
     });
     conversationElement.addEventListener('wheel', event => {
       if (event.deltaY < 0) conversationPinnedToBottom = false;
