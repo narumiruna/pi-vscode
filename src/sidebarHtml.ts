@@ -852,7 +852,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const imageBlocked = !busy && attachedImages && !imageSupported;
       const imageLoading = pendingImageReads > 0;
       const interactionLocked = busy || submissionPending || backgroundSubmissionPending || imageLoading;
-      if (!interactionLocked && notice.dataset.transientLock === 'true') clearNotice();
+      if ((!interactionLocked || !attachedItems) && notice.dataset.transientLock === 'true') clearNotice();
       $('model-picker').disabled = interactionLocked || !connected;
       thinkingLevel.disabled = interactionLocked || !connected || !thinkingSelectable;
       $('new-session').disabled = interactionLocked;

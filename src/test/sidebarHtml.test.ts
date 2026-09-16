@@ -427,6 +427,11 @@ test("attachment-only busy notice applies to text context and clears when Pi set
   assert.equal(sidebar.element("notice").dataset.transientLock, "true");
   assert.equal(sidebar.posted.length, postedBeforeSubmit);
 
+  sidebar.receive({ type: "state", status: "Pi is working…", runtime: { busy: true, cancellable: true, connected: true, queueable: true }, attachments: [] });
+  assert.equal(sidebar.element("notice").textContent, "");
+
+  sidebar.receive({ type: "state", status: "Pi is working…", runtime: { busy: true, cancellable: true, connected: true, queueable: true }, attachments: [attachment] });
+  sidebar.run("submit()");
   sidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, cancellable: false, connected: true }, attachments: [attachment] });
   assert.equal(sidebar.element("notice").textContent, "");
 });
