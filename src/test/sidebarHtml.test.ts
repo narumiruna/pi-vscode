@@ -24,6 +24,8 @@ test("webview protocol rejects removed mode messages", () => {
     assert.equal(isWebviewMessage({ type: "setMode", mode: "agent" }, 1024), false);
     assert.equal(isWebviewMessage({ type: "handoffAgent" }, 1024), false);
     assert.equal(isWebviewMessage({ type: "queueInstruction", kind: "steer", text: "adjust", revision: 1 }, 1024), true);
+    assert.equal(isWebviewMessage({ type: "sendNewSession", text: "start", revision: 1 }, 1024), true);
+    assert.equal(isWebviewMessage({ type: "sendNewSession", text: "start", revision: -1 }, 1024), false);
     assert.equal(isWebviewMessage({ type: "imageAssetEvicted", id: `sha256-${"a".repeat(64)}` }, 1024), true);
     assert.equal(isWebviewMessage({ type: "imageAssetRejected", id: `sha256-${"b".repeat(64)}` }, 1024), true);
     assert.equal(isWebviewMessage({ type: "restoreQueueAttachments", id: "11111111-1111-4111-8111-111111111111" }, 1024), true);
@@ -67,6 +69,7 @@ test("sidebar places model and thinking controls before Send and exposes recover
   assert.match(html, /delete-session'\)\.disabled = interactionLocked \|\| !connected \|\| !deletableSession/);
   assert.match(html, /id="more"/);
   assert.match(html, /<main id="app" class="sessions-layer">/);
+  assert.match(html, /#app\.sessions-layer > :not\(#sessions\):not\(#composer\):not\(#notice\):not\(#runtime\)/);
   assert.match(html, /id="sessions" aria-label="Pi sessions"/);
   assert.match(html, /id="session-header-title"[^>]*>Sessions</);
   assert.match(html, /id="back-to-sessions"[^>]*aria-label="Back to Sessions"/);
@@ -221,6 +224,7 @@ class SidebarTestElement {
   innerHTML = "";
   textContent = "";
   title = "";
+  placeholder = "";
   className = "";
   disabled = false;
   hidden = false;
@@ -305,6 +309,16 @@ test("Sessions is a separate layer that opens a detail view and returns with Bac
   assert.equal(sidebar.element("session-header-title").textContent, "Sessions");
   assert.equal(sidebar.element("recent-session-list").children.length, 3);
   assert.equal(sidebar.element("view-all-sessions").textContent, "View all (4)");
+  assert.equal(sidebar.element("input").placeholder, "Start a new session…");
+
+  const input = sidebar.element("input");
+  input.value = "Start from the Sessions layer";
+  input.listeners.get("input")!();
+  sidebar.element("send").listeners.get("click")!();
+  assert.equal(sidebar.posted.at(-1).type, "sendNewSession");
+  sidebar.receive({ type: "sendRejected" });
+  input.value = "";
+  input.listeners.get("input")!();
 
   const current = sidebar.element("recent-session-list").children[0]!;
   sidebar.element("recent-session-list").listeners.get("click")!({ target: current });
@@ -312,6 +326,15 @@ test("Sessions is a separate layer that opens a detail view and returns with Bac
   assert.equal(sidebar.element("session-list-content").hidden, true);
   assert.equal(sidebar.element("back-to-sessions").hidden, false);
   assert.equal(sidebar.element("session-header-title").textContent, "Current work");
+  assert.equal(sidebar.element("input").placeholder, "Ask, plan, or build something…");
+
+  input.value = "Continue the selected Session";
+  input.listeners.get("input")!();
+  sidebar.element("send").listeners.get("click")!();
+  assert.equal(sidebar.posted.at(-1).type, "send");
+  sidebar.receive({ type: "sendRejected" });
+  input.value = "";
+  input.listeners.get("input")!();
 
   sidebar.element("back-to-sessions").listeners.get("click")!();
   assert.equal(sidebar.element("app").classList.contains("sessions-layer"), true);
@@ -517,7 +540,7 @@ test("composer image attachments use thumbnail cards with preview and remove act
   assert.equal(sidebar.posted.at(-1)?.id, "draft-image");
 });
 
-test("an attached image can be sent without additional text", () => {
+test("an attached image can start a new Session without additional text", () => {
   const sidebar = createSidebarScriptHarness();
   const attachment = { id: "draft-image", image: true, type: "image", assetId: `sha256-${"a".repeat(64)}`, label: "image.png", fullLabel: "image.png", mimeType: "image/png", availability: "available" };
   sidebar.receive({ type: "state", status: "Ready", imageSupported: true, runtime: { busy: false, cancellable: false, connected: true }, attachments: [attachment] });
@@ -526,7 +549,7 @@ test("an attached image can be sent without additional text", () => {
   assert.equal(sidebar.element("send").disabled, false);
   assert.equal(sidebar.element("send").title, "Send attached context");
   sidebar.element("send").listeners.get("click")!();
-  assert.equal(sidebar.posted.at(-1)?.type, "send");
+  assert.equal(sidebar.posted.at(-1)?.type, "sendNewSession");
   assert.equal(sidebar.posted.at(-1)?.text, "");
   assert.equal(sidebar.posted.at(-1)?.revision, 0);
 });
@@ -849,6 +872,7 @@ test("welcome actions attach context or set ordinary composer drafts locally", (
 
 test("composer keyboard submission matches Pi queue behavior on Alt+Enter platforms", () => {
   const sidebar = createSidebarScriptHarness("MacIntel");
+  sidebar.receive({ type: "showSessionDetail" });
   const input = sidebar.element("input");
   const keydown = input.listeners.get("keydown")!;
   const press = (fields: Record<string, unknown>) => {
@@ -894,6 +918,7 @@ test("composer keyboard submission matches Pi queue behavior on Alt+Enter platfo
 
 test("busy composer queues attachment-only steering and follow-up while preserving image gates", () => {
   const sidebar = createSidebarScriptHarness("MacIntel");
+  sidebar.receive({ type: "showSessionDetail" });
   const input = sidebar.element("input");
   const keydown = input.listeners.get("keydown")!;
   const press = (fields: Record<string, unknown> = {}) => keydown({ key: "Enter", shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, isComposing: false, preventDefault() {}, ...fields });
@@ -935,6 +960,7 @@ test("busy composer queues attachment-only steering and follow-up while preservi
 
 test("composer uses Ctrl+Q for Windows-client follow-ups", () => {
   const sidebar = createSidebarScriptHarness("Win32");
+  sidebar.receive({ type: "showSessionDetail" });
   const input = sidebar.element("input");
   const keydown = input.listeners.get("keydown")!;
   const press = (fields: Record<string, unknown>) => {
@@ -974,6 +1000,7 @@ test("isolated background sessions offer Open Worktree instead of an unusable Re
 
 test("keyboard queue and accepted-send messages preserve newer drafts and never create transcript copies", () => {
   const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "showSessionDetail" });
   const input = sidebar.element("input");
   const change = input.listeners.get("input")!;
   const keydown = input.listeners.get("keydown")!;

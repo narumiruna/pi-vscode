@@ -261,6 +261,9 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
         case "send":
           await this.send(message.text, message.revision);
           break;
+        case "sendNewSession":
+          await this.sendInNewSession(message.text, message.revision);
+          break;
         case "queueInstruction":
           await this.queue(message.kind, message.text, message.revision);
           break;
@@ -446,7 +449,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
           break;
       }
     } catch (error) {
-      if (message.type === "send" || message.type === "queueInstruction") {
+      if (message.type === "send" || message.type === "sendNewSession" || message.type === "queueInstruction") {
         this.postMessage({ type: "sendRejected" });
       } else if (message.type === "switchRecentSession") {
         this.postMessage({ type: "sessionSwitchRejected" });
@@ -609,6 +612,22 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     });
     submission.consumeAccepted();
     this.postMessage({ type: "clearInput", expectedText: rawText, expectedRevision: revision });
+  }
+
+  private async sendInNewSession(rawText: string, revision: number): Promise<void> {
+    const text = rawText.trim();
+    if (!text && this.attachments.values.length === 0) return;
+    if (text.length > maxInputCharacters) throw new Error(`Messages are limited to ${maxInputCharacters.toLocaleString()} characters.`);
+    if (this.attachments.images.length > 0 && !modelSupportsImages(this.runtime.currentState.model)) {
+      throw new Error("The current model does not support images. Change the model or remove image attachments before sending.");
+    }
+    if (this.isForegroundRequestActive()) throw new Error("Cancel or wait for the active request before starting a new session.");
+    if (this.backgroundSubmissionGate.isPending) throw new Error("Wait for the background or worktree agent to finish starting before starting a new session.");
+    await this.runtime.newSession();
+    await this.resetConversation("New Pi session", true);
+    await this.refreshRecentSessions();
+    this.postMessage({ type: "showSessionDetail" });
+    await this.send(rawText, revision);
   }
 
   private async send(rawText: string, revision: number): Promise<void> {
@@ -944,14 +963,14 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     }
   }
 
-  private async resetConversation(status: string): Promise<void> {
+  private async resetConversation(status: string, preserveAttachments = false): Promise<void> {
     this.messages = [];
     this.tools = [];
     this.changes = [];
     this.proposals.clear();
     this.retryRequest = undefined;
     this.historyRecoveryAvailable = false;
-    this.attachments.clear();
+    if (!preserveAttachments) this.attachments.clear();
     await this.persistMessages();
     this.status = status;
     this.postState();
@@ -1385,7 +1404,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
 
 function actionErrorSummary(action: WebviewMessage["type"]): string {
   if (action === "queueInstruction") return "Pi could not confirm queued message delivery. Inspect history and recovered drafts before resending.";
-  if (action === "send" || action === "retry") return "Pi could not accept the message. Review details, then retry when safe.";
+  if (action === "send" || action === "sendNewSession" || action === "retry") return "Pi could not accept the message. Review details, then retry when safe.";
   if (action === "reconnect") return "Pi could not reconnect. Review details and try again.";
   if (action === "refreshHistory") return "Conversation history could not be refreshed. Review details and try again.";
   if (action === "deleteSession") return "The session could not be deleted and was kept.";
