@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runInNewContext } from "node:vm";
@@ -28,6 +28,14 @@ test("packaged read-only gate blocks mutating default and extension tools and re
 
 test("foreground queue ownership, settlement grouping, clear-before-abort and uncertain fallback", async () => {
   const vscode = installVscodeMock();
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "picode-queue-workspaces-"));
+  const activeRoot = path.join(workspaceRoot, "active");
+  const otherRoot = path.join(workspaceRoot, "other");
+  await Promise.all([mkdir(activeRoot), mkdir(otherRoot)]);
+  const activeFolder = { uri: MockUri.file(activeRoot) };
+  const otherFolder = { uri: MockUri.file(otherRoot) };
+  vscode.workspace.workspaceFolders = [activeFolder, otherFolder];
+  vscode.workspace.getWorkspaceFolder = (resource: MockUri) => resource.fsPath.startsWith(otherRoot) ? otherFolder : activeFolder;
   const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
   const context: any = {
     workspaceState: { get: () => undefined, update: async () => {} },
@@ -71,6 +79,11 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
     internal.handleEvent({ type: "agent_settled" }); await feature; await tick();
     const composer = runtime.prompt("composer", undefined, undefined, undefined, undefined, true); await tick();
     let restoredAttachments = 0;
+    await assert.rejects(
+      runtime.queueInstruction("steer", "wrong workspace", { resource: MockUri.file(path.join(otherRoot, "context.ts")) as any }),
+      /target workspace differs/,
+    );
+    assert.deepEqual(queued, { steering: [], followUp: [] }, "cross-workspace attachments are rejected before queue mutation");
     await assert.rejects(runtime.queueInstruction("steer", "oversized recovery", { recoveryBytes: 31 * 1024 * 1024 }), /30 MiB/);
     assert.equal(runtime.currentState.connected, true, "local recovery bounds do not disconnect a healthy Pi session");
     await runtime.queueInstruction("steer", "same");
@@ -163,7 +176,77 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
     await assert.rejects(runtime.abort(), /ambiguous queue/);
     rejectQueue(new Error("Process exited")); await interrupted;
     assert.deepEqual(recovered(), [...old, "same", "distinct", "new"], "abort and the later queue rejection share one recovery owner");
+  } finally { runtime.dispose(); vscode.restore(); await rm(workspaceRoot, { recursive: true, force: true }); }
+});
+
+test("process exit recovers only the undelivered queue suffix with its attachment owner", () => {
+  const vscode = installVscodeMock();
+  const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
+  const runtime = new PiRuntimeManager({ environmentVariableCollection: { clear() {} } } as any);
+  const internal = runtime as any;
+  let deliveredRestores = 0;
+  let remainingRestores = 0;
+  internal.trackedQueue.steering.push(
+    { id: "delivered", kind: "steering", message: "first", recoveryText: "first image", hasAttachments: true, recoveryBytes: 10, restoreAttachments: () => { deliveredRestores += 1; } },
+    { id: "remaining", kind: "steering", message: "second", recoveryText: "second image", hasAttachments: true, recoveryBytes: 20, restoreAttachments: () => { remainingRestores += 1; } },
+  );
+  internal.updateState({ connected: true, busy: true, queueable: true, queue: { steering: ["second"], followUp: [] } });
+  try {
+    internal.handleEvent({ type: "process_exit" });
+    assert.deepEqual(runtime.currentState.recoveredDrafts?.map(draft => draft.text), ["second image"]);
+    const recovered = runtime.currentState.recoveredDrafts?.[0];
+    assert.ok(recovered?.hasAttachments);
+    runtime.restoreRecoveredDraftAttachments(recovered.id);
+    assert.equal(deliveredRestores, 0, "the delivered prefix is not recovered");
+    assert.equal(remainingRestores, 1, "the undelivered suffix keeps its attachment snapshot");
   } finally { runtime.dispose(); vscode.restore(); }
+});
+
+test("sidebar rejects an empty queued snapshot and forwards an attachment resource", async () => {
+  const vscode = installVscodeMock();
+  vscode.window.registerWebviewViewProvider = () => ({ dispose() {} });
+  const { registerPiCodeSidebar } = require("../sidebar") as typeof import("../sidebar");
+  const subscription = () => ({ dispose() {} });
+  const posted: Array<Record<string, unknown>> = [];
+  const queued: Array<{ text: string; options: Record<string, unknown> }> = [];
+  const runtime: any = {
+    currentState: { model: undefined },
+    onEvent: subscription,
+    onDidChangeState: subscription,
+    queueInstruction: async (_kind: string, text: string, options: Record<string, unknown>) => { queued.push({ text, options }); },
+  };
+  const context: any = {
+    workspaceState: { get: () => undefined },
+    extensionUri: MockUri.file("/extension"),
+    subscriptions: [],
+  };
+  const provider = registerPiCodeSidebar(context, runtime);
+  const internal = provider as any;
+  internal.view = { webview: { postMessage: async (message: Record<string, unknown>) => { posted.push(message); return true; } } };
+  try {
+    await internal.queue("steer", "", 1);
+    assert.equal(posted.at(-1)?.type, "sendRejected", "an attachment-removal race releases webview submissionPending");
+
+    const resource = MockUri.file("/other/context.ts");
+    let consumed = false;
+    internal.attachments.captureSubmission = () => ({
+      ids: ["context"],
+      textContexts: [{ label: "context.ts", content: "context" }],
+      images: [],
+      resource,
+      transcriptAttachments: [{ type: "context", label: "context.ts" }],
+      recoveryBytes: 7,
+      consumeAccepted: () => { consumed = true; },
+      restoreConsumed() {},
+    });
+    await internal.queue("followUp", "use this", 2);
+    assert.equal(queued[0]?.options.resource, resource);
+    assert.equal(consumed, true);
+    assert.equal(posted.at(-1)?.type, "clearInput");
+  } finally {
+    for (const disposable of context.subscriptions) disposable.dispose();
+    vscode.restore();
+  }
 });
 
 test("ordinary queue reconciliation validates both kinds before retiring delivered attachment records", () => {
