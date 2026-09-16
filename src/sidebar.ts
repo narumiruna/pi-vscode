@@ -580,7 +580,10 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   private async send(rawText: string, revision: number): Promise<void> {
     const submission = this.attachments.captureSubmission();
     const text = resolveSidebarSubmissionText(rawText, submission);
-    if (!text) return;
+    if (!text) {
+      this.postMessage({ type: "sendRejected" });
+      return;
+    }
     if (submission.images.length > 0 && !modelSupportsImages(this.runtime.currentState.model)) {
       throw new Error("The current model does not support images. Change the model or remove image attachments before sending.");
     }

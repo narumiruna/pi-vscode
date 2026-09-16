@@ -129,8 +129,7 @@ export class SidebarAttachmentManager {
 
   public captureSubmission(): SidebarSubmissionSnapshot {
     const ids = this.attachments.map(item => item.id);
-    const consumedIds = new Set(consumedUnpinnedIds(this.attachments, ids));
-    const restorable = this.attachments.filter(item => consumedIds.has(item.id));
+    const restorable = [...this.attachments];
     return {
       ids,
       textContexts: this.textContexts,

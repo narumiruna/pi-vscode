@@ -166,6 +166,24 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
   } finally { runtime.dispose(); vscode.restore(); }
 });
 
+test("cleared queue validation preserves both attachment ledgers until every queue kind matches", () => {
+  const vscode = installVscodeMock();
+  const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
+  const runtime = new PiRuntimeManager({ environmentVariableCollection: { clear() {} } } as any);
+  const internal = runtime as any;
+  const steering = { id: "steering", kind: "steering", message: "steer", recoveryText: "steer", hasAttachments: true, recoveryBytes: 10, restoreAttachments() {} };
+  const followUp = { id: "follow-up", kind: "followUp", message: "follow", recoveryText: "follow", hasAttachments: true, recoveryBytes: 20, restoreAttachments() {} };
+  internal.trackedQueue.steering.push(steering);
+  internal.trackedQueue.followUp.push(followUp);
+  try {
+    assert.throws(() => internal.takeClearedInstructions({ steering: ["steer"], followUp: ["unexpected"] }), /unexpected follow-up queue/);
+    assert.deepEqual(internal.trackedQueue.steering, [steering], "a later mismatch cannot discard validated steering attachment ownership");
+    assert.deepEqual(internal.trackedQueue.followUp, [followUp]);
+    assert.deepEqual(internal.takeClearedInstructions({ steering: ["steer"], followUp: ["follow"] }), [steering, followUp]);
+    assert.deepEqual(internal.trackedQueue, { steering: [], followUp: [] });
+  } finally { runtime.dispose(); vscode.restore(); }
+});
+
 test("session-workspace binding rejects cross-root, malformed and oversized headers without reading full history", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "picode-session-binding-"));
   try {
