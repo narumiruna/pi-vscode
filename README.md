@@ -148,7 +148,7 @@ npm run package
 
 `npm test` compiles the extension and runs the Node test suite. `npm run package` repeats those checks and creates `pi-coding-agent-vscode.vsix`.
 
-- `just dev` compiles the extension and opens an Extension Development Host.
+- `just dev` rebuilds and installs the VS Code and Pi bridge extensions, then opens the current directory in a new VS Code window using the installed extension.
 - `just dev-pi` starts Pi with `resources/picode-bridge.ts` in the current terminal.
 
 ## Release
