@@ -129,6 +129,12 @@ test("sidebar preserves hidden semantics, themed layout, and keyboard accessibil
   assert.match(html, /var\(--vscode-contrastBorder\)/);
   assert.match(html, /prefers-reduced-motion: no-preference/);
   assert.match(html, /summary:focus-visible/);
+  assert.match(html, /<div id="pending-queue" role="list" aria-label="Pending Pi messages" hidden><\/div>/);
+  assert.match(html, /\.pending-queue-item \{[^}]*min-width: 0/);
+  assert.match(html, /\.pending-queue-text \{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere;[^}]*-webkit-line-clamp: 2/);
+  assert.match(html, /row\.setAttribute\('role', 'listitem'\)/);
+  assert.match(html, /text\.textContent = item\.text/);
+  assert.doesNotMatch(html, /row\.innerHTML|text\.innerHTML|kindLabel\.innerHTML/);
   assert.match(html, /<label for="input" class="sr-only">Message Pi<\/label>/);
   assert.match(html, /<textarea[^>]*maxlength="42"[^>]*aria-describedby="composer-hint"/);
   assert.match(html, /id="send"[^>]*aria-label="Send message"[^>]*disabled/);
@@ -967,16 +973,77 @@ test("busy composer queues attachment-only steering and follow-up while preservi
     type: "state",
     status: "Pi is working…",
     imageSupported: true,
-    runtime: { busy: true, cancellable: true, connected: true, queueable: true, queue: { steering: ["one"], followUp: ["two"] } },
+    runtime: {
+      busy: true,
+      cancellable: true,
+      connected: true,
+      queueable: true,
+      queue: { steering: ["one"], followUp: ["two"] },
+      pendingQueue: {
+        steering: [{ id: "one", kind: "steering", text: "one", hasAttachments: true }],
+        followUp: [{ id: "two", kind: "followUp", text: "two", hasAttachments: false }],
+      },
+    },
     attachments: [{ id: "context", label: "context.ts", image: false }],
   });
-  assert.match(sidebar.element("queue-status").textContent, /1 steering · 1 follow-ups pending · attachments included/);
+  assert.match(sidebar.element("queue-status").textContent, /1 steering · 1 follow-ups pending/);
+  const pendingRows = sidebar.element("pending-queue").children;
+  assert.equal(pendingRows.length, 2);
+  assert.deepEqual(pendingRows[0]?.children.map(child => child.textContent), ["Steering:", "one · attachments included"]);
+  assert.deepEqual(pendingRows[1]?.children.map(child => child.textContent), ["Follow-up:", "two"]);
   const contextQueueCount = sidebar.posted.length;
   sidebar.run("submissionPending = false; submit()");
   assert.equal(sidebar.posted.length, contextQueueCount + 1);
   assert.equal(sidebar.posted.at(-1).type, "queueInstruction");
   assert.equal(sidebar.posted.at(-1).text, "", "attachment-only text context is queued instead of deferred");
   assert.equal(sidebar.element("notice").textContent, "");
+});
+
+test("pending queue renders Pi-style labels, duplicate text and safe bounded previews until delivery", () => {
+  const sidebar = createSidebarScriptHarness();
+  const queuedText = "<img src=x onerror=alert(1)>\ncontinue here";
+  const runtime = (steering: unknown[], followUp: unknown[]) => ({
+    busy: true,
+    cancellable: true,
+    connected: true,
+    queueable: true,
+    pendingQueue: { steering, followUp },
+  });
+  sidebar.receive({
+    type: "state",
+    status: "Pi is working…",
+    runtime: runtime(
+      [
+        { id: "first", kind: "steering", text: queuedText, hasAttachments: false },
+        { id: "second", kind: "steering", text: queuedText, hasAttachments: true },
+      ],
+      [{ id: "later", kind: "followUp", text: "after completion", hasAttachments: false }],
+    ),
+    attachments: [],
+  });
+
+  const pending = sidebar.element("pending-queue");
+  assert.equal(pending.hidden, false);
+  assert.equal(pending.children.length, 3, "duplicate text keeps separate pending rows");
+  assert.equal(pending.children[0]?.title, queuedText);
+  assert.equal(pending.children[0]?.children[1]?.textContent, queuedText);
+  assert.equal(pending.children[0]?.innerHTML, "", "queued text is never interpreted as HTML");
+  assert.equal(pending.children[1]?.children[1]?.textContent, `${queuedText} · attachments included`);
+
+  sidebar.receive({
+    type: "state",
+    status: "Pi is working…",
+    runtime: runtime([], [{ id: "later", kind: "followUp", text: "after completion", hasAttachments: false }]),
+    messages: [{ id: "delivered", role: "user", html: "<p>continue here</p>" }],
+    attachments: [],
+  });
+  assert.equal(pending.children.length, 1);
+  assert.deepEqual(pending.children[0]?.children.map(child => child.textContent), ["Follow-up:", "after completion"]);
+  assert.equal(sidebar.element("messages").children.length, 1, "delivered input moves into the transcript state");
+
+  sidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, connected: true, pendingQueue: { steering: [], followUp: [] } }, attachments: [] });
+  assert.equal(pending.hidden, true);
+  assert.equal(sidebar.element("queue-status").textContent, "");
 });
 
 test("composer uses Ctrl+Q for Windows-client follow-ups", () => {
