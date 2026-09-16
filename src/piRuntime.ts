@@ -266,9 +266,10 @@ export class PiRuntimeManager implements vscode.Disposable {
       });
       this.seedTrackedQueue(queue);
       const recoveryBytes = options.recoveryBytes ?? 0;
-      const trackedRecoveryBytes = [...this.trackedQueue.steering, ...this.trackedQueue.followUp].reduce((total, record) => total + record.recoveryBytes, 0);
+      const pendingRecoveryBytes = [...this.trackedQueue.steering, ...this.trackedQueue.followUp, ...this.awaitingQueueStarts]
+        .reduce((total, record) => total + record.recoveryBytes, 0);
       const recoveredBytes = [...this.recoveredAttachmentHandles.values()].reduce((total, handle) => total + handle.bytes, 0);
-      if (!Number.isSafeInteger(recoveryBytes) || recoveryBytes < 0 || recoveredBytes + trackedRecoveryBytes + recoveryBytes > maxQueueRecoveryBytes) {
+      if (!Number.isSafeInteger(recoveryBytes) || recoveryBytes < 0 || recoveredBytes + pendingRecoveryBytes + recoveryBytes > maxQueueRecoveryBytes) {
         throw new Error("Queued attachment snapshots exceed the 30 MiB in-memory recovery limit.");
       }
       const id = options.instructionId ?? randomUUID();
