@@ -10,6 +10,7 @@ const metadataChunkBytes = 64 * 1024;
 const maxMetadataLineBytes = 256 * 1024;
 const maxMetadataScanBytes = 512 * 1024;
 const maxDiscoveryReadBytes = 64 * 1024 * 1024;
+const minCandidateBudgetBytes = metadataChunkBytes;
 const maxTitleCharacters = 160;
 const defaultLimit = 100;
 const statBatchSize = 50;
@@ -75,7 +76,10 @@ export async function listRecentPiSessions(
   const summaries: PiSessionSummary[] = [];
   for (const candidate of candidates) {
     if (summaries.length >= requestedLimit || budget.remaining === 0) break;
+    const budgetBefore = budget.remaining;
     const summary = await readSessionSummary(candidate.path, canonicalCwd, candidate.updatedAt, budget);
+    const consumed = budgetBefore - budget.remaining;
+    budget.remaining = Math.max(0, budget.remaining - Math.max(0, minCandidateBudgetBytes - consumed));
     if (summary) summaries.push(summary);
   }
   return summaries;
@@ -99,7 +103,7 @@ async function readSessionSummary(
     let headBytesRead = await readBounded(handle, headBuffer, 0, headerLength, 0, budget);
     const headerText = headBuffer.subarray(0, headBytesRead).toString("utf8");
     const headerLineEnd = headerText.indexOf("\n");
-    if (headerLineEnd < 0 || headerLineEnd > 16_384) return undefined;
+    if (headerLineEnd < 0 || headerLineEnd >= maxHeaderBytes) return undefined;
     const header = parseRecord(headerText.slice(0, headerLineEnd));
     if (!header || header.type !== "session" || typeof header.id !== "string" || typeof header.cwd !== "string" || !path.isAbsolute(header.cwd)) return undefined;
     if (!await sameWorkspace(header.cwd, canonicalCwd)) return undefined;
