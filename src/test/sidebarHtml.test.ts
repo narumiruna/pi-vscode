@@ -740,6 +740,41 @@ test("composer keyboard submission matches Pi queue behavior on Alt+Enter platfo
   assert.match(sidebar.element("notice").textContent, /does not accept queued messages/);
 });
 
+test("busy composer queues attachment-only steering and follow-up while preserving image gates", () => {
+  const sidebar = createSidebarScriptHarness("MacIntel");
+  const input = sidebar.element("input");
+  const keydown = input.listeners.get("keydown")!;
+  const press = (fields: Record<string, unknown> = {}) => keydown({ key: "Enter", shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, isComposing: false, preventDefault() {}, ...fields });
+  sidebar.run("connected = true; busy = true; queueable = true; attachedItems = true; attachedImages = true; imageSupported = true; submissionPending = false; pendingImageReads = 0; updateSendState()");
+
+  input.value = "";
+  press();
+  const steering = sidebar.posted.at(-1);
+  assert.equal(steering.type, "queueInstruction"); assert.equal(steering.kind, "steer"); assert.equal(steering.text, ""); assert.equal(steering.revision, 0);
+  sidebar.run("submissionPending = false; updateSendState()");
+  press({ altKey: true });
+  assert.equal(sidebar.posted.at(-1).kind, "followUp");
+
+  sidebar.run("submissionPending = false; pendingImageReads = 1; updateSendState()");
+  const loadingCount = sidebar.posted.length;
+  press();
+  assert.equal(sidebar.posted.length, loadingCount, "partially read images are not queued");
+
+  sidebar.run("pendingImageReads = 0; imageSupported = false; updateSendState()");
+  press();
+  assert.equal(sidebar.posted.length, loadingCount, "unsupported images are not queued");
+  assert.match(sidebar.element("composer-hint").textContent, /image-capable model/);
+
+  sidebar.receive({
+    type: "state",
+    status: "Pi is working…",
+    imageSupported: true,
+    runtime: { busy: true, cancellable: true, connected: true, queueable: true, queue: { steering: ["one"], followUp: ["two"] } },
+    attachments: [{ id: "context", label: "context.ts", image: false }],
+  });
+  assert.match(sidebar.element("queue-status").textContent, /1 steering · 1 follow-ups pending · attachments included/);
+});
+
 test("composer uses Ctrl+Q for Windows-client follow-ups", () => {
   const sidebar = createSidebarScriptHarness("Win32");
   const input = sidebar.element("input");

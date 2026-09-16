@@ -25,7 +25,7 @@ import { renderSafeMarkdown } from "./markdown";
 import { buildAgentPrompt, type AgentRequestPolicy, type ChatReferenceContext } from "./prompts";
 import { deleteConversationWithTrashFallback, runtimeSessionIdentityChanged, type PiRuntimeManager } from "./piRuntime";
 import type { PiRpcEvent, PiRpcImage } from "./piRpcClient";
-import { resolveSidebarSubmissionText, SidebarAttachmentManager } from "./sidebarAttachments";
+import { resolveSidebarQueueSubmission, resolveSidebarSubmissionText, SidebarAttachmentManager } from "./sidebarAttachments";
 import { ImageAssetCache, ImageAssetDeliveryTracker } from "./imageAssets";
 import {
   convertPiMessages,
@@ -257,8 +257,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
           await this.send(message.text, message.revision);
           break;
         case "queueInstruction":
-          await this.runtime.queueInstruction(message.kind, message.text);
-          this.postMessage({ type: "clearInput", expectedText: message.text, expectedRevision: message.revision });
+          await this.queue(message.kind, message.text, message.revision);
           break;
         case "clearQueue":
           await this.runtime.clearInstructions();
@@ -271,8 +270,15 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
           break;
         }
         case "recoverQueue": {
-          const picked = await vscode.window.showQuickPick((this.runtime.currentState.recoveredDrafts ?? []).map(draft => ({ label: draft.text.slice(0, 150), description: draft.uncertain ? "Delivery uncertain — inspect history before resending" : "Cleared before delivery", draft })), { title: "Recovered queue drafts (never replayed automatically)" });
-          if (picked) this.postMessage({ type: "appendDraft", text: picked.draft.text, expectedRevision: message.revision });
+          const picked = await vscode.window.showQuickPick((this.runtime.currentState.recoveredDrafts ?? []).map(draft => ({
+            label: draft.text.slice(0, 150),
+            description: `${draft.uncertain ? "Delivery uncertain — inspect history before resending" : "Cleared before delivery"}${draft.hasAttachments ? " · attachments available" : ""}`,
+            draft,
+          })), { title: "Recovered queue drafts (never replayed automatically)" });
+          if (picked) {
+            const text = this.runtime.restoreRecoveredDraft(picked.draft.id);
+            this.postMessage({ type: "appendDraft", text, expectedRevision: message.revision });
+          }
           break;
         }
         case "cancel":
@@ -551,6 +557,24 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       undefined,
       retry.transcriptAttachments,
     );
+  }
+
+  private async queue(kind: "steer" | "followUp", rawText: string, revision: number): Promise<void> {
+    const submission = this.attachments.captureSubmission();
+    const resolved = resolveSidebarQueueSubmission(rawText, submission);
+    if (!resolved) return;
+    if (submission.images.length > 0 && !modelSupportsImages(this.runtime.currentState.model)) {
+      throw new Error("The current model does not support images. Change the model or remove image attachments before sending.");
+    }
+    await this.runtime.queueInstruction(kind, resolved.message, {
+      images: submission.images,
+      recoveryText: resolved.text,
+      restoreAttachments: submission.transcriptAttachments.length ? submission.restoreConsumed : undefined,
+      hasAttachments: submission.transcriptAttachments.length > 0,
+      recoveryBytes: submission.recoveryBytes,
+    });
+    submission.consumeAccepted();
+    this.postMessage({ type: "clearInput", expectedText: rawText, expectedRevision: revision });
   }
 
   private async send(rawText: string, revision: number): Promise<void> {
