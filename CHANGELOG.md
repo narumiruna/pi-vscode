@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Add a top-level workspace **Sessions** list with quick switching, a searchable **View all** browser, and a separate conversation detail layer with **Back to Sessions**.
+- Add a top-level workspace **Sessions** list with quick switching, a searchable **View all** browser, a composer that starts a new session, and a separate conversation detail layer with **Back to Sessions**.
 - Show composer image attachments as compact, labeled thumbnail cards with preview and remove actions.
 - Keep submitted context chips and validated image thumbnails on their user turn across history refresh and session restore, with labeled unavailable placeholders when image bytes cannot be recovered.
 - Add bounded one-shot transcript image delivery, newest-first aggregate history processing limits, browser-rejection memory, responsive thumbnail grids, and a keyboard-accessible modal preview without persisting Base64 image payloads.

@@ -46,8 +46,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     [hidden] { display: none !important; }
     body { margin: 0; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); line-height: 1.5; overflow: hidden; }
     #app { height: 100vh; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto auto auto; padding: 0 12px 10px; }
-    #app.sessions-layer { grid-template-rows: minmax(0, 1fr) auto; }
-    #app.sessions-layer > :not(#sessions):not(#notice) { display: none; }
+    #app.sessions-layer { grid-template-rows: minmax(0, 1fr) auto auto auto; }
+    #app.sessions-layer > :not(#sessions):not(#composer):not(#notice):not(#runtime) { display: none; }
     button, select { min-height: 28px; border: 1px solid var(--vscode-button-border, transparent); border-radius: 7px; padding: 4px 9px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); cursor: pointer; font: inherit; }
     button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
     button:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
@@ -394,6 +394,10 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const text = input.value.trim();
       if ((!text && !attachedItems) || !connected || submissionPending || backgroundSubmissionPending) return;
       if (pendingImageReads > 0 || (attachedImages && !imageSupported)) return;
+      if (sessionsLayerVisible && busy) {
+        showNotice('Wait for Pi to finish before starting a new session.', 'warning', false, true);
+        return;
+      }
       if (busy) {
         if (!queueable) {
           showNotice('This request does not accept queued messages.', 'warning', false, true);
@@ -405,7 +409,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       } else {
         submissionPending = true;
         updateSendState();
-        vscode.postMessage({ type: 'send', text: input.value, revision: composerRevision });
+        vscode.postMessage({ type: sessionsLayerVisible ? 'sendNewSession' : 'send', text: input.value, revision: composerRevision });
       }
       clearNotice();
     }
@@ -960,6 +964,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('back-to-sessions').title = sessionsLayerVisible ? 'Back to recent Sessions' : 'Back to Sessions';
       $('session-header-title').textContent = sessionsLayerVisible ? 'Sessions' : current?.title || 'Session';
       $('session-header-title').title = sessionsLayerVisible ? '' : current?.title || '';
+      input.placeholder = sessionsLayerVisible ? 'Start a new session…' : 'Ask, plan, or build something…';
       renderSessions();
     }
 
@@ -1006,6 +1011,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     function updateSendState() {
       const imageBlocked = attachedImages && !imageSupported;
       const imageLoading = pendingImageReads > 0;
+      const sessionStartBlocked = sessionsLayerVisible && busy;
       const interactionLocked = isInteractionLocked();
       if (!interactionLocked && notice.dataset.transientLock === 'true') clearNotice();
       $('model-picker').disabled = interactionLocked || !connected;
@@ -1018,29 +1024,35 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       input.disabled = Boolean(recoveredDraftPending);
       $('add-context').disabled = Boolean(recoveredDraftPending);
       for (const button of emptyActionButtons) button.disabled = interactionLocked;
-      sendButton.disabled = interactionLocked || !connected || (!input.value.trim() && !attachedItems) || imageBlocked;
+      sendButton.disabled = interactionLocked || sessionStartBlocked || !connected || (!input.value.trim() && !attachedItems) || imageBlocked;
       sendButton.title = imageLoading
         ? 'Wait for pasted images to finish loading.'
         : submissionPending
           ? 'Waiting for Pi to accept this message.'
           : backgroundSubmissionPending
             ? 'Wait for the background agent to finish starting.'
-            : imageBlocked
-              ? 'The current model does not support image attachments.'
-              : !connected
-                ? 'Reconnect to Pi before sending.'
-                : !input.value.trim() && attachedItems ? 'Send attached context' : 'Send message';
+            : sessionStartBlocked
+              ? 'Wait for Pi to finish before starting a new session.'
+              : imageBlocked
+                ? 'The current model does not support image attachments.'
+                : !connected
+                  ? 'Reconnect to Pi before sending.'
+                  : !input.value.trim() && attachedItems ? 'Send attached context' : sessionsLayerVisible ? 'Start new session' : 'Send message';
       $('composer-hint').textContent = imageLoading
         ? 'Loading pasted image…'
         : backgroundSubmissionPending
           ? 'Starting background agent…'
-          : imageBlocked
-            ? 'Choose an image-capable model or remove images'
-            : queueable
-              ? 'Enter to steer · ' + followUpShortcutLabel + ' for follow-up · Shift+Enter for newline'
-              : busy
-                ? 'This request does not accept queued messages'
-                : 'Enter to send · ' + followUpShortcutLabel + ' also sends · Shift+Enter for newline';
+          : sessionStartBlocked
+            ? 'Wait for Pi before starting a new session'
+            : imageBlocked
+              ? 'Choose an image-capable model or remove images'
+              : sessionsLayerVisible
+                ? 'Enter to start a new session · Shift+Enter for newline'
+                : queueable
+                  ? 'Enter to steer · ' + followUpShortcutLabel + ' for follow-up · Shift+Enter for newline'
+                  : busy
+                    ? 'This request does not accept queued messages'
+                    : 'Enter to send · ' + followUpShortcutLabel + ' also sends · Shift+Enter for newline';
       updateRuntimeStatus();
     }
 

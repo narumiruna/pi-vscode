@@ -55,7 +55,7 @@ Open a new integrated terminal after installation so Pi inherits the authenticat
 
 ## Get started
 
-1. Run **Pi: Open Sessions** from the Command Palette, or open **Pi** in the Secondary Sidebar. Choose a session from **Sessions**, or use **View all** to search the current workspace. Use **Back to Sessions** from the conversation view to return to the list.
+1. Run **Pi: Open Sessions** from the Command Palette, or open **Pi** in the Secondary Sidebar. Choose a session from **Sessions**, or use **View all** to search the current workspace. Sending from the Sessions-level composer starts a new session; **Back to Sessions** returns there from a conversation.
 2. Add context from the composer, or paste a supported image with Ctrl/Cmd+V.
 3. Enter a request. The active model and thinking level appear beside **Send**.
 4. For proposed changes, choose **Preview**, optionally select hunks, and then choose **Apply**.
