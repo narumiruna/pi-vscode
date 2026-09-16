@@ -20,6 +20,7 @@ export type WebviewMessage =
   | { readonly type: "send"; readonly text: string; readonly revision: number }
   | { readonly type: "queueInstruction"; readonly text: string; readonly revision: number; readonly kind: "steer" | "followUp" }
   | { readonly type: "recoverQueue"; readonly revision: number }
+  | { readonly type: "restoreQueueAttachments"; readonly id: string }
   | { readonly type: "showMoreActions"; readonly text: string; readonly revision: number }
   | { readonly type: "pasteImage"; readonly data: string; readonly mimeType: string; readonly fileName?: string }
   | { readonly type: "setModel"; readonly provider: string; readonly modelId: string }
@@ -35,6 +36,7 @@ export function isWebviewMessage(value: unknown, maxImageBytes: number): value i
   if (value.type === "switchRecentSession") return typeof value.id === "string" && /^[a-f0-9]{24}$/.test(value.id);
   if (value.type === "queueInstruction") return typeof value.text === "string" && value.text.length <= 50_000 && isComposerRevision(value.revision) && ["steer", "followUp"].includes(String(value.kind));
   if (value.type === "recoverQueue") return isComposerRevision(value.revision);
+  if (value.type === "restoreQueueAttachments") return typeof value.id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value.id);
   if (value.type === "showMoreActions") {
     return typeof value.text === "string" && isComposerRevision(value.revision);
   }

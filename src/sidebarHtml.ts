@@ -333,13 +333,13 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let recentSessions = [];
     let chatsExpanded = false;
     let sessionSwitchPending;
+    let recoveredDraftPending;
     let chatButtons = [];
 
-    function showNotice(message, level, detailsAvailable = false, transientLock = false, attachmentWait = false) {
+    function showNotice(message, level, detailsAvailable = false, transientLock = false) {
       notice.textContent = message;
       notice.className = level || '';
       notice.dataset.transientLock = transientLock ? 'true' : '';
-      notice.dataset.attachmentWait = attachmentWait ? 'true' : '';
       if (detailsAvailable) {
         const details = document.createElement('button');
         details.className = 'secondary';
@@ -355,7 +355,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       notice.textContent = '';
       notice.className = '';
       notice.dataset.transientLock = '';
-      notice.dataset.attachmentWait = '';
     }
 
     function updateRuntimeStatus() {
@@ -388,11 +387,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     function submit(kind = 'steer') {
       const text = input.value.trim();
       if ((!text && !attachedItems) || !connected || submissionPending || backgroundSubmissionPending) return;
+      if (pendingImageReads > 0 || (attachedImages && !imageSupported)) return;
       if (busy) {
-        if (!text) {
-          showNotice('The attached context is ready for the next message. Wait for Pi to finish before sending it.', 'info', false, true, true);
-          return;
-        }
         if (!queueable) {
           showNotice('This request does not accept queued messages.', 'warning', false, true);
           return;
@@ -401,7 +397,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         updateSendState();
         vscode.postMessage({ type: 'queueInstruction', kind, text: input.value, revision: composerRevision });
       } else {
-        if (pendingImageReads > 0 || (attachedImages && !imageSupported)) return;
         submissionPending = true;
         updateSendState();
         vscode.postMessage({ type: 'send', text: input.value, revision: composerRevision });
@@ -912,7 +907,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     }
 
     function isInteractionLocked() {
-      return busy || submissionPending || backgroundSubmissionPending || pendingImageReads > 0;
+      return busy || submissionPending || backgroundSubmissionPending || pendingImageReads > 0 || Boolean(recoveredDraftPending);
     }
 
     function createChatRow(session) {
@@ -978,18 +973,19 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     }
 
     function updateSendState() {
-      const imageBlocked = !busy && attachedImages && !imageSupported;
+      const imageBlocked = attachedImages && !imageSupported;
       const imageLoading = pendingImageReads > 0;
       const interactionLocked = isInteractionLocked();
-      const attachmentWaitEnded = notice.dataset.attachmentWait === 'true' && !attachedItems;
-      if ((!interactionLocked || attachmentWaitEnded) && notice.dataset.transientLock === 'true') clearNotice();
+      if (!interactionLocked && notice.dataset.transientLock === 'true') clearNotice();
       $('model-picker').disabled = interactionLocked || !connected;
       thinkingLevel.disabled = interactionLocked || !connected || !thinkingSelectable;
       $('new-session').disabled = interactionLocked;
       $('delete-session').disabled = interactionLocked || !connected || !deletableSession;
       $('more').disabled = interactionLocked || !connected;
+      $('recover-queue').disabled = interactionLocked;
       for (const button of chatButtons) button.disabled = interactionLocked || Boolean(sessionSwitchPending);
-      $('add-context').disabled = false;
+      input.disabled = Boolean(recoveredDraftPending);
+      $('add-context').disabled = Boolean(recoveredDraftPending);
       for (const button of emptyActionButtons) button.disabled = interactionLocked;
       sendButton.disabled = interactionLocked || !connected || (!input.value.trim() && !attachedItems) || imageBlocked;
       sendButton.title = imageLoading
@@ -1022,7 +1018,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       cancellable = Boolean(state.runtime.cancellable);
       queueable = Boolean(state.runtime.queueable) && busy;
       const queue = state.runtime.queue || { steering: [], followUp: [] };
-      $('queue-status').textContent = queueable ? queue.steering.length + ' steering · ' + queue.followUp.length + ' follow-ups pending · text only; attachments excluded · steering waits for tool calls' : '';
+      $('queue-status').textContent = queueable ? queue.steering.length + ' steering · ' + queue.followUp.length + ' follow-ups pending · attachments included · steering waits for tool calls' : '';
       $('recover-queue').hidden = !(state.runtime.recoveredDrafts || []).length;
       connected = Boolean(state.runtime.connected);
       deletableSession = Boolean(state.runtime.sessionFile);
@@ -1148,10 +1144,30 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       else if (message.type === 'imageAsset') acceptImageAsset(message);
       else if (message.type === 'notice') showNotice(message.message, message.level, Boolean(message.detailsAvailable));
       else if (message.type === 'appendDraft') {
-        if (composerRevision === message.expectedRevision) {
-          input.value += (input.value ? '\\n\\n' : '') + message.text;
-          composerRevision += 1; resizeInput(); updateSendState();
+        if (composerRevision === message.expectedRevision && !recoveredDraftPending) {
+          if (message.recoveredDraftId) {
+            recoveredDraftPending = { id: message.recoveredDraftId, text: message.text };
+            updateSendState();
+            vscode.postMessage({ type: 'restoreQueueAttachments', id: message.recoveredDraftId });
+          } else {
+            input.value += (input.value ? '\\n\\n' : '') + message.text;
+            composerRevision += 1; resizeInput(); updateSendState();
+          }
         } else { showNotice('Your draft changed. The recovered message remains in Recovered Drafts.', 'warning'); }
+      }
+      else if (message.type === 'commitRecoveredDraft') {
+        if (recoveredDraftPending?.id === message.id) {
+          const text = recoveredDraftPending.text;
+          recoveredDraftPending = undefined;
+          input.value += (input.value ? '\\n\\n' : '') + text;
+          composerRevision += 1; resizeInput(); updateSendState(); input.focus();
+        }
+      }
+      else if (message.type === 'rejectRecoveredDraft') {
+        if (recoveredDraftPending?.id === message.id) {
+          recoveredDraftPending = undefined;
+          updateSendState(); input.focus();
+        }
       }
       else if (message.type === 'setInput') {
         setComposerInput(message.text);
