@@ -401,6 +401,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     } catch (error) {
       warnings.push(`Session storage cleanup failed: ${formatError(error)}`);
     }
+    this.recoveredAttachmentHandles.clear();
     this.state = emptyState();
     this.stateEmitter.fire(this.state);
     try {
@@ -643,18 +644,19 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   private takeClearedInstructions(cleared: PiRpcQueue): TrackedQueueInstruction[] {
-    const records: TrackedQueueInstruction[] = [];
+    const validated: Record<RuntimeQueueKind, TrackedQueueInstruction[]> = { steering: [], followUp: [] };
     for (const kind of ["steering", "followUp"] as const) {
       const tracked = this.trackedQueue[kind];
       const remote = cleared[kind];
-      if (!tracked.length) tracked.push(...remote.map(text => this.textOnlyQueueRecord(kind, text)));
-      if (!arraysEqual(tracked.map(record => record.message), remote)) {
+      const records = tracked.length ? [...tracked] : remote.map(text => this.textOnlyQueueRecord(kind, text));
+      if (!arraysEqual(records.map(record => record.message), remote)) {
         throw new Error(`Pi cleared an unexpected ${kind === "steering" ? "steering" : "follow-up"} queue.`);
       }
-      records.push(...tracked);
-      tracked.splice(0);
+      validated[kind] = records;
     }
-    return records;
+    this.trackedQueue.steering.splice(0);
+    this.trackedQueue.followUp.splice(0);
+    return [...validated.steering, ...validated.followUp];
   }
 
   private textOnlyQueueRecord(kind: RuntimeQueueKind, text: string): TrackedQueueInstruction {

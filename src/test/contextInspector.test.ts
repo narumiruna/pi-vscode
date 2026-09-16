@@ -131,11 +131,15 @@ test("attachment snapshots retain pins, survive failed sends, consume only old r
     manager.consume([original.id]); assert.equal(manager.values.length, 1);
     const redacted = manager.values[0]!;
     answers.push({ id: redacted.id }, "Pin"); await manager.inspect();
+    const pinned = manager.values[0]!;
     const pinnedSubmission = manager.captureSubmission();
-    manager.consume(manager.values.map(item => item.id)); assert.equal(manager.values.length, 1);
-    pinnedSubmission.restoreConsumed(); assert.equal(manager.values.length, 1, "pinned snapshots are never duplicated by recovery");
+    assert.equal(pinnedSubmission.recoveryBytes, Buffer.byteLength("redacted"), "pinned snapshots count toward bounded recovery ownership");
+    pinnedSubmission.consumeAccepted(); assert.equal(manager.values.length, 1, "acceptance does not consume a pinned snapshot");
+    manager.remove(pinned.id); assert.equal(manager.values.length, 0);
     text = "new capture"; await manager.attachCurrentFile();
-    assert.equal(manager.textContexts[0]?.content, "new capture");
+    pinnedSubmission.restoreConsumed();
+    assert.deepEqual(manager.textContexts.map(context => context.content), ["new capture", "redacted"], "recovery restores the exact captured pin without replacing newer context");
+    assert.equal(manager.values.find(item => item.id === pinned.id)?.metadata?.pinned, true);
     manager.clear(); assert.equal(manager.values.length, 0);
   } finally { manager.dispose(); vscode.restore(); }
 });
