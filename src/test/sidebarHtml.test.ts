@@ -61,15 +61,18 @@ test("sidebar places model and thinking controls before Send and exposes recover
   assert.doesNotMatch(html, /id="mode"|id="handoff-agent"|type: 'setMode'|type: 'handoffAgent'/);
   assert.match(html, /renderThinkingLevel\(state\.runtime\)/);
   assert.match(html, /type: 'setThinking', level: thinkingLevel\.value/);
-  assert.match(html, /id="delete-session"[^>]*aria-label="Delete current Pi conversation"[^>]*hidden>/);
+  assert.match(html, /id="delete-session"[^>]*aria-label="Delete current Pi session"[^>]*hidden>/);
   assert.match(html, /delete-session'\)\.hidden = !deletableSession/);
   assert.match(html, /type: 'deleteSession'/);
   assert.match(html, /delete-session'\)\.disabled = interactionLocked \|\| !connected \|\| !deletableSession/);
   assert.match(html, /id="more"/);
-  assert.match(html, /id="chats" aria-label="Pi conversations"/);
-  assert.match(html, /id="recent-chat-list"/);
-  assert.match(html, /id="view-all-chats"/);
-  assert.match(html, /id="chat-search-input"[^>]*placeholder="Search recent chats"/);
+  assert.match(html, /<main id="app" class="sessions-layer">/);
+  assert.match(html, /id="sessions" aria-label="Pi sessions"/);
+  assert.match(html, /id="session-header-title"[^>]*>Sessions</);
+  assert.match(html, /id="back-to-sessions"[^>]*aria-label="Back to Sessions"/);
+  assert.match(html, /id="recent-session-list"/);
+  assert.match(html, /id="view-all-sessions"/);
+  assert.match(html, /id="session-search-input"[^>]*placeholder="Search recent sessions"/);
   assert.match(html, /type: 'switchRecentSession', id/);
   assert.match(html, /type: 'refreshSessions'/);
   assert.match(html, /id="reconnect"/);
@@ -204,7 +207,15 @@ test("sidebar generated script parses with static icons and keeps nonce-only CSP
 class SidebarTestElement {
   children: SidebarTestElement[] = [];
   dataset: Record<string, string> = {};
-  classList = { toggle() {} };
+  classes = new Set<string>();
+  classList = {
+    toggle: (name: string, force?: boolean) => {
+      const enabled = force ?? !this.classes.has(name);
+      if (enabled) this.classes.add(name); else this.classes.delete(name);
+      return enabled;
+    },
+    contains: (name: string) => this.classes.has(name),
+  };
   style = {};
   value = "";
   innerHTML = "";
@@ -278,43 +289,70 @@ function createSidebarScriptHarness(clientPlatform = "Linux x86_64", userAgent =
   };
 }
 
-test("recent chats expand into a searchable session browser and switch by opaque id", () => {
+test("Sessions is a separate layer that opens a detail view and returns with Back", () => {
   const sidebar = createSidebarScriptHarness();
   const ids = ["a", "b", "c", "d"].map(character => character.repeat(24));
-  sidebar.receive({
-    type: "state",
-    status: "Ready",
-    runtime: { busy: false, cancellable: false, connected: true },
-    sessions: [
-      { id: ids[0], title: "Current work", updatedAt: Date.now(), current: true },
-      { id: ids[1], title: "Fix sidebar", updatedAt: Date.now() - 60_000, current: false },
-      { id: ids[2], title: "Write tests", updatedAt: Date.now() - 120_000, current: false },
-      { id: ids[3], title: "Release notes", updatedAt: Date.now() - 180_000, current: false },
-    ],
-  });
+  const sessions = [
+    { id: ids[0], title: "Current work", updatedAt: Date.now(), current: true },
+    { id: ids[1], title: "Fix sidebar", updatedAt: Date.now() - 60_000, current: false },
+    { id: ids[2], title: "Write tests", updatedAt: Date.now() - 120_000, current: false },
+    { id: ids[3], title: "Release notes", updatedAt: Date.now() - 180_000, current: false },
+  ];
+  sidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, cancellable: false, connected: true }, sessions });
 
-  assert.equal(sidebar.element("recent-chat-list").children.length, 3);
-  assert.equal(sidebar.element("view-all-chats").textContent, "View all (4)");
-  sidebar.element("view-all-chats").listeners.get("click")!();
-  assert.equal(sidebar.element("chats-browser").hidden, false);
-  assert.equal(sidebar.element("back-to-chat").hidden, false);
+  assert.equal(sidebar.element("app").classList.contains("sessions-layer"), true);
+  assert.equal(sidebar.element("session-list-content").hidden, false);
+  assert.equal(sidebar.element("session-header-title").textContent, "Sessions");
+  assert.equal(sidebar.element("recent-session-list").children.length, 3);
+  assert.equal(sidebar.element("view-all-sessions").textContent, "View all (4)");
+
+  const current = sidebar.element("recent-session-list").children[0]!;
+  sidebar.element("recent-session-list").listeners.get("click")!({ target: current });
+  assert.equal(sidebar.element("app").classList.contains("sessions-layer"), false);
+  assert.equal(sidebar.element("session-list-content").hidden, true);
+  assert.equal(sidebar.element("back-to-sessions").hidden, false);
+  assert.equal(sidebar.element("session-header-title").textContent, "Current work");
+
+  sidebar.element("back-to-sessions").listeners.get("click")!();
+  assert.equal(sidebar.element("app").classList.contains("sessions-layer"), true);
+  assert.equal(sidebar.element("session-list-content").hidden, false);
+  assert.equal(sidebar.element("session-header-title").textContent, "Sessions");
+
+  sidebar.element("new-session").listeners.get("click")!();
+  assert.equal(sidebar.element("app").classList.contains("sessions-layer"), false);
+  assert.equal(sidebar.posted.at(-1).type, "newSession");
+  sidebar.receive({ type: "newSessionRejected" });
+  assert.equal(sidebar.element("app").classList.contains("sessions-layer"), true);
+
+  sidebar.receive({ type: "showSessionDetail" });
+  assert.equal(sidebar.element("app").classList.contains("sessions-layer"), false, "editor actions can open the detail layer");
+  sidebar.element("back-to-sessions").listeners.get("click")!();
+
+  sidebar.element("view-all-sessions").listeners.get("click")!();
+  assert.equal(sidebar.element("sessions-browser").hidden, false);
   assert.equal(sidebar.posted.at(-1).type, "refreshSessions");
-
-  const search = sidebar.element("chat-search-input");
+  const search = sidebar.element("session-search-input");
   search.value = "sidebar";
   search.listeners.get("input")!();
-  assert.equal(sidebar.element("all-chat-list").children.length, 1);
-  const result = sidebar.element("all-chat-list").children[0]!;
-  sidebar.element("all-chat-list").listeners.get("click")!({ target: result });
+  assert.equal(sidebar.element("all-session-list").children.length, 1);
+  const result = sidebar.element("all-session-list").children[0]!;
+  sidebar.element("all-session-list").listeners.get("click")!({ target: result });
   assert.equal(sidebar.posted.at(-1).type, "switchRecentSession");
   assert.equal(sidebar.posted.at(-1).id, ids[1]);
-  assert.equal(sidebar.element("all-chat-list").children[0]?.disabled, true);
+  assert.equal(sidebar.element("all-session-list").children[0]?.disabled, true);
+
+  sidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, cancellable: false, connected: true }, sessions: sessions.map((session, index) => ({ ...session, current: index === 1 })) });
+  assert.equal(sidebar.element("app").classList.contains("sessions-layer"), false);
+  assert.equal(sidebar.element("session-header-title").textContent, "Fix sidebar");
+  sidebar.element("back-to-sessions").listeners.get("click")!();
+  assert.equal(sidebar.element("app").classList.contains("sessions-layer"), true);
+  assert.equal(sidebar.element("sessions-browser").hidden, false, "Back returns to the list layer the session was opened from");
 
   sidebar.receive({ type: "sessionSwitchRejected" });
-  assert.equal(sidebar.element("all-chat-list").children[0]?.disabled, false);
+  assert.equal(sidebar.element("all-session-list").children[0]?.disabled, false);
 });
 
-test("recent chat switching respects every non-busy interaction lock", () => {
+test("recent session switching respects every non-busy interaction lock", () => {
   const sidebar = createSidebarScriptHarness();
   const currentId = "a".repeat(24);
   const targetId = "b".repeat(24);
@@ -328,15 +366,15 @@ test("recent chat switching respects every non-busy interaction lock", () => {
       { id: targetId, title: "Other work", updatedAt: Date.now() - 60_000, current: false },
     ],
   });
-  sidebar.element("view-all-chats").listeners.get("click")!();
+  sidebar.element("view-all-sessions").listeners.get("click")!();
 
   for (const [lock, unlock] of [
     ["backgroundSubmissionPending = true", "backgroundSubmissionPending = false"],
     ["submissionPending = true", "submissionPending = false"],
     ["pendingImageReads = 1", "pendingImageReads = 0"],
   ]) {
-    sidebar.run(`${lock}; renderChats()`);
-    assert.equal(sidebar.element("all-chat-list").children[1]?.disabled, true);
+    sidebar.run(`${lock}; renderSessions()`);
+    assert.equal(sidebar.element("all-session-list").children[1]?.disabled, true);
     const postedCount = sidebar.posted.length;
     sidebar.run(`selectRecentSession("${targetId}")`);
     assert.equal(sidebar.posted.length, postedCount);
