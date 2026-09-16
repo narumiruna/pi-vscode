@@ -349,6 +349,9 @@ test("Sessions is a separate layer that opens a detail view and returns with Bac
 
   sidebar.receive({ type: "showSessionDetail" });
   assert.equal(sidebar.element("app").classList.contains("sessions-layer"), false, "editor actions can open the detail layer");
+  sidebar.receive({ type: "showSessionsLayer" });
+  assert.equal(sidebar.element("app").classList.contains("sessions-layer"), true, "Open Sessions can restore the list layer");
+  sidebar.receive({ type: "showSessionDetail" });
   sidebar.element("back-to-sessions").listeners.get("click")!();
 
   sidebar.element("view-all-sessions").listeners.get("click")!();
@@ -373,6 +376,24 @@ test("Sessions is a separate layer that opens a detail view and returns with Bac
 
   sidebar.receive({ type: "sessionSwitchRejected" });
   assert.equal(sidebar.element("all-session-list").children[0]?.disabled, false);
+});
+
+test("collapsing an emptied Sessions browser focuses New session instead of hidden View all", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({
+    type: "state",
+    status: "Ready",
+    runtime: { busy: false, cancellable: false, connected: true },
+    sessions: [{ id: "a".repeat(24), title: "Current work", updatedAt: Date.now(), current: true }],
+  });
+  sidebar.element("view-all-sessions").listeners.get("click")!();
+  sidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, cancellable: false, connected: true }, sessions: [] });
+
+  sidebar.element("back-to-sessions").listeners.get("click")!();
+
+  assert.equal(sidebar.element("view-all-sessions").hidden, true);
+  assert.equal(sidebar.element("view-all-sessions").focusCount, 0);
+  assert.equal(sidebar.element("new-session").focusCount, 1);
 });
 
 test("recent session switching respects every non-busy interaction lock", () => {

@@ -992,7 +992,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         vscode.postMessage({ type: 'refreshSessions' });
         sessionSearchInput.focus();
       } else {
-        $('view-all-sessions').focus();
+        const viewAll = $('view-all-sessions');
+        (viewAll.hidden || viewAll.disabled ? $('new-session') : viewAll).focus();
       }
     }
 
@@ -1185,6 +1186,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       if (!message || typeof message.type !== 'string') return;
       if (message.type === 'state') render(message);
       else if (message.type === 'showSessionDetail') showSessionDetail();
+      else if (message.type === 'showSessionsLayer') showSessionsLayer();
       else if (message.type === 'imageAsset') acceptImageAsset(message);
       else if (message.type === 'notice') showNotice(message.message, message.level, Boolean(message.detailsAvailable));
       else if (message.type === 'appendDraft') {

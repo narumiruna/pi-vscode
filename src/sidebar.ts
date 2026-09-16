@@ -90,9 +90,7 @@ export function registerPiCodeSidebar(
     vscode.window.registerWebviewViewProvider(viewId, provider, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
-    vscode.commands.registerCommand("picode.openChat", async () => {
-      await vscode.commands.executeCommand(`${viewId}.focus`);
-    }),
+    vscode.commands.registerCommand("picode.openChat", () => provider.showSessions()),
   );
   return provider;
 }
@@ -196,6 +194,11 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     this.proposals.clear();
     this.attachments.dispose();
     this.imageAssets.clear();
+  }
+
+  public async showSessions(): Promise<void> {
+    await vscode.commands.executeCommand(`${viewId}.focus`);
+    this.postMessage({ type: "showSessionsLayer" });
   }
 
   public async sendRequest(

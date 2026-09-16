@@ -202,6 +202,36 @@ test("process exit recovers only the undelivered queue suffix with its attachmen
   } finally { runtime.dispose(); vscode.restore(); }
 });
 
+test("Open Sessions focuses the sidebar and restores its list layer", async () => {
+  const vscode = installVscodeMock();
+  vscode.window.registerWebviewViewProvider = () => ({ dispose() {} });
+  const executed: string[] = [];
+  vscode.commands.executeCommand = async (command: string) => { executed.push(command); };
+  const { registerPiCodeSidebar } = require("../sidebar") as typeof import("../sidebar");
+  const subscription = () => ({ dispose() {} });
+  const runtime: any = {
+    currentState: { model: undefined },
+    onEvent: subscription,
+    onDidChangeState: subscription,
+  };
+  const context: any = {
+    workspaceState: { get: () => undefined },
+    extensionUri: MockUri.file("/extension"),
+    subscriptions: [],
+  };
+  const provider = registerPiCodeSidebar(context, runtime);
+  const posted: Array<Record<string, unknown>> = [];
+  (provider as any).view = { webview: { postMessage: async (message: Record<string, unknown>) => { posted.push(message); return true; } } };
+  try {
+    await vscode.registrations.get("picode.openChat")!();
+    assert.deepEqual(executed, ["picode.chatView.focus"]);
+    assert.deepEqual(posted, [{ type: "showSessionsLayer" }]);
+  } finally {
+    for (const disposable of context.subscriptions) disposable.dispose();
+    vscode.restore();
+  }
+});
+
 test("sidebar rejects an empty queued snapshot and forwards an attachment resource", async () => {
   const vscode = installVscodeMock();
   vscode.window.registerWebviewViewProvider = () => ({ dispose() {} });
