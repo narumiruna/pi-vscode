@@ -266,6 +266,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let connected = false;
     let deletableSession = false;
     let imageSupported = true;
+    let attachedItems = false;
     let attachedImages = false;
     let pendingImageReads = 0;
     let submissionPending = false;
@@ -319,10 +320,23 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('status').title = displayed;
     }
 
+    function scrollConversationToBottom() {
+      conversationPinnedToBottom = true;
+      const scroll = () => {
+        if (conversationPinnedToBottom) conversationElement.scrollTop = conversationElement.scrollHeight;
+      };
+      scroll();
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(scroll);
+    }
+
     function submit(kind = 'steer') {
       const text = input.value.trim();
-      if (!text || !connected || submissionPending || backgroundSubmissionPending) return;
+      if ((!text && !attachedItems) || !connected || submissionPending || backgroundSubmissionPending) return;
       if (busy) {
+        if (!text) {
+          showNotice('The image is attached for the next message. Wait for Pi to finish before sending it.', 'info');
+          return;
+        }
         if (!queueable) {
           showNotice('This request does not accept queued messages.', 'warning', false, true);
           return;
@@ -729,6 +743,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     }
 
     function renderAttachments(attachments) {
+      attachedItems = attachments.length > 0;
       attachedImages = attachments.some(attachment => attachment.image);
       attachmentsElement.hidden = attachments.length === 0;
       const signature = JSON.stringify(attachments);
@@ -839,7 +854,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('more').disabled = interactionLocked || !connected;
       $('add-context').disabled = false;
       for (const button of emptyActionButtons) button.disabled = interactionLocked;
-      sendButton.disabled = interactionLocked || !connected || !input.value.trim() || imageBlocked;
+      sendButton.disabled = interactionLocked || !connected || (!input.value.trim() && !attachedItems) || imageBlocked;
       sendButton.title = imageLoading
         ? 'Wait for pasted images to finish loading.'
         : submissionPending
@@ -848,7 +863,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
             ? 'Wait for the background agent to finish starting.'
             : imageBlocked
               ? 'The current model does not support image attachments.'
-              : !connected ? 'Reconnect to Pi before sending.' : 'Send message';
+              : !connected
+                ? 'Reconnect to Pi before sending.'
+                : !input.value.trim() && attachedItems ? 'Send attached context' : 'Send message';
       $('composer-hint').textContent = imageLoading
         ? 'Loading pasted image…'
         : backgroundSubmissionPending
@@ -876,10 +893,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       backgroundSubmissionPending = Boolean(state.backgroundSubmissionPending);
       const followConversation = renderMessages(state.messages || []);
       renderTools(state.tools || []);
-      if (followConversation) {
-        conversationElement.scrollTop = conversationElement.scrollHeight;
-        conversationPinnedToBottom = true;
-      }
+      if (followConversation) scrollConversationToBottom();
       renderProposals(state.proposals || []);
       renderChanges(state.changes || []);
       renderBackground(state.backgroundTasks || []);
@@ -1029,11 +1043,13 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     input.addEventListener('input', () => { composerRevision += 1; resizeInput(); updateSendState(); });
     window.addEventListener('resize', resizeInput);
     conversationElement.addEventListener('scroll', () => {
-      conversationPinnedToBottom = conversationElement.scrollHeight - conversationElement.scrollTop - conversationElement.clientHeight <= 16;
+      if (conversationElement.scrollHeight - conversationElement.scrollTop - conversationElement.clientHeight <= 16) conversationPinnedToBottom = true;
     });
     conversationElement.addEventListener('wheel', event => {
       if (event.deltaY < 0) conversationPinnedToBottom = false;
     });
+    conversationElement.addEventListener('pointerdown', () => { conversationPinnedToBottom = false; });
+    conversationElement.addEventListener('touchstart', () => { conversationPinnedToBottom = false; });
     input.addEventListener('paste', attachPastedImages);
     input.addEventListener('keydown', event => {
       if (event.isComposing) return;

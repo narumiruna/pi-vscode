@@ -36,6 +36,15 @@ export interface SidebarSubmissionSnapshot {
   readonly consumeAccepted: () => void;
 }
 
+export function resolveSidebarSubmissionText(rawText: string, submission: Pick<SidebarSubmissionSnapshot, "textContexts" | "images">): string {
+  const text = rawText.trim();
+  if (text) return text;
+  if (submission.images.length && submission.textContexts.length) return "Please analyze the attached images and context.";
+  if (submission.images.length) return submission.images.length === 1 ? "Please analyze the attached image." : "Please analyze the attached images.";
+  if (submission.textContexts.length) return "Please analyze the attached context.";
+  return "";
+}
+
 export interface SidebarAttachmentOptions {
   readonly maxAttachments: number;
   readonly maxImageAttachments: number;
