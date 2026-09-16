@@ -334,7 +334,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       if ((!text && !attachedItems) || !connected || submissionPending || backgroundSubmissionPending) return;
       if (busy) {
         if (!text) {
-          showNotice('The image is attached for the next message. Wait for Pi to finish before sending it.', 'info');
+          showNotice('The attached context is ready for the next message. Wait for Pi to finish before sending it.', 'info');
           return;
         }
         if (!queueable) {
@@ -1042,8 +1042,10 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     thinkingLevel.addEventListener('change', () => { if (!updatingControls) vscode.postMessage({ type: 'setThinking', level: thinkingLevel.value }); });
     input.addEventListener('input', () => { composerRevision += 1; resizeInput(); updateSendState(); });
     window.addEventListener('resize', resizeInput);
-    conversationElement.addEventListener('scroll', () => {
-      if (conversationElement.scrollHeight - conversationElement.scrollTop - conversationElement.clientHeight <= 16) conversationPinnedToBottom = true;
+    conversationElement.addEventListener('scroll', event => {
+      const atBottom = conversationElement.scrollHeight - conversationElement.scrollTop - conversationElement.clientHeight <= 16;
+      if (atBottom) conversationPinnedToBottom = true;
+      else if (event.isTrusted) conversationPinnedToBottom = false;
     });
     conversationElement.addEventListener('wheel', event => {
       if (event.deltaY < 0) conversationPinnedToBottom = false;
