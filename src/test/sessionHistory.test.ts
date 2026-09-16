@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { listRecentPiSessions, piSessionKey } from "../sessionHistory";
@@ -20,7 +20,7 @@ test("recent Pi sessions are workspace-scoped, newest-first, and use names befor
     const foreign = path.join(sessions, "foreign.jsonl");
     await writeFile(older, session([
       { type: "session", version: 3, id: "older-id", cwd: workspace },
-      { type: "message", id: "1", parentId: null, message: { role: "user", content: [{ type: "text", text: "<<<PICODE_REQUEST_START>>>\nFix the sidebar\n<<<PICODE_REQUEST_END>>>" }] } },
+      { type: "message", id: "1", parentId: null, message: { role: "user", content: [{ type: "text", text: "<<<PICODE_CONTEXT_START: src/sidebar.ts>>>\nconst context = true;\n<<<PICODE_CONTEXT_END>>>\n<<<PICODE_REQUEST_START>>>\nFix the sidebar\n<<<PICODE_REQUEST_END>>>" }] } },
     ]));
     await writeFile(newer, session([
       { type: "session", version: 3, id: "newer-id", cwd: workspace },
@@ -48,6 +48,31 @@ test("recent Pi sessions are workspace-scoped, newest-first, and use names befor
   }
 });
 
+test("recent Pi sessions rank every directory entry before capping metadata reads", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "picode-session-order-"));
+  const workspace = path.join(root, "workspace");
+  const sessions = path.join(root, "sessions");
+  await Promise.all([mkdir(workspace), mkdir(sessions)]);
+  try {
+    await Promise.all(Array.from({ length: 501 }, (_, index) => writeFile(
+      path.join(sessions, `${String(index).padStart(3, "0")}.jsonl`),
+      session([
+        { type: "session", version: 3, id: `session-${index}`, cwd: workspace },
+        { type: "message", id: "1", parentId: null, message: { role: "user", content: `Prompt ${index}` } },
+      ]),
+    )));
+    const directoryOrder = await readdir(sessions);
+    const newest = path.join(sessions, directoryOrder.at(-1)!);
+    const future = new Date(Date.now() + 60_000);
+    await utimes(newest, future, future);
+
+    const result = await listRecentPiSessions(newest, workspace, 1);
+    assert.equal(result[0]?.path, newest);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("recent Pi sessions recover a bounded prompt before a large image and skip invalid files", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "picode-session-bounds-"));
   const workspace = path.join(root, "workspace");
@@ -69,6 +94,29 @@ test("recent Pi sessions recover a bounded prompt before a large image and skip 
     const result = await listRecentPiSessions(large, workspace, 1);
     assert.equal(result.length, 1);
     assert.equal(result[0]?.title, "Describe this image");
+    assert.deepEqual(await listRecentPiSessions(large, path.join(root, "missing")), []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("recent Pi sessions find the latest name between oversized records", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "picode-session-name-"));
+  const workspace = path.join(root, "workspace");
+  const sessions = path.join(root, "sessions");
+  await Promise.all([mkdir(workspace), mkdir(sessions)]);
+  try {
+    const named = path.join(sessions, "named.jsonl");
+    const image = (marker: string) => ({ type: "image", data: marker.repeat(300_000), mimeType: "image/png" });
+    await writeFile(named, session([
+      { type: "session", version: 3, id: "named-id", cwd: workspace },
+      { type: "message", id: "1", parentId: null, message: { role: "user", content: [{ type: "text", text: "Initial prompt" }, image("a")] } },
+      { type: "session_info", id: "2", parentId: "1", name: "Middle name" },
+      { type: "message", id: "3", parentId: "2", message: { role: "user", content: [{ type: "text", text: "Later prompt" }, image("b")] } },
+    ]));
+
+    const result = await listRecentPiSessions(named, workspace, 1);
+    assert.equal(result[0]?.title, "Middle name");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

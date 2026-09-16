@@ -87,7 +87,8 @@ test("sidebar places model and thinking controls before Send and exposes recover
   assert.match(html, /let backgroundSubmissionPending = false/);
   assert.match(html, /\(!text && !attachedItems\) \|\| !connected \|\| submissionPending \|\| backgroundSubmissionPending/);
   assert.match(html, /backgroundSubmissionPending = Boolean\(state\.backgroundSubmissionPending\)/);
-  assert.match(html, /busy \|\| submissionPending \|\| backgroundSubmissionPending \|\| imageLoading/);
+  assert.match(html, /function isInteractionLocked\(\) \{\s+return busy \|\| submissionPending \|\| backgroundSubmissionPending \|\| pendingImageReads > 0/);
+  assert.match(html, /const interactionLocked = isInteractionLocked\(\)/);
   assert.match(html, /Starting background agent/);
   assert.match(html, /messages\.filter\(message => message\.role !== 'assistant' \|\| Boolean\(message\.html\)\)/);
   assert.match(html, /for \(let index = 0; index < visibleMessages\.length; index \+= 1\)/);
@@ -309,6 +310,36 @@ test("recent chats expand into a searchable session browser and switch by opaque
 
   sidebar.receive({ type: "sessionSwitchRejected" });
   assert.equal(sidebar.element("all-chat-list").children[0]?.disabled, false);
+});
+
+test("recent chat switching respects every non-busy interaction lock", () => {
+  const sidebar = createSidebarScriptHarness();
+  const currentId = "a".repeat(24);
+  const targetId = "b".repeat(24);
+  sidebar.receive({
+    type: "state",
+    status: "Starting background agent…",
+    runtime: { busy: false, cancellable: false, connected: true },
+    backgroundSubmissionPending: true,
+    sessions: [
+      { id: currentId, title: "Current work", updatedAt: Date.now(), current: true },
+      { id: targetId, title: "Other work", updatedAt: Date.now() - 60_000, current: false },
+    ],
+  });
+  sidebar.element("view-all-chats").listeners.get("click")!();
+
+  for (const [lock, unlock] of [
+    ["backgroundSubmissionPending = true", "backgroundSubmissionPending = false"],
+    ["submissionPending = true", "submissionPending = false"],
+    ["pendingImageReads = 1", "pendingImageReads = 0"],
+  ]) {
+    sidebar.run(`${lock}; renderChats()`);
+    assert.equal(sidebar.element("all-chat-list").children[1]?.disabled, true);
+    const postedCount = sidebar.posted.length;
+    sidebar.run(`selectRecentSession("${targetId}")`);
+    assert.equal(sidebar.posted.length, postedCount);
+    sidebar.run(unlock);
+  }
 });
 
 test("proposal cards block empty previews and hide dead terminal actions", () => {
