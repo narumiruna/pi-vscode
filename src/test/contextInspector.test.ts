@@ -27,7 +27,11 @@ test("context estimates disclose multilingual bytes, image unknowns, malformed m
 
 test("submission snapshots bind descriptors to accepted items while rejection, cancellation, retry, and startup races preserve the right draft", async () => {
   const vscode = installVscodeMock();
-  const { SidebarAttachmentManager } = freshSidebarAttachments();
+  const { resolveSidebarSubmissionText, SidebarAttachmentManager } = freshSidebarAttachments();
+  assert.equal(resolveSidebarSubmissionText("Explain this", { textContexts: [], images: [] }), "Explain this");
+  assert.equal(resolveSidebarSubmissionText("  ", { textContexts: [], images: [{} as any] }), "Please analyze the attached image.");
+  assert.equal(resolveSidebarSubmissionText("", { textContexts: [{} as any], images: [{}, {}] as any }), "Please analyze the attached images and context.");
+  assert.equal(resolveSidebarSubmissionText("", { textContexts: [], images: [] }), "");
   class CountingImageAssetCache extends ImageAssetCache {
     public storeCalls = 0;
     public override store(mimeType: string, data: string) {
