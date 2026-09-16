@@ -32,6 +32,32 @@ test("Trash classification is narrow and permanent deletion stays bound to the o
   } finally { rmSync(root, { recursive: true, force: true }); vscode.restore(); }
 });
 
+test("conversation deletion releases unreachable recovered attachment handles", async () => {
+  const vscode = installVscodeMock();
+  try {
+    const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
+    const runtime = new PiRuntimeManager({
+      workspaceState: { update: async () => {} },
+      environmentVariableCollection: { clear() {} },
+    } as any);
+    const internal = runtime as any;
+    internal.state = {
+      connected: false,
+      busy: false,
+      availableModels: [],
+      availableThinkingLevels: [],
+      commands: [],
+      recoveredDrafts: [{ id: "recovered", text: "draft", uncertain: false, hasAttachments: true }],
+    };
+    internal.recoveredAttachmentHandles.set("recovered", { restore() {}, bytes: 5 * 1024 * 1024 });
+    internal.ensureStarted = async () => {};
+    await internal.finishDeletedSession();
+    assert.equal(internal.recoveredAttachmentHandles.size, 0);
+    assert.equal(runtime.currentState.recoveredDrafts, undefined);
+    runtime.dispose();
+  } finally { vscode.restore(); }
+});
+
 test("runtime binds permanent deletion to the original Trash-unavailable session", async () => {
   const vscode = installVscodeMock();
   try {

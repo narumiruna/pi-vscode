@@ -26,6 +26,8 @@ test("webview protocol rejects removed mode messages", () => {
     assert.equal(isWebviewMessage({ type: "queueInstruction", kind: "steer", text: "adjust", revision: 1 }, 1024), true);
     assert.equal(isWebviewMessage({ type: "imageAssetEvicted", id: `sha256-${"a".repeat(64)}` }, 1024), true);
     assert.equal(isWebviewMessage({ type: "imageAssetRejected", id: `sha256-${"b".repeat(64)}` }, 1024), true);
+    assert.equal(isWebviewMessage({ type: "restoreQueueAttachments", id: "11111111-1111-4111-8111-111111111111" }, 1024), true);
+    assert.equal(isWebviewMessage({ type: "restoreQueueAttachments", id: "../../session" }, 1024), false);
     assert.equal(isWebviewMessage({ type: "refreshSessions" }, 1024), true);
     assert.equal(isWebviewMessage({ type: "switchRecentSession", id: "a".repeat(24) }, 1024), true);
     assert.equal(isWebviewMessage({ type: "switchRecentSession", id: "../../session" }, 1024), false);
@@ -491,28 +493,6 @@ test("an attached image can be sent without additional text", () => {
   assert.equal(sidebar.posted.at(-1)?.revision, 0);
 });
 
-test("attachment-only busy notice applies to text context and clears when Pi settles", () => {
-  const sidebar = createSidebarScriptHarness();
-  const attachment = { id: "draft-context", image: false, type: "selection", label: "Selection from example.ts" };
-  sidebar.receive({ type: "state", status: "Pi is working…", runtime: { busy: true, cancellable: true, connected: true, queueable: true }, attachments: [attachment] });
-  const postedBeforeSubmit = sidebar.posted.length;
-
-  sidebar.run("submit()");
-  assert.match(sidebar.element("notice").textContent, /attached context is ready/i);
-  assert.doesNotMatch(sidebar.element("notice").textContent, /image/i);
-  assert.equal(sidebar.element("notice").dataset.transientLock, "true");
-  assert.equal(sidebar.element("notice").dataset.attachmentWait, "true");
-  assert.equal(sidebar.posted.length, postedBeforeSubmit);
-
-  sidebar.receive({ type: "state", status: "Pi is working…", runtime: { busy: true, cancellable: true, connected: true, queueable: true }, attachments: [] });
-  assert.equal(sidebar.element("notice").textContent, "");
-
-  sidebar.receive({ type: "state", status: "Pi is working…", runtime: { busy: true, cancellable: true, connected: true, queueable: true }, attachments: [attachment] });
-  sidebar.run("submit()");
-  sidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, cancellable: false, connected: true }, attachments: [attachment] });
-  assert.equal(sidebar.element("notice").textContent, "");
-});
-
 test("an attachment removal race can release a pending submission", () => {
   const sidebar = createSidebarScriptHarness();
   const attachment = { id: "draft-context", image: false, type: "selection", label: "Selection from example.ts" };
@@ -874,6 +854,47 @@ test("composer keyboard submission matches Pi queue behavior on Alt+Enter platfo
   assert.match(sidebar.element("notice").textContent, /does not accept queued messages/, "stream updates keep text-only queue feedback while busy");
 });
 
+test("busy composer queues attachment-only steering and follow-up while preserving image gates", () => {
+  const sidebar = createSidebarScriptHarness("MacIntel");
+  const input = sidebar.element("input");
+  const keydown = input.listeners.get("keydown")!;
+  const press = (fields: Record<string, unknown> = {}) => keydown({ key: "Enter", shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, isComposing: false, preventDefault() {}, ...fields });
+  sidebar.run("connected = true; busy = true; queueable = true; attachedItems = true; attachedImages = true; imageSupported = true; submissionPending = false; pendingImageReads = 0; updateSendState()");
+
+  input.value = "";
+  press();
+  const steering = sidebar.posted.at(-1);
+  assert.equal(steering.type, "queueInstruction"); assert.equal(steering.kind, "steer"); assert.equal(steering.text, ""); assert.equal(steering.revision, 0);
+  sidebar.run("submissionPending = false; updateSendState()");
+  press({ altKey: true });
+  assert.equal(sidebar.posted.at(-1).kind, "followUp");
+
+  sidebar.run("submissionPending = false; pendingImageReads = 1; updateSendState()");
+  const loadingCount = sidebar.posted.length;
+  press();
+  assert.equal(sidebar.posted.length, loadingCount, "partially read images are not queued");
+
+  sidebar.run("pendingImageReads = 0; imageSupported = false; updateSendState()");
+  press();
+  assert.equal(sidebar.posted.length, loadingCount, "unsupported images are not queued");
+  assert.match(sidebar.element("composer-hint").textContent, /image-capable model/);
+
+  sidebar.receive({
+    type: "state",
+    status: "Pi is working…",
+    imageSupported: true,
+    runtime: { busy: true, cancellable: true, connected: true, queueable: true, queue: { steering: ["one"], followUp: ["two"] } },
+    attachments: [{ id: "context", label: "context.ts", image: false }],
+  });
+  assert.match(sidebar.element("queue-status").textContent, /1 steering · 1 follow-ups pending · attachments included/);
+  const contextQueueCount = sidebar.posted.length;
+  sidebar.run("submissionPending = false; submit()");
+  assert.equal(sidebar.posted.length, contextQueueCount + 1);
+  assert.equal(sidebar.posted.at(-1).type, "queueInstruction");
+  assert.equal(sidebar.posted.at(-1).text, "", "attachment-only text context is queued instead of deferred");
+  assert.equal(sidebar.element("notice").textContent, "");
+});
+
 test("composer uses Ctrl+Q for Windows-client follow-ups", () => {
   const sidebar = createSidebarScriptHarness("Win32");
   const input = sidebar.element("input");
@@ -925,14 +946,28 @@ test("keyboard queue and accepted-send messages preserve newer drafts and never 
   const queued = sidebar.posted.at(-1);
   assert.equal(queued.type, "queueInstruction"); assert.equal(queued.kind, "steer");
   assert.equal(queued.text, "steer text"); assert.equal(queued.revision, 1);
+  assert.equal(sidebar.element("recover-queue").disabled, true, "recovery cannot start during queue acceptance");
   assert.equal(sidebar.element("messages").children.length, 0);
   input.value = "new draft"; change();
   sidebar.receive({ type: "clearInput", expectedText: queued.text, expectedRevision: queued.revision });
   assert.equal(input.value, "new draft");
-  sidebar.receive({ type: "appendDraft", text: "recovered", expectedRevision: 1 });
+  const recoveredDraftId = "11111111-1111-4111-8111-111111111111";
+  const postedBeforeStaleRecovery = sidebar.posted.length;
+  sidebar.receive({ type: "appendDraft", text: "recovered", expectedRevision: 1, recoveredDraftId });
   assert.equal(input.value, "new draft");
-  sidebar.receive({ type: "appendDraft", text: "recovered", expectedRevision: 2 });
+  assert.equal(sidebar.posted.length, postedBeforeStaleRecovery, "stale text recovery does not consume its attachment handle");
+  sidebar.receive({ type: "appendDraft", text: "recovered", expectedRevision: 2, recoveredDraftId });
+  assert.equal(input.value, "new draft", "recovered text waits for successful attachment restoration");
+  assert.equal(input.disabled, true, "the composer is locked during the atomic recovery handshake");
+  assert.equal(sidebar.posted.at(-1)?.type, "restoreQueueAttachments", "attachments restore only after text revision acceptance");
+  assert.equal(sidebar.posted.at(-1)?.id, recoveredDraftId);
+  sidebar.receive({ type: "rejectRecoveredDraft", id: recoveredDraftId });
+  assert.equal(input.value, "new draft", "failed attachment restoration does not append recoverable text");
+  assert.equal(input.disabled, false);
+  sidebar.receive({ type: "appendDraft", text: "recovered", expectedRevision: 2, recoveredDraftId });
+  sidebar.receive({ type: "commitRecoveredDraft", id: recoveredDraftId });
   assert.equal(input.value, "new draft\n\nrecovered");
+  assert.equal(input.disabled, false);
   sidebar.receive({ type: "clearInput", expectedText: input.value, expectedRevision: 3 });
   assert.equal(input.value, "");
   sidebar.run("queueable = false; submissionPending = false; updateSendState()");

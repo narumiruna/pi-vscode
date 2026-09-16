@@ -15,7 +15,7 @@ process.stdin.on('data', chunk => {
  buffer += chunk;
  while (buffer.includes('\\n')) {
   const end = buffer.indexOf('\\n'), request = JSON.parse(buffer.slice(0, end)); buffer = buffer.slice(end + 1);
-  emit({type:'command_seen', command:request.type});
+  emit({type:'command_seen', command:request.type, images:request.images});
   if(request.message === 'crash') process.exit(7);
   if(request.message === 'timeout') continue;
   if(request.message === 'unsupported') { emit({type:'response', id:request.id, command:request.type, success:false, error:'Unknown command'}); continue; }
@@ -36,12 +36,18 @@ process.stdin.on('data', chunk => {
   client.onEvent(event => events.push(event));
   try {
     await client.start();
-    await client.steer("same"); await client.steer("same"); await client.followUp("last");
+    const image = { type: "image" as const, data: "YQ==", mimeType: "image/png" };
+    await client.steer("same", [image]); await client.steer("same"); await client.followUp("last", [image]);
+    const queueCommands = events.filter(event => event.type === "command_seen" && ["steer", "follow_up"].includes(String(event.command)));
+    assert.deepEqual(queueCommands[0]?.images, [image]);
+    assert.equal("images" in (queueCommands[1] ?? {}), false, "text-only queue commands remain unchanged");
+    assert.deepEqual(queueCommands[2]?.images, [image], "follow-up commands carry the same native image payload shape");
     assert.equal(events.some(event => event.type === "delivered"), false);
     assert.deepEqual(await client.clearQueue(), { steering: ["same", "same"], followUp: ["last"] });
     await client.abort();
     assert.deepEqual(events.filter(event => event.type === "command_seen").map(event => event.command).slice(-2), ["clear_queue", "abort"]);
     await assert.rejects(client.steer("/skill:example"), /plain text/);
+    await assert.rejects(client.steer("too many", Array(6).fill(image)), /attachment limits/);
     await assert.rejects(client.steer("unsupported"), /Unknown command/);
     await assert.rejects(client.followUp("timeout"), /Timed out/);
     assert.equal(events.filter(event => event.type === "command_seen" && event.command === "follow_up").length, 2);

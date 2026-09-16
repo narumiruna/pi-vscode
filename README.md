@@ -118,7 +118,7 @@ Key operational limits:
 - Staged review supports up to 100 text files, 100 KB per blob, 400 KB of blob content, and a 200 KB diff.
 - Failed-test repair accepts an executable and argument array, not a shell expression. Runs stop after 60 seconds, output is capped at 256 KiB, and repair is limited to two attempts.
 - Checkpoints keep up to 20 requests in memory and restore only deterministically observed edits to captured regular text files.
-- In-flight instructions are limited to 10 plain-text messages and 50,000 characters. Attachments and slash commands cannot be queued.
+- In-flight instructions are limited to 10 messages and 50,000 characters. Ordinary composer steering/follow-ups can include captured text context and up to 5 images; slash commands cannot be queued, and pending/recovered attachment snapshots are memory-only and capped at 30 MiB.
 - Debug capture supports paused `node` and `pwa-node` js-debug sessions only; it does not evaluate expressions or mutate debugger state.
 
 Read [Security and Privacy](docs/SECURITY.md) for trust boundaries and safeguards, and [Workflow Validation](docs/WORKFLOW_VALIDATION.md) for tested and deferred behavior.
