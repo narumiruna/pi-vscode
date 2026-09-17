@@ -4,7 +4,7 @@ Use your existing [Pi](https://pi.dev) setup directly in VS Code. Pi adds a pers
 
 ## Highlights
 
-- **Persistent conversations** — Browse, search, and switch recent workspace chats, then rename, compact, export, delete, or hand sessions off to a terminal.
+- **Persistent sessions** — Browse, search, and switch recent workspace sessions, then rename, compact, export, delete, or hand them off to a terminal.
 - **Editor-aware context** — Attach selections, files, diagnostics, terminal text, and images. Inspect, redact, refresh, or pin a snapshot before sending it.
 - **Review-first edits** — Preview a complete proposal or selected hunks, then apply the reviewed result with one workspace edit.
 - **Focused workflows** — Review staged changes, import isolated worktree results, repair failed tests, restore request checkpoints, and inspect paused Node.js debug values.
@@ -55,7 +55,7 @@ Open a new integrated terminal after installation so Pi inherits the authenticat
 
 ## Get started
 
-1. Run **Pi: Open Chat** from the Command Palette, or open **Pi** in the Secondary Sidebar. Use **Chats → View all** to search and switch recent conversations for the current workspace.
+1. Run **Pi: Open Sessions** from the Command Palette, or open **Pi** in the Secondary Sidebar. Choose a session from **Sessions**, or use **View all** to search the current workspace. Sending from the Sessions-level composer starts a new session; **Back to Sessions** returns there from a conversation.
 2. Add context from the composer, or paste a supported image with Ctrl/Cmd+V.
 3. Enter a request. The active model and thinking level appear beside **Send**.
 4. For proposed changes, choose **Preview**, optionally select hunks, and then choose **Apply**.

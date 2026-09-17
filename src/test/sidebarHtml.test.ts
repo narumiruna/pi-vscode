@@ -24,6 +24,8 @@ test("webview protocol rejects removed mode messages", () => {
     assert.equal(isWebviewMessage({ type: "setMode", mode: "agent" }, 1024), false);
     assert.equal(isWebviewMessage({ type: "handoffAgent" }, 1024), false);
     assert.equal(isWebviewMessage({ type: "queueInstruction", kind: "steer", text: "adjust", revision: 1 }, 1024), true);
+    assert.equal(isWebviewMessage({ type: "sendNewSession", text: "start", revision: 1 }, 1024), true);
+    assert.equal(isWebviewMessage({ type: "sendNewSession", text: "start", revision: -1 }, 1024), false);
     assert.equal(isWebviewMessage({ type: "imageAssetEvicted", id: `sha256-${"a".repeat(64)}` }, 1024), true);
     assert.equal(isWebviewMessage({ type: "imageAssetRejected", id: `sha256-${"b".repeat(64)}` }, 1024), true);
     assert.equal(isWebviewMessage({ type: "restoreQueueAttachments", id: "11111111-1111-4111-8111-111111111111" }, 1024), true);
@@ -61,15 +63,19 @@ test("sidebar places model and thinking controls before Send and exposes recover
   assert.doesNotMatch(html, /id="mode"|id="handoff-agent"|type: 'setMode'|type: 'handoffAgent'/);
   assert.match(html, /renderThinkingLevel\(state\.runtime\)/);
   assert.match(html, /type: 'setThinking', level: thinkingLevel\.value/);
-  assert.match(html, /id="delete-session"[^>]*aria-label="Delete current Pi conversation"[^>]*hidden>/);
+  assert.match(html, /id="delete-session"[^>]*aria-label="Delete current Pi session"[^>]*hidden>/);
   assert.match(html, /delete-session'\)\.hidden = !deletableSession/);
   assert.match(html, /type: 'deleteSession'/);
   assert.match(html, /delete-session'\)\.disabled = interactionLocked \|\| !connected \|\| !deletableSession/);
   assert.match(html, /id="more"/);
-  assert.match(html, /id="chats" aria-label="Pi conversations"/);
-  assert.match(html, /id="recent-chat-list"/);
-  assert.match(html, /id="view-all-chats"/);
-  assert.match(html, /id="chat-search-input"[^>]*placeholder="Search recent chats"/);
+  assert.match(html, /<main id="app" class="sessions-layer">/);
+  assert.match(html, /#app\.sessions-layer > :not\(#sessions\):not\(#composer\):not\(#notice\):not\(#runtime\)/);
+  assert.match(html, /id="sessions" aria-label="Pi sessions"/);
+  assert.match(html, /id="session-header-title"[^>]*>Sessions</);
+  assert.match(html, /id="back-to-sessions"[^>]*aria-label="Back to Sessions"/);
+  assert.match(html, /id="recent-session-list"/);
+  assert.match(html, /id="view-all-sessions"/);
+  assert.match(html, /id="session-search-input"[^>]*placeholder="Search recent sessions"/);
   assert.match(html, /type: 'switchRecentSession', id/);
   assert.match(html, /type: 'refreshSessions'/);
   assert.match(html, /id="reconnect"/);
@@ -210,12 +216,21 @@ test("sidebar generated script parses with static icons and keeps nonce-only CSP
 class SidebarTestElement {
   children: SidebarTestElement[] = [];
   dataset: Record<string, string> = {};
-  classList = { toggle() {} };
+  classes = new Set<string>();
+  classList = {
+    toggle: (name: string, force?: boolean) => {
+      const enabled = force ?? !this.classes.has(name);
+      if (enabled) this.classes.add(name); else this.classes.delete(name);
+      return enabled;
+    },
+    contains: (name: string) => this.classes.has(name),
+  };
   style = {};
   value = "";
   innerHTML = "";
   textContent = "";
   title = "";
+  placeholder = "";
   className = "";
   disabled = false;
   hidden = false;
@@ -284,43 +299,139 @@ function createSidebarScriptHarness(clientPlatform = "Linux x86_64", userAgent =
   };
 }
 
-test("recent chats expand into a searchable session browser and switch by opaque id", () => {
+test("Sessions is a separate layer that opens a detail view and returns with Back", () => {
   const sidebar = createSidebarScriptHarness();
   const ids = ["a", "b", "c", "d"].map(character => character.repeat(24));
+  const sessions = [
+    { id: ids[0], title: "Current work", updatedAt: Date.now(), current: true },
+    { id: ids[1], title: "Fix sidebar", updatedAt: Date.now() - 60_000, current: false },
+    { id: ids[2], title: "Write tests", updatedAt: Date.now() - 120_000, current: false },
+    { id: ids[3], title: "Release notes", updatedAt: Date.now() - 180_000, current: false },
+  ];
+  sidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, cancellable: false, connected: true }, sessions });
+
+  assert.equal(sidebar.element("app").classList.contains("sessions-layer"), true);
+  assert.equal(sidebar.element("session-list-content").hidden, false);
+  assert.equal(sidebar.element("session-header-title").textContent, "Sessions");
+  assert.equal(sidebar.element("recent-session-list").children.length, 3);
+  assert.equal(sidebar.element("view-all-sessions").textContent, "View all (4)");
+  assert.equal(sidebar.element("input").placeholder, "Start a new session…");
+
+  const input = sidebar.element("input");
+  input.value = "Start from the Sessions layer";
+  input.listeners.get("input")!();
+  sidebar.element("send").listeners.get("click")!();
+  assert.equal(sidebar.posted.at(-1).type, "sendNewSession");
+  sidebar.receive({ type: "sendRejected" });
+  input.value = "";
+  input.listeners.get("input")!();
+
+  const current = sidebar.element("recent-session-list").children[0]!;
+  sidebar.element("recent-session-list").listeners.get("click")!({ target: current });
+  assert.equal(sidebar.element("app").classList.contains("sessions-layer"), false);
+  assert.equal(sidebar.element("session-list-content").hidden, true);
+  assert.equal(sidebar.element("back-to-sessions").hidden, false);
+  assert.equal(sidebar.element("session-header-title").textContent, "Current work");
+  assert.equal(sidebar.element("input").placeholder, "Ask, plan, or build something…");
+
+  input.value = "Continue the selected Session";
+  input.listeners.get("input")!();
+  sidebar.element("send").listeners.get("click")!();
+  assert.equal(sidebar.posted.at(-1).type, "send");
+  sidebar.receive({ type: "sendRejected" });
+  input.value = "";
+  input.listeners.get("input")!();
+
+  sidebar.element("back-to-sessions").listeners.get("click")!();
+  assert.equal(sidebar.element("app").classList.contains("sessions-layer"), true);
+  assert.equal(sidebar.element("session-list-content").hidden, false);
+  assert.equal(sidebar.element("session-header-title").textContent, "Sessions");
+
+  sidebar.element("new-session").listeners.get("click")!();
+  assert.equal(sidebar.element("app").classList.contains("sessions-layer"), false);
+  assert.equal(sidebar.posted.at(-1).type, "newSession");
+  sidebar.receive({ type: "newSessionRejected" });
+  assert.equal(sidebar.element("app").classList.contains("sessions-layer"), true);
+
+  sidebar.receive({ type: "showSessionDetail" });
+  assert.equal(sidebar.element("app").classList.contains("sessions-layer"), false, "editor actions can open the detail layer");
+  sidebar.receive({ type: "showSessionsLayer" });
+  assert.equal(sidebar.element("app").classList.contains("sessions-layer"), true, "Open Sessions can restore the list layer");
+  sidebar.receive({ type: "showSessionDetail" });
+  sidebar.element("back-to-sessions").listeners.get("click")!();
+
+  sidebar.element("view-all-sessions").listeners.get("click")!();
+  assert.equal(sidebar.element("sessions-browser").hidden, false);
+  assert.equal(sidebar.posted.at(-1).type, "refreshSessions");
+  const search = sidebar.element("session-search-input");
+  search.value = "sidebar";
+  search.listeners.get("input")!();
+  assert.equal(sidebar.element("all-session-list").children.length, 1);
+  const result = sidebar.element("all-session-list").children[0]!;
+  sidebar.element("all-session-list").listeners.get("click")!({ target: result });
+  assert.equal(sidebar.posted.at(-1).type, "switchRecentSession");
+  assert.equal(sidebar.posted.at(-1).id, ids[1]);
+  assert.equal(sidebar.element("all-session-list").children[0]?.disabled, true);
+
+  sidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, cancellable: false, connected: true }, sessions: sessions.map((session, index) => ({ ...session, current: index === 1 })) });
+  assert.equal(sidebar.element("app").classList.contains("sessions-layer"), false);
+  assert.equal(sidebar.element("session-header-title").textContent, "Fix sidebar");
+  sidebar.element("back-to-sessions").listeners.get("click")!();
+  assert.equal(sidebar.element("app").classList.contains("sessions-layer"), true);
+  assert.equal(sidebar.element("sessions-browser").hidden, false, "Back returns to the list layer the session was opened from");
+
+  sidebar.receive({ type: "sessionSwitchRejected" });
+  assert.equal(sidebar.element("all-session-list").children[0]?.disabled, false);
+});
+
+test("returning to collapsed Sessions focuses only a visible fallback", () => {
+  const sidebar = createSidebarScriptHarness();
+  const ids = ["a", "b", "c", "d"].map(character => character.repeat(24));
+  const sessions = ids.map((id, index) => ({
+    id,
+    title: `Session ${index + 1}`,
+    updatedAt: Date.now() - index * 60_000,
+    current: index === 3,
+  }));
+  sidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, cancellable: false, connected: true }, sessions });
+
+  sidebar.receive({ type: "showSessionDetail" });
+  sidebar.receive({ type: "showSessionsLayer" });
+
+  assert.equal(sidebar.element("recent-session-list").children[0]?.focusCount, 1, "the first visible row is the fallback");
+  assert.equal(sidebar.element("all-session-list").children[3]?.focusCount, 0, "the current row in the hidden browser is not focused");
+
   sidebar.receive({
     type: "state",
     status: "Ready",
     runtime: { busy: false, cancellable: false, connected: true },
-    sessions: [
-      { id: ids[0], title: "Current work", updatedAt: Date.now(), current: true },
-      { id: ids[1], title: "Fix sidebar", updatedAt: Date.now() - 60_000, current: false },
-      { id: ids[2], title: "Write tests", updatedAt: Date.now() - 120_000, current: false },
-      { id: ids[3], title: "Release notes", updatedAt: Date.now() - 180_000, current: false },
-    ],
+    sessions: sessions.map(session => ({ ...session, current: false })),
   });
+  sidebar.receive({ type: "showSessionDetail" });
+  sidebar.receive({ type: "showSessionsLayer" });
 
-  assert.equal(sidebar.element("recent-chat-list").children.length, 3);
-  assert.equal(sidebar.element("view-all-chats").textContent, "View all (4)");
-  sidebar.element("view-all-chats").listeners.get("click")!();
-  assert.equal(sidebar.element("chats-browser").hidden, false);
-  assert.equal(sidebar.element("back-to-chat").hidden, false);
-  assert.equal(sidebar.posted.at(-1).type, "refreshSessions");
-
-  const search = sidebar.element("chat-search-input");
-  search.value = "sidebar";
-  search.listeners.get("input")!();
-  assert.equal(sidebar.element("all-chat-list").children.length, 1);
-  const result = sidebar.element("all-chat-list").children[0]!;
-  sidebar.element("all-chat-list").listeners.get("click")!({ target: result });
-  assert.equal(sidebar.posted.at(-1).type, "switchRecentSession");
-  assert.equal(sidebar.posted.at(-1).id, ids[1]);
-  assert.equal(sidebar.element("all-chat-list").children[0]?.disabled, true);
-
-  sidebar.receive({ type: "sessionSwitchRejected" });
-  assert.equal(sidebar.element("all-chat-list").children[0]?.disabled, false);
+  assert.equal(sidebar.element("recent-session-list").children[0]?.focusCount, 1, "a missing current session still gets a visible fallback");
 });
 
-test("recent chat switching respects every non-busy interaction lock", () => {
+test("collapsing an emptied Sessions browser focuses New session instead of hidden View all", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({
+    type: "state",
+    status: "Ready",
+    runtime: { busy: false, cancellable: false, connected: true },
+    sessions: [{ id: "a".repeat(24), title: "Current work", updatedAt: Date.now(), current: true }],
+  });
+  sidebar.element("view-all-sessions").listeners.get("click")!();
+  sidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, cancellable: false, connected: true }, sessions: [] });
+
+  sidebar.element("back-to-sessions").listeners.get("click")!();
+
+  assert.equal(sidebar.element("view-all-sessions").hidden, true);
+  assert.equal(sidebar.element("view-all-sessions").focusCount, 0);
+  assert.equal(sidebar.element("new-session").focusCount, 1);
+});
+
+test("recent session switching respects every non-busy interaction lock", () => {
   const sidebar = createSidebarScriptHarness();
   const currentId = "a".repeat(24);
   const targetId = "b".repeat(24);
@@ -334,15 +445,15 @@ test("recent chat switching respects every non-busy interaction lock", () => {
       { id: targetId, title: "Other work", updatedAt: Date.now() - 60_000, current: false },
     ],
   });
-  sidebar.element("view-all-chats").listeners.get("click")!();
+  sidebar.element("view-all-sessions").listeners.get("click")!();
 
   for (const [lock, unlock] of [
     ["backgroundSubmissionPending = true", "backgroundSubmissionPending = false"],
     ["submissionPending = true", "submissionPending = false"],
     ["pendingImageReads = 1", "pendingImageReads = 0"],
   ]) {
-    sidebar.run(`${lock}; renderChats()`);
-    assert.equal(sidebar.element("all-chat-list").children[1]?.disabled, true);
+    sidebar.run(`${lock}; renderSessions()`);
+    assert.equal(sidebar.element("all-session-list").children[1]?.disabled, true);
     const postedCount = sidebar.posted.length;
     sidebar.run(`selectRecentSession("${targetId}")`);
     assert.equal(sidebar.posted.length, postedCount);
@@ -485,7 +596,7 @@ test("composer image attachments use thumbnail cards with preview and remove act
   assert.equal(sidebar.posted.at(-1)?.id, "draft-image");
 });
 
-test("an attached image can be sent without additional text", () => {
+test("an attached image can start a new Session without additional text", () => {
   const sidebar = createSidebarScriptHarness();
   const attachment = { id: "draft-image", image: true, type: "image", assetId: `sha256-${"a".repeat(64)}`, label: "image.png", fullLabel: "image.png", mimeType: "image/png", availability: "available" };
   sidebar.receive({ type: "state", status: "Ready", imageSupported: true, runtime: { busy: false, cancellable: false, connected: true }, attachments: [attachment] });
@@ -494,7 +605,7 @@ test("an attached image can be sent without additional text", () => {
   assert.equal(sidebar.element("send").disabled, false);
   assert.equal(sidebar.element("send").title, "Send attached context");
   sidebar.element("send").listeners.get("click")!();
-  assert.equal(sidebar.posted.at(-1)?.type, "send");
+  assert.equal(sidebar.posted.at(-1)?.type, "sendNewSession");
   assert.equal(sidebar.posted.at(-1)?.text, "");
   assert.equal(sidebar.posted.at(-1)?.revision, 0);
 });
@@ -817,6 +928,7 @@ test("welcome actions attach context or set ordinary composer drafts locally", (
 
 test("composer keyboard submission matches Pi queue behavior on Alt+Enter platforms", () => {
   const sidebar = createSidebarScriptHarness("MacIntel");
+  sidebar.receive({ type: "showSessionDetail" });
   const input = sidebar.element("input");
   const keydown = input.listeners.get("keydown")!;
   const press = (fields: Record<string, unknown>) => {
@@ -862,6 +974,7 @@ test("composer keyboard submission matches Pi queue behavior on Alt+Enter platfo
 
 test("busy composer queues attachment-only steering and follow-up while preserving image gates", () => {
   const sidebar = createSidebarScriptHarness("MacIntel");
+  sidebar.receive({ type: "showSessionDetail" });
   const input = sidebar.element("input");
   const keydown = input.listeners.get("keydown")!;
   const press = (fields: Record<string, unknown> = {}) => keydown({ key: "Enter", shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, isComposing: false, preventDefault() {}, ...fields });
@@ -964,6 +1077,7 @@ test("pending queue renders Pi-style labels, duplicate text and safe bounded pre
 
 test("composer uses Ctrl+Q for Windows-client follow-ups", () => {
   const sidebar = createSidebarScriptHarness("Win32");
+  sidebar.receive({ type: "showSessionDetail" });
   const input = sidebar.element("input");
   const keydown = input.listeners.get("keydown")!;
   const press = (fields: Record<string, unknown>) => {
@@ -1003,6 +1117,7 @@ test("isolated background sessions offer Open Worktree instead of an unusable Re
 
 test("keyboard queue and accepted-send messages preserve newer drafts and never create transcript copies", () => {
   const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "showSessionDetail" });
   const input = sidebar.element("input");
   const change = input.listeners.get("input")!;
   const keydown = input.listeners.get("keydown")!;
