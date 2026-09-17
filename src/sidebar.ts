@@ -643,19 +643,47 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   }
 
   private async sendInNewSession(rawText: string, revision: number): Promise<void> {
-    const text = rawText.trim();
-    if (!text && this.attachments.values.length === 0) return;
+    const submission = this.attachments.captureSubmission();
+    const text = resolveSidebarSubmissionText(rawText, submission);
+    if (!text) {
+      this.postMessage({ type: "sendRejected" });
+      return;
+    }
     if (text.length > maxInputCharacters) throw new Error(`Messages are limited to ${maxInputCharacters.toLocaleString()} characters.`);
-    if (this.attachments.images.length > 0 && !modelSupportsImages(this.runtime.currentState.model)) {
+    if (submission.images.length > 0 && !modelSupportsImages(this.runtime.currentState.model)) {
       throw new Error("The current model does not support images. Change the model or remove image attachments before sending.");
     }
     if (this.isForegroundRequestActive()) throw new Error("Cancel or wait for the active request before starting a new session.");
     if (this.backgroundSubmissionGate.isPending) throw new Error("Wait for the background or worktree agent to finish starting before starting a new session.");
-    await this.runtime.newSession();
-    await this.resetConversation("New Pi session", true);
-    await this.refreshRecentSessions();
-    this.postMessage({ type: "showSessionDetail" });
-    await this.send(rawText, revision);
+
+    const releaseRequest = this.requestGate.acquire();
+    this.postState();
+    try {
+      await this.runtime.newSession();
+      await this.resetConversation("New Pi session", true);
+      await this.refreshRecentSessions();
+      this.postMessage({ type: "showSessionDetail" });
+      await this.runRequest(
+        text,
+        submission.textContexts,
+        submission.images,
+        submission.resource,
+        undefined,
+        undefined,
+        "composer",
+        undefined,
+        () => {
+          submission.consumeAccepted();
+          this.postMessage({ type: "clearInput", expectedText: rawText, expectedRevision: revision });
+        },
+        undefined,
+        submission.transcriptAttachments,
+        true,
+      );
+    } finally {
+      releaseRequest();
+      this.postState();
+    }
   }
 
   private async send(rawText: string, revision: number): Promise<void> {
@@ -698,12 +726,13 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     onAccepted?: () => void,
     validate?: () => void,
     transcriptAttachments?: readonly TranscriptAttachment[],
+    requestGateAlreadyHeld = false,
   ): Promise<string> {
     const text = request.trim();
     if (!text) {
       throw new Error("Enter a message for Pi.");
     }
-    if (this.isForegroundRequestActive()) {
+    if (!requestGateAlreadyHeld && this.isForegroundRequestActive()) {
       throw new Error("Pi is already working. Cancel or wait for the active request before starting another one.");
     }
     if (this.backgroundSubmissionGate.isPending) {
@@ -715,7 +744,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
 
     const behavior = conversationRequestBehavior(origin);
     const retryable = behavior.retryable;
-    const releaseRequest = this.requestGate.acquire();
+    const releaseRequest = requestGateAlreadyHeld ? () => {} : this.requestGate.acquire();
     this.requestLifecycle.begin();
     this.foregroundCancellable = true;
     this.postState();

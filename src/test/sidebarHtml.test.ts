@@ -384,6 +384,35 @@ test("Sessions is a separate layer that opens a detail view and returns with Bac
   assert.equal(sidebar.element("all-session-list").children[0]?.disabled, false);
 });
 
+test("returning to collapsed Sessions focuses only a visible fallback", () => {
+  const sidebar = createSidebarScriptHarness();
+  const ids = ["a", "b", "c", "d"].map(character => character.repeat(24));
+  const sessions = ids.map((id, index) => ({
+    id,
+    title: `Session ${index + 1}`,
+    updatedAt: Date.now() - index * 60_000,
+    current: index === 3,
+  }));
+  sidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, cancellable: false, connected: true }, sessions });
+
+  sidebar.receive({ type: "showSessionDetail" });
+  sidebar.receive({ type: "showSessionsLayer" });
+
+  assert.equal(sidebar.element("recent-session-list").children[0]?.focusCount, 1, "the first visible row is the fallback");
+  assert.equal(sidebar.element("all-session-list").children[3]?.focusCount, 0, "the current row in the hidden browser is not focused");
+
+  sidebar.receive({
+    type: "state",
+    status: "Ready",
+    runtime: { busy: false, cancellable: false, connected: true },
+    sessions: sessions.map(session => ({ ...session, current: false })),
+  });
+  sidebar.receive({ type: "showSessionDetail" });
+  sidebar.receive({ type: "showSessionsLayer" });
+
+  assert.equal(sidebar.element("recent-session-list").children[0]?.focusCount, 1, "a missing current session still gets a visible fallback");
+});
+
 test("collapsing an emptied Sessions browser focuses New session instead of hidden View all", () => {
   const sidebar = createSidebarScriptHarness();
   sidebar.receive({
