@@ -323,6 +323,78 @@ test("Open Sessions focuses the sidebar and restores its list layer", async () =
   }
 });
 
+test("Sessions-layer submission snapshots attachments and holds the request gate through the session switch", async () => {
+  const vscode = installVscodeMock();
+  vscode.window.registerWebviewViewProvider = () => ({ dispose() {} });
+  vscode.commands.executeCommand = async () => {};
+  const { registerPiCodeSidebar } = require("../sidebar") as typeof import("../sidebar");
+  const subscription = () => ({ dispose() {} });
+  let completeSessionSwitch: (() => void) | undefined;
+  const sessionSwitch = new Promise<void>(resolve => { completeSessionSwitch = resolve; });
+  const prompts: Array<{ request: string; resource: MockUri; images: readonly unknown[] }> = [];
+  const resource = MockUri.file("/workspace/original-context.ts");
+  const runtime: any = {
+    currentState: { model: undefined, connected: true },
+    currentCwd: process.cwd(),
+    onEvent: subscription,
+    onDidChangeState: subscription,
+    newSession: async () => { await sessionSwitch; },
+    ensureStarted: async () => {},
+    prompt: async (request: string, submittedResource: MockUri, images: readonly unknown[], onAccepted: (() => void) | undefined) => {
+      prompts.push({ request, resource: submittedResource, images });
+      onAccepted?.();
+      return "done";
+    },
+    getMessages: async () => [],
+  };
+  const context: any = {
+    workspaceState: { get: () => undefined, update: async () => {} },
+    extensionUri: MockUri.file("/extension"),
+    subscriptions: [],
+  };
+  const provider = registerPiCodeSidebar(context, runtime);
+  const internal = provider as any;
+  const posted: Array<Record<string, unknown>> = [];
+  internal.view = { webview: { postMessage: async (message: Record<string, unknown>) => { posted.push(message); return true; } } };
+  let captureCount = 0;
+  let consumed = false;
+  internal.attachments.captureSubmission = () => {
+    captureCount += 1;
+    return {
+      ids: ["original"],
+      textContexts: [{ label: "original-context.ts", content: "original attachment snapshot" }],
+      images: [],
+      resource,
+      transcriptAttachments: [{ type: "context", label: "original-context.ts", fullLabel: "original-context.ts" }],
+      recoveryBytes: 28,
+      consumeAccepted: () => { consumed = true; },
+      restoreConsumed() {},
+    };
+  };
+
+  try {
+    const submission = internal.sendInNewSession("use the submitted context", 7);
+    await tick();
+    assert.equal(captureCount, 1, "attachments are captured before the first session-switch await");
+    await assert.rejects(provider.sendRequest("overlapping editor request", []), /already working/);
+    assert.equal(prompts.length, 0, "an editor request cannot enter the newly switched session");
+
+    completeSessionSwitch?.();
+    await submission;
+
+    assert.equal(captureCount, 1, "the post-switch send reuses the original snapshot");
+    assert.equal(prompts.length, 1);
+    assert.match(prompts[0]!.request, /original attachment snapshot/);
+    assert.equal(prompts[0]!.resource, resource);
+    assert.equal(consumed, true);
+    assert.ok(posted.some(message => message.type === "clearInput" && message.expectedRevision === 7));
+  } finally {
+    completeSessionSwitch?.();
+    for (const disposable of context.subscriptions) disposable.dispose();
+    vscode.restore();
+  }
+});
+
 test("sidebar rejects an empty queued snapshot and forwards an attachment resource", async () => {
   const vscode = installVscodeMock();
   vscode.window.registerWebviewViewProvider = () => ({ dispose() {} });

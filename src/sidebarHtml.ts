@@ -985,8 +985,12 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       updateSessionLayer();
       if (sessionsExpanded) sessionSearchInput.focus();
       else {
+        const recentButtons = sessionButtons.slice(0, Math.min(3, recentSessions.length));
         const currentId = recentSessions.find(session => session.current)?.id;
-        sessionButtons.find(button => button.dataset.sessionId === currentId)?.focus();
+        const currentButton = recentButtons.find(button => button.dataset.sessionId === currentId);
+        const target = [currentButton, ...recentButtons, $('view-all-sessions'), $('new-session'), cancelButton, $('reconnect'), input]
+          .find(element => element && !element.hidden && !element.disabled);
+        target?.focus();
       }
     }
 
