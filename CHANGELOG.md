@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Add a recent workspace Chats panel with quick switching and a searchable **View all** browser.
+- Add a top-level workspace **Sessions** list with quick switching, a searchable **View all** browser, a composer that starts a new session, and a separate conversation detail layer with **Back to Sessions**.
 - Show composer image attachments as compact, labeled thumbnail cards with preview and remove actions.
 - Keep submitted context chips and validated image thumbnails on their user turn across history refresh and session restore, with labeled unavailable placeholders when image bytes cannot be recovered.
 - Add bounded one-shot transcript image delivery, newest-first aggregate history processing limits, browser-rejection memory, responsive thumbnail grids, and a keyboard-accessible modal preview without persisting Base64 image payloads.
@@ -22,7 +22,7 @@
 - Serialize foreground request/session operations, bind resumed sessions to their working directory, bound subprocess cleanup, and explicitly disable unapproved project resources.
 - Compile against exactly VS Code 1.106 declarations rather than newer APIs. Record automated workflow evidence and explicitly deferred interactive/remote validation in `docs/WORKFLOW_VALIDATION.md`.
 
-- Add a confirmed **Delete Conversation** button that moves the current persistent Pi session to Trash and starts a new session.
+- Add a confirmed **Delete Session** button that moves the current persistent Pi session to Trash and starts a new session.
 - Add a standalone global Pi extension with authenticated request/event communication, `pi.events` interoperability, and integrated-terminal discovery.
 - Export a same-host VS Code API for broadcasting bounded events to connected Pi sessions.
 - Install both the Pi extension and VSIX through `just install`.

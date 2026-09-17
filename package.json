@@ -51,7 +51,7 @@
       "picode": [
         {
           "id": "picode.chatView",
-          "name": "Chat",
+          "name": "Sessions",
           "type": "webview",
           "icon": "resources/picode.svg"
         }
@@ -84,7 +84,7 @@
       },
       {
         "command": "picode.openChat",
-        "title": "Open Chat",
+        "title": "Open Sessions",
         "category": "Pi",
         "icon": "resources/picode.svg"
       },
