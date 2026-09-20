@@ -8,6 +8,11 @@ import ts from "typescript";
 import { imageAssetId } from "../imageAssets";
 import { buildAgentPrompt } from "../prompts";
 import { assertSessionWorkspace } from "../sessionIdentity";
+import {
+  vscodeBridgeExtensionEnvironmentKey,
+  vscodeBridgePortEnvironmentKey,
+  vscodeBridgeTokenEnvironmentKey,
+} from "../vscodeBridgeProtocol";
 import { installVscodeMock, MockUri } from "./vscodeMock";
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -35,13 +40,24 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
   await Promise.all([mkdir(activeRoot), mkdir(otherRoot)]);
   const activeFolder = { uri: MockUri.file(activeRoot) };
   const otherFolder = { uri: MockUri.file(otherRoot) };
+  const replacements = new Map<string, string>();
+  let terminalOptions: Record<string, unknown> | undefined;
+  let terminalShown = false;
   vscode.workspace.workspaceFolders = [activeFolder, otherFolder];
   vscode.workspace.getWorkspaceFolder = (resource: MockUri) => resource.fsPath.startsWith(otherRoot) ? otherFolder : activeFolder;
+  vscode.window.createTerminal = (options: Record<string, unknown>) => {
+    terminalOptions = options;
+    return { show: () => { terminalShown = true; } };
+  };
   const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
   const context: any = {
     workspaceState: { get: () => undefined, update: async () => {} },
-    environmentVariableCollection: { clear() {} },
-    extensionUri: MockUri.file("/extension"),
+    environmentVariableCollection: {
+      description: "",
+      replace: (key: string, value: string) => replacements.set(key, value),
+      clear: () => replacements.clear(),
+    },
+    extensionUri: MockUri.file("/extension path"),
   };
   const runtime = new PiRuntimeManager(context);
   const internal = runtime as any;
@@ -49,11 +65,17 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
   runtime.onEvent(event => {
     if (event.type === "queue_instruction_delivered" && event.instruction && typeof event.instruction === "object") deliveredInstructions.push(event.instruction as Record<string, unknown>);
   });
+  await runtime.initializeBridge();
+  assert.match(context.environmentVariableCollection.description, /process-local Pi bridge/);
+  assert.match(replacements.get(vscodeBridgePortEnvironmentKey) ?? "", /^\d+$/);
+  assert.match(replacements.get(vscodeBridgeTokenEnvironmentKey) ?? "", /^[a-f0-9]{64}$/);
+  assert.equal(replacements.get(vscodeBridgeExtensionEnvironmentKey), path.join("/extension path", "resources", "picode-bridge.ts"));
   const foregroundOptions = internal.buildClientOptions(undefined, { PICODE_BRIDGE_TOKEN: "token" });
   assert.equal(foregroundOptions.tools, undefined);
   assert.equal(foregroundOptions.appendSystemPrompt, undefined);
   assert.equal("mode" in runtime.currentState, false);
-  assert.deepEqual(foregroundOptions.extensions.map((value: string) => path.basename(value)), ["picode-permission-gate.ts", "picode-read-only-gate.ts"]);
+  assert.deepEqual(foregroundOptions.extensions.map((value: string) => path.basename(value)), ["picode-bridge.ts", "picode-permission-gate.ts", "picode-read-only-gate.ts"]);
+  assert.equal(foregroundOptions.extensions[0], path.join("/extension path", "resources", "picode-bridge.ts"));
   const calls: string[] = [];
   const queuedImage = { type: "image" as const, data: "R0lGODlhAgADAAAAAA==", mimeType: "image/gif" };
   const receivedImages: unknown[] = [];
@@ -68,7 +90,20 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
     stop: async () => { calls.push("stop"); if (client.isRunning) { client.isRunning = false; internal.handleEvent({ type: "process_exit" }); } },
     getState: async () => ({ sessionId: "s", isStreaming: false }), getSessionStats: async () => ({}),
   };
-  internal.client = client; internal.updateState({ connected: true, sessionId: "s" });
+  internal.client = client; internal.updateState({ connected: true, sessionId: "s", sessionFile: "/tmp/session.jsonl" });
+  await runtime.openInTerminal();
+  assert.equal(terminalShown, true);
+  assert.deepEqual(terminalOptions, {
+    name: "Pi",
+    cwd: activeRoot,
+    shellPath: "pi",
+    shellArgs: ["--extension", path.join("/extension path", "resources", "picode-bridge.ts"), "--session", "/tmp/session.jsonl"],
+    env: {
+      [vscodeBridgePortEnvironmentKey]: replacements.get(vscodeBridgePortEnvironmentKey),
+      [vscodeBridgeTokenEnvironmentKey]: replacements.get(vscodeBridgeTokenEnvironmentKey),
+      [vscodeBridgeExtensionEnvironmentKey]: path.join("/extension path", "resources", "picode-bridge.ts"),
+    },
+  });
   try {
     let completeSwitch: (() => void) | undefined;
     client.newSession = () => new Promise<void>(resolve => { completeSwitch = resolve; });

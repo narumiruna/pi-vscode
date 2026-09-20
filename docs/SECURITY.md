@@ -6,9 +6,9 @@ The extension starts the configured Pi executable with `shell: false`.
 Prompts, source code, terminal text, and image payloads are written to Pi over stdin rather than process arguments.
 Pi provider authentication remains in Pi's credential store or provider environment variables.
 The VS Code bridge listens on a random loopback TCP port in the same extension-host environment.
-Each bridge request and event subscription requires a random per-window token passed to Pi processes and future integrated terminals.
+Each bridge request and event subscription requires a random per-window token passed to foreground Pi processes and future integrated terminals. Independent background/worktree agents receive neither bridge credentials nor the bridge extension.
 Oversized or malformed bridge frames fail closed and terminate their socket.
-Processes in an authenticated terminal can inherit that token, so requests remain allowlisted and expose no arbitrary command execution or file mutation method.
+Processes in an authenticated terminal can inherit that token. The non-secret `PICODE_BRIDGE_EXTENSION` variable identifies the bridge bundled with the active VSIX, but users must pass it explicitly with `pi --extension` in an ordinary integrated shell. Requests remain allowlisted and expose no arbitrary command execution or file mutation method.
 The bridge exposes bounded editor context, file opening, notifications, and JSON-safe events from same-host VS Code extensions.
 
 ## Pi Tools
@@ -29,8 +29,8 @@ A missing RPC permission UI blocks gated tools instead of allowing them. Tools c
 Project-local Pi settings, extensions, skills, and prompts are not approved by default.
 Enable `picode.approveProjectResources` only for a trusted workspace. RPC launches explicitly pass `--no-approve` when this setting is disabled, rather than relying on inherited global Pi approval.
 New workflow processes and mutations reject untrusted or virtual workspaces in the host, not just disabled UI. Foreground actions and resumed session headers must match Pi's canonical working directory. Cross-worktree sessions must be opened in the matching workspace window.
-The standalone Pi bridge extension is installed globally and executes with the user's permissions.
-Pi extensions must be reviewed before installation.
+The Pi bridge extension is bundled in the VSIX and loaded process-locally for foreground RPC and **Open in Terminal** Pi sessions. Release/source installers and extension activation remove only the historical `picode.ts` and `pi-vscode.ts` global bridge paths created by this project; they do not create a Pi extension directory on a clean installation. Activation performs this migration before starting Pi and fails closed if cleanup cannot complete, preventing a legacy global copy from loading beside the bundled bridge after a direct VSIX or Marketplace upgrade.
+Pi extensions execute with the user's permissions and must be reviewed before installation or explicit loading.
 
 ## Change Safety
 

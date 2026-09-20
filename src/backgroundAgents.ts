@@ -18,6 +18,11 @@ import { buildAgentPrompt, type ChatReferenceContext } from "./prompts";
 import { PiRpcClient, type PiRpcEvent, type PiRpcImage } from "./piRpcClient";
 import { readPiInvocationOptions } from "./vscodePi";
 import { picodeConfiguration } from "./configuration";
+import {
+  vscodeBridgeExtensionEnvironmentKey,
+  vscodeBridgePortEnvironmentKey,
+  vscodeBridgeTokenEnvironmentKey,
+} from "./vscodeBridgeProtocol";
 
 const storageKey = "picode.backgroundTasks.v1";
 const maxTasks = 20;
@@ -121,6 +126,11 @@ export class BackgroundAgentManager implements vscode.Disposable {
       env: {
         PICODE_PERMISSION_MODE: configuration.get<string>("agent.confirmToolCalls", "dangerous"),
       },
+      unsetEnv: [
+        vscodeBridgePortEnvironmentKey,
+        vscodeBridgeTokenEnvironmentKey,
+        vscodeBridgeExtensionEnvironmentKey,
+      ],
     });
     const subscription = client.onEvent(event => this.handleEvent(id, event));
     let releaseOperation: () => void;
