@@ -127,7 +127,7 @@ test("sidebar preserves hidden semantics, themed layout, and keyboard accessibil
   assert.match(html, /id="changes" aria-label="Pi file changes"/);
   assert.match(html, /activity'\)\.hidden = !\[state\.proposals, state\.changes, state\.backgroundTasks\]/);
   assert.match(html, /attachmentsElement\.hidden = attachments\.length === 0/);
-  assert.match(html, /id="attachments"[^>]*hidden/);
+  assert.match(html, /id="attachments"[^>]*aria-label="Attachments for the next message"[^>]*hidden/);
   assert.match(html, /#notice:empty \{ display: none; \}/);
   assert.match(html, /var\(--vscode-focusBorder\)/);
   assert.match(html, /var\(--vscode-contrastBorder\)/);
@@ -308,6 +308,7 @@ test("composer keeps idle hints short and hides empty queue and unknown usage", 
   sidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, connected: true }, attachments: [] });
   assert.equal(sidebar.element("composer-hint").textContent, "Enter to send · Shift+Enter for a new line");
   assert.equal(sidebar.element("usage").textContent, "");
+  assert.equal(sidebar.element("usage").title, "");
   assert.equal(sidebar.element("queue-status").textContent, "");
   assert.equal(sidebar.element("attachment-estimate").textContent, "");
   assert.equal(sidebar.element("inspect-context").hidden, true);
@@ -316,6 +317,7 @@ test("composer keeps idle hints short and hides empty queue and unknown usage", 
   sidebar.receive({ type: "state", status: "Working…", runtime: { busy: true, queueable: true, connected: true, stats: { contextUsage: { percent: 12.4 } } } });
   assert.equal(sidebar.element("queue-status").textContent, "", "an empty queue stays quiet even while Pi is working");
   assert.equal(sidebar.element("usage").textContent, "Context 12%");
+  assert.equal(sidebar.element("usage").title, "Share of the model’s context window currently in use");
 });
 
 test("attachment summary shows counts and keeps estimates in attachment details", () => {
@@ -338,6 +340,7 @@ test("attachment summary shows counts and keeps estimates in attachment details"
   assert.equal(sidebar.element("inspect-context").title, "120 characters · about 30 text tokens (estimated) · image tokens not included");
   state([context], 120, 30);
   assert.equal(sidebar.element("inspect-context").title, "120 characters · about 30 text tokens (estimated)");
+  assert.equal(sidebar.element("send").title, "Send attachments");
   state([]);
   assert.equal(sidebar.element("attachment-estimate").textContent, "");
   assert.equal(sidebar.element("inspect-context").title, "");
@@ -360,7 +363,10 @@ test("Sessions is a separate layer that opens a detail view and returns with Bac
   assert.equal(sidebar.element("session-header-title").textContent, "Sessions");
   assert.equal(sidebar.element("recent-session-list").children.length, 3);
   assert.equal(sidebar.element("view-all-sessions").textContent, "View all (4)");
-  assert.equal(sidebar.element("input").placeholder, "Start a new chat…");
+  assert.equal(sidebar.element("input").placeholder, "Start a new session…");
+  sidebar.receive({ type: "state", status: "Working…", runtime: { busy: true, connected: true }, sessions });
+  assert.equal(sidebar.element("composer-hint").textContent, "Wait for Pi to finish before starting a new session");
+  sidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, connected: true }, sessions });
 
   const input = sidebar.element("input");
   input.value = "Start from the Sessions layer";
@@ -648,7 +654,7 @@ test("an attached image can start a new Session without additional text", () => 
 
   assert.equal(sidebar.element("input").value, "");
   assert.equal(sidebar.element("send").disabled, false);
-  assert.equal(sidebar.element("send").title, "Send attached context");
+  assert.equal(sidebar.element("send").title, "Send attachments");
   sidebar.element("send").listeners.get("click")!();
   assert.equal(sidebar.posted.at(-1)?.type, "sendNewSession");
   assert.equal(sidebar.posted.at(-1)?.text, "");
@@ -1183,6 +1189,7 @@ test("keyboard queue and accepted-send messages preserve newer drafts and never 
   const postedBeforeStaleRecovery = sidebar.posted.length;
   sidebar.receive({ type: "appendDraft", text: "recovered", expectedRevision: 1, recoveredDraftId });
   assert.equal(input.value, "new draft");
+  assert.equal(sidebar.element("notice").textContent, "Your draft changed. The recovered message is still available under Restore drafts.");
   assert.equal(sidebar.posted.length, postedBeforeStaleRecovery, "stale text recovery does not consume its attachment handle");
   sidebar.receive({ type: "appendDraft", text: "recovered", expectedRevision: 2, recoveredDraftId });
   assert.equal(input.value, "new draft", "recovered text waits for successful attachment restoration");
