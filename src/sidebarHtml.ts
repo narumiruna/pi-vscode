@@ -252,17 +252,17 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     <section id="composer" aria-label="Message composer">
       <div class="composer-box">
         <div id="attachments" aria-label="Context attached to the next message" hidden></div>
-        <button id="inspect-context" class="secondary" type="button" hidden>Inspect Context</button>
+        <button id="inspect-context" class="secondary" type="button" hidden>View attachments</button>
         <div id="attachment-estimate" class="proposal-meta"></div>
         <div id="pending-queue" role="list" aria-label="Pending Pi messages" hidden></div>
         <label for="input" class="sr-only">Message Pi</label>
-        <textarea id="input" rows="1" maxlength="${maxInputCharacters}" placeholder="Ask, plan, or build something…" aria-describedby="composer-hint"></textarea>
+        <textarea id="input" rows="1" maxlength="${maxInputCharacters}" placeholder="Ask Pi anything…" aria-describedby="composer-hint"></textarea>
         <div id="queue-status" class="proposal-meta" role="status"></div>
         <div class="proposal-actions">
-          <button id="recover-queue" class="secondary" type="button" hidden>Recovered Drafts</button>
+          <button id="recover-queue" class="secondary" type="button" hidden>Restore drafts</button>
         </div>
         <div class="composer-actions">
-          <button id="add-context" class="secondary" type="button" title="Attach code, files, or images">${icon("attachment")}<span>Add context</span></button>
+          <button id="add-context" class="secondary" type="button" title="Attach code, files, or images">${icon("attachment")}<span>Attach</span></button>
           <span class="composer-spacer"></span>
           <button id="cancel" class="secondary" type="button" aria-label="Cancel Pi response" hidden>${icon("stop")}<span>Stop</span></button>
           <button id="model-picker" class="secondary" type="button" aria-label="Change Pi model"><span id="model-label">Choose model…</span>${icon("chevron")}</button>
@@ -271,7 +271,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           <button id="send" type="button" aria-label="Send message" title="Send message" disabled>${icon("send")}</button>
         </div>
       </div>
-      <div id="composer-hint">Enter to send · Shift+Enter for newline</div>
+      <div id="composer-hint">Enter to send · Shift+Enter for a new line</div>
     </section>
     <div id="notice" role="status" aria-live="polite"></div>
     <div id="runtime"><span class="status-dot" aria-hidden="true"></span><span id="status" role="status" aria-live="polite">Connecting…</span><span id="session"></span><span id="usage"></span><button id="retry" class="secondary" type="button" hidden>Retry</button><button id="refresh-history" class="secondary" type="button" hidden>Refresh history</button><button id="reconnect" class="secondary" type="button" hidden>Reconnect</button></div>
@@ -306,7 +306,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     const useCtrlQForFollowUp = /^win/i.test(clientPlatform)
       || /\\bwindows\\b/i.test(navigator.userAgent || '');
     const followUpShortcutLabel = useCtrlQForFollowUp ? 'Ctrl+Q' : 'Alt+Enter';
-    $('composer-hint').textContent = 'Enter to send · ' + followUpShortcutLabel + ' also sends · Shift+Enter for newline';
+    $('composer-hint').textContent = 'Enter to send · Shift+Enter for a new line';
     const imageAssetCache = new Map();
     const imageTargets = new Map();
     const maxImageAssetCacheBytes = 25 * 1024 * 1024;
@@ -970,7 +970,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('back-to-sessions').title = sessionsLayerVisible ? 'Back to recent Sessions' : 'Back to Sessions';
       $('session-header-title').textContent = sessionsLayerVisible ? 'Sessions' : current?.title || 'Session';
       $('session-header-title').title = sessionsLayerVisible ? '' : current?.title || '';
-      input.placeholder = sessionsLayerVisible ? 'Start a new session…' : 'Ask, plan, or build something…';
+      input.placeholder = sessionsLayerVisible ? 'Start a new chat…' : 'Ask Pi anything…';
       renderSessions();
     }
 
@@ -1024,7 +1024,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const steering = Array.isArray(pending.steering) ? pending.steering : [];
       const followUp = Array.isArray(pending.followUp) ? pending.followUp : [];
       const rows = [];
-      for (const [kind, label, items] of [['steering', 'Steering:', steering], ['followUp', 'Follow-up:', followUp]]) {
+      for (const [kind, label, items] of [['steering', 'Next:', steering], ['followUp', 'After this:', followUp]]) {
         for (const item of items) {
           if (!item || typeof item.text !== 'string') continue;
           const row = document.createElement('div');
@@ -1037,16 +1037,17 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           kindLabel.textContent = label;
           const text = document.createElement('span');
           text.className = 'pending-queue-text';
-          text.textContent = item.text + (item.hasAttachments ? ' · attachments included' : '');
+          text.textContent = item.text + (item.hasAttachments ? ' · with attachments' : '');
           row.append(kindLabel, text);
           rows.push(row);
         }
       }
       $('pending-queue').replaceChildren(...rows);
       $('pending-queue').hidden = rows.length === 0;
-      $('queue-status').textContent = queueable || rows.length
-        ? steering.length + ' steering · ' + followUp.length + ' follow-ups pending · steering waits for tool calls'
+      $('queue-status').textContent = rows.length
+        ? rows.length + (rows.length === 1 ? ' message queued' : ' messages queued')
         : '';
+      $('pending-queue').title = 'Next: sent after the current tool finishes. After this: sent when Pi finishes responding.';
     }
 
     function updateSendState() {
@@ -1084,16 +1085,14 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         : backgroundSubmissionPending
           ? 'Starting background agent…'
           : sessionStartBlocked
-            ? 'Wait for Pi before starting a new session'
+            ? 'Wait for Pi to finish before starting a new chat'
             : imageBlocked
-              ? 'Choose an image-capable model or remove images'
-              : sessionsLayerVisible
-                ? 'Enter to start a new session · Shift+Enter for newline'
-                : queueable
-                  ? 'Enter to steer · ' + followUpShortcutLabel + ' for follow-up · Shift+Enter for newline'
-                  : busy
-                    ? 'This request does not accept queued messages'
-                    : 'Enter to send · ' + followUpShortcutLabel + ' also sends · Shift+Enter for newline';
+              ? 'Choose a model that supports images, or remove them'
+              : queueable && !sessionsLayerVisible
+                ? 'Enter to send next · ' + followUpShortcutLabel + ' to send after this · Shift+Enter for a new line'
+                : busy
+                  ? 'Wait for Pi to finish before sending'
+                  : 'Enter to send · Shift+Enter for a new line';
       updateRuntimeStatus();
     }
 
@@ -1123,7 +1122,13 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       renderAttachments(state.attachments || []);
       $('inspect-context').hidden = !(state.attachments || []).length;
       const estimate = state.attachmentEstimate || {};
-      $('attachment-estimate').textContent = estimate.characters || attachedImages ? 'Attachments: ' + (estimate.characters || 0) + ' chars · ≈' + (estimate.estimatedTextTokens || 0) + ' heuristic text tokens' + (attachedImages ? ' · image usage unknown' : '') : '';
+      const attachmentCount = (state.attachments || []).length;
+      $('attachment-estimate').textContent = attachmentCount
+        ? attachmentCount + (attachmentCount === 1 ? ' attachment' : ' attachments')
+        : '';
+      $('inspect-context').title = attachmentCount
+        ? (estimate.characters || 0) + ' characters · about ' + (estimate.estimatedTextTokens || 0) + ' text tokens (estimated)' + (attachedImages ? ' · image tokens not included' : '')
+        : '';
       $('activity').hidden = ![state.proposals, state.changes, state.backgroundTasks].some(items => items && items.length);
       updatingControls = true;
       renderThinkingLevel(state.runtime);
@@ -1142,7 +1147,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('session').textContent = state.runtime.sessionName || (state.runtime.sessionId ? 'Session ' + state.runtime.sessionId.slice(0, 8) : '');
       $('session').title = state.runtime.sessionName || state.runtime.sessionId || '';
       const context = (state.runtime.stats || {}).contextUsage || {};
-      $('usage').textContent = typeof context.percent === 'number' ? Math.round(context.percent) + '% Pi context' : 'Pi context unknown';
+      $('usage').textContent = typeof context.percent === 'number' ? 'Context ' + Math.round(context.percent) + '%' : '';
+      $('usage').title = 'Share of the model’s context window currently in use';
       $('reconnect').hidden = connected;
       $('retry').hidden = !state.retryAvailable;
       $('retry').disabled = busy || !connected;

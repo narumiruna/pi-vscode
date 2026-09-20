@@ -7,11 +7,15 @@ import { installVscodeMock } from "./vscodeMock";
 test("follow-up shortcut selection uses the webview client OS", () => {
   const windows = createSidebarScriptHarness("Win32");
   assert.equal(windows.run("useCtrlQForFollowUp"), true);
-  assert.match(windows.element("composer-hint").textContent, /Ctrl\+Q/);
+  windows.receive({ type: "showSessionDetail" });
+  windows.run("busy = true; queueable = true; updateSendState()");
+  assert.equal(windows.element("composer-hint").textContent, "Enter to send next · Ctrl+Q to send after this · Shift+Enter for a new line");
 
   const linux = createSidebarScriptHarness("Linux x86_64");
   assert.equal(linux.run("useCtrlQForFollowUp"), false);
-  assert.match(linux.element("composer-hint").textContent, /Alt\+Enter/);
+  linux.receive({ type: "showSessionDetail" });
+  linux.run("busy = true; queueable = true; updateSendState()");
+  assert.equal(linux.element("composer-hint").textContent, "Enter to send next · Alt+Enter to send after this · Shift+Enter for a new line");
 
   const reducedPlatform = createSidebarScriptHarness("", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
   assert.equal(reducedPlatform.run("useCtrlQForFollowUp"), true);
@@ -299,6 +303,47 @@ function createSidebarScriptHarness(clientPlatform = "Linux x86_64", userAgent =
   };
 }
 
+test("composer keeps idle hints short and hides empty queue and unknown usage", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, connected: true }, attachments: [] });
+  assert.equal(sidebar.element("composer-hint").textContent, "Enter to send · Shift+Enter for a new line");
+  assert.equal(sidebar.element("usage").textContent, "");
+  assert.equal(sidebar.element("queue-status").textContent, "");
+  assert.equal(sidebar.element("attachment-estimate").textContent, "");
+  assert.equal(sidebar.element("inspect-context").hidden, true);
+
+  sidebar.receive({ type: "showSessionDetail" });
+  sidebar.receive({ type: "state", status: "Working…", runtime: { busy: true, queueable: true, connected: true, stats: { contextUsage: { percent: 12.4 } } } });
+  assert.equal(sidebar.element("queue-status").textContent, "", "an empty queue stays quiet even while Pi is working");
+  assert.equal(sidebar.element("usage").textContent, "Context 12%");
+});
+
+test("attachment summary shows counts and keeps estimates in attachment details", () => {
+  const sidebar = createSidebarScriptHarness();
+  const state = (attachments: unknown[], characters = 0, estimatedTextTokens = 0) => sidebar.receive({
+    type: "state", status: "Ready", runtime: { busy: false, connected: true }, imageSupported: true,
+    attachments, attachmentEstimate: { characters, estimatedTextTokens },
+  });
+  const image = { id: "image", label: "image.png", image: true, assetId: "asset" };
+  const context = { id: "context", label: "file.ts", image: false };
+  state([image]);
+  assert.equal(sidebar.element("attachment-estimate").textContent, "1 attachment");
+  assert.equal(sidebar.element("inspect-context").hidden, false);
+  assert.match(sidebar.element("inspect-context").title, /image tokens not included/);
+  sidebar.element("inspect-context").listeners.get("click")!();
+  assert.equal(sidebar.posted.at(-1).type, "inspectContext");
+
+  state([image, context], 120, 30);
+  assert.equal(sidebar.element("attachment-estimate").textContent, "2 attachments");
+  assert.equal(sidebar.element("inspect-context").title, "120 characters · about 30 text tokens (estimated) · image tokens not included");
+  state([context], 120, 30);
+  assert.equal(sidebar.element("inspect-context").title, "120 characters · about 30 text tokens (estimated)");
+  state([]);
+  assert.equal(sidebar.element("attachment-estimate").textContent, "");
+  assert.equal(sidebar.element("inspect-context").title, "");
+  assert.equal(sidebar.element("inspect-context").hidden, true);
+});
+
 test("Sessions is a separate layer that opens a detail view and returns with Back", () => {
   const sidebar = createSidebarScriptHarness();
   const ids = ["a", "b", "c", "d"].map(character => character.repeat(24));
@@ -315,7 +360,7 @@ test("Sessions is a separate layer that opens a detail view and returns with Bac
   assert.equal(sidebar.element("session-header-title").textContent, "Sessions");
   assert.equal(sidebar.element("recent-session-list").children.length, 3);
   assert.equal(sidebar.element("view-all-sessions").textContent, "View all (4)");
-  assert.equal(sidebar.element("input").placeholder, "Start a new session…");
+  assert.equal(sidebar.element("input").placeholder, "Start a new chat…");
 
   const input = sidebar.element("input");
   input.value = "Start from the Sessions layer";
@@ -332,7 +377,7 @@ test("Sessions is a separate layer that opens a detail view and returns with Bac
   assert.equal(sidebar.element("session-list-content").hidden, true);
   assert.equal(sidebar.element("back-to-sessions").hidden, false);
   assert.equal(sidebar.element("session-header-title").textContent, "Current work");
-  assert.equal(sidebar.element("input").placeholder, "Ask, plan, or build something…");
+  assert.equal(sidebar.element("input").placeholder, "Ask Pi anything…");
 
   input.value = "Continue the selected Session";
   input.listeners.get("input")!();
@@ -996,7 +1041,7 @@ test("busy composer queues attachment-only steering and follow-up while preservi
   sidebar.run("pendingImageReads = 0; imageSupported = false; updateSendState()");
   press();
   assert.equal(sidebar.posted.length, loadingCount, "unsupported images are not queued");
-  assert.match(sidebar.element("composer-hint").textContent, /image-capable model/);
+  assert.equal(sidebar.element("composer-hint").textContent, "Choose a model that supports images, or remove them");
 
   sidebar.receive({
     type: "state",
@@ -1015,11 +1060,11 @@ test("busy composer queues attachment-only steering and follow-up while preservi
     },
     attachments: [{ id: "context", label: "context.ts", image: false }],
   });
-  assert.match(sidebar.element("queue-status").textContent, /1 steering · 1 follow-ups pending/);
+  assert.equal(sidebar.element("queue-status").textContent, "2 messages queued");
   const pendingRows = sidebar.element("pending-queue").children;
   assert.equal(pendingRows.length, 2);
-  assert.deepEqual(pendingRows[0]?.children.map(child => child.textContent), ["Steering:", "one · attachments included"]);
-  assert.deepEqual(pendingRows[1]?.children.map(child => child.textContent), ["Follow-up:", "two"]);
+  assert.deepEqual(pendingRows[0]?.children.map(child => child.textContent), ["Next:", "one · with attachments"]);
+  assert.deepEqual(pendingRows[1]?.children.map(child => child.textContent), ["After this:", "two"]);
   const contextQueueCount = sidebar.posted.length;
   sidebar.run("submissionPending = false; submit()");
   assert.equal(sidebar.posted.length, contextQueueCount + 1);
@@ -1028,7 +1073,7 @@ test("busy composer queues attachment-only steering and follow-up while preservi
   assert.equal(sidebar.element("notice").textContent, "");
 });
 
-test("pending queue renders Pi-style labels, duplicate text and safe bounded previews until delivery", () => {
+test("pending queue renders plain-language labels, duplicate text and safe bounded previews until delivery", () => {
   const sidebar = createSidebarScriptHarness();
   const queuedText = "<img src=x onerror=alert(1)>\ncontinue here";
   const runtime = (steering: unknown[], followUp: unknown[]) => ({
@@ -1057,7 +1102,7 @@ test("pending queue renders Pi-style labels, duplicate text and safe bounded pre
   assert.equal(pending.children[0]?.title, queuedText);
   assert.equal(pending.children[0]?.children[1]?.textContent, queuedText);
   assert.equal(pending.children[0]?.innerHTML, "", "queued text is never interpreted as HTML");
-  assert.equal(pending.children[1]?.children[1]?.textContent, `${queuedText} · attachments included`);
+  assert.equal(pending.children[1]?.children[1]?.textContent, `${queuedText} · with attachments`);
 
   sidebar.receive({
     type: "state",
@@ -1067,7 +1112,8 @@ test("pending queue renders Pi-style labels, duplicate text and safe bounded pre
     attachments: [],
   });
   assert.equal(pending.children.length, 1);
-  assert.deepEqual(pending.children[0]?.children.map(child => child.textContent), ["Follow-up:", "after completion"]);
+  assert.deepEqual(pending.children[0]?.children.map(child => child.textContent), ["After this:", "after completion"]);
+  assert.equal(sidebar.element("queue-status").textContent, "1 message queued");
   assert.equal(sidebar.element("messages").children.length, 1, "delivered input moves into the transcript state");
 
   sidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, connected: true, pendingQueue: { steering: [], followUp: [] } }, attachments: [] });
