@@ -123,7 +123,9 @@ Preview opens a native diff for every file containing a selected hunk. Apply rec
 - Current suite: 214 tests / 41 files, passing normally and with `GIT_INDEX_FILE=.git/index`. Native minimum/current Linux assertions and Restricted Mode pass; Windows and actual Remote-SSH/container API assertions are recorded with runner limitations.
 - Base evolution: `main` adopted Changesets before execution. The release note is `.changeset/semantic-review-diagnostics.md`; the release workflow generates `CHANGELOG.md`. No release/version action is authorized or performed.
 - Final diff review covered source/tests/manifest/assets/dependency lock and documentation; fixes include symlink/subfolder finding guards, single-owner multi-file operation locking, cancellation-listener cleanup and affected-URI-only diagnostic observation. Final packaging passes all 214 tests and excludes source/tests/dependencies; original ignored VSIX checksum is unchanged. Production audit is clean.
-- Blocked acceptance: whole-repository Biome fails on pre-existing debt (153 baseline errors; 151 candidate errors), and the complete integrated native/manual workflow walkthrough has not run. Neither is silently waived. This plan must remain until those requirements pass or the user explicitly accepts a named exception.
+- Continuation: the user requested further execution rather than accepting exceptions. Clear the existing Biome errors and add noninteractive native UI integration evidence; keep the original acceptance gates.
+- Biome follow-up: whole-repository `biome check src resources` now passes (zero errors; warnings remain) after mechanical formatting/import/declaration cleanup, explicit filesystem handle types, SVG titles and narrowly documented control-character regex exceptions. Both normal and Git-hook-environment suites still pass all 214 tests.
+- Outstanding acceptance: complete the integrated native UI workflow walkthrough and final package/diff checks. No acceptance gate is waived; retain this plan until all requirements pass.
 
 ## Plan
 
@@ -174,4 +176,4 @@ Preview opens a native diff for every file containing a selected hunk. Apply rec
 - [x] Existing and new deterministic tests pass, real Git fixtures cover all scopes, package contents are inspected, and production dependency audit reports no vulnerabilities.
 - [x] Minimum/current VS Code and native UI evidence is recorded; Windows and remote evidence is either recorded or explicitly accepted as deferred by the user.
 - [x] README, release Changeset (generated CHANGELOG), feature matrix, security guidance, and workflow validation match the implemented behavior and do not claim unexecuted checks.
-- [x] The implementation diff receives a final review for command/registration parity, URI/path validation, race handling, disposal, bounds, trust, remote host assumptions, and backward compatibility.
+- [ ] The implementation diff receives a final review for command/registration parity, URI/path validation, race handling, disposal, bounds, trust, remote host assumptions, and backward compatibility.

@@ -1,15 +1,15 @@
-import * as vscode from "vscode";
+import type * as vscode from "vscode";
 import { registerPiChat } from "./chat";
-import { registerGitReview } from "./gitReviewController";
-import { registerWorkspaceDiagnostics } from "./workspaceDiagnosticsController";
-import { registerTestRepair } from "./testRepairController";
 import { registerDebugContext } from "./debugContextController";
 import { registerEditorActions } from "./editorActions";
+import { registerGitReview } from "./gitReviewController";
 import { registerInlineCompletions } from "./inlineCompletion";
 import { removeLegacyGlobalBridgeExtensions } from "./legacyBridge";
 import { PiRuntimeManager } from "./piRuntime";
 import { registerPiCodeSidebar } from "./sidebar";
+import { registerTestRepair } from "./testRepairController";
 import { abortAllPiInvocations } from "./vscodePi";
+import { registerWorkspaceDiagnostics } from "./workspaceDiagnosticsController";
 
 export interface PiVscodeApi {
   broadcast(event: string, data: unknown): number;

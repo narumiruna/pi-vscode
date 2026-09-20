@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
-import { lstat, open, readdir, realpath, type FileHandle } from "node:fs/promises";
+import { constants, type Dirent } from "node:fs";
+import { type FileHandle, lstat, open, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { parseAgentPrompt } from "./prompts";
 
@@ -49,26 +49,30 @@ export async function listRecentPiSessions(
   }
 
   const directory = path.dirname(activeSessionFile);
-  let entries;
+  let entries: Dirent[];
   try {
     entries = await readdir(directory, { withFileTypes: true });
   } catch {
     return undefined;
   }
 
-  const sessionEntries = entries.filter(entry => entry.name.endsWith(".jsonl"));
+  const sessionEntries = entries.filter((entry) => entry.name.endsWith(".jsonl"));
   const candidates: { readonly path: string; readonly updatedAt: number }[] = [];
   for (let offset = 0; offset < sessionEntries.length; offset += statBatchSize) {
-    const batch = await Promise.all(sessionEntries.slice(offset, offset + statBatchSize).map(async entry => {
-      const filePath = path.join(directory, entry.name);
-      try {
-        const stats = await lstat(filePath);
-        return stats.isFile() ? { path: filePath, updatedAt: stats.mtimeMs } : undefined;
-      } catch {
-        return undefined;
-      }
-    }));
-    candidates.push(...batch.filter((candidate): candidate is { path: string; updatedAt: number } => Boolean(candidate)));
+    const batch = await Promise.all(
+      sessionEntries.slice(offset, offset + statBatchSize).map(async (entry) => {
+        const filePath = path.join(directory, entry.name);
+        try {
+          const stats = await lstat(filePath);
+          return stats.isFile() ? { path: filePath, updatedAt: stats.mtimeMs } : undefined;
+        } catch {
+          return undefined;
+        }
+      }),
+    );
+    candidates.push(
+      ...batch.filter((candidate): candidate is { path: string; updatedAt: number } => Boolean(candidate)),
+    );
   }
   candidates.sort((left, right) => right.updatedAt - left.updatedAt);
 
@@ -91,7 +95,7 @@ async function readSessionSummary(
   fallbackUpdatedAt: number,
   budget: ReadBudget,
 ): Promise<PiSessionSummary | undefined> {
-  let handle;
+  let handle: FileHandle | undefined;
   try {
     handle = await open(sessionPath, constants.O_RDONLY | constants.O_NOFOLLOW);
     const stats = await handle.stat();
@@ -105,11 +109,25 @@ async function readSessionSummary(
     const headerLineEnd = headerText.indexOf("\n");
     if (headerLineEnd < 0 || headerLineEnd >= maxHeaderBytes) return undefined;
     const header = parseRecord(headerText.slice(0, headerLineEnd));
-    if (!header || header.type !== "session" || typeof header.id !== "string" || typeof header.cwd !== "string" || !path.isAbsolute(header.cwd)) return undefined;
-    if (!await sameWorkspace(header.cwd, canonicalCwd)) return undefined;
+    if (
+      !header ||
+      header.type !== "session" ||
+      typeof header.id !== "string" ||
+      typeof header.cwd !== "string" ||
+      !path.isAbsolute(header.cwd)
+    )
+      return undefined;
+    if (!(await sameWorkspace(header.cwd, canonicalCwd))) return undefined;
 
     if (headBytesRead < headLength) {
-      headBytesRead += await readBounded(handle, headBuffer, headBytesRead, headLength - headBytesRead, headBytesRead, budget);
+      headBytesRead += await readBounded(
+        handle,
+        headBuffer,
+        headBytesRead,
+        headLength - headBytesRead,
+        headBytesRead,
+        budget,
+      );
     }
     const head = headBuffer.subarray(0, headBytesRead).toString("utf8");
     const parsedHeadLines = completeLines(head);
@@ -131,7 +149,7 @@ async function readSessionSummary(
 
 async function sameWorkspace(source: string, canonicalCwd: string): Promise<boolean> {
   try {
-    return await realpath(source) === canonicalCwd;
+    return (await realpath(source)) === canonicalCwd;
   } catch {
     return false;
   }
@@ -156,7 +174,11 @@ async function readBounded(
   return total;
 }
 
-async function readLatestSessionName(handle: FileHandle, size: number, budget: ReadBudget): Promise<string | undefined> {
+async function readLatestSessionName(
+  handle: FileHandle,
+  size: number,
+  budget: ReadBudget,
+): Promise<string | undefined> {
   const scanStart = Math.max(0, size - maxMetadataScanBytes);
   let offset = size;
   let suffix = Buffer.alloc(0);
@@ -205,7 +227,7 @@ async function readLatestSessionName(handle: FileHandle, size: number, budget: R
 function completeLines(value: string): Record<string, unknown>[] {
   const lines = value.split("\n");
   if (!value.endsWith("\n")) lines.pop();
-  return lines.flatMap(line => {
+  return lines.flatMap((line) => {
     const parsed = parseRecord(line);
     return parsed ? [parsed] : [];
   });
@@ -215,7 +237,9 @@ function parseRecord(value: string): Record<string, unknown> | undefined {
   if (!value || value.length > maxHeadBytes) return undefined;
   try {
     const parsed: unknown = JSON.parse(value);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined;
   } catch {
     return undefined;
   }
@@ -234,7 +258,8 @@ function contentText(content: unknown): string | undefined {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return undefined;
   for (const block of content) {
-    if (isRecord(block) && block.type === "text" && typeof block.text === "string" && block.text.trim()) return block.text;
+    if (isRecord(block) && block.type === "text" && typeof block.text === "string" && block.text.trim())
+      return block.text;
   }
   return undefined;
 }
@@ -253,7 +278,9 @@ function extractUserTextPrefix(value: string): string | undefined {
     try {
       const decoded: unknown = JSON.parse(encoded);
       if (typeof decoded === "string" && decoded.trim()) return decoded;
-    } catch { /* Ignore malformed or truncated metadata. */ }
+    } catch {
+      /* Ignore malformed or truncated metadata. */
+    }
   }
   return undefined;
 }

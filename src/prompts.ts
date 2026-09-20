@@ -125,7 +125,10 @@ export function buildAgentPrompt(
   return sections.join("\n");
 }
 
-export function parseAgentPrompt(prompt: string, maxContextLabels = Number.MAX_SAFE_INTEGER): { request: string; contextLabels: string[] } {
+export function parseAgentPrompt(
+  prompt: string,
+  maxContextLabels = Number.MAX_SAFE_INTEGER,
+): { request: string; contextLabels: string[] } {
   const requestMatch = /<<<(PICODE|PI_VSCODE)_REQUEST_START>>>\n([\s\S]*?)\n<<<\1_REQUEST_END>>>\s*$/.exec(prompt);
   const contextLabels: string[] = [];
   for (const match of prompt.matchAll(/<<<(?:PICODE|PI_VSCODE)_CONTEXT_START: ([^\r\n>]*)>>>/g)) {
@@ -154,7 +157,7 @@ export function buildChatPrompt(
   if (history.length > 0) {
     sections.push(
       "Conversation history:",
-      history.map(entry => `${entry.role === "user" ? "User" : "Assistant"}:\n${entry.content}`).join("\n\n"),
+      history.map((entry) => `${entry.role === "user" ? "User" : "Assistant"}:\n${entry.content}`).join("\n\n"),
     );
   }
 
@@ -162,7 +165,10 @@ export function buildChatPrompt(
     sections.push(
       "Referenced context:",
       references
-        .map(reference => `<<<PICODE_REFERENCE_START: ${reference.label}>>>\n${reference.content}\n<<<PICODE_REFERENCE_END>>>`)
+        .map(
+          (reference) =>
+            `<<<PICODE_REFERENCE_START: ${reference.label}>>>\n${reference.content}\n<<<PICODE_REFERENCE_END>>>`,
+        )
         .join("\n\n"),
     );
   }

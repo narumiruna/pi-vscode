@@ -22,11 +22,9 @@ export function picodeConfiguration(section?: string, resource?: vscode.Uri): Pi
   return {
     get<T>(key: string, defaultValue: T): T {
       const inspection = current.inspect<T>(key);
-      const hasCurrentValue = inspection !== undefined
-        && explicitValueKeys.some(valueKey => inspection[valueKey] !== undefined);
-      return hasCurrentValue
-        ? current.get<T>(key, defaultValue)
-        : previous.get<T>(key, defaultValue);
+      const hasCurrentValue =
+        inspection !== undefined && explicitValueKeys.some((valueKey) => inspection[valueKey] !== undefined);
+      return hasCurrentValue ? current.get<T>(key, defaultValue) : previous.get<T>(key, defaultValue);
     },
   };
 }

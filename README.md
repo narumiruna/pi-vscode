@@ -151,6 +151,7 @@ VS Code extensions in the same Extension Host can activate `narumi.pi-coding-age
 ```bash
 npm install
 npm test
+npm exec --yes --package=@biomejs/biome@2.5.13 -- biome check src resources
 npm run package
 ```
 

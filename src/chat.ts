@@ -2,10 +2,10 @@ import * as vscode from "vscode";
 import { PiInvocationError } from "./piClient";
 import {
   buildChatPrompt,
-  limitChatHistory,
-  limitReferenceContent,
   type ChatHistoryEntry,
   type ChatReferenceContext,
+  limitChatHistory,
+  limitReferenceContent,
 } from "./prompts";
 import { invokePiWithCancellation } from "./vscodePi";
 
@@ -78,7 +78,11 @@ async function resolveReference(
   if (value instanceof vscode.Location) {
     try {
       const document = await vscode.workspace.openTextDocument(value.uri);
-      const content = limitReferenceContent(document.getText(value.range), remainingCharacters, maxSingleReferenceCharacters);
+      const content = limitReferenceContent(
+        document.getText(value.range),
+        remainingCharacters,
+        maxSingleReferenceCharacters,
+      );
       return {
         context: { label: referenceLabel(reference, value.uri), content },
         location: value,
@@ -114,7 +118,7 @@ async function resolveReference(
 }
 
 function collectHistory(turns: ReadonlyArray<vscode.ChatRequestTurn | vscode.ChatResponseTurn>): ChatHistoryEntry[] {
-  const entries = turns.map(historyEntry).filter(entry => entry !== undefined);
+  const entries = turns.map(historyEntry).filter((entry) => entry !== undefined);
   return limitChatHistory(entries, maxHistoryCharacters, 12);
 }
 
@@ -124,8 +128,8 @@ function historyEntry(turn: vscode.ChatRequestTurn | vscode.ChatResponseTurn): C
   }
 
   const content = turn.response
-    .filter(part => part instanceof vscode.ChatResponseMarkdownPart)
-    .map(part => part.value.value)
+    .filter((part) => part instanceof vscode.ChatResponseMarkdownPart)
+    .map((part) => part.value.value)
     .join("\n");
   return content ? { role: "assistant", content } : undefined;
 }

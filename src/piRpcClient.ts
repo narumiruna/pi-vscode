@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import type * as vscode from "vscode";
 
@@ -10,11 +10,20 @@ const maxQueuedImageCharacters = Math.ceil((5 * 1024 * 1024) / 3) * 4 + 4;
 
 export type PiRpcEvent = Record<string, unknown> & { readonly type: string };
 
-export interface PiRpcQueue { readonly steering: readonly string[]; readonly followUp: readonly string[] }
+export interface PiRpcQueue {
+  readonly steering: readonly string[];
+  readonly followUp: readonly string[];
+}
 export function parseRpcQueue(value: unknown): PiRpcQueue {
-  if (!isRecord(value) || !Array.isArray(value.steering) || !Array.isArray(value.followUp)) throw new Error("Invalid Pi queue state.");
+  if (!isRecord(value) || !Array.isArray(value.steering) || !Array.isArray(value.followUp))
+    throw new Error("Invalid Pi queue state.");
   const messages = [...value.steering, ...value.followUp];
-  if (messages.length > 10 || messages.some(message => typeof message !== "string") || messages.reduce((sum, message) => sum + message.length, 0) > 50_000) throw new Error("Pi queue exceeds 10 messages / 50,000 characters.");
+  if (
+    messages.length > 10 ||
+    messages.some((message) => typeof message !== "string") ||
+    messages.reduce((sum, message) => sum + message.length, 0) > 50_000
+  )
+    throw new Error("Pi queue exceeds 10 messages / 50,000 characters.");
   return { steering: [...value.steering], followUp: [...value.followUp] };
 }
 
@@ -73,7 +82,8 @@ export class StrictJsonLineDecoder {
   public end(): void {
     this.buffer += this.decoder.end();
     if (this.buffer.length > 0) {
-      if (Buffer.byteLength(this.buffer) > maxJsonLineBytes) throw new Error("Pi RPC emitted a JSON line larger than 5 MiB.");
+      if (Buffer.byteLength(this.buffer) > maxJsonLineBytes)
+        throw new Error("Pi RPC emitted a JSON line larger than 5 MiB.");
       this.onLine(stripCarriageReturn(this.buffer));
       this.buffer = "";
     }
@@ -108,7 +118,9 @@ export class PiRpcClient {
     return this.process !== undefined && this.process.exitCode === null;
   }
 
-  public get processId(): number | undefined { return this.process?.pid; }
+  public get processId(): number | undefined {
+    return this.process?.pid;
+  }
 
   public get diagnostics(): string {
     return this.stderr;
@@ -135,7 +147,7 @@ export class PiRpcClient {
     );
     this.process = child;
 
-    const lineDecoder = new StrictJsonLineDecoder(line => this.handleLine(line));
+    const lineDecoder = new StrictJsonLineDecoder((line) => this.handleLine(line));
     child.stdout.on("data", (chunk: Buffer) => {
       try {
         lineDecoder.push(chunk);
@@ -153,10 +165,10 @@ export class PiRpcClient {
     child.stderr.on("data", (chunk: Buffer) => {
       this.stderr = appendBounded(this.stderr, chunk.toString("utf8"), maxDiagnosticBytes);
     });
-    child.stdin.on("error", error => {
+    child.stdin.on("error", (error) => {
       this.failProcess(new Error(`Pi RPC stdin failed: ${error.message}`));
     });
-    child.once("error", error => {
+    child.once("error", (error) => {
       this.failProcess(new Error(`Could not start Pi RPC using '${this.options.executablePath}': ${error.message}`));
     });
     child.once("exit", (code, signal) => {
@@ -185,14 +197,18 @@ export class PiRpcClient {
     const child = this.process;
     if (!child) return;
     this.stopPromise = this.stopChild(child);
-    try { await this.stopPromise; } finally { this.stopPromise = undefined; }
+    try {
+      await this.stopPromise;
+    } finally {
+      this.stopPromise = undefined;
+    }
   }
 
   private async stopChild(child: ChildProcessWithoutNullStreams): Promise<void> {
     this.stopping = true;
     this.rejectPending(new Error("Pi RPC client stopped."));
     killOwnedProcess(child, "SIGTERM");
-    await new Promise<void>(resolve => {
+    await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
         killOwnedProcess(child, "SIGKILL");
         resolve();
@@ -206,10 +222,16 @@ export class PiRpcClient {
       this.process = undefined;
       // SIGKILL may not have produced an exit event yet. Always release runtime
       // settlement waiters; do not lose the event by clearing process first.
-      this.emit({ type: "runtime_warning", message: "Pi termination deadline reached; descendant cleanup could not be verified." });
+      this.emit({
+        type: "runtime_warning",
+        message: "Pi termination deadline reached; descendant cleanup could not be verified.",
+      });
       this.emit({ type: "process_exit", code: child.exitCode, signal: child.signalCode, expected: true });
     }
-    child.stdin.destroy(); child.stdout.destroy(); child.stderr.destroy(); child.unref();
+    child.stdin.destroy();
+    child.stdout.destroy();
+    child.stderr.destroy();
+    child.unref();
   }
 
   public onEvent(listener: (event: PiRpcEvent) => void): vscode.Disposable {
@@ -225,15 +247,35 @@ export class PiRpcClient {
     await this.command("prompt", { message, images });
   }
 
-  public async steer(message: string, images?: readonly PiRpcImage[]): Promise<void> { await this.queueCommand("steer", message, images); }
-  public async followUp(message: string, images?: readonly PiRpcImage[]): Promise<void> { await this.queueCommand("follow_up", message, images); }
-  public async clearQueue(): Promise<PiRpcQueue> { return parseRpcQueue((await this.command("clear_queue")).data); }
-  private async queueCommand(type: "steer" | "follow_up", message: string, images?: readonly PiRpcImage[]): Promise<void> {
-    if (!message.trim() || message.length > 50_000 || message.trimStart().startsWith("/")) throw new Error("Only bounded plain text, not slash commands, can be queued.");
-    if (images && (
-      images.length > maxQueuedImages ||
-      images.some(image => image.type !== "image" || !image.data || image.data.length > maxQueuedImageCharacters || !image.mimeType || image.mimeType.length > 100)
-    )) throw new Error("Queued images exceed the supported attachment limits.");
+  public async steer(message: string, images?: readonly PiRpcImage[]): Promise<void> {
+    await this.queueCommand("steer", message, images);
+  }
+  public async followUp(message: string, images?: readonly PiRpcImage[]): Promise<void> {
+    await this.queueCommand("follow_up", message, images);
+  }
+  public async clearQueue(): Promise<PiRpcQueue> {
+    return parseRpcQueue((await this.command("clear_queue")).data);
+  }
+  private async queueCommand(
+    type: "steer" | "follow_up",
+    message: string,
+    images?: readonly PiRpcImage[],
+  ): Promise<void> {
+    if (!message.trim() || message.length > 50_000 || message.trimStart().startsWith("/"))
+      throw new Error("Only bounded plain text, not slash commands, can be queued.");
+    if (
+      images &&
+      (images.length > maxQueuedImages ||
+        images.some(
+          (image) =>
+            image.type !== "image" ||
+            !image.data ||
+            image.data.length > maxQueuedImageCharacters ||
+            !image.mimeType ||
+            image.mimeType.length > 100,
+        ))
+    )
+      throw new Error("Queued images exceed the supported attachment limits.");
     await this.command(type, { message, ...(images?.length ? { images } : {}) });
   }
 
@@ -263,7 +305,7 @@ export class PiRpcClient {
 
   public async getAvailableThinkingLevels(): Promise<string[]> {
     const data = await this.commandData("get_available_thinking_levels");
-    return Array.isArray(data.levels) ? data.levels.filter(level => typeof level === "string") : [];
+    return Array.isArray(data.levels) ? data.levels.filter((level) => typeof level === "string") : [];
   }
 
   public async getSessionStats(): Promise<Record<string, unknown>> {
@@ -378,7 +420,12 @@ export class PiRpcClient {
       }
     }
     if (value.type === "queue_update") {
-      try { parseRpcQueue(value); } catch (error) { this.failProcess(asError(error)); return; }
+      try {
+        parseRpcQueue(value);
+      } catch (error) {
+        this.failProcess(asError(error));
+        return;
+      }
     }
     this.emit(value as PiRpcEvent);
   }
@@ -444,7 +491,9 @@ function killOwnedProcess(child: ChildProcessWithoutNullStreams, signal: NodeJS.
   try {
     if (process.platform !== "win32" && child.pid) process.kill(-child.pid, signal);
     else child.kill(signal);
-  } catch { /* The owned process group already exited. */ }
+  } catch {
+    /* The owned process group already exited. */
+  }
 }
 
 function appendBounded(current: string, next: string, maxBytes: number): string {

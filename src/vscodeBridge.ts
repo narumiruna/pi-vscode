@@ -2,15 +2,15 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import net, { type Socket } from "node:net";
 import path from "node:path";
 import * as vscode from "vscode";
+import { isCodeContextOperation, queryCodeContext } from "./semanticContext";
 import {
   parseVscodeBridgeRequest,
   serializeVscodeBridgeEvent,
-  vscodeBridgePortEnvironmentKey,
-  vscodeBridgeTokenEnvironmentKey,
   VscodeBridgeLineDecoder,
   type VscodeBridgeRequest,
+  vscodeBridgePortEnvironmentKey,
+  vscodeBridgeTokenEnvironmentKey,
 } from "./vscodeBridgeProtocol";
-import { isCodeContextOperation, queryCodeContext } from "./semanticContext";
 import { requireTrustedFile } from "./workflowUi";
 
 const bridgeHost = "127.0.0.1";
@@ -66,7 +66,7 @@ export class VscodeBridgeServer implements vscode.Disposable {
   }
 
   private async listen(): Promise<NodeJS.ProcessEnv> {
-    const server = net.createServer(socket => this.accept(socket));
+    const server = net.createServer((socket) => this.accept(socket));
     this.server = server;
     server.on("error", () => {});
     try {
@@ -102,7 +102,7 @@ export class VscodeBridgeServer implements vscode.Disposable {
     socket.setTimeout(10_000);
     let received = false;
     let framingFailed = false;
-    const decoder = new VscodeBridgeLineDecoder(line => {
+    const decoder = new VscodeBridgeLineDecoder((line) => {
       if (received) {
         socket.destroy(new Error("VS Code bridge accepts one request per connection."));
         return;
@@ -183,13 +183,13 @@ export class VscodeBridgeServer implements vscode.Disposable {
   private editorContext(): Record<string, unknown> {
     const editor = vscode.window.activeTextEditor;
     return {
-      workspaceFolders: (vscode.workspace.workspaceFolders ?? []).map(folder => ({
+      workspaceFolders: (vscode.workspace.workspaceFolders ?? []).map((folder) => ({
         name: folder.name,
         uri: folder.uri.toString(),
         path: folder.uri.scheme === "file" ? folder.uri.fsPath : undefined,
       })),
       activeEditor: editor ? describeEditor(editor, true) : undefined,
-      visibleEditors: vscode.window.visibleTextEditors.map(visibleEditor => describeEditor(visibleEditor, false)),
+      visibleEditors: vscode.window.visibleTextEditors.map((visibleEditor) => describeEditor(visibleEditor, false)),
       diagnostics: editor
         ? vscode.languages.getDiagnostics(editor.document.uri).slice(0, maxDiagnostics).map(describeDiagnostic)
         : [],
@@ -203,8 +203,14 @@ export class VscodeBridgeServer implements vscode.Disposable {
     const uri = vscode.Uri.file(target);
     requireTrustedFile(uri);
     if (!vscode.workspace.getWorkspaceFolder(uri)) throw new Error("Semantic target is outside the workspace.");
-    for (const value of [params.line, params.column]) if (value !== undefined && (!Number.isSafeInteger(value) || Number(value) < 1)) throw new Error("Semantic positions must be positive integers.");
-    return queryCodeContext(params.operation, uri, new vscode.Position(Number(params.line ?? 1) - 1, Number(params.column ?? 1) - 1));
+    for (const value of [params.line, params.column])
+      if (value !== undefined && (!Number.isSafeInteger(value) || Number(value) < 1))
+        throw new Error("Semantic positions must be positive integers.");
+    return queryCodeContext(
+      params.operation,
+      uri,
+      new vscode.Position(Number(params.line ?? 1) - 1, Number(params.column ?? 1) - 1),
+    );
   }
 
   private async openFile(params: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -266,18 +272,21 @@ function describeEditor(editor: vscode.TextEditor, includeSelection: boolean): R
   return {
     uri: document.uri.toString(),
     path: document.uri.scheme === "file" ? document.uri.fsPath : undefined,
-    relativePath: folder && folder.uri.scheme === "file" && document.uri.scheme === "file"
-      ? path.relative(folder.uri.fsPath, document.uri.fsPath)
-      : undefined,
+    relativePath:
+      folder && folder.uri.scheme === "file" && document.uri.scheme === "file"
+        ? path.relative(folder.uri.fsPath, document.uri.fsPath)
+        : undefined,
     languageId: document.languageId,
     version: document.version,
     dirty: document.isDirty,
-    selection: includeSelection ? {
-      start: describePosition(selection.start),
-      end: describePosition(selection.end),
-      text: selectedText.slice(0, maxSelectionCharacters),
-      truncated: selectedText.length > maxSelectionCharacters,
-    } : undefined,
+    selection: includeSelection
+      ? {
+          start: describePosition(selection.start),
+          end: describePosition(selection.end),
+          text: selectedText.slice(0, maxSelectionCharacters),
+          truncated: selectedText.length > maxSelectionCharacters,
+        }
+      : undefined,
   };
 }
 

@@ -1,9 +1,5 @@
 import assert from "node:assert/strict";
-import {
-  boundCompletionContext,
-  buildCompletionPrompt,
-  extractCompletion,
-} from "../completion";
+import { boundCompletionContext, buildCompletionPrompt, extractCompletion } from "../completion";
 
 test("buildCompletionPrompt places the cursor between bounded code context", () => {
   const prompt = buildCompletionPrompt({

@@ -35,11 +35,7 @@ export function buildPiArguments(options: PiInvocationOptions): string[] {
   return args;
 }
 
-export function invokePi(
-  prompt: string,
-  options: PiInvocationOptions,
-  signal?: AbortSignal,
-): Promise<string> {
+export function invokePi(prompt: string, options: PiInvocationOptions, signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(new PiInvocationError("Pi request was cancelled.", "aborted"));
@@ -81,13 +77,7 @@ export function invokePi(
     signal?.addEventListener("abort", abort, { once: true });
 
     child.once("error", (error) => {
-      fail(
-        new PiInvocationError(
-          `Could not start Pi using '${options.executablePath}'.`,
-          "launch",
-          error.message,
-        ),
-      );
+      fail(new PiInvocationError(`Could not start Pi using '${options.executablePath}'.`, "launch", error.message));
     });
 
     child.stdout.on("data", (chunk: Buffer) => {
