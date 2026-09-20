@@ -26,7 +26,7 @@ pi --version
 
 ## Install
 
-Ensure the VS Code `code` command and `unzip` are available, then install the latest release:
+Ensure the VS Code `code` command is available, then install the latest release:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/narumiruna/pi-vscode/main/scripts/install.sh -o install-pi-vscode.sh &&
@@ -34,11 +34,11 @@ sh install-pi-vscode.sh &&
 rm install-pi-vscode.sh
 ```
 
-Review [`scripts/install.sh`](scripts/install.sh) before running it if your environment does not allow downloaded scripts to execute directly. The command stops if the download fails. The installer downloads the latest `pi-coding-agent-vscode.vsix`, installs it with `code --install-extension`, and installs the matching Pi bridge extension.
+Review [`scripts/install.sh`](scripts/install.sh) before running it if your environment does not allow downloaded scripts to execute directly. The command stops if the download fails. The installer downloads the latest `pi-coding-agent-vscode.vsix`, installs it with `code --install-extension`, and removes the exact legacy global bridge filenames created by older releases. New installations do not create files under `~/.pi/agent`.
 
 To install a specific version, pass it to the downloaded script, for example `sh install-pi-vscode.sh 0.0.2`.
 
-After installation or an update, run **Developer: Reload Window**, then open a new integrated terminal so Pi inherits the authenticated bridge environment.
+After installation or an update, run **Developer: Reload Window**. Sidebar sessions and **More… → Open in Terminal** load the bridge bundled with the active VSIX. A new ordinary integrated terminal inherits the authenticated bridge environment and bridge path, but plain `pi` does not load it automatically; use `pi --extension "$PICODE_BRIDGE_EXTENSION"` in POSIX shells or `pi --extension $env:PICODE_BRIDGE_EXTENSION` in PowerShell when you explicitly want bridge tools there.
 
 ## Install from source
 
@@ -49,9 +49,9 @@ npm install
 just install
 ```
 
-`just install` packages and installs the VS Code extension, then copies the standalone Pi bridge extension to `${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions/picode.ts`. The extension ID is `narumi.pi-coding-agent-vscode`.
+`just install` packages and installs the VS Code extension, then removes the exact legacy global bridge filenames created by older releases. It does not install a Pi extension under `${PI_CODING_AGENT_DIR:-~/.pi/agent}`. The extension ID is `narumi.pi-coding-agent-vscode`.
 
-Open a new integrated terminal after installation so Pi inherits the authenticated bridge environment. To install only the standalone Pi bridge extension, run `just install-picode-extension`.
+Run **Developer: Reload Window** after installation. Use Sidebar **Open in Terminal** for an automatically bridged terminal Pi session, or use the explicit `PICODE_BRIDGE_EXTENSION` command shown above in a new ordinary integrated terminal.
 
 ## Get started
 
@@ -125,7 +125,7 @@ Read [Security and Privacy](docs/SECURITY.md) for trust boundaries and safeguard
 
 ## Extension bridge
 
-The standalone Pi extension and VS Code extension communicate over an authenticated local bridge:
+The Pi bridge extension bundled in the VSIX and the VS Code extension communicate over an authenticated local bridge:
 
 ```mermaid
 flowchart LR
@@ -134,7 +134,7 @@ flowchart LR
     P <-->|pi.events| E[Other Pi extensions]
 ```
 
-The bridge provides `vscode_context`, `vscode_open_file`, and `vscode_notify` when Pi starts from a new integrated terminal or Pi Chat. Other Pi extensions can use `pi.events` to send an allowlisted `vscode:request` and receive a correlated `vscode:response` or `vscode:event`.
+The bridge provides `vscode_context`, `vscode_open_file`, and `vscode_notify` for Sidebar sessions and **Open in Terminal** handoffs. For an ordinary integrated terminal, load the process-local bridge explicitly with the `PICODE_BRIDGE_EXTENSION` environment variable as shown above. Other Pi extensions can use `pi.events` to send an allowlisted `vscode:request` and receive a correlated `vscode:response` or `vscode:event`.
 
 VS Code extensions in the same Extension Host can activate `narumi.pi-coding-agent-vscode` and call its exported `broadcast(event, data)` API. Event names and payloads are validated and bounded.
 
@@ -148,7 +148,7 @@ npm run package
 
 `npm test` compiles the extension and runs the Node test suite. `npm run package` repeats those checks and creates `pi-coding-agent-vscode.vsix`.
 
-- `just dev` rebuilds and installs the VS Code and Pi bridge extensions, then opens the current directory in a new VS Code window using the installed extension.
+- `just dev` rebuilds and installs the VS Code extension, removes bridge files created by older releases, then opens the current directory in a new VS Code window using the installed extension.
 - `just dev-pi` starts Pi with `resources/picode-bridge.ts` in the current terminal.
 
 ## Release

@@ -45,7 +45,7 @@ else
   exit 1
 fi
 
-for required_command in curl code mktemp mkdir unzip cp rm; do
+for required_command in curl code mktemp rm; do
   if ! command -v "${required_command}" >/dev/null 2>&1; then
     echo "Error: required command not found: ${required_command}" >&2
     exit 1
@@ -54,7 +54,6 @@ done
 
 temporary_directory="$(mktemp -d "${TMPDIR:-/tmp}/pi-vscode.XXXXXX")"
 vsix_path="${temporary_directory}/${asset}"
-bridge_source="${temporary_directory}/picode-bridge.ts"
 cleanup() {
   rm -rf "${temporary_directory}"
 }
@@ -63,20 +62,24 @@ trap 'exit 1' HUP INT QUIT TERM
 
 printf 'Downloading %s...\n' "${download_url}"
 curl --fail --location --silent --show-error --retry 3 --output "${vsix_path}" "${download_url}"
-unzip -p "${vsix_path}" extension/resources/picode-bridge.ts > "${bridge_source}"
-if [ ! -s "${bridge_source}" ]; then
-  echo "Error: the VSIX does not contain the Pi bridge extension." >&2
-  exit 1
-fi
 
 printf 'Installing %s...\n' "${asset}"
 code --install-extension "${vsix_path}" --force
 
-agent_directory="${PI_CODING_AGENT_DIR:-${HOME:?Error: HOME or PI_CODING_AGENT_DIR is required.}/.pi/agent}"
-extensions_directory="${agent_directory}/extensions"
-mkdir -p "${extensions_directory}"
-cp "${bridge_source}" "${extensions_directory}/picode.ts"
-rm -f "${extensions_directory}/pi-vscode.ts"
+agent_directory=""
+if [ -n "${PI_CODING_AGENT_DIR:-}" ]; then
+  agent_directory="${PI_CODING_AGENT_DIR}"
+elif [ -n "${HOME:-}" ]; then
+  agent_directory="${HOME}/.pi/agent"
+fi
+if [ -n "${agent_directory}" ]; then
+  extensions_directory="${agent_directory}/extensions"
+  for legacy_bridge in "${extensions_directory}/picode.ts" "${extensions_directory}/pi-vscode.ts"; do
+    if [ -e "${legacy_bridge}" ] || [ -L "${legacy_bridge}" ]; then
+      rm -f "${legacy_bridge}"
+      printf 'Removed legacy global Pi bridge extension: %s\n' "${legacy_bridge}"
+    fi
+  done
+fi
 
-printf 'Installed Pi bridge extension: %s\n' "${extensions_directory}/picode.ts"
 printf 'Pi for VS Code installed. Run "Developer: Reload Window" in VS Code to finish.\n'

@@ -45,9 +45,13 @@ test("extension identity stays consistent across packaging, settings, and docume
   assert.ok(readFileSync("justfile", "utf8").includes(`/${manifest.name}.vsix`));
   assert.ok(manifest.contributes.commands.every(command => command.command.startsWith("picode.")));
   assert.ok(Object.keys(manifest.contributes.configuration.properties).every(key => key.startsWith("picode.")));
-  for (const path of ["resources/picode.svg", "resources/picode-bridge.ts", "resources/picode-permission-gate.ts", "resources/picode-read-only-gate.ts", "scripts/install-picode-extension.mjs"]) {
+  for (const path of ["resources/picode.svg", "resources/picode-bridge.ts", "resources/picode-permission-gate.ts", "resources/picode-read-only-gate.ts", "scripts/remove-legacy-picode-extension.mjs"]) {
     assert.equal(existsSync(path), true, `missing Pi asset: ${path}`);
   }
+  assert.equal(existsSync("scripts/install-picode-extension.mjs"), false);
+  const recipes = readFileSync("justfile", "utf8");
+  assert.ok(recipes.includes("scripts/remove-legacy-picode-extension.mjs"));
+  assert.equal(recipes.includes("install-picode-extension"), false);
 });
 
 test("workflow commands are contributed, registered, documented and keep minimum stable workspace-host compatibility", () => {
