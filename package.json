@@ -3,6 +3,7 @@
   "displayName": "Pi",
   "description": "Use Pi in VS Code to understand code and apply focused modifications.",
   "version": "0.0.2",
+  "private": true,
   "publisher": "narumi",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -363,9 +364,13 @@
     "watch": "tsc -watch -p ./",
     "test": "npm run compile && vitest run",
     "package": "npm run test && vsce package --out pi-coding-agent-vscode.vsix",
+    "changeset": "changeset",
+    "changeset:version": "changeset version",
+    "changeset:publish": "changeset publish",
     "prepare": "husky"
   },
   "devDependencies": {
+    "@changesets/cli": "^3.0.3",
     "@types/node": "^22.0.0",
     "@types/vscode": "1.106.0",
     "@vscode/vsce": "^3.6.2",
