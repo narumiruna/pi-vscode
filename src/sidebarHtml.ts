@@ -1122,9 +1122,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const attachmentCount = (state.attachments || []).length;
       $('attachment-estimate').textContent = attachmentCount
         ? attachmentCount + (attachmentCount === 1 ? ' attachment' : ' attachments')
-        : '';
-      $('attachment-estimate').title = attachmentCount
-        ? (estimate.characters || 0) + ' characters · about ' + (estimate.estimatedTextTokens || 0) + ' text tokens (estimated)' + (attachedImages ? ' · image tokens not included' : '')
+          + ' · ' + (estimate.characters || 0) + ' characters'
+          + ' · about ' + (estimate.estimatedTextTokens || 0) + ' text tokens (estimated)'
+          + (attachedImages ? ' · image tokens not included' : '')
         : '';
       $('activity').hidden = ![state.proposals, state.changes, state.backgroundTasks].some(items => items && items.length);
       updatingControls = true;
