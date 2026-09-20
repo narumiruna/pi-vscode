@@ -185,7 +185,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .pending-queue-item { display: flex; min-width: 0; gap: 5px; padding: 4px 7px; border-radius: 5px; color: var(--vscode-descriptionForeground); background: var(--vscode-editorWidget-background, var(--vscode-input-background)); font-size: .8em; line-height: 1.3; }
     .pending-queue-kind { flex: 0 0 auto; font-weight: 600; }
     .pending-queue-text { min-width: 0; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-    #inspect-context { margin: 3px 10px 0; }
     .composer-box > .proposal-actions { padding: 0 10px; }
     .composer-actions { display: flex; flex-wrap: nowrap; min-width: 0; gap: 6px; padding: 3px 8px 8px; align-items: center; }
     .composer-actions > button, .composer-actions > select { min-height: 30px; border-radius: 8px; }
@@ -252,7 +251,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     <section id="composer" aria-label="Message composer">
       <div class="composer-box">
         <div id="attachments" aria-label="Attachments for the next message" hidden></div>
-        <button id="inspect-context" class="secondary" type="button" hidden>View attachments</button>
         <div id="attachment-estimate" class="proposal-meta"></div>
         <div id="pending-queue" role="list" aria-label="Pending Pi messages" hidden></div>
         <label for="input" class="sr-only">Message Pi</label>
@@ -1120,14 +1118,13 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       renderChanges(state.changes || []);
       renderBackground(state.backgroundTasks || []);
       renderAttachments(state.attachments || []);
-      $('inspect-context').hidden = !(state.attachments || []).length;
       const estimate = state.attachmentEstimate || {};
       const attachmentCount = (state.attachments || []).length;
       $('attachment-estimate').textContent = attachmentCount
         ? attachmentCount + (attachmentCount === 1 ? ' attachment' : ' attachments')
-        : '';
-      $('inspect-context').title = attachmentCount
-        ? (estimate.characters || 0) + ' characters · about ' + (estimate.estimatedTextTokens || 0) + ' text tokens (estimated)' + (attachedImages ? ' · image tokens not included' : '')
+          + ' · ' + (estimate.characters || 0) + ' characters'
+          + ' · about ' + (estimate.estimatedTextTokens || 0) + ' text tokens (estimated)'
+          + (attachedImages ? ' · image tokens not included' : '')
         : '';
       $('activity').hidden = ![state.proposals, state.changes, state.backgroundTasks].some(items => items && items.length);
       updatingControls = true;
@@ -1290,7 +1287,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     $('reconnect').addEventListener('click', () => vscode.postMessage({ type: 'reconnect' }));
     $('retry').addEventListener('click', () => vscode.postMessage({ type: 'retry' }));
     $('refresh-history').addEventListener('click', () => vscode.postMessage({ type: 'refreshHistory' }));
-    $('inspect-context').addEventListener('click', () => vscode.postMessage({ type: 'inspectContext' }));
     $('add-context').addEventListener('click', () => vscode.postMessage({ type: 'pickContext' }));
     $('model-picker').addEventListener('click', () => vscode.postMessage({ type: 'pickModel' }));
     $('view-all-sessions').addEventListener('click', () => setSessionsExpanded(true));
