@@ -5,9 +5,9 @@ Use your existing [Pi](https://pi.dev) setup directly in VS Code. Pi adds a pers
 ## Highlights
 
 - **Persistent sessions** — Browse, search, and switch recent workspace sessions, then rename, compact, export, delete, or hand them off to a terminal.
-- **Editor-aware context** — Attach selections, files, diagnostics, terminal text, and images. Inspect, redact, refresh, or pin a snapshot before sending it.
+- **Editor-aware context** — Attach selections, files, diagnostics, language-provider definitions/references/call hierarchy/symbols, terminal text, and images. Inspect, redact, refresh, or pin a snapshot before sending it.
 - **Review-first edits** — Preview a complete proposal or selected hunks, then apply the reviewed result with one workspace edit.
-- **Focused workflows** — Review staged changes, import isolated worktree results, repair failed tests, restore request checkpoints, and inspect paused Node.js debug values.
+- **Focused workflows** — Review Git changes in four scopes, repair workspace diagnostics across files, import isolated worktree results, repair failed tests, restore request checkpoints, and inspect paused Node.js debug values.
 - **Pi ecosystem support** — Keep using your Pi providers, models, thinking levels, prompt templates, skills, extensions, and contributed tools.
 - **VS Code integration** — Fix diagnostics, rewrite selections, generate tests, request inline completions, and predict the next edit.
 
@@ -79,6 +79,10 @@ Automatic inline completions are disabled by default. Enable `picode.inlineCompl
 | Workflow | How it works |
 | --- | --- |
 | **Staged review** | Run **Pi: Review Staged Changes**, confirm the bounded snapshot, then use **Pi: Show Staged Findings** to navigate immutable before/after content. Findings become stale when HEAD or the index changes. |
+| **Change review** | Run **Pi: Review Changes**, choose staged, unstaged (including untracked), all working-tree changes, or current branch versus a selected local/remote base ref. **Pi: Show Review Findings** navigates the latest captured result. No fetch or hosted PR access is performed. |
+| **Review findings** | Problems entries open immutable captured text, labelled with scope/time. The lightbulb offers **Ask Pi About Finding** and, only for an exact writable after-image match, **Fix Finding with Pi (Preview)**. Stale actions require a new review; Problems are not live diagnostics. |
+| **Workspace diagnostic repair** | Run **Pi: Fix Workspace Diagnostics (Preview)**, select errors/warnings in one workspace, inspect the complete captured files, and confirm transmission. Choose hunks, preview every selected file, then apply once. Diagnostic updates are observations, not test results. |
+| **Semantic context** | Choose **Attach → Definition / References / Callers / Callees / Document Symbols** at the active cursor. Inspect/redact or pin the captured context before sending; attach again for a fresh provider lookup. Missing providers produce a notice, not guessed results. |
 | **Selected edits** | On a proposal card, choose **Choose Hunks → Preview → Apply**. Changing the selection invalidates the preview; normal editor Undo remains available after application. |
 | **Worktree result import** | Start an isolated agent from **More…**. When it becomes inactive, choose **Review Results → Apply Selected** to import reviewed text files into the originating worktree. |
 | **Attachment inspection** | Choose **View attachments** in the composer to inspect the exact snapshot, redact or edit it, refresh it explicitly, or pin it for later requests. |
@@ -115,7 +119,9 @@ Prompts and approved context are sent to Pi through standard input, not command-
 Key operational limits:
 
 - Attachments allow 8 items and 400,000 total text characters, including up to 5 images of 5 MiB each.
-- Staged review supports up to 100 text files, 100 KB per blob, 400 KB of blob content, and a 200 KB diff.
+- Each Git review supports up to 100 text files, 100 KB per side, 400 KB of retained text, a 200 KB diff, and a 45-second capture deadline. Unsupported files remain explicitly not reviewed. Up to eight captured reviews are held in memory, replaced per repository/scope.
+- Semantic lookups return at most 50 locations with a five-second provider deadline. Attachments include at most 20 excerpts of 4,000 characters each, within the existing attachment limits. Language providers can activate third-party extensions and require workspace trust.
+- Workspace diagnostic repair selects at most 100 errors/warnings in 20 files, 100,000 characters per file and 400,000 serialized characters per request/response. Dirty buffers are included; unknown paths, symlinks, stale or read-only targets are rejected. One workspace edit supports native Undo.
 - Failed-test repair accepts an executable and argument array, not a shell expression. Runs stop after 60 seconds, output is capped at 256 KiB, and repair is limited to two attempts.
 - Checkpoints keep up to 20 requests in memory and restore only deterministically observed edits to captured regular text files.
 - In-flight instructions are limited to 10 messages and 50,000 characters. **Next** and **After this** messages can include captured text attachments and up to 5 images; slash commands cannot be queued. Pending transcript presentation is memory-only, public pending previews are capped at 1,000 characters per message, and pending/recovered attachment snapshots are memory-only and capped at 30 MiB.
@@ -134,7 +140,9 @@ flowchart LR
     P <-->|pi.events| E[Other Pi extensions]
 ```
 
-The bridge provides `vscode_context`, `vscode_open_file`, and `vscode_notify` for Sidebar sessions and **Open in Terminal** handoffs. For an ordinary integrated terminal, load the process-local bridge explicitly with the `PICODE_BRIDGE_EXTENSION` environment variable as shown above. Other Pi extensions can use `pi.events` to send an allowlisted `vscode:request` and receive a correlated `vscode:response` or `vscode:event`.
+The bridge provides `vscode_context`, `vscode_code_context`, `vscode_open_file`, and `vscode_notify` for Sidebar sessions and **Open in Terminal** handoffs. For an ordinary integrated terminal, load the process-local bridge explicitly with the `PICODE_BRIDGE_EXTENSION` environment variable as shown above. Other Pi extensions can use `pi.events` to send an allowlisted `vscode:request` and receive a correlated `vscode:response` or `vscode:event`.
+
+`vscode_code_context` accepts `definition`, `references`, `callers`, `callees`, or `documentSymbols`, a workspace path and optional one-based line/column. It returns metadata only, with zero-based ranges; source text requires a separate read. The tool is not loaded by independent background/worktree agents.
 
 VS Code extensions in the same Extension Host can activate `narumi.pi-coding-agent-vscode` and call its exported `broadcast(event, data)` API. Event names and payloads are validated and bounded.
 
@@ -145,6 +153,8 @@ npm install
 npm test
 npm run package
 ```
+
+`npm run test:native -- 1.106.0` runs isolated, noninteractive native Extension Host assertions (on headless Linux, prefix with `xvfb-run -a`). Use `stable` for the current stable build and append `untrusted` for Restricted Mode. The runner downloads a test build to the system temporary cache, creates disposable profiles/workspaces, and never invokes a model. See [Workflow Validation](docs/WORKFLOW_VALIDATION.md) for coverage and remaining manual checks.
 
 `npm test` compiles the extension and runs the Node test suite. `npm run package` repeats those checks and creates `pi-coding-agent-vscode.vsix`.
 

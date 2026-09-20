@@ -434,8 +434,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
             const choices = await vscode.window.showQuickPick(this.proposals.hunkChoices(message.id), { title: "Choose edit hunks · changing selection invalidates Preview", canPickMany: true });
             if (choices) this.proposals.select(message.id, choices.map(choice => choice.id));
           } else {
-            const release = acquireOperation(await realpath(this.runtime.currentCwd), "edit proposal action");
-            try { await this.proposals.handleAction(message.id, message.action); } finally { release(); }
+            await this.proposals.handleLockedAction(message.id, message.action, await realpath(this.runtime.currentCwd));
           }
           break;
         case "runBackground":
@@ -506,6 +505,9 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     const selected = await vscode.window.showQuickPick(
       [
         { label: "$(history) Request Checkpoints", action: "checkpoints" },
+        { label: "$(git-pull-request) Review Changes…", action: "review" },
+        { label: "$(list-unordered) Show Review Findings", action: "findings" },
+        { label: "$(wrench) Fix Workspace Diagnostics (Preview)", action: "diagnostics" },
         { label: "$(git-pull-request) Review Staged Changes", action: "staged" },
         { label: "$(beaker) Repair Failed Test", action: "repair" },
         { label: "$(debug) Ask Debug Context", action: "debug" },
@@ -534,6 +536,9 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
         release(); this.postState();
       }
     }
+    else if (selected.action === "review") await vscode.commands.executeCommand("picode.reviewChanges");
+    else if (selected.action === "findings") await vscode.commands.executeCommand("picode.showReviewFindings");
+    else if (selected.action === "diagnostics") await vscode.commands.executeCommand("picode.fixWorkspaceDiagnostics");
     else if (selected.action === "staged") await vscode.commands.executeCommand("picode.reviewStagedChanges");
     else if (selected.action === "repair") await vscode.commands.executeCommand("picode.repairFailedTest");
     else if (selected.action === "debug") await vscode.commands.executeCommand("picode.askDebugContext");

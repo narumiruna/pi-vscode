@@ -16,6 +16,7 @@ import type { PiRpcImage } from "./piRpcClient";
 import { buildAgentPrompt, limitReferenceContent, type ChatReferenceContext } from "./prompts";
 import { relativeDocumentPath, type WebviewMessage } from "./sidebarHelpers";
 import { contextTranscriptAttachment, shortTranscriptLabel, type TranscriptAttachment, type TranscriptImageAttachment } from "./sidebarState";
+import { queryCodeContext, semanticAttachmentText, type CodeContextOperation } from "./semanticContext";
 
 export interface AttachedContext {
   readonly id: string;
@@ -240,6 +241,11 @@ export class SidebarAttachmentManager {
         { label: "$(selection) Current Selection", action: "selection" },
         { label: "$(file) Current File", action: "currentFile" },
         { label: "$(files) Files…", action: "files" },
+        { label: "$(symbol-method) Definition", action: "semantic:definition" },
+        { label: "$(references) References", action: "semantic:references" },
+        { label: "$(call-incoming) Callers", action: "semantic:callers" },
+        { label: "$(call-outgoing) Callees", action: "semantic:callees" },
+        { label: "$(symbol-class) Document Symbols", action: "semantic:documentSymbols" },
         { label: "$(warning) Problems", action: "problems" },
         { label: "$(file-media) Images…", action: "images" },
         { label: "$(terminal) Terminal Selection", action: "terminal" },
@@ -251,6 +257,7 @@ export class SidebarAttachmentManager {
     else if (selected.action === "selection") this.attachSelection();
     else if (selected.action === "currentFile") await this.attachCurrentFile();
     else if (selected.action === "files") await this.attachFile();
+    else if (selected.action.startsWith("semantic:")) await this.attachSemanticContext(selected.action.slice("semantic:".length) as CodeContextOperation);
     else if (selected.action === "problems") this.attachDiagnostics();
     else if (selected.action === "images") await this.attachImage();
     else await this.attachTerminalSelection();
@@ -300,6 +307,32 @@ export class SidebarAttachmentManager {
       } catch (error) {
         this.options.onNotice(`Could not attach ${uri.fsPath}: ${formatError(error)}`, "warning");
       }
+    }
+  }
+
+  public async attachSemanticContext(operation: CodeContextOperation): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      this.options.onNotice("Open a workspace file before attaching semantic context.", "warning");
+      return;
+    }
+    try {
+      const position = editor.selection.active;
+      const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Resolve Pi ${semanticOperationLabel(operation)}`, cancellable: true }, async (_progress, token) => queryCodeContext(operation, editor.document.uri, position, token));
+      if (!result.items.length) {
+        this.options.onNotice(`No ${semanticOperationLabel(operation).toLowerCase()} were returned by the active language provider.`, "info");
+        return;
+      }
+      const content = await semanticAttachmentText(result);
+      this.addText({
+        uri: editor.document.uri,
+        label: `${semanticOperationLabel(operation)}: ${relativeDocumentPath(editor.document)}:${position.line + 1}`,
+        content,
+        // Multi-source snapshots cannot use the single-document Refresh action.
+        metadata: contextMetadata(content, content.length),
+      });
+    } catch (error) {
+      this.options.onNotice(`Could not attach semantic context: ${formatError(error)}`, "warning");
     }
   }
 
@@ -444,6 +477,10 @@ export class SidebarAttachmentManager {
     }
     return true;
   }
+}
+
+function semanticOperationLabel(operation: CodeContextOperation): string {
+  return ({ definition: "Definition", references: "References", callers: "Callers", callees: "Callees", documentSymbols: "Document Symbols" })[operation];
 }
 
 function formatError(error: unknown): string {

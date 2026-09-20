@@ -1,8 +1,11 @@
-import path from "node:path";
 import * as vscode from "vscode";
 import type { PiConversationController } from "./conversationController";
-import { computeEditHunks, selectedReplacement } from "./editHunks";
-import { requireTrustedFile } from "./workflowUi";
+import {
+  addDocumentEditProposal,
+  isDocumentWritable,
+  registerEditPreviewProvider,
+  type EditPreviewProvider,
+} from "./editProposalController";
 import {
   buildDiagnosticFixInstruction,
   filterFixableDiagnostics,
@@ -10,7 +13,6 @@ import {
 } from "./diagnosticQuickFix";
 import { buildSelectionReference, extractReplacement, type SelectionContext } from "./prompts";
 
-const previewScheme = "picode-edit-preview";
 const maxWholeDocumentEditCharacters = 200_000;
 
 interface SelectionSnapshot {
@@ -29,11 +31,9 @@ export function registerEditorActions(
   context: vscode.ExtensionContext,
   conversation: PiConversationController,
 ): void {
-  const previews = new EditPreviewProvider();
+  const previews = registerEditPreviewProvider(context);
   const selectionActionKind = vscode.CodeActionKind.RefactorRewrite.append("picode");
   context.subscriptions.push(
-    previews,
-    vscode.workspace.registerTextDocumentContentProvider(previewScheme, previews),
     vscode.languages.registerCodeActionsProvider("*", new PiCodeQuickFixProvider(), {
       providedCodeActionKinds: [vscode.CodeActionKind.QuickFix],
     }),
@@ -266,47 +266,7 @@ function createEditProposal(
   if (replacement === undefined) {
     throw new Error("Pi returned an unexpected edit format. No changes were applied.");
   }
-  assertSnapshotCurrent(snapshot, "The document changed while Pi was working. Regenerate the edit before previewing it.");
-
-  const convertedReplacement = convertLineEndings(replacement, snapshot.document.eol);
-  const originalText = snapshot.document.getText();
-  const startOffset = snapshot.document.offsetAt(snapshot.range.start);
-  const endOffset = snapshot.document.offsetAt(snapshot.range.end);
-  const originalTarget = originalText.slice(startOffset, endOffset);
-  const { hunks } = computeEditHunks(originalTarget, convertedReplacement);
-  if (!hunks.length) throw new Error("Pi proposed no changes.");
-  let previewUri: vscode.Uri | undefined;
-  let previewSelection: string | undefined;
-  conversation.addEditProposal({
-    label: `${path.basename(snapshot.document.uri.fsPath)}:${snapshot.range.start.line + 1}-${snapshot.range.end.line + 1}`,
-    hunks,
-    onPreview: async selected => {
-      requireTrustedFile(snapshot.document.isUntitled ? undefined : snapshot.document.uri);
-      assertSnapshotCurrent(snapshot, "The document changed after Pi generated the proposal. Regenerate the edit before previewing it.");
-      const target = selectedReplacement(originalTarget, hunks, selected ?? hunks.map(hunk => hunk.id));
-      if (previewUri) previews.delete(previewUri);
-      previewUri = previews.create(snapshot.document.uri, originalText.slice(0, startOffset) + target + originalText.slice(endOffset));
-      previewSelection = JSON.stringify(selected);
-      await vscode.commands.executeCommand(
-        "vscode.diff",
-        snapshot.document.uri,
-        previewUri,
-        `Pi Edit Preview: ${path.basename(snapshot.document.uri.fsPath)}`,
-        { preview: true },
-      );
-    },
-    onApply: async selected => {
-      requireTrustedFile(snapshot.document.isUntitled ? undefined : snapshot.document.uri);
-      assertSnapshotCurrent(snapshot, "The document changed after Pi generated the proposal. Regenerate the edit before applying it.");
-      if (!previewUri || previewSelection !== JSON.stringify(selected)) throw new Error("Preview the current hunk selection before applying.");
-      const edit = new vscode.WorkspaceEdit();
-      edit.replace(snapshot.document.uri, snapshot.range, selectedReplacement(originalTarget, hunks, selected ?? hunks.map(hunk => hunk.id)));
-      if (!(await vscode.workspace.applyEdit(edit))) {
-        throw new Error("VS Code could not apply the Pi edit.");
-      }
-    },
-    onDispose: () => { if (previewUri) previews.delete(previewUri); },
-  });
+  addDocumentEditProposal(previews, conversation, snapshot, replacement);
 }
 
 function captureSelection(): SelectionSnapshot | undefined {
@@ -332,12 +292,6 @@ function captureEditTarget(): SelectionSnapshot | undefined {
   return selectionSnapshot(editor.document, range);
 }
 
-function assertSnapshotCurrent(snapshot: SelectionSnapshot, message: string): void {
-  if (snapshot.document.isClosed || snapshot.document.version !== snapshot.version) {
-    throw new Error(message);
-  }
-}
-
 function selectionSnapshot(document: vscode.TextDocument, range: vscode.Range): SelectionSnapshot {
   const file = document.uri.scheme === "file" ? document.uri.fsPath : document.uri.toString();
   return {
@@ -352,10 +306,6 @@ function selectionSnapshot(document: vscode.TextDocument, range: vscode.Range): 
       code: document.getText(range),
     },
   };
-}
-
-function convertLineEndings(value: string, lineEnding: vscode.EndOfLine): string {
-  return lineEnding === vscode.EndOfLine.CRLF ? value.replace(/\n/g, "\r\n") : value;
 }
 
 async function reportError(error: unknown): Promise<void> {
@@ -424,54 +374,6 @@ class PiCodeQuickFixProvider implements vscode.CodeActionProvider {
   }
 }
 
-async function isDocumentWritable(document: vscode.TextDocument): Promise<boolean> {
-  if (document.isUntitled) {
-    return true;
-  }
-  if (vscode.workspace.fs.isWritableFileSystem(document.uri.scheme) !== true) {
-    return false;
-  }
-  try {
-    const stat = await vscode.workspace.fs.stat(document.uri);
-    return ((stat.permissions ?? 0) & vscode.FilePermission.Readonly) === 0;
-  } catch {
-    return false;
-  }
-}
-
-class EditPreviewProvider implements vscode.TextDocumentContentProvider, vscode.Disposable {
-  private readonly contents = new Map<string, string>();
-  private readonly emitter = new vscode.EventEmitter<vscode.Uri>();
-  public readonly onDidChange = this.emitter.event;
-
-  public create(original: vscode.Uri, content: string): vscode.Uri {
-    const uri = vscode.Uri.from({
-      scheme: previewScheme,
-      path: original.path,
-      query: randomId(),
-    });
-    this.contents.set(uri.toString(), content);
-    return uri;
-  }
-
-  public delete(uri: vscode.Uri): void {
-    this.contents.delete(uri.toString());
-  }
-
-  public provideTextDocumentContent(uri: vscode.Uri): string {
-    return this.contents.get(uri.toString()) ?? "";
-  }
-
-  public dispose(): void {
-    this.contents.clear();
-    this.emitter.dispose();
-  }
-}
-
 function truncate(value: string, maxLength: number): string {
   return value.length <= maxLength ? value : `${value.slice(0, maxLength - 1)}…`;
-}
-
-function randomId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }

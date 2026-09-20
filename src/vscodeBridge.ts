@@ -10,6 +10,8 @@ import {
   VscodeBridgeLineDecoder,
   type VscodeBridgeRequest,
 } from "./vscodeBridgeProtocol";
+import { isCodeContextOperation, queryCodeContext } from "./semanticContext";
+import { requireTrustedFile } from "./workflowUi";
 
 const bridgeHost = "127.0.0.1";
 const maxSelectionCharacters = 20_000;
@@ -169,6 +171,9 @@ export class VscodeBridgeServer implements vscode.Disposable {
     if (method === "open") {
       return this.openFile(params);
     }
+    if (method === "codeContext") {
+      return this.codeContext(params);
+    }
     if (method === "notify") {
       return this.notify(params);
     }
@@ -189,6 +194,17 @@ export class VscodeBridgeServer implements vscode.Disposable {
         ? vscode.languages.getDiagnostics(editor.document.uri).slice(0, maxDiagnostics).map(describeDiagnostic)
         : [],
     };
+  }
+
+  private async codeContext(params: Record<string, unknown>): Promise<unknown> {
+    const target = requiredString(params.path, "path");
+    if (!path.isAbsolute(target)) throw new Error("VS Code bridge semantic path must be absolute.");
+    if (!isCodeContextOperation(params.operation)) throw new Error("VS Code bridge semantic operation is unsupported.");
+    const uri = vscode.Uri.file(target);
+    requireTrustedFile(uri);
+    if (!vscode.workspace.getWorkspaceFolder(uri)) throw new Error("Semantic target is outside the workspace.");
+    for (const value of [params.line, params.column]) if (value !== undefined && (!Number.isSafeInteger(value) || Number(value) < 1)) throw new Error("Semantic positions must be positive integers.");
+    return queryCodeContext(params.operation, uri, new vscode.Position(Number(params.line ?? 1) - 1, Number(params.column ?? 1) - 1));
   }
 
   private async openFile(params: Record<string, unknown>): Promise<Record<string, unknown>> {

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { EditProposalInput } from "./conversationController";
+import { acquireOperation } from "./operationLocks";
 
 export type EditProposalStatus =
   | "ready"
@@ -67,6 +68,13 @@ export class EditProposalStore {
     if (new Set(ids).size !== ids.length || ids.some(id => !proposal.input!.hunks!.some(hunk => hunk.id === id))) throw new Error("Invalid hunk identifiers.");
     proposal.state = { ...proposal.state, selected: [...ids], selectionRevision: (proposal.state.selectionRevision ?? 0) + 1, status: "ready", error: undefined };
     this.onChange();
+  }
+
+  public async handleLockedAction(id: string, action: "preview" | "apply" | "reject", root: string): Promise<void> {
+    // Multi-file adapters own their captured-root Apply lock; never acquire it twice.
+    const adapterOwnsLock = action === "apply" && this.proposals.get(id)?.input?.managesApplyLock;
+    const release = adapterOwnsLock ? undefined : acquireOperation(root, "edit proposal action");
+    try { await this.handleAction(id, action); } finally { release?.(); }
   }
 
   public async handleAction(id: string, action: "preview" | "apply" | "reject"): Promise<void> {

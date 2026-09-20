@@ -11,6 +11,8 @@ export interface ConversationRequestOptions {
 
 export interface EditProposalInput {
   readonly label: string;
+  /** The adapter locks its captured workspace during Apply instead of the Sidebar's current directory. */
+  readonly managesApplyLock?: boolean;
   readonly hunks?: readonly { readonly id: string; readonly label: string }[];
   readonly onPreview: (selected?: readonly string[]) => Promise<void>;
   readonly onApply: (selected?: readonly string[]) => Promise<void>;
