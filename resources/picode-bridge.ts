@@ -59,6 +59,33 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerTool({
+    name: "vscode_code_context",
+    label: "VS Code Code Context",
+    description: "Get bounded language-provider metadata for a definition, references, callers, callees, or document symbols at a workspace source location. Returns locations and symbol metadata only, not source text.",
+    promptSnippet: "Query VS Code language providers for code-navigation metadata",
+    promptGuidelines: [
+      "Use vscode_code_context when definitions, references, callers, callees, or document symbols from the connected editor's language providers would clarify a code question.",
+      "vscode_code_context returns at most 50 locations, with zero-based result ranges and a five-second provider deadline. It contains metadata only; use read when source text is needed.",
+    ],
+    parameters: Type.Object({
+      operation: StringEnum(["definition", "references", "callers", "callees", "documentSymbols"] as const),
+      path: Type.String({ description: "Absolute path or path relative to Pi's working directory" }),
+      line: Type.Optional(Type.Integer({ minimum: 1, description: "1-based source line" })),
+      column: Type.Optional(Type.Integer({ minimum: 1, description: "1-based source column" })),
+    }),
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      const target = params.path.startsWith("@") ? params.path.slice(1) : params.path;
+      const result = await bridgeRequest("codeContext", {
+        operation: params.operation,
+        path: path.resolve(ctx.cwd, target),
+        line: params.line,
+        column: params.column,
+      }, signal);
+      return textResult(result);
+    },
+  });
+
+  pi.registerTool({
     name: "vscode_open_file",
     label: "Open in VS Code",
     description: "Open a local file in the connected VS Code window and optionally reveal a 1-based line and column. This changes editor UI only, not file contents.",

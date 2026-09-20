@@ -66,6 +66,9 @@ test("workflow commands are contributed, registered, documented and keep minimum
   assert.ok(cleanupIndex >= 0 && cleanupIndex < entry.indexOf("new PiRuntimeManager(context)"));
   for (const [command, controller, register] of [
     ["reviewStagedChanges", "gitReviewController", "registerGitReview"],
+    ["reviewChanges", "gitReviewController", "registerGitReview"],
+    ["showReviewFindings", "gitReviewController", "registerGitReview"],
+    ["fixWorkspaceDiagnostics", "workspaceDiagnosticsController", "registerWorkspaceDiagnostics"],
     ["showStagedFindings", "gitReviewController", "registerGitReview"],
     ["repairFailedTest", "testRepairController", "registerTestRepair"],
     ["askDebugContext", "debugContextController", "registerDebugContext"],
@@ -75,7 +78,7 @@ test("workflow commands are contributed, registered, documented and keep minimum
     assert.ok(readFileSync(`src/${controller}.ts`, "utf8").includes(`\"${id}\"`));
     assert.ok(entry.includes(`${register}(context, runtime, conversation)`));
   }
-  for (const label of ["Review Staged Changes", "Show Staged Findings", "Repair Failed Test (Preview)", "Ask Debug Context"]) assert.ok(readme.includes(`Pi: ${label}`));
+  for (const label of ["Review Changes", "Show Review Findings", "Fix Workspace Diagnostics (Preview)", "Review Staged Changes", "Show Staged Findings", "Repair Failed Test (Preview)", "Ask Debug Context"]) assert.ok(readme.includes(`Pi: ${label}`));
 });
 
 test("quick-fix menu contributions are hidden for read-only editors", () => {

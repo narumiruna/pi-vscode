@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { registerPiChat } from "./chat";
 import { registerGitReview } from "./gitReviewController";
+import { registerWorkspaceDiagnostics } from "./workspaceDiagnosticsController";
 import { registerTestRepair } from "./testRepairController";
 import { registerDebugContext } from "./debugContextController";
 import { registerEditorActions } from "./editorActions";
@@ -27,6 +28,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<PiVsco
   registerPiChat(context);
   registerEditorActions(context, conversation);
   registerGitReview(context, runtime, conversation);
+  registerWorkspaceDiagnostics(context, runtime, conversation);
   registerTestRepair(context, runtime, conversation);
   registerDebugContext(context, runtime, conversation);
   registerInlineCompletions(context);
