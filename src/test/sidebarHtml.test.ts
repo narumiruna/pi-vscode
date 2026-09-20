@@ -311,7 +311,7 @@ test("composer keeps idle hints short and hides empty queue and unknown usage", 
   assert.equal(sidebar.element("usage").title, "");
   assert.equal(sidebar.element("queue-status").textContent, "");
   assert.equal(sidebar.element("attachment-estimate").textContent, "");
-  assert.equal(sidebar.element("inspect-context").hidden, true);
+  assert.doesNotMatch(getSidebarHtml(100_000, 5 * 1024 * 1024), /inspect-context/);
 
   sidebar.receive({ type: "showSessionDetail" });
   sidebar.receive({ type: "state", status: "Working…", runtime: { busy: true, queueable: true, connected: true, stats: { contextUsage: { percent: 12.4 } } } });
@@ -320,7 +320,7 @@ test("composer keeps idle hints short and hides empty queue and unknown usage", 
   assert.equal(sidebar.element("usage").title, "Share of the model’s context window currently in use");
 });
 
-test("attachment summary shows counts and keeps estimates in attachment details", () => {
+test("attachment summary shows counts and estimates without a separate view button", () => {
   const sidebar = createSidebarScriptHarness();
   const state = (attachments: unknown[], characters = 0, estimatedTextTokens = 0) => sidebar.receive({
     type: "state", status: "Ready", runtime: { busy: false, connected: true }, imageSupported: true,
@@ -330,21 +330,19 @@ test("attachment summary shows counts and keeps estimates in attachment details"
   const context = { id: "context", label: "file.ts", image: false };
   state([image]);
   assert.equal(sidebar.element("attachment-estimate").textContent, "1 attachment");
-  assert.equal(sidebar.element("inspect-context").hidden, false);
-  assert.match(sidebar.element("inspect-context").title, /image tokens not included/);
-  sidebar.element("inspect-context").listeners.get("click")!();
-  assert.equal(sidebar.posted.at(-1).type, "inspectContext");
+  assert.match(sidebar.element("attachment-estimate").title, /image tokens not included/);
+  sidebar.element("add-context").listeners.get("click")!();
+  assert.equal(sidebar.posted.at(-1).type, "pickContext");
 
   state([image, context], 120, 30);
   assert.equal(sidebar.element("attachment-estimate").textContent, "2 attachments");
-  assert.equal(sidebar.element("inspect-context").title, "120 characters · about 30 text tokens (estimated) · image tokens not included");
+  assert.equal(sidebar.element("attachment-estimate").title, "120 characters · about 30 text tokens (estimated) · image tokens not included");
   state([context], 120, 30);
-  assert.equal(sidebar.element("inspect-context").title, "120 characters · about 30 text tokens (estimated)");
+  assert.equal(sidebar.element("attachment-estimate").title, "120 characters · about 30 text tokens (estimated)");
   assert.equal(sidebar.element("send").title, "Send attachments");
   state([]);
   assert.equal(sidebar.element("attachment-estimate").textContent, "");
-  assert.equal(sidebar.element("inspect-context").title, "");
-  assert.equal(sidebar.element("inspect-context").hidden, true);
+  assert.equal(sidebar.element("attachment-estimate").title, "");
 });
 
 test("Sessions is a separate layer that opens a detail view and returns with Back", () => {
