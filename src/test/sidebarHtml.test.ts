@@ -329,20 +329,17 @@ test("attachment summary shows counts and estimates without a separate view butt
   const image = { id: "image", label: "image.png", image: true, assetId: "asset" };
   const context = { id: "context", label: "file.ts", image: false };
   state([image]);
-  assert.equal(sidebar.element("attachment-estimate").textContent, "1 attachment");
-  assert.match(sidebar.element("attachment-estimate").title, /image tokens not included/);
+  assert.equal(sidebar.element("attachment-estimate").textContent, "1 attachment · 0 characters · about 0 text tokens (estimated) · image tokens not included");
   sidebar.element("add-context").listeners.get("click")!();
   assert.equal(sidebar.posted.at(-1).type, "pickContext");
 
   state([image, context], 120, 30);
-  assert.equal(sidebar.element("attachment-estimate").textContent, "2 attachments");
-  assert.equal(sidebar.element("attachment-estimate").title, "120 characters · about 30 text tokens (estimated) · image tokens not included");
+  assert.equal(sidebar.element("attachment-estimate").textContent, "2 attachments · 120 characters · about 30 text tokens (estimated) · image tokens not included");
   state([context], 120, 30);
-  assert.equal(sidebar.element("attachment-estimate").title, "120 characters · about 30 text tokens (estimated)");
+  assert.equal(sidebar.element("attachment-estimate").textContent, "1 attachment · 120 characters · about 30 text tokens (estimated)");
   assert.equal(sidebar.element("send").title, "Send attachments");
   state([]);
   assert.equal(sidebar.element("attachment-estimate").textContent, "");
-  assert.equal(sidebar.element("attachment-estimate").title, "");
 });
 
 test("Sessions is a separate layer that opens a detail view and returns with Back", () => {
