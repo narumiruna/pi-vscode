@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  buildPiProcessEnvironment,
   buildRpcArguments,
   PiRpcClient,
   StrictJsonLineDecoder,
@@ -20,6 +21,17 @@ test("StrictJsonLineDecoder uses LF framing and preserves Unicode separators", (
   decoder.end();
 
   assert.deepEqual(lines, ['{"text":"first\u2028second"}', '{"value":2}']);
+});
+
+test("buildPiProcessEnvironment applies overrides and removes sensitive inherited variables", () => {
+  assert.deepEqual(
+    buildPiProcessEnvironment(
+      { KEEP: "base", REMOVE: "secret", OVERRIDE: "base", NO_COLOR: "0" },
+      { OVERRIDE: "child" },
+      ["REMOVE"],
+    ),
+    { KEEP: "base", OVERRIDE: "child", NO_COLOR: "1" },
+  );
 });
 
 test("buildRpcArguments leaves foreground tools and system prompt at Pi defaults", () => {

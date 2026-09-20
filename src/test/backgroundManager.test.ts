@@ -6,6 +6,11 @@ import path from "node:path";
 import { gitEnvironment, gitIdentity, gitRevision } from "../gitSnapshots";
 import { acquireOperation, hasOperation } from "../operationLocks";
 import { buildRpcArguments, PiRpcClient } from "../piRpcClient";
+import {
+  vscodeBridgeExtensionEnvironmentKey,
+  vscodeBridgePortEnvironmentKey,
+  vscodeBridgeTokenEnvironmentKey,
+} from "../vscodeBridgeProtocol";
 import { installVscodeMock, MockUri } from "./vscodeMock";
 
 test("background manager restores legacy/interrupted tasks safely, previews cancelled results, recovers imports and guards cleanup", async () => {
@@ -43,6 +48,14 @@ test("background manager restores legacy/interrupted tasks safely, previews canc
       assert.equal(launchOptions.appendSystemPrompt, "This is an independent background task. Work only in the provided working directory.");
       assert.equal(buildRpcArguments(launchOptions).includes("--tools"), false);
       assert.deepEqual(launchOptions.extensions.map((value: string) => path.basename(value)), ["picode-permission-gate.ts"]);
+      assert.equal(launchOptions.env[vscodeBridgePortEnvironmentKey], undefined);
+      assert.equal(launchOptions.env[vscodeBridgeTokenEnvironmentKey], undefined);
+      assert.equal(launchOptions.env[vscodeBridgeExtensionEnvironmentKey], undefined);
+      assert.deepEqual(launchOptions.unsetEnv, [
+        vscodeBridgePortEnvironmentKey,
+        vscodeBridgeTokenEnvironmentKey,
+        vscodeBridgeExtensionEnvironmentKey,
+      ]);
       await launchManager.cancel(launched);
     } finally {
       clientPrototype.start = originalStart;

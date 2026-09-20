@@ -10,6 +10,7 @@ import { readPiInvocationOptions } from "./vscodePi";
 import { picodeConfiguration } from "./configuration";
 import { VscodeBridgeServer } from "./vscodeBridge";
 import {
+  vscodeBridgeExtensionEnvironmentKey,
   vscodeBridgePortEnvironmentKey,
   vscodeBridgeTokenEnvironmentKey,
 } from "./vscodeBridgeProtocol";
@@ -168,18 +169,28 @@ export class PiRuntimeManager implements vscode.Disposable {
     return readPiInvocationOptions(this.resource).cwd;
   }
 
+  private get bridgeExtensionPath(): string {
+    return path.join(this.context.extensionUri.fsPath, "resources", "picode-bridge.ts");
+  }
+
+  private async bridgeEnvironment(): Promise<NodeJS.ProcessEnv> {
+    return {
+      ...await this.bridge.start(),
+      [vscodeBridgeExtensionEnvironmentKey]: this.bridgeExtensionPath,
+    };
+  }
+
   public async initializeBridge(): Promise<void> {
-    const environment = await this.bridge.start();
+    const environment = await this.bridgeEnvironment();
     this.context.environmentVariableCollection.description =
-      "Connects standalone Pi extensions to the active Pi VS Code window.";
-    this.context.environmentVariableCollection.replace(
+      "Connects process-local Pi bridge extensions to the active Pi VS Code window.";
+    for (const key of [
       vscodeBridgePortEnvironmentKey,
-      environment[vscodeBridgePortEnvironmentKey] ?? "",
-    );
-    this.context.environmentVariableCollection.replace(
       vscodeBridgeTokenEnvironmentKey,
-      environment[vscodeBridgeTokenEnvironmentKey] ?? "",
-    );
+      vscodeBridgeExtensionEnvironmentKey,
+    ]) {
+      this.context.environmentVariableCollection.replace(key, environment[key] ?? "");
+    }
   }
 
   public broadcastToPi(event: string, data: unknown): number {
@@ -518,8 +529,8 @@ export class PiRuntimeManager implements vscode.Disposable {
     await this.ensureStarted(this.resource);
     const sessionFile = this.state.sessionFile;
     const invocation = readPiInvocationOptions(this.resource);
-    const bridgeEnvironment = await this.bridge.start();
-    const shellArgs: string[] = [];
+    const bridgeEnvironment = await this.bridgeEnvironment();
+    const shellArgs = ["--extension", this.bridgeExtensionPath];
     if (sessionFile) {
       shellArgs.push("--session", sessionFile);
     }
@@ -562,7 +573,7 @@ export class PiRuntimeManager implements vscode.Disposable {
 
   private async createAndStartClient(sessionPath: string | undefined): Promise<void> {
     if (sessionPath) await assertSessionWorkspace(sessionPath, this.currentCwd);
-    const bridgeEnvironment = await this.bridge.start();
+    const bridgeEnvironment = await this.bridgeEnvironment();
     const options = this.buildClientOptions(sessionPath, bridgeEnvironment);
     const client = new PiRpcClient(options);
     this.clientSubscription?.dispose();
@@ -590,6 +601,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       model: invocation.model,
       thinkingLevel: invocation.thinkingLevel,
       extensions: [
+        this.bridgeExtensionPath,
         path.join(this.context.extensionUri.fsPath, "resources", "picode-permission-gate.ts"),
         path.join(this.context.extensionUri.fsPath, "resources", "picode-read-only-gate.ts"),
       ],

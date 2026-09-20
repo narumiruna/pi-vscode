@@ -37,6 +37,7 @@ export interface PiRpcClientOptions {
   readonly approveProjectResources?: boolean;
   readonly requestTimeoutMs?: number;
   readonly env?: NodeJS.ProcessEnv;
+  readonly unsetEnv?: readonly string[];
 }
 
 interface PendingRequest {
@@ -125,7 +126,7 @@ export class PiRpcClient {
       [...(this.options.executableArgs ?? []), ...buildRpcArguments(this.options)],
       {
         cwd: this.options.cwd,
-        env: { ...process.env, ...this.options.env, NO_COLOR: "1" },
+        env: buildPiProcessEnvironment(process.env, this.options.env, this.options.unsetEnv),
         shell: false,
         detached: process.platform !== "win32",
         windowsHide: true,
@@ -401,6 +402,18 @@ export class PiRpcClient {
     }
     this.pending.clear();
   }
+}
+
+export function buildPiProcessEnvironment(
+  base: NodeJS.ProcessEnv,
+  overrides?: NodeJS.ProcessEnv,
+  unset?: readonly string[],
+): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = { ...base, ...overrides, NO_COLOR: "1" };
+  for (const key of unset ?? []) {
+    delete environment[key];
+  }
+  return environment;
 }
 
 export function buildRpcArguments(options: PiRpcClientOptions): string[] {

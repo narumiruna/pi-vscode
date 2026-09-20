@@ -23,9 +23,9 @@
 - Compile against exactly VS Code 1.106 declarations rather than newer APIs. Record automated workflow evidence and explicitly deferred interactive/remote validation in `docs/WORKFLOW_VALIDATION.md`.
 
 - Add a confirmed **Delete Session** button that moves the current persistent Pi session to Trash and starts a new session.
-- Add a standalone global Pi extension with authenticated request/event communication, `pi.events` interoperability, and integrated-terminal discovery.
+- Bundle the Pi bridge in the VSIX and load it process-locally with authenticated request/event communication and `pi.events` interoperability.
 - Export a same-host VS Code API for broadcasting bounded events to connected Pi sessions.
-- Install both the Pi extension and VSIX through `just install`.
+- Install only the VSIX, remove exact legacy global bridge filenames during installer or extension activation upgrades, and avoid creating Pi configuration files on clean installs.
 - Add **Fix with Pi** quick fixes for red and yellow diagnostics through VS Code's lightbulb menu, the editor toolbar, and Ctrl/Cmd+I, with contextual diff previews and inline-edit fallback away from diagnostics.
 - Support Pi Inline Edit for both selections and the current line at the cursor as the Ctrl/Cmd+I fallback when no diagnostic is targeted.
 - Redesign Pi Chat around a compact header, native Quick Pick secondary actions, attachment chips, explicit reconnect, cancellation, history-recovery states, serialized submission, retry-safe composer drafts, and narrow Sidebar layouts.
@@ -33,7 +33,7 @@
 - Add safe Ctrl/Cmd+V image attachment with client and extension-host MIME, Base64, count, size, and model-capability checks, and hold submission until pasted images finish loading.
 - Add in-chat edit proposal cards that enforce structurally trusted read-only generation, retain live previews, release terminal callbacks, bound terminal history, require Preview before Apply, reject stale document versions, and serialize Apply across all live proposals.
 - Add an authenticated local bridge with fail-closed bounded framing and Pi tools for reading VS Code editor context, opening files, and showing requested notifications.
-- Load the bridge in foreground chat runtimes and Pi terminal handoffs while keeping bridge-only tools out of independent background profiles.
+- Load the bundled bridge in foreground chat runtimes and Pi terminal handoffs, expose its path for explicit ordinary-terminal use, and keep bridge-only tools and credentials out of independent background profiles.
 - Capture each request's authoritative assistant response from its event stream across compaction, keep session actions locked through post-processing, and honor cancellation before delayed startup submits a prompt.
 - Preserve composer edits and attachments added while a background or worktree agent starts.
 - Move the Pi Chat view's default location to the Secondary Sidebar.
