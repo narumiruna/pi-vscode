@@ -21,7 +21,11 @@ test("Pi settings fall back to explicitly configured pre-rename values", () => {
       inspect: (key: string) => ({
         key,
         ...(isCurrent && currentExplicit.has(section.endsWith(".inlineCompletions") ? `inlineCompletions.${key}` : key)
-          ? { globalValue: currentExplicit.get(section.endsWith(".inlineCompletions") ? `inlineCompletions.${key}` : key) }
+          ? {
+              globalValue: currentExplicit.get(
+                section.endsWith(".inlineCompletions") ? `inlineCompletions.${key}` : key,
+              ),
+            }
           : {}),
       }),
     };
@@ -37,8 +41,8 @@ test("Pi settings fall back to explicitly configured pre-rename values", () => {
     assert.equal(picodeConfiguration().get("agent.confirmToolCalls", "dangerous"), "off");
     assert.equal(picodeConfiguration("inlineCompletions", resource as any).get("enabled", true), false);
 
-    assert.ok(calls.some(call => call.section === "picode.inlineCompletions" && call.resource === resource));
-    assert.ok(calls.some(call => call.section === "piCodingAgent.inlineCompletions" && call.resource === resource));
+    assert.ok(calls.some((call) => call.section === "picode.inlineCompletions" && call.resource === resource));
+    assert.ok(calls.some((call) => call.section === "piCodingAgent.inlineCompletions" && call.resource === resource));
   } finally {
     vscode.restore();
   }

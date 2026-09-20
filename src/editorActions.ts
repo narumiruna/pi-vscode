@@ -1,16 +1,16 @@
 import * as vscode from "vscode";
 import type { PiConversationController } from "./conversationController";
 import {
-  addDocumentEditProposal,
-  isDocumentWritable,
-  registerEditPreviewProvider,
-  type EditPreviewProvider,
-} from "./editProposalController";
-import {
   buildDiagnosticFixInstruction,
   filterFixableDiagnostics,
   selectDiagnosticAtPosition,
 } from "./diagnosticQuickFix";
+import {
+  addDocumentEditProposal,
+  type EditPreviewProvider,
+  isDocumentWritable,
+  registerEditPreviewProvider,
+} from "./editProposalController";
 import { buildSelectionReference, extractReplacement, type SelectionContext } from "./prompts";
 
 const maxWholeDocumentEditCharacters = 200_000;
@@ -27,10 +27,7 @@ interface DiagnosticCommandTarget {
   readonly diagnostic: vscode.Diagnostic;
 }
 
-export function registerEditorActions(
-  context: vscode.ExtensionContext,
-  conversation: PiConversationController,
-): void {
+export function registerEditorActions(context: vscode.ExtensionContext, conversation: PiConversationController): void {
   const previews = registerEditPreviewProvider(context);
   const selectionActionKind = vscode.CodeActionKind.RefactorRewrite.append("picode");
   context.subscriptions.push(
@@ -43,15 +40,36 @@ export function registerEditorActions(
     vscode.commands.registerCommand("picode.askSelection", () => askSelection(conversation)),
     vscode.commands.registerCommand("picode.modifySelection", () => inlineEdit(previews, conversation)),
     vscode.commands.registerCommand("picode.inlineEdit", () => inlineEdit(previews, conversation)),
-    vscode.commands.registerCommand("picode.quickFix", (target?: unknown) =>
-      quickFix(previews, conversation, target),
+    vscode.commands.registerCommand("picode.quickFix", (target?: unknown) => quickFix(previews, conversation, target)),
+    vscode.commands.registerCommand("picode.explainSelection", () =>
+      answerPreset(conversation, "Explain this code, including its behavior and assumptions."),
     ),
-    vscode.commands.registerCommand("picode.explainSelection", () => answerPreset(conversation, "Explain this code, including its behavior and assumptions.")),
-    vscode.commands.registerCommand("picode.reviewSelection", () => answerPreset(conversation, "Review this code for correctness, security, maintainability, performance, and missing tests. Prioritize actionable findings.")),
-    vscode.commands.registerCommand("picode.fixSelection", () => previewPreset(previews, conversation, "Fix bugs and diagnostics in this code while preserving intended behavior.")),
-    vscode.commands.registerCommand("picode.documentSelection", () => previewPreset(previews, conversation, "Add or improve idiomatic documentation for this code without changing its behavior.")),
+    vscode.commands.registerCommand("picode.reviewSelection", () =>
+      answerPreset(
+        conversation,
+        "Review this code for correctness, security, maintainability, performance, and missing tests. Prioritize actionable findings.",
+      ),
+    ),
+    vscode.commands.registerCommand("picode.fixSelection", () =>
+      previewPreset(
+        previews,
+        conversation,
+        "Fix bugs and diagnostics in this code while preserving intended behavior.",
+      ),
+    ),
+    vscode.commands.registerCommand("picode.documentSelection", () =>
+      previewPreset(
+        previews,
+        conversation,
+        "Add or improve idiomatic documentation for this code without changing its behavior.",
+      ),
+    ),
     vscode.commands.registerCommand("picode.generateTests", () =>
-      previewPreset(previews, conversation, "Keep the selected code and append comprehensive idiomatic tests that cover normal behavior and important edge cases."),
+      previewPreset(
+        previews,
+        conversation,
+        "Keep the selected code and append comprehensive idiomatic tests that cover normal behavior and important edge cases.",
+      ),
     ),
     vscode.commands.registerCommand("picode.suggestNextEdit", () => suggestNextEdit(previews, conversation)),
   );
@@ -88,7 +106,8 @@ async function showAnswer(
 ): Promise<void> {
   try {
     await conversation.sendRequest(question, [buildSelectionReference(snapshot.context)], {
-      instructions: "Answer the user's question about the selected code. Be concrete and concise. Use Markdown when useful. Do not modify files.",
+      instructions:
+        "Answer the user's question about the selected code. Be concrete and concise. Use Markdown when useful. Do not modify files.",
       resource: snapshot.document.uri,
       policy: "read-only",
     });
@@ -97,10 +116,7 @@ async function showAnswer(
   }
 }
 
-async function inlineEdit(
-  previews: EditPreviewProvider,
-  conversation: PiConversationController,
-): Promise<void> {
+async function inlineEdit(previews: EditPreviewProvider, conversation: PiConversationController): Promise<void> {
   const snapshot = captureEditTarget();
   if (!snapshot) {
     return;
@@ -135,11 +151,11 @@ async function quickFix(
 
   const diagnostics = filterFixableDiagnostics(vscode.languages.getDiagnostics(editor.document.uri));
   const requestedTarget = isDiagnosticCommandTarget(target) ? target : undefined;
-  const requestedDiagnostic = requestedTarget?.uri.toString() === editor.document.uri.toString()
-    ? findCurrentDiagnostic(diagnostics, requestedTarget.diagnostic)
-    : undefined;
-  const diagnostic = requestedDiagnostic
-    ?? selectDiagnosticAtPosition(diagnostics, editor.selection.active);
+  const requestedDiagnostic =
+    requestedTarget?.uri.toString() === editor.document.uri.toString()
+      ? findCurrentDiagnostic(diagnostics, requestedTarget.diagnostic)
+      : undefined;
+  const diagnostic = requestedDiagnostic ?? selectDiagnosticAtPosition(diagnostics, editor.selection.active);
   if (!diagnostic) {
     await inlineEdit(previews, conversation);
     return;
@@ -173,17 +189,15 @@ function findCurrentDiagnostic(
   diagnostics: readonly vscode.Diagnostic[],
   requested: vscode.Diagnostic,
 ): vscode.Diagnostic | undefined {
-  return diagnostics.find(diagnostic =>
-    diagnostic.severity === requested.severity
-    && diagnostic.message === requested.message
-    && diagnostic.range.isEqual(requested.range),
+  return diagnostics.find(
+    (diagnostic) =>
+      diagnostic.severity === requested.severity &&
+      diagnostic.message === requested.message &&
+      diagnostic.range.isEqual(requested.range),
   );
 }
 
-async function suggestNextEdit(
-  previews: EditPreviewProvider,
-  conversation: PiConversationController,
-): Promise<void> {
+async function suggestNextEdit(previews: EditPreviewProvider, conversation: PiConversationController): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
     await vscode.window.showWarningMessage("Open a text editor before requesting a next edit suggestion.");
@@ -195,16 +209,19 @@ async function suggestNextEdit(
     return;
   }
   const range = new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length));
-  const diagnostics = vscode.languages.getDiagnostics(document.uri)
+  const diagnostics = vscode.languages
+    .getDiagnostics(document.uri)
     .slice(0, 20)
-    .map(diagnostic => `Line ${diagnostic.range.start.line + 1}: ${diagnostic.message}`)
+    .map((diagnostic) => `Line ${diagnostic.range.start.line + 1}: ${diagnostic.message}`)
     .join("\n");
   const snapshot = selectionSnapshot(document, range);
   const instruction = [
     `Predict and implement the next logical edit for this file based on the cursor at line ${editor.selection.active.line + 1}, column ${editor.selection.active.character + 1}.`,
     "Make one focused, useful change and preserve unrelated code.",
     diagnostics ? `Current diagnostics:\n${diagnostics}` : "",
-  ].filter(Boolean).join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
   await previewEdit(previews, conversation, snapshot, instruction);
 }
 
@@ -240,7 +257,7 @@ async function previewEdit(
       ].join(" "),
       resource: snapshot.document.uri,
       policy: "read-only",
-      onResponse: response => {
+      onResponse: (response) => {
         try {
           createEditProposal(previews, conversation, snapshot, response);
         } catch (error) {
@@ -360,17 +377,19 @@ class PiCodeQuickFixProvider implements vscode.CodeActionProvider {
     if (!(await isDocumentWritable(document)) || document.getText().length > maxWholeDocumentEditCharacters) {
       return [];
     }
-    return filterFixableDiagnostics(context.diagnostics)
-      .map(diagnostic => {
-        const action = new vscode.CodeAction(`Fix with Pi: ${truncate(diagnostic.message, 80)}`, vscode.CodeActionKind.QuickFix);
-        action.diagnostics = [diagnostic];
-        action.command = {
-          command: "picode.quickFix",
-          title: "Quick Fix with Pi",
-          arguments: [{ uri: document.uri, diagnostic } satisfies DiagnosticCommandTarget],
-        };
-        return action;
-      });
+    return filterFixableDiagnostics(context.diagnostics).map((diagnostic) => {
+      const action = new vscode.CodeAction(
+        `Fix with Pi: ${truncate(diagnostic.message, 80)}`,
+        vscode.CodeActionKind.QuickFix,
+      );
+      action.diagnostics = [diagnostic];
+      action.command = {
+        command: "picode.quickFix",
+        title: "Quick Fix with Pi",
+        arguments: [{ uri: document.uri, diagnostic } satisfies DiagnosticCommandTarget],
+      };
+      return action;
+    });
   }
 }
 

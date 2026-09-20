@@ -23,12 +23,9 @@ function icon(name: keyof typeof iconPaths): string {
 
 export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number): string {
   const nonce = randomBytes(16).toString("base64url");
-  const csp = [
-    "default-src 'none'",
-    `style-src 'nonce-${nonce}'`,
-    `script-src 'nonce-${nonce}'`,
-    "img-src data:",
-  ].join("; ");
+  const csp = ["default-src 'none'", `style-src 'nonce-${nonce}'`, `script-src 'nonce-${nonce}'`, "img-src data:"].join(
+    "; ",
+  );
 
   return `<!DOCTYPE html>
 <html lang="en">

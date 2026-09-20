@@ -138,8 +138,8 @@ function assistantMessageText(message: unknown): string | undefined {
     return "";
   }
   return message.content
-    .filter(part => isRecord(part) && part.type === "text" && typeof part.text === "string")
-    .map(part => String(part.text))
+    .filter((part) => isRecord(part) && part.type === "text" && typeof part.text === "string")
+    .map((part) => String(part.text))
     .join("\n");
 }
 
@@ -147,9 +147,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-export function shouldTrackConversationChanges(
-  policy: AgentRequestPolicy | undefined,
-): boolean {
+export function shouldTrackConversationChanges(policy: AgentRequestPolicy | undefined): boolean {
   return policy !== "read-only";
 }
 

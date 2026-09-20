@@ -81,13 +81,21 @@ export function restoreSidebarMessages(value: unknown, maxMessages: number, maxC
   if (!Array.isArray(value)) return [];
   const messages: SidebarMessage[] = [];
   for (const candidate of value) {
-    if (!isRecord(candidate) || typeof candidate.id !== "string" || candidate.id.length === 0 || candidate.id.length > 200) continue;
-    if ((candidate.role !== "user" && candidate.role !== "assistant") || typeof candidate.content !== "string") continue;
+    if (
+      !isRecord(candidate) ||
+      typeof candidate.id !== "string" ||
+      candidate.id.length === 0 ||
+      candidate.id.length > 200
+    )
+      continue;
+    if ((candidate.role !== "user" && candidate.role !== "assistant") || typeof candidate.content !== "string")
+      continue;
     if (candidate.truncated !== undefined && typeof candidate.truncated !== "boolean") continue;
     const attachments = restoreTranscriptAttachments(candidate.attachments);
-    const legacyContext = !Array.isArray(candidate.attachments) && typeof candidate.contextLabel === "string"
-      ? contextTranscriptAttachment(candidate.contextLabel)
-      : undefined;
+    const legacyContext =
+      !Array.isArray(candidate.attachments) && typeof candidate.contextLabel === "string"
+        ? contextTranscriptAttachment(candidate.contextLabel)
+        : undefined;
     const restoredAttachments = attachments.length ? attachments : legacyContext ? [legacyContext] : [];
     messages.push({
       id: candidate.id,
@@ -104,35 +112,48 @@ export function sidebarMessagesForWebview(
   messages: readonly SidebarMessage[],
   isAssetAvailable: (assetId: string) => boolean,
 ): SidebarMessage[] {
-  return messages.map(message => ({
+  return messages.map((message) => ({
     ...message,
-    ...(message.attachments ? {
-      attachments: message.attachments.map(attachment => attachment.type === "image"
-        ? { ...attachment, availability: isAssetAvailable(attachment.assetId) ? "available" as const : "unavailable" as const }
-        : attachment),
-    } : {}),
+    ...(message.attachments
+      ? {
+          attachments: message.attachments.map((attachment) =>
+            attachment.type === "image"
+              ? {
+                  ...attachment,
+                  availability: isAssetAvailable(attachment.assetId)
+                    ? ("available" as const)
+                    : ("unavailable" as const),
+                }
+              : attachment,
+          ),
+        }
+      : {}),
   }));
 }
 
 export function persistableSidebarMessages(messages: readonly SidebarMessage[]): SidebarMessage[] {
-  return messages.map(message => ({
+  return messages.map((message) => ({
     id: message.id,
     role: message.role,
     content: message.content,
-    ...(message.attachments?.length ? { attachments: message.attachments.map(attachment => (
-      attachment.type === "context"
-        ? { type: "context" as const, label: attachment.label, fullLabel: attachment.fullLabel }
-        : {
-            type: "image" as const,
-            assetId: attachment.assetId,
-            label: attachment.label,
-            fullLabel: attachment.fullLabel,
-            ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}),
-            ...(attachment.width ? { width: attachment.width } : {}),
-            ...(attachment.height ? { height: attachment.height } : {}),
-            availability: attachment.availability,
-          }
-    )) } : {}),
+    ...(message.attachments?.length
+      ? {
+          attachments: message.attachments.map((attachment) =>
+            attachment.type === "context"
+              ? { type: "context" as const, label: attachment.label, fullLabel: attachment.fullLabel }
+              : {
+                  type: "image" as const,
+                  assetId: attachment.assetId,
+                  label: attachment.label,
+                  fullLabel: attachment.fullLabel,
+                  ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}),
+                  ...(attachment.width ? { width: attachment.width } : {}),
+                  ...(attachment.height ? { height: attachment.height } : {}),
+                  availability: attachment.availability,
+                },
+          ),
+        }
+      : {}),
     ...(message.truncated ? { truncated: true } : {}),
   }));
 }
@@ -142,15 +163,26 @@ function restoreTranscriptAttachments(value: unknown): TranscriptAttachment[] {
   const restored: TranscriptAttachment[] = [];
   let imageCount = 0;
   for (const candidate of value.slice(0, maxTranscriptAttachments)) {
-    if (!isRecord(candidate) || !validLabel(candidate.label, maxTranscriptShortLabelCharacters) || !validLabel(candidate.fullLabel, maxTranscriptLabelCharacters)) continue;
+    if (
+      !isRecord(candidate) ||
+      !validLabel(candidate.label, maxTranscriptShortLabelCharacters) ||
+      !validLabel(candidate.fullLabel, maxTranscriptLabelCharacters)
+    )
+      continue;
     if (candidate.type === "context") {
       restored.push({ type: "context", label: candidate.label, fullLabel: candidate.fullLabel });
       continue;
     }
-    if (candidate.type !== "image" || imageCount >= maxTranscriptImages || typeof candidate.assetId !== "string") continue;
+    if (candidate.type !== "image" || imageCount >= maxTranscriptImages || typeof candidate.assetId !== "string")
+      continue;
     if (candidate.availability !== "available" && candidate.availability !== "unavailable") continue;
-    if (!transcriptImageAssetIdPattern.test(candidate.assetId) && !/^unavailable-[a-f0-9]{64}$/.test(candidate.assetId)) continue;
-    if (candidate.mimeType !== undefined && (typeof candidate.mimeType !== "string" || !isSupportedImageMimeType(candidate.mimeType))) continue;
+    if (!transcriptImageAssetIdPattern.test(candidate.assetId) && !/^unavailable-[a-f0-9]{64}$/.test(candidate.assetId))
+      continue;
+    if (
+      candidate.mimeType !== undefined &&
+      (typeof candidate.mimeType !== "string" || !isSupportedImageMimeType(candidate.mimeType))
+    )
+      continue;
     if (!optionalDimension(candidate.width) || !optionalDimension(candidate.height)) continue;
     if ((candidate.width === undefined) !== (candidate.height === undefined)) continue;
     restored.push({

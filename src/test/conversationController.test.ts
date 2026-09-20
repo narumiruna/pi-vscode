@@ -4,8 +4,8 @@ import {
   ConversationRequestLifecycle,
   ConversationResponseCapture,
   ConversationSideEffectTracker,
-  ExclusiveOperationGate,
   conversationRequestBehavior,
+  ExclusiveOperationGate,
   requestMayHaveProducedSideEffects,
   shouldTrackConversationChanges,
 } from "../conversationController";
@@ -49,7 +49,13 @@ test("assistant capture follows request events across compaction without history
   capture.accept({ type: "message_end", message: { role: "user", content: "new request" } });
   capture.accept({
     type: "message_end",
-    message: { role: "assistant", content: [{ type: "text", text: "first" }, { type: "text", text: "response" }] },
+    message: {
+      role: "assistant",
+      content: [
+        { type: "text", text: "first" },
+        { type: "text", text: "response" },
+      ],
+    },
   });
   capture.accept({ type: "compaction_start" });
   capture.accept({ type: "compaction_end" });

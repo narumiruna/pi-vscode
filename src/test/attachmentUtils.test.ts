@@ -41,7 +41,10 @@ test("submitted attachment cleanup preserves items added during startup", () => 
   const addedLater = { id: "context-2" };
 
   assert.deepEqual(
-    withoutAttachmentIds([...submitted, addedLater], submitted.map(attachment => attachment.id)),
+    withoutAttachmentIds(
+      [...submitted, addedLater],
+      submitted.map((attachment) => attachment.id),
+    ),
     [addedLater],
   );
 });

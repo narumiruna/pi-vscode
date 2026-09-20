@@ -21,12 +21,12 @@ export function selectDiagnosticAtPosition<T extends DiagnosticLike>(
   position: PositionLike,
 ): T | undefined {
   return diagnostics
-    .filter(diagnostic => containsPosition(diagnostic.range, position))
+    .filter((diagnostic) => containsPosition(diagnostic.range, position))
     .sort((left, right) => left.severity - right.severity || rangeSize(left.range) - rangeSize(right.range))[0];
 }
 
 export function filterFixableDiagnostics<T extends DiagnosticLike>(diagnostics: readonly T[]): T[] {
-  return diagnostics.filter(diagnostic => diagnostic.severity === 0 || diagnostic.severity === 1);
+  return diagnostics.filter((diagnostic) => diagnostic.severity === 0 || diagnostic.severity === 1);
 }
 
 export function buildDiagnosticFixInstruction(diagnostic: DiagnosticLike): string {
@@ -38,7 +38,9 @@ export function buildDiagnosticFixInstruction(diagnostic: DiagnosticLike): strin
     `Fix this VS Code ${severity.toLowerCase()} at line ${diagnostic.range.start.line + 1}, column ${diagnostic.range.start.character + 1}: ${diagnostic.message}`,
     `${source}${code}`.trim(),
     "Make the smallest correct change in the provided code and preserve unrelated behavior.",
-  ].filter(Boolean).join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function containsPosition(range: RangeLike, position: PositionLike): boolean {

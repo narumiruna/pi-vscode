@@ -3,9 +3,24 @@ import { computeEditHunks, selectedReplacement } from "../editHunks";
 import { EditProposalStore } from "../editProposals";
 
 test("deterministic hunks round-trip insertions, deletions, repeats, Unicode and newline styles", () => {
-  for (const [before, after] of [["", "new"], ["gone", ""], ["a\na\na\n", "a\nx\na\n"], ["漢字\r\nkeep\r\nold", "新字\r\nkeep\r\nnew\r\n"], ["a\nb\nc", "A\nb\nC"], ["a\n", "a"], ["a", "a\n"]]) {
+  for (const [before, after] of [
+    ["", "new"],
+    ["gone", ""],
+    ["a\na\na\n", "a\nx\na\n"],
+    ["漢字\r\nkeep\r\nold", "新字\r\nkeep\r\nnew\r\n"],
+    ["a\nb\nc", "A\nb\nC"],
+    ["a\n", "a"],
+    ["a", "a\n"],
+  ]) {
     const { hunks } = computeEditHunks(before!, after!);
-    assert.equal(selectedReplacement(before!, hunks, hunks.map(h => h.id)), after);
+    assert.equal(
+      selectedReplacement(
+        before!,
+        hunks,
+        hunks.map((h) => h.id),
+      ),
+      after,
+    );
     assert.equal(selectedReplacement(before!, hunks, []), before);
   }
   const { hunks } = computeEditHunks("a\nb\nc\n", "A\nb\nC\n");
@@ -18,8 +33,21 @@ test("deterministic hunks round-trip insertions, deletions, repeats, Unicode and
 
 test("hunk revisions invalidate Preview; empty and invented selections cannot Apply", async () => {
   const applied: unknown[] = [];
-  const store = new EditProposalStore(() => {}, () => {});
-  const id = store.add({ label: "file", hunks: [{ id: "h0", label: "first" }, { id: "h1", label: "last" }], onPreview: async () => {}, onApply: async ids => { applied.push(ids); } });
+  const store = new EditProposalStore(
+    () => {},
+    () => {},
+  );
+  const id = store.add({
+    label: "file",
+    hunks: [
+      { id: "h0", label: "first" },
+      { id: "h1", label: "last" },
+    ],
+    onPreview: async () => {},
+    onApply: async (ids) => {
+      applied.push(ids);
+    },
+  });
   await store.handleAction(id, "preview");
   store.select(id, ["h1"]);
   assert.equal(store.states[0]?.selectionRevision, 1);
@@ -29,16 +57,23 @@ test("hunk revisions invalidate Preview; empty and invented selections cannot Ap
   await assert.rejects(store.handleAction(id, "preview"), /Select at least one hunk/);
   assert.equal(store.states[0]?.status, "ready");
   store.select(id, ["h0"]);
-  await store.handleAction(id, "preview"); await store.handleAction(id, "apply");
+  await store.handleAction(id, "preview");
+  await store.handleAction(id, "apply");
   assert.deepEqual(applied, [["h0"]]);
   assert.equal(store.states[0]?.summary, "Applied 1/2 hunks; 1 not applied.");
 });
 
 test("fully selected hunk proposals do not report an unapplied remainder", async () => {
-  const store = new EditProposalStore(() => {}, () => {});
+  const store = new EditProposalStore(
+    () => {},
+    () => {},
+  );
   const id = store.add({
     label: "file",
-    hunks: [{ id: "h0", label: "first" }, { id: "h1", label: "last" }],
+    hunks: [
+      { id: "h0", label: "first" },
+      { id: "h1", label: "last" },
+    ],
     onPreview: async () => {},
     onApply: async () => {},
   });
@@ -50,14 +85,33 @@ test("fully selected hunk proposals do not report an unapplied remainder", async
 });
 
 test("failed Apply requires a fresh Preview and disposed in-flight previews cannot reactivate", async () => {
-  const store = new EditProposalStore(() => {}, () => {});
-  const id = store.add({ label: "file", onPreview: async () => {}, onApply: async () => { throw new Error("I/O failure"); } });
-  await store.handleAction(id, "preview"); await store.handleAction(id, "apply");
+  const store = new EditProposalStore(
+    () => {},
+    () => {},
+  );
+  const id = store.add({
+    label: "file",
+    onPreview: async () => {},
+    onApply: async () => {
+      throw new Error("I/O failure");
+    },
+  });
+  await store.handleAction(id, "preview");
+  await store.handleAction(id, "apply");
   assert.equal(store.states[0]?.status, "failed");
   await assert.rejects(store.handleAction(id, "apply"), /Preview/);
   let finish!: () => void;
-  const pending = store.add({ label: "pending", onPreview: () => new Promise<void>(resolve => { finish = resolve; }), onApply: async () => {} });
+  const pending = store.add({
+    label: "pending",
+    onPreview: () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+    onApply: async () => {},
+  });
   const preview = store.handleAction(pending, "preview");
-  store.clear(); finish(); await preview;
+  store.clear();
+  finish();
+  await preview;
   assert.equal(store.states.length, 0);
 });

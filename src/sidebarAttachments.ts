@@ -1,7 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { consumedUnpinnedIds, contextMetadata, contextWarnings, inspectContext, type ContextMetadata } from "./contextInspector";
-import { picodeConfiguration } from "./configuration";
-import { WorkflowDocuments } from "./workflowUi";
 import path from "node:path";
 import * as vscode from "vscode";
 import {
@@ -11,12 +8,26 @@ import {
   isSupportedImageMimeType,
   withoutAttachmentIds,
 } from "./attachmentUtils";
+import { picodeConfiguration } from "./configuration";
+import {
+  type ContextMetadata,
+  consumedUnpinnedIds,
+  contextMetadata,
+  contextWarnings,
+  inspectContext,
+} from "./contextInspector";
 import type { ImageAssetCache } from "./imageAssets";
 import type { PiRpcImage } from "./piRpcClient";
-import { buildAgentPrompt, limitReferenceContent, type ChatReferenceContext } from "./prompts";
+import { buildAgentPrompt, type ChatReferenceContext, limitReferenceContent } from "./prompts";
+import { type CodeContextOperation, queryCodeContext, semanticAttachmentText } from "./semanticContext";
 import { relativeDocumentPath, type WebviewMessage } from "./sidebarHelpers";
-import { contextTranscriptAttachment, shortTranscriptLabel, type TranscriptAttachment, type TranscriptImageAttachment } from "./sidebarState";
-import { queryCodeContext, semanticAttachmentText, type CodeContextOperation } from "./semanticContext";
+import {
+  contextTranscriptAttachment,
+  shortTranscriptLabel,
+  type TranscriptAttachment,
+  type TranscriptImageAttachment,
+} from "./sidebarState";
+import { WorkflowDocuments } from "./workflowUi";
 
 export interface AttachedContext {
   readonly id: string;
@@ -39,11 +50,18 @@ export interface SidebarSubmissionSnapshot {
   readonly restoreConsumed: () => void;
 }
 
-export function resolveSidebarSubmissionText(rawText: string, submission: Pick<SidebarSubmissionSnapshot, "textContexts" | "images">): string {
+export function resolveSidebarSubmissionText(
+  rawText: string,
+  submission: Pick<SidebarSubmissionSnapshot, "textContexts" | "images">,
+): string {
   const text = rawText.trim();
   if (text) return text;
-  if (submission.images.length && submission.textContexts.length) return "Please analyze the attached images and context.";
-  if (submission.images.length) return submission.images.length === 1 ? "Please analyze the attached image." : "Please analyze the attached images.";
+  if (submission.images.length && submission.textContexts.length)
+    return "Please analyze the attached images and context.";
+  if (submission.images.length)
+    return submission.images.length === 1
+      ? "Please analyze the attached image."
+      : "Please analyze the attached images.";
   if (submission.textContexts.length) return "Please analyze the attached context.";
   return "";
 }
@@ -73,37 +91,107 @@ export class SidebarAttachmentManager {
   private attachments: AttachedContext[] = [];
   private readonly documents = new WorkflowDocuments();
 
-  public dispose(): void { this.clear(); this.documents.dispose(); }
+  public dispose(): void {
+    this.clear();
+    this.documents.dispose();
+  }
   private estimateCache: { items: readonly AttachedContext[]; value: ReturnType<typeof inspectContext> } | undefined;
   public get estimate(): ReturnType<typeof inspectContext> {
-    if (this.estimateCache?.items !== this.attachments) this.estimateCache = { items: this.attachments, value: inspectContext(this.attachments) };
+    if (this.estimateCache?.items !== this.attachments)
+      this.estimateCache = { items: this.attachments, value: inspectContext(this.attachments) };
     return this.estimateCache.value;
   }
-  public consume(ids: readonly string[]): void { this.removeMany(consumedUnpinnedIds(this.attachments, ids)); }
+  public consume(ids: readonly string[]): void {
+    this.removeMany(consumedUnpinnedIds(this.attachments, ids));
+  }
 
   public async inspect(): Promise<void> {
     await this.documents.inspect("Pi attachment context", this.estimate.text);
-    const chosen = await vscode.window.showQuickPick(this.attachments.map(item => ({ label: item.label, description: item.metadata?.pinned ? "Pinned snapshot" : "Snapshot", id: item.id })), { title: "Inspect / redact / pin attachment snapshots" });
+    const chosen = await vscode.window.showQuickPick(
+      this.attachments.map((item) => ({
+        label: item.label,
+        description: item.metadata?.pinned ? "Pinned snapshot" : "Snapshot",
+        id: item.id,
+      })),
+      { title: "Inspect / redact / pin attachment snapshots" },
+    );
     if (!chosen) return;
-    const item = this.attachments.find(item => item.id === chosen.id);
+    const item = this.attachments.find((item) => item.id === chosen.id);
     if (!item) throw new Error("This snapshot was replaced or consumed.");
-    const action = await vscode.window.showQuickPick(["Remove", ...(item.content !== undefined ? ["Edit / Redact", ...(item.metadata?.kind === "debug" ? [] : [item.metadata?.pinned ? "Unpin" : "Pin"]), ...(item.uri && item.metadata?.sourceVersion !== undefined ? ["Refresh from Source"] : [])] : [])], { title: item.label });
+    const action = await vscode.window.showQuickPick(
+      [
+        "Remove",
+        ...(item.content !== undefined
+          ? [
+              "Edit / Redact",
+              ...(item.metadata?.kind === "debug" ? [] : [item.metadata?.pinned ? "Unpin" : "Pin"]),
+              ...(item.uri && item.metadata?.sourceVersion !== undefined ? ["Refresh from Source"] : []),
+            ]
+          : []),
+      ],
+      { title: item.label },
+    );
     if (!action) return;
-    if (action === "Remove") { this.remove(item.id); return; }
+    if (action === "Remove") {
+      this.remove(item.id);
+      return;
+    }
     if (action === "Edit / Redact") {
       const document = await vscode.workspace.openTextDocument({ content: item.content, language: "plaintext" });
       await vscode.window.showTextDocument(document, { preview: false });
-      if (await vscode.window.showInformationMessage("Edit this temporary document locally, then use its edited text as the attachment. Nothing is sent yet.", "Use Edited Snapshot") !== "Use Edited Snapshot") return;
-      if (!this.attachments.some(current => current.id === item.id)) throw new Error("The original snapshot expired while editing.");
-      this.addText({ ...item, content: document.getText(), metadata: contextMetadata(document.getText(), item.metadata?.originalLength, (item.metadata?.revision ?? 0) + 1, item.metadata) });
+      if (
+        (await vscode.window.showInformationMessage(
+          "Edit this temporary document locally, then use its edited text as the attachment. Nothing is sent yet.",
+          "Use Edited Snapshot",
+        )) !== "Use Edited Snapshot"
+      )
+        return;
+      if (!this.attachments.some((current) => current.id === item.id))
+        throw new Error("The original snapshot expired while editing.");
+      this.addText({
+        ...item,
+        content: document.getText(),
+        metadata: contextMetadata(
+          document.getText(),
+          item.metadata?.originalLength,
+          (item.metadata?.revision ?? 0) + 1,
+          item.metadata,
+        ),
+      });
     } else if (action === "Refresh from Source" && item.uri) {
       const document = await vscode.workspace.openTextDocument(item.uri);
       const range = item.metadata?.range;
-      const content = document.getText(range ? new vscode.Range(range.startLine, range.startCharacter, range.endLine, range.endCharacter) : undefined);
-      if (!this.attachments.some(current => current.id === item.id)) throw new Error("The original snapshot expired while refreshing.");
-      this.addText({ ...item, content, metadata: contextMetadata(content, content.length, (item.metadata?.revision ?? 0) + 1, { ...item.metadata, sourceVersion: document.version }) });
+      const content = document.getText(
+        range ? new vscode.Range(range.startLine, range.startCharacter, range.endLine, range.endCharacter) : undefined,
+      );
+      if (!this.attachments.some((current) => current.id === item.id))
+        throw new Error("The original snapshot expired while refreshing.");
+      this.addText({
+        ...item,
+        content,
+        metadata: contextMetadata(content, content.length, (item.metadata?.revision ?? 0) + 1, {
+          ...item.metadata,
+          sourceVersion: document.version,
+        }),
+      });
     } else {
-      this.attachments = this.attachments.map(current => current.id === item.id ? { ...current, id: randomUUID(), metadata: { ...contextMetadata(item.content ?? "", item.metadata?.originalLength, (item.metadata?.revision ?? 0) + 1, item.metadata), pinned: action === "Pin" } } : current);
+      this.attachments = this.attachments.map((current) =>
+        current.id === item.id
+          ? {
+              ...current,
+              id: randomUUID(),
+              metadata: {
+                ...contextMetadata(
+                  item.content ?? "",
+                  item.metadata?.originalLength,
+                  (item.metadata?.revision ?? 0) + 1,
+                  item.metadata,
+                ),
+                pinned: action === "Pin",
+              },
+            }
+          : current,
+      );
       this.options.onChange();
     }
   }
@@ -117,19 +205,19 @@ export class SidebarAttachmentManager {
   public get textContexts(): ChatReferenceContext[] {
     return this.attachments
       .filter((context): context is AttachedContext & { content: string } => typeof context.content === "string")
-      .map(context => ({ label: context.label, content: context.content }));
+      .map((context) => ({ label: context.label, content: context.content }));
   }
 
   public get images(): PiRpcImage[] {
-    return this.attachments.flatMap(context => context.image ? [context.image] : []);
+    return this.attachments.flatMap((context) => (context.image ? [context.image] : []));
   }
 
   public get resource(): vscode.Uri | undefined {
-    return this.attachments.find(context => context.uri)?.uri;
+    return this.attachments.find((context) => context.uri)?.uri;
   }
 
   public captureSubmission(): SidebarSubmissionSnapshot {
-    const ids = this.attachments.map(item => item.id);
+    const ids = this.attachments.map((item) => item.id);
     const restorable = [...this.attachments];
     return {
       ids,
@@ -137,42 +225,61 @@ export class SidebarAttachmentManager {
       images: this.images,
       resource: this.resource,
       transcriptAttachments: this.transcriptAttachments(ids),
-      recoveryBytes: restorable.reduce((total, item) => total + (item.content ? Buffer.byteLength(item.content, "utf8") : item.image ? Buffer.byteLength(item.image.data, "base64") : 0), 0),
+      recoveryBytes: restorable.reduce(
+        (total, item) =>
+          total +
+          (item.content
+            ? Buffer.byteLength(item.content, "utf8")
+            : item.image
+              ? Buffer.byteLength(item.image.data, "base64")
+              : 0),
+        0,
+      ),
       consumeAccepted: () => this.consume(ids),
       restoreConsumed: () => this.restore(restorable),
     };
   }
 
   private restore(items: readonly AttachedContext[]): void {
-    const existingIds = new Set(this.attachments.map(item => item.id));
-    const missing = items.filter(item => !existingIds.has(item.id));
+    const existingIds = new Set(this.attachments.map((item) => item.id));
+    const missing = items.filter((item) => !existingIds.has(item.id));
     if (!missing.length) return;
     const restored = [...this.attachments, ...missing];
-    const imageCount = restored.filter(item => item.image).length;
+    const imageCount = restored.filter((item) => item.image).length;
     const textCharacters = restored.reduce((total, item) => total + (item.content?.length ?? 0), 0);
     if (restored.length > this.options.maxAttachments) {
-      throw new Error(`Remove context items before restoring this queued submission; the limit is ${this.options.maxAttachments}.`);
+      throw new Error(
+        `Remove context items before restoring this queued submission; the limit is ${this.options.maxAttachments}.`,
+      );
     }
     if (imageCount > this.options.maxImageAttachments) {
-      throw new Error(`Remove images before restoring this queued submission; the limit is ${this.options.maxImageAttachments}.`);
+      throw new Error(
+        `Remove images before restoring this queued submission; the limit is ${this.options.maxImageAttachments}.`,
+      );
     }
     if (textCharacters > this.options.maxTotalContextCharacters) {
-      throw new Error("Remove text context before restoring this queued submission; the context limit would be exceeded.");
+      throw new Error(
+        "Remove text context before restoring this queued submission; the context limit would be exceeded.",
+      );
     }
     this.attachments = restored;
     this.options.onChange();
   }
 
-  public transcriptAttachments(ids: readonly string[] = this.attachments.map(item => item.id)): TranscriptAttachment[] {
+  public transcriptAttachments(
+    ids: readonly string[] = this.attachments.map((item) => item.id),
+  ): TranscriptAttachment[] {
     const included = new Set(ids);
-    return this.attachments.filter(item => included.has(item.id)).flatMap<TranscriptAttachment>(item => {
-      if (!item.image) {
-        const descriptor = contextTranscriptAttachment(item.label);
+    return this.attachments
+      .filter((item) => included.has(item.id))
+      .flatMap<TranscriptAttachment>((item) => {
+        if (!item.image) {
+          const descriptor = contextTranscriptAttachment(item.label);
+          return descriptor ? [descriptor] : [];
+        }
+        const descriptor = this.imageDescriptor(item);
         return descriptor ? [descriptor] : [];
-      }
-      const descriptor = this.imageDescriptor(item);
-      return descriptor ? [descriptor] : [];
-    });
+      });
   }
 
   public get summaries(): Array<{
@@ -186,7 +293,7 @@ export class SidebarAttachmentManager {
     height?: number;
     availability?: "available" | "unavailable";
   }> {
-    return this.attachments.map(item => {
+    return this.attachments.map((item) => {
       if (!item.image) return { id: item.id, label: item.label, image: false };
       const descriptor = this.imageDescriptor(item);
       return descriptor
@@ -198,11 +305,11 @@ export class SidebarAttachmentManager {
   private imageDescriptor(item: AttachedContext): TranscriptImageAttachment | undefined {
     if (!item.image) return undefined;
     const cachedAsset = item.imageAssetId ? this.options.imageAssets.get(item.imageAssetId) : undefined;
-    const asset = cachedAsset ?? (
-      item.imageAssetId && this.options.imageAssets.isRejected(item.imageAssetId)
+    const asset =
+      cachedAsset ??
+      (item.imageAssetId && this.options.imageAssets.isRejected(item.imageAssetId)
         ? undefined
-        : this.options.imageAssets.store(item.image.mimeType, item.image.data)
-    );
+        : this.options.imageAssets.store(item.image.mimeType, item.image.data));
     const assetId = asset?.id ?? item.imageAssetId;
     if (!assetId) return undefined;
     const fullLabel = item.label.replace(/^(?:Image|Pasted image):\s*/i, "") || "Image";
@@ -257,7 +364,8 @@ export class SidebarAttachmentManager {
     else if (selected.action === "selection") this.attachSelection();
     else if (selected.action === "currentFile") await this.attachCurrentFile();
     else if (selected.action === "files") await this.attachFile();
-    else if (selected.action.startsWith("semantic:")) await this.attachSemanticContext(selected.action.slice("semantic:".length) as CodeContextOperation);
+    else if (selected.action.startsWith("semantic:"))
+      await this.attachSemanticContext(selected.action.slice("semantic:".length) as CodeContextOperation);
     else if (selected.action === "problems") this.attachDiagnostics();
     else if (selected.action === "images") await this.attachImage();
     else await this.attachTerminalSelection();
@@ -274,7 +382,15 @@ export class SidebarAttachmentManager {
       uri: editor.document.uri,
       label: `${relativeDocumentPath(editor.document)}:${range.start.line + 1}-${range.end.line + 1}`,
       content: editor.document.getText(range),
-      metadata: contextMetadata(editor.document.getText(range), undefined, 1, { sourceVersion: editor.document.version, range: { startLine: range.start.line, startCharacter: range.start.character, endLine: range.end.line, endCharacter: range.end.character } }),
+      metadata: contextMetadata(editor.document.getText(range), undefined, 1, {
+        sourceVersion: editor.document.version,
+        range: {
+          startLine: range.start.line,
+          startCharacter: range.start.character,
+          endLine: range.end.line,
+          endCharacter: range.end.character,
+        },
+      }),
     });
   }
 
@@ -284,7 +400,12 @@ export class SidebarAttachmentManager {
       this.options.onNotice("Open a text editor before attaching the current file.", "warning");
       return;
     }
-    this.addText({ uri: document.uri, label: relativeDocumentPath(document), content: document.getText(), metadata: contextMetadata(document.getText(), undefined, 1, { sourceVersion: document.version }) });
+    this.addText({
+      uri: document.uri,
+      label: relativeDocumentPath(document),
+      content: document.getText(),
+      metadata: contextMetadata(document.getText(), undefined, 1, { sourceVersion: document.version }),
+    });
   }
 
   public async attachFile(): Promise<void> {
@@ -303,7 +424,12 @@ export class SidebarAttachmentManager {
       }
       try {
         const document = await vscode.workspace.openTextDocument(uri);
-        this.addText({ uri, label: relativeDocumentPath(document), content: document.getText(), metadata: contextMetadata(document.getText(), undefined, 1, { sourceVersion: document.version }) });
+        this.addText({
+          uri,
+          label: relativeDocumentPath(document),
+          content: document.getText(),
+          metadata: contextMetadata(document.getText(), undefined, 1, { sourceVersion: document.version }),
+        });
       } catch (error) {
         this.options.onNotice(`Could not attach ${uri.fsPath}: ${formatError(error)}`, "warning");
       }
@@ -318,9 +444,19 @@ export class SidebarAttachmentManager {
     }
     try {
       const position = editor.selection.active;
-      const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Resolve Pi ${semanticOperationLabel(operation)}`, cancellable: true }, async (_progress, token) => queryCodeContext(operation, editor.document.uri, position, token));
+      const result = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: `Resolve Pi ${semanticOperationLabel(operation)}`,
+          cancellable: true,
+        },
+        async (_progress, token) => queryCodeContext(operation, editor.document.uri, position, token),
+      );
       if (!result.items.length) {
-        this.options.onNotice(`No ${semanticOperationLabel(operation).toLowerCase()} were returned by the active language provider.`, "info");
+        this.options.onNotice(
+          `No ${semanticOperationLabel(operation).toLowerCase()} were returned by the active language provider.`,
+          "info",
+        );
         return;
       }
       const content = await semanticAttachmentText(result);
@@ -347,11 +483,13 @@ export class SidebarAttachmentManager {
       this.options.onNotice("The current file has no diagnostics.", "info");
       return;
     }
-    const content = diagnostics.map(diagnostic => {
-      const severity = ["Error", "Warning", "Information", "Hint"][diagnostic.severity] ?? "Diagnostic";
-      const source = diagnostic.source ? ` (${diagnostic.source})` : "";
-      return `${severity}${source} at ${diagnostic.range.start.line + 1}:${diagnostic.range.start.character + 1}: ${diagnostic.message}`;
-    }).join("\n");
+    const content = diagnostics
+      .map((diagnostic) => {
+        const severity = ["Error", "Warning", "Information", "Hint"][diagnostic.severity] ?? "Diagnostic";
+        const source = diagnostic.source ? ` (${diagnostic.source})` : "";
+        return `${severity}${source} at ${diagnostic.range.start.line + 1}:${diagnostic.range.start.character + 1}: ${diagnostic.message}`;
+      })
+      .join("\n");
     this.addText({ uri: document.uri, label: `Diagnostics: ${relativeDocumentPath(document)}`, content });
   }
 
@@ -368,7 +506,10 @@ export class SidebarAttachmentManager {
     for (const uri of selected ?? []) {
       if (!this.canAddImage()) break;
       const stat = await vscode.workspace.fs.stat(uri);
-      if (!isImageSizeAllowed(stat.size, this.options.maxImageBytes)) { this.options.onNotice("Image exceeds the attachment size limit.", "warning"); continue; }
+      if (!isImageSizeAllowed(stat.size, this.options.maxImageBytes)) {
+        this.options.onNotice("Image exceeds the attachment size limit.", "warning");
+        continue;
+      }
       const bytes = await vscode.workspace.fs.readFile(uri);
       if (!isImageSizeAllowed(bytes.byteLength, this.options.maxImageBytes)) {
         this.options.onNotice(`${path.basename(uri.fsPath)} is larger than 5 MiB and was not attached.`, "warning");
@@ -382,24 +523,31 @@ export class SidebarAttachmentManager {
       const data = Buffer.from(bytes).toString("base64");
       const asset = this.options.imageAssets.store(mimeType, data);
       if (!asset) {
-        this.options.onNotice(`${path.basename(uri.fsPath)} is not a valid ${mimeType.replace("image/", "").toUpperCase()} image.`, "warning");
+        this.options.onNotice(
+          `${path.basename(uri.fsPath)} is not a valid ${mimeType.replace("image/", "").toUpperCase()} image.`,
+          "warning",
+        );
         continue;
       }
-      this.attachments = [...this.attachments, {
-        id: randomUUID(),
-        uri,
-        label: `Image: ${path.basename(uri.fsPath)}`,
-        metadata: contextMetadata(""),
-        image: { type: "image", data: asset.data, mimeType: asset.mimeType },
-        imageAssetId: asset.id,
-      }];
+      this.attachments = [
+        ...this.attachments,
+        {
+          id: randomUUID(),
+          uri,
+          label: `Image: ${path.basename(uri.fsPath)}`,
+          metadata: contextMetadata(""),
+          image: { type: "image", data: asset.data, mimeType: asset.mimeType },
+          imageAssetId: asset.id,
+        },
+      ];
     }
     this.options.onChange();
   }
 
   public attachPastedImage(message: Extract<WebviewMessage, { type: "pasteImage" }>): void {
     if (!this.canAddImage() || !isSupportedImageMimeType(message.mimeType)) {
-      if (!isSupportedImageMimeType(message.mimeType)) this.options.onNotice("The pasted image type is not supported.", "warning");
+      if (!isSupportedImageMimeType(message.mimeType))
+        this.options.onNotice("The pasted image type is not supported.", "warning");
       return;
     }
     const bytes = decodeBoundedBase64Image(message.data, this.options.maxImageBytes);
@@ -413,13 +561,16 @@ export class SidebarAttachmentManager {
       return;
     }
     const fileName = path.basename(message.fileName || "pasted-image").slice(0, 200);
-    this.attachments = [...this.attachments, {
-      id: randomUUID(),
-      label: `Pasted image: ${fileName}`,
-      metadata: contextMetadata(""),
-      image: { type: "image", data: asset.data, mimeType: asset.mimeType },
-      imageAssetId: asset.id,
-    }];
+    this.attachments = [
+      ...this.attachments,
+      {
+        id: randomUUID(),
+        label: `Pasted image: ${fileName}`,
+        metadata: contextMetadata(""),
+        image: { type: "image", data: asset.data, mimeType: asset.mimeType },
+        imageAssetId: asset.id,
+      },
+    ];
     this.options.onChange();
   }
 
@@ -445,7 +596,7 @@ export class SidebarAttachmentManager {
   }
 
   private addText(context: Omit<AttachedContext, "id"> & { content: string }): void {
-    const existing = this.attachments.filter(item => item.label !== context.label);
+    const existing = this.attachments.filter((item) => item.label !== context.label);
     if (existing.length >= this.options.maxAttachments) {
       this.options.onNotice(`A maximum of ${this.options.maxAttachments} context items can be attached.`, "warning");
       return;
@@ -457,9 +608,30 @@ export class SidebarAttachmentManager {
       return;
     }
     const content = limitReferenceContent(context.content, remainingCharacters, this.options.maxAttachedCharacters);
-    this.attachments = [...existing, { ...context, id: randomUUID(), content, metadata: contextMetadata(content, context.metadata?.originalLength ?? context.content.length, context.metadata?.revision ?? 1, context.metadata) }];
-    const warnings = contextWarnings(context.label, content, picodeConfiguration().get<string[]>("sensitiveContextNames", [".env", "credential", "secret", "id_rsa"]));
-    if (warnings.length) this.options.onNotice(`${warnings.join("; ")}. Inspect/redact before sending. Detection is best-effort.`, "warning");
+    this.attachments = [
+      ...existing,
+      {
+        ...context,
+        id: randomUUID(),
+        content,
+        metadata: contextMetadata(
+          content,
+          context.metadata?.originalLength ?? context.content.length,
+          context.metadata?.revision ?? 1,
+          context.metadata,
+        ),
+      },
+    ];
+    const warnings = contextWarnings(
+      context.label,
+      content,
+      picodeConfiguration().get<string[]>("sensitiveContextNames", [".env", "credential", "secret", "id_rsa"]),
+    );
+    if (warnings.length)
+      this.options.onNotice(
+        `${warnings.join("; ")}. Inspect/redact before sending. Detection is best-effort.`,
+        "warning",
+      );
     if (content.length < context.content.length) {
       this.options.onNotice("The attached context was truncated to fit the context limit.", "warning");
     }
@@ -480,7 +652,13 @@ export class SidebarAttachmentManager {
 }
 
 function semanticOperationLabel(operation: CodeContextOperation): string {
-  return ({ definition: "Definition", references: "References", callers: "Callers", callees: "Callees", documentSymbols: "Document Symbols" })[operation];
+  return {
+    definition: "Definition",
+    references: "References",
+    callers: "Callers",
+    callees: "Callees",
+    documentSymbols: "Document Symbols",
+  }[operation];
 }
 
 function formatError(error: unknown): string {

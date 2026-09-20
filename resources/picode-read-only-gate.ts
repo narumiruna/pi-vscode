@@ -15,7 +15,7 @@ export default function (pi: ExtensionAPI) {
     policyActive = false;
   };
 
-  pi.on("before_agent_start", event => {
+  pi.on("before_agent_start", (event) => {
     if (!event.prompt.startsWith(`${readOnlyPolicyMarker}\n`)) {
       return;
     }
@@ -23,10 +23,10 @@ export default function (pi: ExtensionAPI) {
       previousTools = pi.getActiveTools();
     }
     policyActive = true;
-    pi.setActiveTools(pi.getActiveTools().filter(tool => readOnlyTools.has(tool)));
+    pi.setActiveTools(pi.getActiveTools().filter((tool) => readOnlyTools.has(tool)));
   });
 
-  pi.on("tool_call", event => {
+  pi.on("tool_call", (event) => {
     if (policyActive && !readOnlyTools.has(event.toolName)) {
       return {
         block: true,

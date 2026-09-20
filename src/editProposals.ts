@@ -42,13 +42,20 @@ export class EditProposalStore {
   ) {}
 
   public get states(): EditProposalState[] {
-    return [...this.proposals.values()].map(proposal => proposal.state);
+    return [...this.proposals.values()].map((proposal) => proposal.state);
   }
 
   public add(input: EditProposalInput): string {
     const id = randomUUID();
     this.proposals.set(id, {
-      state: { id, label: input.label, status: "ready", ...(input.hunks ? { selectionRevision: 0, selected: input.hunks.map(hunk => hunk.id), totalHunks: input.hunks.length } : {}) },
+      state: {
+        id,
+        label: input.label,
+        status: "ready",
+        ...(input.hunks
+          ? { selectionRevision: 0, selected: input.hunks.map((hunk) => hunk.id), totalHunks: input.hunks.length }
+          : {}),
+      },
       input,
       disposed: false,
     });
@@ -59,14 +66,25 @@ export class EditProposalStore {
   public hunkChoices(id: string): readonly { id: string; label: string; picked: boolean }[] {
     const proposal = this.proposals.get(id);
     if (!proposal?.input?.hunks) throw new Error("Hunk selection is unavailable for this proposal.");
-    return proposal.input.hunks.map(hunk => ({ ...hunk, picked: proposal.state.selected?.includes(hunk.id) ?? false }));
+    return proposal.input.hunks.map((hunk) => ({
+      ...hunk,
+      picked: proposal.state.selected?.includes(hunk.id) ?? false,
+    }));
   }
 
   public select(id: string, ids: readonly string[]): void {
     const proposal = this.proposals.get(id);
-    if (!proposal?.input?.hunks || !["ready", "previewed", "failed"].includes(proposal.state.status)) throw new Error("This proposal cannot change selection now.");
-    if (new Set(ids).size !== ids.length || ids.some(id => !proposal.input!.hunks!.some(hunk => hunk.id === id))) throw new Error("Invalid hunk identifiers.");
-    proposal.state = { ...proposal.state, selected: [...ids], selectionRevision: (proposal.state.selectionRevision ?? 0) + 1, status: "ready", error: undefined };
+    if (!proposal?.input?.hunks || !["ready", "previewed", "failed"].includes(proposal.state.status))
+      throw new Error("This proposal cannot change selection now.");
+    if (new Set(ids).size !== ids.length || ids.some((id) => !proposal.input!.hunks!.some((hunk) => hunk.id === id)))
+      throw new Error("Invalid hunk identifiers.");
+    proposal.state = {
+      ...proposal.state,
+      selected: [...ids],
+      selectionRevision: (proposal.state.selectionRevision ?? 0) + 1,
+      status: "ready",
+      error: undefined,
+    };
     this.onChange();
   }
 
@@ -74,7 +92,11 @@ export class EditProposalStore {
     // Multi-file adapters own their captured-root Apply lock; never acquire it twice.
     const adapterOwnsLock = action === "apply" && this.proposals.get(id)?.input?.managesApplyLock;
     const release = adapterOwnsLock ? undefined : acquireOperation(root, "edit proposal action");
-    try { await this.handleAction(id, action); } finally { release?.(); }
+    try {
+      await this.handleAction(id, action);
+    } finally {
+      release?.();
+    }
   }
 
   public async handleAction(id: string, action: "preview" | "apply" | "reject"): Promise<void> {
@@ -146,11 +168,12 @@ export class EditProposalStore {
       if (proposal.disposed) return;
       const selectedCount = proposal.state.selected?.length;
       const totalHunks = proposal.state.totalHunks;
-      const summary = selectedCount === undefined || totalHunks === undefined
-        ? "Applied whole edit."
-        : selectedCount === totalHunks
-          ? `Applied ${selectedCount}/${totalHunks} hunks.`
-          : `Applied ${selectedCount}/${totalHunks} hunks; ${totalHunks - selectedCount} not applied.`;
+      const summary =
+        selectedCount === undefined || totalHunks === undefined
+          ? "Applied whole edit."
+          : selectedCount === totalHunks
+            ? `Applied ${selectedCount}/${totalHunks} hunks.`
+            : `Applied ${selectedCount}/${totalHunks} hunks; ${totalHunks - selectedCount} not applied.`;
       proposal.state = { ...proposal.state, status: "applied", summary };
       this.release(proposal);
       this.pruneTerminalStates();
@@ -185,7 +208,7 @@ export class EditProposalStore {
     proposal.disposed = true;
     try {
       const result = input.onDispose?.();
-      if (result) void result.catch(error => this.onNotice(formatError(error), "warning"));
+      if (result) void result.catch((error) => this.onNotice(formatError(error), "warning"));
     } catch (error) {
       this.onNotice(formatError(error), "warning");
     }
@@ -193,8 +216,8 @@ export class EditProposalStore {
 
   private pruneTerminalStates(): void {
     const terminalIds = [...this.proposals.values()]
-      .filter(proposal => ["applied", "rejected", "stale"].includes(proposal.state.status))
-      .map(proposal => proposal.state.id);
+      .filter((proposal) => ["applied", "rejected", "stale"].includes(proposal.state.status))
+      .map((proposal) => proposal.state.id);
     for (const id of terminalIds.slice(0, -maxTerminalProposals)) {
       this.proposals.delete(id);
     }

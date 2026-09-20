@@ -17,7 +17,9 @@ export function renderSafeMarkdown(markdown: string): string {
     const fence = /^```([A-Za-z0-9_+-]*)\s*$/.exec(line);
     if (fence) {
       if (inCode) {
-        output.push(`<pre><code${codeLanguage ? ` class="language-${codeLanguage}"` : ""}>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+        output.push(
+          `<pre><code${codeLanguage ? ` class="language-${codeLanguage}"` : ""}>${escapeHtml(codeLines.join("\n"))}</code></pre>`,
+        );
         inCode = false;
         codeLanguage = "";
         codeLines = [];
@@ -60,7 +62,9 @@ export function renderSafeMarkdown(markdown: string): string {
 
   closeList();
   if (inCode) {
-    output.push(`<pre><code${codeLanguage ? ` class="language-${codeLanguage}"` : ""}>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+    output.push(
+      `<pre><code${codeLanguage ? ` class="language-${codeLanguage}"` : ""}>${escapeHtml(codeLines.join("\n"))}</code></pre>`,
+    );
   }
   return output.join("");
 }
@@ -73,6 +77,7 @@ function renderInline(value: string): string {
   });
   escaped = escaped.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   escaped = escaped.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: Restore the NUL-delimited inline-code placeholders created above.
   return escaped.replace(/\u0000(\d+)\u0000/g, (_match, index: string) => codeSegments[Number(index)] ?? "");
 }
 

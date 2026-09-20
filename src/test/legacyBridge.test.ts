@@ -2,10 +2,7 @@ import assert from "node:assert/strict";
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import {
-  defaultPiAgentDirectory,
-  removeLegacyGlobalBridgeExtensions,
-} from "../legacyBridge";
+import { defaultPiAgentDirectory, removeLegacyGlobalBridgeExtensions } from "../legacyBridge";
 
 test("defaultPiAgentDirectory prefers the explicit Pi configuration directory", () => {
   assert.equal(defaultPiAgentDirectory({ PI_CODING_AGENT_DIR: "/custom/pi" }, "/home/user"), "/custom/pi");

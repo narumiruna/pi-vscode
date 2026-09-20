@@ -6,13 +6,13 @@ import {
   buildPiProcessEnvironment,
   buildRpcArguments,
   PiRpcClient,
-  StrictJsonLineDecoder,
   type PiRpcEvent,
+  StrictJsonLineDecoder,
 } from "../piRpcClient";
 
 test("StrictJsonLineDecoder uses LF framing and preserves Unicode separators", () => {
   const lines: string[] = [];
-  const decoder = new StrictJsonLineDecoder(line => lines.push(line));
+  const decoder = new StrictJsonLineDecoder((line) => lines.push(line));
   const payload = '{"text":"first\u2028second"}\r\n{"value":2}\n';
   const bytes = Buffer.from(payload, "utf8");
 
@@ -75,19 +75,22 @@ test("buildRpcArguments retains only the background orchestration prompt", () =>
     approveProjectResources: false,
   });
   assert.deepEqual(args, [
-    "--mode", "rpc",
-    "--append-system-prompt", "This is an independent background task. Work only in the provided working directory.",
-    "--extension", "/extension/permission.ts",
+    "--mode",
+    "rpc",
+    "--append-system-prompt",
+    "This is an independent background task. Work only in the provided working directory.",
+    "--extension",
+    "/extension/permission.ts",
     "--no-approve",
   ]);
   assert.equal(args.includes("--tools"), false);
 });
 
 test("PiRpcClient correlates responses and streams events", async () => {
-  await withFakePi(async options => {
+  await withFakePi(async (options) => {
     const client = new PiRpcClient(options);
     const events: PiRpcEvent[] = [];
-    const subscription = client.onEvent(event => events.push(event));
+    const subscription = client.onEvent((event) => events.push(event));
 
     await client.start();
     assert.equal((await client.getState()).sessionId, "fake-session");
@@ -95,13 +98,16 @@ test("PiRpcClient correlates responses and streams events", async () => {
     await waitForEvent(events, "agent_settled");
 
     assert.equal(
-      events.find(event => event.type === "message_update")?.assistantMessageEvent instanceof Object,
+      events.find((event) => event.type === "message_update")?.assistantMessageEvent instanceof Object,
       true,
     );
-    assert.equal(events.some(event => event.type === "tool_execution_start"), true);
+    assert.equal(
+      events.some((event) => event.type === "tool_execution_start"),
+      true,
+    );
     await client.prompt("image", [{ type: "image", data: "aW1hZ2U=", mimeType: "image/png" }]);
     await waitForEvent(events, "image_received");
-    assert.equal(events.find(event => event.type === "image_received")?.count, 1);
+    assert.equal(events.find((event) => event.type === "image_received")?.count, 1);
     await client.abort();
     await client.stop();
     subscription.dispose();
@@ -110,15 +116,18 @@ test("PiRpcClient correlates responses and streams events", async () => {
 });
 
 test("PiRpcClient prompt resolves after acceptance and before task settlement", async () => {
-  await withFakePi(async options => {
+  await withFakePi(async (options) => {
     const client = new PiRpcClient(options);
     const events: PiRpcEvent[] = [];
-    client.onEvent(event => events.push(event));
+    client.onEvent((event) => events.push(event));
 
     await client.start();
     await client.prompt("delayed-settlement");
 
-    assert.equal(events.some(event => event.type === "agent_settled"), false);
+    assert.equal(
+      events.some((event) => event.type === "agent_settled"),
+      false,
+    );
     await waitForEvent(events, "agent_start");
     await client.getState();
     await waitForEvent(events, "agent_settled");
@@ -127,29 +136,32 @@ test("PiRpcClient prompt resolves after acceptance and before task settlement", 
 });
 
 test("multiple PiRpcClient sessions stream independently", async () => {
-  await withFakePi(async options => {
+  await withFakePi(async (options) => {
     const first = new PiRpcClient(options);
     const second = new PiRpcClient(options);
     const firstEvents: PiRpcEvent[] = [];
     const secondEvents: PiRpcEvent[] = [];
-    first.onEvent(event => firstEvents.push(event));
-    second.onEvent(event => secondEvents.push(event));
+    first.onEvent((event) => firstEvents.push(event));
+    second.onEvent((event) => secondEvents.push(event));
 
     await Promise.all([first.start(), second.start()]);
     await Promise.all([first.prompt("first"), second.prompt("second")]);
-    await Promise.all([
-      waitForEvent(firstEvents, "agent_settled"),
-      waitForEvent(secondEvents, "agent_settled"),
-    ]);
+    await Promise.all([waitForEvent(firstEvents, "agent_settled"), waitForEvent(secondEvents, "agent_settled")]);
 
-    assert.equal(firstEvents.some(event => event.type === "message_update"), true);
-    assert.equal(secondEvents.some(event => event.type === "message_update"), true);
+    assert.equal(
+      firstEvents.some((event) => event.type === "message_update"),
+      true,
+    );
+    assert.equal(
+      secondEvents.some((event) => event.type === "message_update"),
+      true,
+    );
     await Promise.all([first.stop(), second.stop()]);
   });
 });
 
 test("PiRpcClient rejects pending commands when the process exits", async () => {
-  await withFakePi(async options => {
+  await withFakePi(async (options) => {
     const client = new PiRpcClient(options);
     await client.start();
     await assert.rejects(client.prompt("crash"), /exited with code 7/);
@@ -157,7 +169,9 @@ test("PiRpcClient rejects pending commands when the process exits", async () => 
   });
 });
 
-async function withFakePi(run: (options: ConstructorParameters<typeof PiRpcClient>[0]) => Promise<void>): Promise<void> {
+async function withFakePi(
+  run: (options: ConstructorParameters<typeof PiRpcClient>[0]) => Promise<void>,
+): Promise<void> {
   const directory = await mkdtemp(path.join(tmpdir(), "picode-rpc-"));
   const scriptPath = path.join(directory, "fake-pi.cjs");
   await writeFile(scriptPath, fakePiScript, "utf8");
@@ -175,11 +189,11 @@ async function withFakePi(run: (options: ConstructorParameters<typeof PiRpcClien
 
 async function waitForEvent(events: readonly PiRpcEvent[], type: string): Promise<void> {
   const deadline = Date.now() + 5_000;
-  while (!events.some(event => event.type === type)) {
+  while (!events.some((event) => event.type === type)) {
     if (Date.now() > deadline) {
       throw new Error(`Timed out waiting for ${type}.`);
     }
-    await new Promise(resolve => setTimeout(resolve, 5));
+    await new Promise((resolve) => setTimeout(resolve, 5));
   }
 }
 

@@ -51,8 +51,11 @@ test("release installer installs only the VSIX and safely removes exact legacy b
 
   try {
     await mkdir(fakeBin, { recursive: true });
-    await writeFile(curl, `#!/bin/sh\nset -eu\noutput=\"\"\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = \"--output\" ]; then output=\"$2\"; shift 2; else shift; fi\ndone\nprintf 'fixture-vsix' > \"$output\"\n`);
-    await writeFile(code, `#!/bin/sh\nset -eu\nprintf '%s\\n' \"$*\" > \"$CODE_LOG\"\n`);
+    await writeFile(
+      curl,
+      `#!/bin/sh\nset -eu\noutput=""\nwhile [ "$#" -gt 0 ]; do\n  if [ "$1" = "--output" ]; then output="$2"; shift 2; else shift; fi\ndone\nprintf 'fixture-vsix' > "$output"\n`,
+    );
+    await writeFile(code, `#!/bin/sh\nset -eu\nprintf '%s\\n' "$*" > "$CODE_LOG"\n`);
     await Promise.all([chmod(curl, 0o755), chmod(code, 0o755), mkdir(home)]);
     const env = {
       ...process.env,
