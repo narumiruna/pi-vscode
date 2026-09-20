@@ -62,6 +62,8 @@ test("workflow commands are contributed, registered, documented and keep minimum
   assert.equal(existsSync("src/runtimeProfiles.ts"), false);
   assert.equal(existsSync("src/test/runtimeProfiles.test.ts"), false);
   const entry = readFileSync("src/extension.ts", "utf8"), readme = readFileSync("README.md", "utf8");
+  const cleanupIndex = entry.indexOf("await removeLegacyGlobalBridgeExtensions()");
+  assert.ok(cleanupIndex >= 0 && cleanupIndex < entry.indexOf("new PiRuntimeManager(context)"));
   for (const [command, controller, register] of [
     ["reviewStagedChanges", "gitReviewController", "registerGitReview"],
     ["showStagedFindings", "gitReviewController", "registerGitReview"],

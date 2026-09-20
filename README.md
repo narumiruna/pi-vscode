@@ -34,7 +34,7 @@ sh install-pi-vscode.sh &&
 rm install-pi-vscode.sh
 ```
 
-Review [`scripts/install.sh`](scripts/install.sh) before running it if your environment does not allow downloaded scripts to execute directly. The command stops if the download fails. The installer downloads the latest `pi-coding-agent-vscode.vsix`, installs it with `code --install-extension`, and removes the exact legacy global bridge filenames created by older releases. New installations do not create files under `~/.pi/agent`.
+Review [`scripts/install.sh`](scripts/install.sh) before running it if your environment does not allow downloaded scripts to execute directly. The command stops if the download fails. The installer downloads the latest `pi-coding-agent-vscode.vsix`, installs it with `code --install-extension`, and removes the exact legacy global bridge filenames created by older releases. Extension activation performs the same exact cleanup for standard VSIX or Marketplace upgrades before starting Pi, so an old global copy cannot load beside the bundled bridge. New installations do not create files under `~/.pi/agent`.
 
 To install a specific version, pass it to the downloaded script, for example `sh install-pi-vscode.sh 0.0.2`.
 

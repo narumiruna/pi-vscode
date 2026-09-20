@@ -29,7 +29,7 @@ A missing RPC permission UI blocks gated tools instead of allowing them. Tools c
 Project-local Pi settings, extensions, skills, and prompts are not approved by default.
 Enable `picode.approveProjectResources` only for a trusted workspace. RPC launches explicitly pass `--no-approve` when this setting is disabled, rather than relying on inherited global Pi approval.
 New workflow processes and mutations reject untrusted or virtual workspaces in the host, not just disabled UI. Foreground actions and resumed session headers must match Pi's canonical working directory. Cross-worktree sessions must be opened in the matching workspace window.
-The Pi bridge extension is bundled in the VSIX and loaded process-locally for foreground RPC and **Open in Terminal** Pi sessions. Release and source installers remove only the historical `picode.ts` and `pi-vscode.ts` global bridge paths created by this project; they do not create a Pi extension directory on a clean installation.
+The Pi bridge extension is bundled in the VSIX and loaded process-locally for foreground RPC and **Open in Terminal** Pi sessions. Release/source installers and extension activation remove only the historical `picode.ts` and `pi-vscode.ts` global bridge paths created by this project; they do not create a Pi extension directory on a clean installation. Activation performs this migration before starting Pi and fails closed if cleanup cannot complete, preventing a legacy global copy from loading beside the bundled bridge after a direct VSIX or Marketplace upgrade.
 Pi extensions execute with the user's permissions and must be reviewed before installation or explicit loading.
 
 ## Change Safety
