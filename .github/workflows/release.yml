@@ -1,17 +1,7 @@
 name: Release
 
 on:
-  workflow_dispatch:
-    inputs:
-      bump:
-        description: Version bump
-        required: true
-        default: patch
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -22,7 +12,7 @@ concurrency:
 
 jobs:
   release:
-    name: Bump, package, and release
+    name: Version, package, and release
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -43,19 +33,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Bump version
+      - name: Apply changesets
         id: version
-        env:
-          BUMP: ${{ inputs.bump }}
         shell: bash
         run: |
           set -euo pipefail
-          npm version "${BUMP}" --no-git-tag-version
+          previous_version="$(node -p 'require("./package.json").version')"
+          npm run changeset:version
           version="$(node -p 'require("./package.json").version')"
+          npm version "${version}" --no-git-tag-version --allow-same-version
           lock_version="$(node -p 'require("./package-lock.json").version')"
           root_lock_version="$(node -p 'require("./package-lock.json").packages[""].version')"
+          if test "${version}" = "${previous_version}"; then
+            echo "No pending changesets produced a release." >&2
+            exit 1
+          fi
           test "${version}" = "${lock_version}"
           test "${version}" = "${root_lock_version}"
+          test -z "$(find .changeset -maxdepth 1 -type f -name '*.md' ! -name README.md -print -quit)"
+          test -s CHANGELOG.md
           printf 'version=%s\ntag=v%s\n' "${version}" "${version}" >> "${GITHUB_OUTPUT}"
 
       - name: Check that the release tag is new
@@ -87,7 +83,7 @@ jobs:
           archive_version="$(unzip -p "${VSIX_PATH}" extension/package.json | node -p 'JSON.parse(require("node:fs").readFileSync(0, "utf8")).version')"
           test "${archive_version}" = "${VERSION}"
 
-      - name: Commit the version bump
+      - name: Commit the release changes
         id: commit
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
@@ -98,6 +94,25 @@ jobs:
           node <<'NODE'
           const { execFileSync } = require("node:child_process");
           const { readFileSync, writeFileSync } = require("node:fs");
+
+          const changes = execFileSync("git", ["diff", "--name-status", "--no-renames", "HEAD"], { encoding: "utf8" })
+            .trim()
+            .split("\n")
+            .filter(Boolean)
+            .map(line => {
+              const separator = line.indexOf("\t");
+              return { status: line.slice(0, separator), path: line.slice(separator + 1) };
+            });
+          const releaseFiles = new Set(["CHANGELOG.md", "package-lock.json", "package.json"]);
+          const additions = changes.filter(change => releaseFiles.has(change.path) && change.status !== "D");
+          const deletions = changes.filter(change => change.status === "D" && /^\.changeset\/.+\.md$/.test(change.path) && change.path !== ".changeset/README.md");
+          const recognized = new Set([...additions, ...deletions].map(change => `${change.status}\0${change.path}`));
+          const unexpected = changes.filter(change => !recognized.has(`${change.status}\0${change.path}`));
+          if (unexpected.length !== 0) throw new Error(`Unexpected release changes: ${unexpected.map(change => `${change.status} ${change.path}`).join(", ")}`);
+          for (const path of releaseFiles) {
+            if (!additions.some(change => change.path === path)) throw new Error(`Missing release update: ${path}`);
+          }
+          if (deletions.length === 0) throw new Error("No consumed changesets were found.");
 
           const encode = path => readFileSync(path).toString("base64");
           const input = {
@@ -110,10 +125,8 @@ jobs:
               headline: `chore(release): v${process.env.VERSION}`,
             },
             fileChanges: {
-              additions: ["package.json", "package-lock.json"].map(path => ({
-                path,
-                contents: encode(path),
-              })),
+              additions: additions.map(({ path }) => ({ path, contents: encode(path) })),
+              deletions: deletions.map(({ path }) => ({ path })),
             },
           };
           const query = `mutation CreateReleaseCommit($input: CreateCommitOnBranchInput!) {

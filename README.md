@@ -154,10 +154,10 @@ npm run package
 ## Release
 
 1. Add a repository Actions secret named `PAT_TOKEN`. Use a fine-grained personal access token with **Contents: Read and write** access to this repository.
-2. Update the changelog and push it to `main`.
-3. Run the [Release workflow](.github/workflows/release.yml) from the Actions tab and choose `patch`, `minor`, or `major`.
+2. For each release-worthy pull request, run `npm run changeset` and commit the generated `.changeset/*.md` file.
+3. After merging pending changesets into `main`, run the [Release workflow](.github/workflows/release.yml) from the Actions tab.
 
-The workflow checks out `main`, bumps `package.json` and `package-lock.json`, runs the tests, packages and verifies the VSIX, and creates the version commit through GitHub's GraphQL API. It then creates a `v<version>` GitHub release with `pi-coding-agent-vscode.vsix` attached. `PAT_TOKEN` authenticates both the version commit and release.
+The workflow applies all pending changesets to determine the next version, updates `CHANGELOG.md`, `package.json`, and `package-lock.json`, runs the tests, packages and verifies the VSIX, and creates a release commit that removes the consumed changesets through GitHub's GraphQL API. It then creates a `v<version>` GitHub release with `pi-coding-agent-vscode.vsix` attached. `PAT_TOKEN` authenticates both the release commit and GitHub release.
 
 ## License
 
