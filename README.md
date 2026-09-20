@@ -56,7 +56,7 @@ Open a new integrated terminal after installation so Pi inherits the authenticat
 ## Get started
 
 1. Run **Pi: Open Sessions** from the Command Palette, or open **Pi** in the Secondary Sidebar. Choose a session from **Sessions**, or use **View all** to search the current workspace. Sending from the Sessions-level composer starts a new session; **Back to Sessions** returns there from a conversation.
-2. Add context from the composer, or paste a supported image with Ctrl/Cmd+V.
+2. Choose **Attach** to add code, files, or images, or paste a supported image with Ctrl/Cmd+V.
 3. Enter a request. The active model and thinking level appear beside **Send**.
 4. For proposed changes, choose **Preview**, optionally select hunks, and then choose **Apply**.
 5. Open **More…** for session management, export, terminal handoff, staged review, repair tools, checkpoints, and background or worktree agents.
@@ -81,10 +81,10 @@ Automatic inline completions are disabled by default. Enable `picode.inlineCompl
 | **Staged review** | Run **Pi: Review Staged Changes**, confirm the bounded snapshot, then use **Pi: Show Staged Findings** to navigate immutable before/after content. Findings become stale when HEAD or the index changes. |
 | **Selected edits** | On a proposal card, choose **Choose Hunks → Preview → Apply**. Changing the selection invalidates the preview; normal editor Undo remains available after application. |
 | **Worktree result import** | Start an isolated agent from **More…**. When it becomes inactive, choose **Review Results → Apply Selected** to import reviewed text files into the originating worktree. |
-| **Context inspection** | Choose **Inspect Context** on an attachment to inspect the exact snapshot, redact or edit it, refresh it explicitly, or pin it for later requests. |
+| **Attachment inspection** | Choose **View attachments** in the composer to inspect the exact snapshot, redact or edit it, refresh it explicitly, or pin it for later requests. |
 | **Failed-test repair** | Run **Pi: Repair Failed Test (Preview)**, approve a command or provide an existing UTF-8 log, inspect the evidence, then preview and apply the repair. |
 | **Request checkpoints** | Choose **More… → Request Checkpoints** to inspect coverage, preview a restore, and revert covered changes. Checkpoints are memory-only file recovery, not a Git or conversation rewind. |
-| **In-flight instructions** | While a request is running, press Enter to **Steer** after current tool calls. Use Alt+Enter for **Follow Up** on macOS and Linux, or Ctrl+Q on Windows, including remote WSL sessions. Pending text stays visible with its queue type, then moves into the transcript as soon as Pi starts that user message. |
+| **In-flight instructions** | While a request is running, press Enter to send **Next** after the current tool finishes. Use Alt+Enter on macOS and Linux, or Ctrl+Q on Windows (including remote WSL sessions), to send **After this** when Pi finishes responding. Pending text stays visible under these labels, then moves into the transcript as soon as Pi starts that user message. |
 | **Debug questions** | Pause a Node.js debugger and run **Pi: Ask Debug Context**. Approve capture, choose local variables, inspect or redact the snapshot, and ask a read-only question. |
 
 Process-launching and mutation workflows require a trusted, file-backed workspace. A Pi session's working directory must match the active workspace. Open an isolated worktree in its own VS Code window before resuming its session.
@@ -118,7 +118,7 @@ Key operational limits:
 - Staged review supports up to 100 text files, 100 KB per blob, 400 KB of blob content, and a 200 KB diff.
 - Failed-test repair accepts an executable and argument array, not a shell expression. Runs stop after 60 seconds, output is capped at 256 KiB, and repair is limited to two attempts.
 - Checkpoints keep up to 20 requests in memory and restore only deterministically observed edits to captured regular text files.
-- In-flight instructions are limited to 10 messages and 50,000 characters. Ordinary composer steering/follow-ups can include captured text context and up to 5 images; slash commands cannot be queued. Pending transcript presentation is memory-only, public pending previews are capped at 1,000 characters per message, and pending/recovered attachment snapshots are memory-only and capped at 30 MiB.
+- In-flight instructions are limited to 10 messages and 50,000 characters. **Next** and **After this** messages can include captured text attachments and up to 5 images; slash commands cannot be queued. Pending transcript presentation is memory-only, public pending previews are capped at 1,000 characters per message, and pending/recovered attachment snapshots are memory-only and capped at 30 MiB.
 - Debug capture supports paused `node` and `pwa-node` js-debug sessions only; it does not evaluate expressions or mutate debugger state.
 
 Read [Security and Privacy](docs/SECURITY.md) for trust boundaries and safeguards, and [Workflow Validation](docs/WORKFLOW_VALIDATION.md) for tested and deferred behavior.
