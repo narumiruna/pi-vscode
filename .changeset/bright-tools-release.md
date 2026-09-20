@@ -2,4 +2,42 @@
 "pi-coding-agent-vscode": patch
 ---
 
-Add Changesets-based versioning and release metadata.
+Add Changesets-based versioning and release metadata while preserving all pending release notes:
+
+- Add a top-level workspace **Sessions** list with quick switching, a searchable **View all** browser, a composer that starts a new session, and a separate conversation detail layer with **Back to Sessions**.
+- Show composer image attachments as compact, labeled thumbnail cards with preview and remove actions.
+- Keep submitted context chips and validated image thumbnails on their user turn across history refresh and session restore, with labeled unavailable placeholders when image bytes cannot be recovered.
+- Add bounded one-shot transcript image delivery, newest-first aggregate history processing limits, browser-rejection memory, responsive thumbnail grids, and a keyboard-accessible modal preview without persisting Base64 image payloads.
+- Place foreground tool activity after its response in the conversation scroller, compact the empty composer, normalize inline-code sizing, preserve scroll position as images decode, and consolidate cancellable/status/error UI.
+- Keep remote conversations intact when Trash is unsupported and require a second modal confirmation before permanent deletion.
+- Move the Pi connection, session, and context status below the composer.
+- Show the active Pi thinking level in the Chat header and allow direct changes between model-supported levels.
+- Add confirmed read-only staged Git review with immutable finding navigation, stale-index detection, and explicit skipped-file coverage.
+- Add deterministic hunk selection, revision-bound Preview, and single-Apply partial proposals without applying the remainder.
+- Record isolated-task origin/base metadata; preview actual committed, uncommitted and untracked results and import selected text files with stale/dirty/path gates and recoverable partial reports.
+- Add exact attachment inspection, edit/redact, explicit refresh, memory-only pins, heuristic estimates and revision-safe draft/attachment consumption.
+- Add approved process-based failed-test repair with inspected/redacted evidence, read-only proposals and at most two approved reruns.
+- Replace tool-notification-time capture with bounded pre-prompt request checkpoints, conservative coverage reports, dependency checks and dirty/stale-safe historical restore.
+- Add session/policy-bound keyboard-only Steer and Follow Up, bounded queue feedback, clear-before-abort cancellation and uncertain-draft recovery without replay.
+- Show Pi-style pending steering/follow-up text and move each confirmed delivery into the transcript at Pi's user-message start, preserving duplicate order and attachment labels.
+- Add explicit bounded Node.js debug snapshots, variable selection/redaction, pause/frame invalidation and read-only questions; no evaluate or recursive requests.
+- Serialize foreground request/session operations, bind resumed sessions to their working directory, bound subprocess cleanup, and explicitly disable unapproved project resources.
+- Compile against exactly VS Code 1.106 declarations rather than newer APIs. Record automated workflow evidence and explicitly deferred interactive/remote validation in `docs/WORKFLOW_VALIDATION.md`.
+- Add a confirmed **Delete Session** button that moves the current persistent Pi session to Trash and starts a new session.
+- Bundle the Pi bridge in the VSIX and load it process-locally with authenticated request/event communication and `pi.events` interoperability.
+- Export a same-host VS Code API for broadcasting bounded events to connected Pi sessions.
+- Install only the VSIX, remove exact legacy global bridge filenames during installer or extension activation upgrades, and avoid creating Pi configuration files on clean installs.
+- Add **Fix with Pi** quick fixes for red and yellow diagnostics through VS Code's lightbulb menu, the editor toolbar, and Ctrl/Cmd+I, with contextual diff previews and inline-edit fallback away from diagnostics.
+- Support Pi Inline Edit for both selections and the current line at the cursor as the Ctrl/Cmd+I fallback when no diagnostic is targeted.
+- Redesign Pi Chat around a compact header, native Quick Pick secondary actions, attachment chips, explicit reconnect, cancellation, history-recovery states, serialized submission, retry-safe composer drafts, and narrow Sidebar layouts.
+- Route editor context-menu questions and edit requests through the persistent Pi Chat session for continuous follow-up, with absolute editor-resource context for multi-root workspaces.
+- Add safe Ctrl/Cmd+V image attachment with client and extension-host MIME, Base64, count, size, and model-capability checks, and hold submission until pasted images finish loading.
+- Add in-chat edit proposal cards that enforce structurally trusted read-only generation, retain live previews, release terminal callbacks, bound terminal history, require Preview before Apply, reject stale document versions, and serialize Apply across all live proposals.
+- Add an authenticated local bridge with fail-closed bounded framing and Pi tools for reading VS Code editor context, opening files, and showing requested notifications.
+- Load the bundled bridge in foreground chat runtimes and Pi terminal handoffs, expose its path for explicit ordinary-terminal use, and keep bridge-only tools and credentials out of independent background profiles.
+- Capture each request's authoritative assistant response from its event stream across compaction, keep session actions locked through post-processing, and honor cancellation before delayed startup submits a prompt.
+- Preserve composer edits and attachments added while a background or worktree agent starts.
+- Move the Pi Chat view's default location to the Secondary Sidebar.
+- Add a Pi button to the editor title toolbar for opening Chat.
+- Require VS Code 1.106 or newer for Secondary Sidebar view contributions.
+- Add a `just dev` recipe for compiling and launching the Extension Development Host.
