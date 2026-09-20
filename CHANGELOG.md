@@ -25,7 +25,7 @@
 - Add a confirmed **Delete Session** button that moves the current persistent Pi session to Trash and starts a new session.
 - Bundle the Pi bridge in the VSIX and load it process-locally with authenticated request/event communication and `pi.events` interoperability.
 - Export a same-host VS Code API for broadcasting bounded events to connected Pi sessions.
-- Install only the VSIX through release/source installers, clean up exact bridge filenames created by older releases, and avoid creating Pi configuration files on clean installs.
+- Install only the VSIX, remove exact legacy global bridge filenames during installer or extension activation upgrades, and avoid creating Pi configuration files on clean installs.
 - Add **Fix with Pi** quick fixes for red and yellow diagnostics through VS Code's lightbulb menu, the editor toolbar, and Ctrl/Cmd+I, with contextual diff previews and inline-edit fallback away from diagnostics.
 - Support Pi Inline Edit for both selections and the current line at the cursor as the Ctrl/Cmd+I fallback when no diagnostic is targeted.
 - Redesign Pi Chat around a compact header, native Quick Pick secondary actions, attachment chips, explicit reconnect, cancellation, history-recovery states, serialized submission, retry-safe composer drafts, and narrow Sidebar layouts.
