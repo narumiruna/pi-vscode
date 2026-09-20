@@ -236,7 +236,7 @@ export class SidebarAttachmentManager {
   public async pickContext(): Promise<void> {
     const selected = await vscode.window.showQuickPick(
       [
-        { label: "$(inspect) Inspect Context", action: "inspect" },
+        { label: "$(inspect) View attachments", action: "inspect" },
         { label: "$(selection) Current Selection", action: "selection" },
         { label: "$(file) Current File", action: "currentFile" },
         { label: "$(files) Files…", action: "files" },
@@ -244,7 +244,7 @@ export class SidebarAttachmentManager {
         { label: "$(file-media) Images…", action: "images" },
         { label: "$(terminal) Terminal Selection", action: "terminal" },
       ],
-      { title: "Add Context to Pi", placeHolder: "Choose context for the next message" },
+      { title: "Attach to message", placeHolder: "Choose what to share with Pi" },
     );
     if (!selected) return;
     if (selected.action === "inspect") await this.inspect();
