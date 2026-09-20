@@ -251,7 +251,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     </section>
     <section id="composer" aria-label="Message composer">
       <div class="composer-box">
-        <div id="attachments" aria-label="Context attached to the next message" hidden></div>
+        <div id="attachments" aria-label="Attachments for the next message" hidden></div>
         <button id="inspect-context" class="secondary" type="button" hidden>View attachments</button>
         <div id="attachment-estimate" class="proposal-meta"></div>
         <div id="pending-queue" role="list" aria-label="Pending Pi messages" hidden></div>
@@ -970,7 +970,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('back-to-sessions').title = sessionsLayerVisible ? 'Back to recent Sessions' : 'Back to Sessions';
       $('session-header-title').textContent = sessionsLayerVisible ? 'Sessions' : current?.title || 'Session';
       $('session-header-title').title = sessionsLayerVisible ? '' : current?.title || '';
-      input.placeholder = sessionsLayerVisible ? 'Start a new chat…' : 'Ask Pi anything…';
+      input.placeholder = sessionsLayerVisible ? 'Start a new session…' : 'Ask Pi anything…';
       renderSessions();
     }
 
@@ -1079,13 +1079,13 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
                 ? 'The current model does not support image attachments.'
                 : !connected
                   ? 'Reconnect to Pi before sending.'
-                  : !input.value.trim() && attachedItems ? 'Send attached context' : sessionsLayerVisible ? 'Start new session' : 'Send message';
+                  : !input.value.trim() && attachedItems ? 'Send attachments' : sessionsLayerVisible ? 'Start new session' : 'Send message';
       $('composer-hint').textContent = imageLoading
         ? 'Loading pasted image…'
         : backgroundSubmissionPending
           ? 'Starting background agent…'
           : sessionStartBlocked
-            ? 'Wait for Pi to finish before starting a new chat'
+            ? 'Wait for Pi to finish before starting a new session'
             : imageBlocked
               ? 'Choose a model that supports images, or remove them'
               : queueable && !sessionsLayerVisible
@@ -1147,8 +1147,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('session').textContent = state.runtime.sessionName || (state.runtime.sessionId ? 'Session ' + state.runtime.sessionId.slice(0, 8) : '');
       $('session').title = state.runtime.sessionName || state.runtime.sessionId || '';
       const context = (state.runtime.stats || {}).contextUsage || {};
-      $('usage').textContent = typeof context.percent === 'number' ? 'Context ' + Math.round(context.percent) + '%' : '';
-      $('usage').title = 'Share of the model’s context window currently in use';
+      const hasContextUsage = typeof context.percent === 'number';
+      $('usage').textContent = hasContextUsage ? 'Context ' + Math.round(context.percent) + '%' : '';
+      $('usage').title = hasContextUsage ? 'Share of the model’s context window currently in use' : '';
       $('reconnect').hidden = connected;
       $('retry').hidden = !state.retryAvailable;
       $('retry').disabled = busy || !connected;
@@ -1244,7 +1245,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
             input.value += (input.value ? '\\n\\n' : '') + message.text;
             composerRevision += 1; resizeInput(); updateSendState();
           }
-        } else { showNotice('Your draft changed. The recovered message remains in Recovered Drafts.', 'warning'); }
+        } else { showNotice('Your draft changed. The recovered message is still available under Restore drafts.', 'warning'); }
       }
       else if (message.type === 'commitRecoveredDraft') {
         if (recoveredDraftPending?.id === message.id) {
