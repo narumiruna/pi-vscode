@@ -71,6 +71,43 @@ export async function run(): Promise<void> {
           case "diagnostics":
             publish();
             break;
+          case "dirtyReviewTarget": {
+            const editor = await vscode.window.showTextDocument(other);
+            assert.ok(await editor.edit((edit) => edit.insert(new vscode.Position(0, 0), "// unsaved\n")));
+            assert.ok(other.isDirty);
+            const finding = vscode.languages
+              .getDiagnostics()
+              .find(
+                ([uri, items]) =>
+                  uri.scheme === "picode-review" && items.some((item) => item.message === "Native workingTree finding"),
+              );
+            assert.ok(finding);
+            await vscode.workspace.openTextDocument(finding[0]);
+            const diagnostic = finding[1].find((item) => item.message === "Native workingTree finding");
+            assert.ok(diagnostic);
+            const actions = await vscode.commands.executeCommand<(vscode.CodeAction | vscode.Command)[]>(
+              "vscode.executeCodeActionProvider",
+              finding[0],
+              diagnostic.range,
+            );
+            const findingActions =
+              actions?.filter(
+                (action): action is vscode.CodeAction =>
+                  typeof action.command === "object" &&
+                  ["picode.askReviewFinding", "picode.fixReviewFinding"].includes(action.command.command),
+              ) ?? [];
+            assert.deepEqual(
+              findingActions.map((action) => action.command?.command),
+              ["picode.askReviewFinding"],
+            );
+            const args = findingActions[0]?.command?.arguments;
+            assert.ok(args);
+            await assert.rejects(
+              Promise.resolve(vscode.commands.executeCommand("picode.fixReviewFinding", ...args)),
+              /no longer matches/,
+            );
+            break;
+          }
           case "state":
             result = {
               texts: [source.getText(), other.getText()],

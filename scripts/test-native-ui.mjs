@@ -278,6 +278,10 @@ try {
   }
   let state = await invoke("state");
   assert.equal(state.findings.length, 4);
+  await invoke("dirtyReviewTarget");
+  await invoke("undo");
+  assert.deepEqual((await invoke("state")).texts, initial.texts);
+  console.log("PI_NATIVE_UI dirty finding buffer blocks Fix and direct command");
   await invoke("command", { command: "workbench.actions.view.problems" });
   const problem = page.getByRole("treeitem", { name: /Warning: Native workingTree/ });
   await problem.dblclick();
@@ -299,7 +303,7 @@ try {
   const navigation = await invoke("command", { command: "picode.showReviewFindings" }, false);
   await pick("Native workingTree finding");
   await navigation();
-  await respond("<<<PICODE_REPLACEMENT_START>>>\nexport const other = 40;\n<<<PICODE_REPLACEMENT_END>>>");
+  await respond("<<<PICODE_REPLACEMENT_START>>>\nexport const other = 40;\n\n<<<PICODE_REPLACEMENT_END>>>");
   await problem.click();
   await invoke("command", { command: "problems.action.showQuickFixes" });
   await page.getByRole("menuitem", { name: "Fix Finding with Pi (Preview)", exact: true }).waitFor();
@@ -315,8 +319,11 @@ try {
     "finding Preview enables Apply",
   );
   assert.ok((await invoke("state")).tabs.some((tab) => tab.diff && tab.label === "Pi Edit Preview: other.ts"));
-  await findingCard.getByRole("button", { name: "Reject", exact: true }).click();
-  console.log("PI_NATIVE_UI four scopes, Problems navigation and Ask/Fix passed");
+  await findingCard.getByRole("button", { name: "Apply", exact: true }).click();
+  await until(async () => (await findingCard.innerText()).includes("Applied"), "finding Apply");
+  assert.deepEqual((await invoke("state")).texts, [source, "export const other = 40;\n"]);
+  await invoke("undo");
+  console.log("PI_NATIVE_UI four scopes, Problems navigation and Ask/Fix Preview/Apply/Undo passed");
   // Two-file repair with three proposed hunks; omit the unrelated tail hunk.
   await invoke("diagnostics");
   await respond(
@@ -399,6 +406,8 @@ try {
       semanticAttachmentPicker: "passed",
       fourReviewScopes: "passed",
       nativeProblemsAndAskFix: "passed",
+      dirtyFindingBufferGuard: "passed",
+      findingPreviewApplyUndo: "passed",
       selectedHunkBatchPreviewApplyUndo: "passed",
       cancellation: "passed",
       reloadCleanup: "passed",
