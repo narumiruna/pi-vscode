@@ -156,9 +156,13 @@ export function registerGitReview(
       const root = await realpath(record.folder.fsPath);
       const absolute = path.join(record.snapshot.repository.root, finding.path);
       // Reviews can cover a parent repository; fixes cannot escape the selected workspace.
-      await assertSafeFile(root, path.relative(root, absolute).split(path.sep).join("/"));
-      const document = await vscode.workspace.openTextDocument(vscode.Uri.file(absolute));
-      return document.getText() === file.after && (await isDocumentWritable(document)) ? document : undefined;
+      const relative = path.relative(root, absolute);
+      await assertSafeFile(root, relative.split(path.sep).join("/"));
+      // Keep the workspace URI spelling so dirty buffers and versions cannot be bypassed.
+      const document = await vscode.workspace.openTextDocument(
+        vscode.Uri.file(path.join(record.folder.fsPath, relative)),
+      );
+      return (await isDocumentWritable(document)) && document.getText() === file.after ? document : undefined;
     } catch {
       return undefined;
     }
