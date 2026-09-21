@@ -3,6 +3,7 @@ import path from "node:path";
 import * as vscode from "vscode";
 import { assertSafeFile } from "./backgroundResults";
 import { ExclusiveOperationGate, type PiConversationController } from "./conversationController";
+import { diagnosticDiskText } from "./diagnosticEncoding";
 import { filterFixableDiagnostics } from "./diagnosticQuickFix";
 import { addMultiFileEditProposal, isDocumentWritable, registerEditPreviewProvider } from "./editProposalController";
 import type { PiRuntimeManager } from "./piRuntime";
@@ -124,7 +125,12 @@ export function registerWorkspaceDiagnostics(
           document.isClosed ||
           (dirty
             ? document.version !== dirty.version || content !== dirty.content
-            : content !== diagnosticDiskText(bytes!, uri, document.eol))
+            : content !==
+              diagnosticDiskText(
+                bytes!,
+                vscode.workspace.getConfiguration("files", uri).get<string>("encoding", "utf8"),
+                document.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n",
+              ))
         )
           throw new Error(`Document changed or does not match safely captured file: ${name}`);
         if (content.length > maxRepairFileCharacters || content.includes("\0"))
@@ -225,25 +231,6 @@ export function registerWorkspaceDiagnostics(
       release();
     }
   });
-}
-
-/** Match VS Code's BOM removal and line-ending normalization, never replacement decoding. */
-function diagnosticDiskText(bytes: Buffer, uri: vscode.Uri, eol: vscode.EndOfLine): string {
-  let encoding = vscode.workspace.getConfiguration("files", uri).get<string>("encoding", "utf8");
-  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) encoding = "utf8";
-  else if (bytes[0] === 0xff && bytes[1] === 0xfe) encoding = "utf16le";
-  else if (bytes[0] === 0xfe && bytes[1] === 0xff) encoding = "utf16be";
-  encoding = encoding
-    .replace(/^utf(8|16le|16be)(?:bom)?$/, "utf-$1")
-    .replace(/^windows(\d+)$/, "windows-$1")
-    .replace(/^iso8859(\d+)$/, "iso-8859-$1");
-  try {
-    return new TextDecoder(encoding, { fatal: true })
-      .decode(bytes)
-      .replace(/\r\n|\r|\n/g, eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n");
-  } catch {
-    throw new Error("Cannot verify diagnostic file encoding. Save as UTF-8 or set files.encoding and retry.");
-  }
 }
 
 /** Events only indicate provider publication; no event means no revalidation evidence. */
