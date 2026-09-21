@@ -17,6 +17,7 @@ import {
   type RepairDiagnostic,
   serializeDiagnosticRepair,
 } from "./workspaceDiagnostics";
+import { readWorkspaceFile } from "./workspaceFiles";
 
 export function registerWorkspaceDiagnostics(
   context: vscode.ExtensionContext,
@@ -91,11 +92,41 @@ export function registerWorkspaceDiagnostics(
       if (uris.size > maxRepairFiles) throw new Error("Select at most 20 files.");
       const sources = new Map<string, vscode.TextDocument>();
       const files: { path: string; version: number; content: string }[] = [];
+      // Freeze all dirty sources before any filesystem await, including awaits
+      // for earlier files. Newly loaded documents must match descriptor-bound bytes.
+      const dirtySources = new Map(
+        [...uris].map(([name, uri]) => {
+          const existing = vscode.workspace.textDocuments.find(
+            (document) => !document.isClosed && document.uri.toString() === uri.toString(),
+          );
+          return [
+            name,
+            existing?.isDirty
+              ? { document: existing, version: existing.version, content: existing.getText() }
+              : undefined,
+          ] as const;
+        }),
+      );
       for (const [name, uri] of uris) {
-        await assertSafeFile(root, name);
-        const document = await vscode.workspace.openTextDocument(uri);
+        const dirty = dirtySources.get(name);
+        let bytes: Buffer | undefined;
+        if (dirty) await assertSafeFile(root, name);
+        else {
+          // Keep the character bound independent of UTF-8/UTF-16 byte width and BOM.
+          bytes = await readWorkspaceFile(root, name, maxRepairFileCharacters * 4 + 3);
+          if (bytes === undefined) throw new Error(`File disappeared: ${name}`);
+        }
+        const document = dirty?.document ?? (await vscode.workspace.openTextDocument(uri));
         if (!(await isDocumentWritable(document))) throw new Error(`Read-only document: ${name}`);
+        if ((await realpath(folder.fsPath)) !== root) throw new Error("Workspace root changed during capture.");
         const content = document.getText();
+        if (
+          document.isClosed ||
+          (dirty
+            ? document.version !== dirty.version || content !== dirty.content
+            : content !== diagnosticDiskText(bytes!, uri, document.eol))
+        )
+          throw new Error(`Document changed or does not match safely captured file: ${name}`);
         if (content.length > maxRepairFileCharacters || content.includes("\0"))
           throw new Error(`Unsupported or oversized file: ${name}`);
         sources.set(name, document);
@@ -194,6 +225,25 @@ export function registerWorkspaceDiagnostics(
       release();
     }
   });
+}
+
+/** Match VS Code's BOM removal and line-ending normalization, never replacement decoding. */
+function diagnosticDiskText(bytes: Buffer, uri: vscode.Uri, eol: vscode.EndOfLine): string {
+  let encoding = vscode.workspace.getConfiguration("files", uri).get<string>("encoding", "utf8");
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) encoding = "utf8";
+  else if (bytes[0] === 0xff && bytes[1] === 0xfe) encoding = "utf16le";
+  else if (bytes[0] === 0xfe && bytes[1] === 0xff) encoding = "utf16be";
+  encoding = encoding
+    .replace(/^utf(8|16le|16be)(?:bom)?$/, "utf-$1")
+    .replace(/^windows(\d+)$/, "windows-$1")
+    .replace(/^iso8859(\d+)$/, "iso-8859-$1");
+  try {
+    return new TextDecoder(encoding, { fatal: true })
+      .decode(bytes)
+      .replace(/\r\n|\r|\n/g, eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n");
+  } catch {
+    throw new Error("Cannot verify diagnostic file encoding. Save as UTF-8 or set files.encoding and retry.");
+  }
 }
 
 /** Events only indicate provider publication; no event means no revalidation evidence. */

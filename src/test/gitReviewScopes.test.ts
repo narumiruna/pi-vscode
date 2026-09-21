@@ -336,7 +336,7 @@ test.skipIf(process.platform === "win32")("worktree capture rejects a substitute
     });
     try {
       const snapshot = await captureGitReview(root, { kind: "workingTree" });
-      assert.match(snapshot.files[0]?.skipped ?? "", /unsupported opened worktree file/);
+      assert.match(snapshot.files[0]?.skipped ?? "", /unsupported opened workspace file/);
       assert.ok(opened > 0);
       assert.equal(closed, opened);
     } finally {
