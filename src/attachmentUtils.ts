@@ -45,5 +45,5 @@ export function withoutAttachmentIds<T extends { readonly id: string }>(
   removedIds: readonly string[],
 ): T[] {
   const removed = new Set(removedIds);
-  return attachments.filter(attachment => !removed.has(attachment.id));
+  return attachments.filter((attachment) => !removed.has(attachment.id));
 }

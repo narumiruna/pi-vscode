@@ -1,10 +1,5 @@
 import { execFile } from "node:child_process";
-import { realpath } from "node:fs/promises";
-import { acquireOperation } from "./operationLocks";
-import { gitEnvironment, gitIdentity, gitRevision } from "./gitSnapshots";
-import { captureBackgroundResult, importBackgroundResult, validTaskOrigin, type BackgroundResult, type ImportReport, type TaskOrigin } from "./backgroundResults";
-import { cancellable, isDirtyFile, requireTrustedFile, WorkflowDocuments } from "./workflowUi";
-import { mkdir } from "node:fs/promises";
+import { mkdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import * as vscode from "vscode";
 import {
@@ -14,15 +9,26 @@ import {
   isBackgroundTaskActive,
   launchBackgroundExecution,
 } from "./backgroundAgentLifecycle";
-import { buildAgentPrompt, type ChatReferenceContext } from "./prompts";
-import { PiRpcClient, type PiRpcEvent, type PiRpcImage } from "./piRpcClient";
-import { readPiInvocationOptions } from "./vscodePi";
+import {
+  type BackgroundResult,
+  captureBackgroundResult,
+  type ImportReport,
+  importBackgroundResult,
+  type TaskOrigin,
+  validTaskOrigin,
+} from "./backgroundResults";
 import { picodeConfiguration } from "./configuration";
+import { gitEnvironment, gitIdentity, gitRevision } from "./gitSnapshots";
+import { acquireOperation } from "./operationLocks";
+import { PiRpcClient, type PiRpcEvent, type PiRpcImage } from "./piRpcClient";
+import { buildAgentPrompt, type ChatReferenceContext } from "./prompts";
 import {
   vscodeBridgeExtensionEnvironmentKey,
   vscodeBridgePortEnvironmentKey,
   vscodeBridgeTokenEnvironmentKey,
 } from "./vscodeBridgeProtocol";
+import { readPiInvocationOptions } from "./vscodePi";
+import { cancellable, isDirtyFile, requireTrustedFile, WorkflowDocuments } from "./workflowUi";
 
 const storageKey = "picode.backgroundTasks.v1";
 const maxTasks = 20;
@@ -67,15 +73,23 @@ export class BackgroundAgentManager implements vscode.Disposable {
     if (Array.isArray(restored)) {
       for (const task of restored.filter(isBackgroundTaskState).slice(-maxTasks)) {
         const restored = { ...task, origin: validTaskOrigin(task.origin) ? task.origin : undefined, reviewing: false };
-        this.tasks.set(task.id, task.status === "running" || task.status === "starting"
-          ? { ...restored, status: "failed", inactivityUnverified: !restored.processId, error: "VS Code closed before this task completed. Inactivity must be verified before import." }
-          : restored);
+        this.tasks.set(
+          task.id,
+          task.status === "running" || task.status === "starting"
+            ? {
+                ...restored,
+                status: "failed",
+                inactivityUnverified: !restored.processId,
+                error: "VS Code closed before this task completed. Inactivity must be verified before import.",
+              }
+            : restored,
+        );
       }
     }
   }
 
   public get states(): readonly BackgroundTaskState[] {
-    return [...this.tasks.values()].map(task => ({ ...task, resultPreviewReady: this.resultPreviews.has(task.id) }));
+    return [...this.tasks.values()].map((task) => ({ ...task, resultPreviewReady: this.resultPreviews.has(task.id) }));
   }
 
   public async start(
@@ -126,16 +140,17 @@ export class BackgroundAgentManager implements vscode.Disposable {
       env: {
         PICODE_PERMISSION_MODE: configuration.get<string>("agent.confirmToolCalls", "dangerous"),
       },
-      unsetEnv: [
-        vscodeBridgePortEnvironmentKey,
-        vscodeBridgeTokenEnvironmentKey,
-        vscodeBridgeExtensionEnvironmentKey,
-      ],
+      unsetEnv: [vscodeBridgePortEnvironmentKey, vscodeBridgeTokenEnvironmentKey, vscodeBridgeExtensionEnvironmentKey],
     });
-    const subscription = client.onEvent(event => this.handleEvent(id, event));
+    const subscription = client.onEvent((event) => this.handleEvent(id, event));
     let releaseOperation: () => void;
-    try { releaseOperation = acquireOperation(taskCwd, "background task"); }
-    catch (error) { subscription.dispose(); this.failTask(id, error); throw error; }
+    try {
+      releaseOperation = acquireOperation(taskCwd, "background task");
+    } catch (error) {
+      subscription.dispose();
+      this.failTask(id, error);
+      throw error;
+    }
     this.active.set(id, { client, subscription, cancelRequested: false, releaseOperation });
 
     try {
@@ -166,16 +181,24 @@ export class BackgroundAgentManager implements vscode.Disposable {
       return;
     }
     active.cancelRequested = true;
-    try { await active.client.clearQueue(); await active.client.abort(); }
-    catch {
-      this.patchTask(id, { status: "cancelled", error: "Queue clearing unsupported/uncertain; process stopped without replay." });
+    try {
+      await active.client.clearQueue();
+      await active.client.abort();
+    } catch {
+      this.patchTask(id, {
+        status: "cancelled",
+        error: "Queue clearing unsupported/uncertain; process stopped without replay.",
+      });
       await this.stopActive(id);
     }
   }
 
   public async openSession(id: string): Promise<string> {
     const task = this.requireTask(id);
-    if (task.worktreePath || task.origin) throw new Error("Isolated sessions must be resumed in their own workspace. Use Open Worktree, then Resume Session there.");
+    if (task.worktreePath || task.origin)
+      throw new Error(
+        "Isolated sessions must be resumed in their own workspace. Use Open Worktree, then Resume Session there.",
+      );
     if (!task.sessionFile) {
       throw new Error("This background task does not have a resumable Pi session yet.");
     }
@@ -192,30 +215,67 @@ export class BackgroundAgentManager implements vscode.Disposable {
     });
   }
 
-  public invalidateResults(): void { this.resultPreviews.clear(); this.publish(); }
+  public invalidateResults(): void {
+    this.resultPreviews.clear();
+    this.publish();
+  }
 
   public async reviewResults(id: string): Promise<void> {
     const task = this.requireTask(id);
-    if (!task.worktreePath || !validTaskOrigin(task.origin)) throw new Error("Legacy/non-isolated task: open its worktree or Source Control; verified import metadata is unavailable.");
+    if (!task.worktreePath || !validTaskOrigin(task.origin))
+      throw new Error(
+        "Legacy/non-isolated task: open its worktree or Source Control; verified import metadata is unavailable.",
+      );
     requireTrustedFile(vscode.Uri.file(task.worktreePath));
     this.assertTaskInactive(id);
     if (this.resultOperations.has(id)) throw new Error("Wait for the result operation to finish.");
     this.resultOperations.add(id);
     this.patchTask(id, { reviewing: true });
     try {
-      const snapshot = await cancellable("Capture observed task results", signal => captureBackgroundResult(task.worktreePath!, task.origin!, signal));
-      await this.documents.inspect("Observed task results", snapshot.files.map(file => `${JSON.stringify(file.path)}: ${file.skipped ?? "regular text change"}`).join("\n") + "\n\nTests: not verified. The task's model summary is not command evidence.");
-      const selected = await vscode.window.showQuickPick(snapshot.files.filter(file => !file.skipped).map(file => ({ label: file.path, description: file.before === undefined ? "Addition" : file.after === undefined ? "Deletion" : "Modification", file })), { title: "Select regular text files to preview for import", canPickMany: true });
-      if (!selected?.length) { this.resultPreviews.delete(id); return; }
+      const snapshot = await cancellable("Capture observed task results", (signal) =>
+        captureBackgroundResult(task.worktreePath!, task.origin!, signal),
+      );
+      await this.documents.inspect(
+        "Observed task results",
+        snapshot.files
+          .map((file) => `${JSON.stringify(file.path)}: ${file.skipped ?? "regular text change"}`)
+          .join("\n") + "\n\nTests: not verified. The task's model summary is not command evidence.",
+      );
+      const selected = await vscode.window.showQuickPick(
+        snapshot.files
+          .filter((file) => !file.skipped)
+          .map((file) => ({
+            label: file.path,
+            description:
+              file.before === undefined ? "Addition" : file.after === undefined ? "Deletion" : "Modification",
+            file,
+          })),
+        { title: "Select regular text files to preview for import", canPickMany: true },
+      );
+      if (!selected?.length) {
+        this.resultPreviews.delete(id);
+        return;
+      }
       for (const { file } of selected) {
         const before = this.documents.create(`base-${file.path}`, file.before ?? "");
         const after = this.documents.create(`task-${file.path}`, file.after ?? "");
-        try { await vscode.commands.executeCommand("vscode.diff", before, after, `Task import preview: ${file.path}`, { preview: false }); }
-        finally { this.documents.release(before); this.documents.release(after); }
+        try {
+          await vscode.commands.executeCommand("vscode.diff", before, after, `Task import preview: ${file.path}`, {
+            preview: false,
+          });
+        } finally {
+          this.documents.release(before);
+          this.documents.release(after);
+        }
       }
-      this.resultPreviews.set(id, { snapshot, selected: selected.map(item => item.file.path) });
-      await vscode.window.showInformationMessage("Selected task results previewed. Use Apply Selected to import; the task worktree will be retained.");
-    } finally { this.resultOperations.delete(id); this.patchTask(id, { reviewing: false }); }
+      this.resultPreviews.set(id, { snapshot, selected: selected.map((item) => item.file.path) });
+      await vscode.window.showInformationMessage(
+        "Selected task results previewed. Use Apply Selected to import; the task worktree will be retained.",
+      );
+    } finally {
+      this.resultOperations.delete(id);
+      this.patchTask(id, { reviewing: false });
+    }
   }
 
   public async applySelected(id: string, targetCwd: string): Promise<void> {
@@ -225,7 +285,8 @@ export class BackgroundAgentManager implements vscode.Disposable {
     requireTrustedFile(vscode.Uri.file(targetCwd));
     const cwd = await realpath(targetCwd);
     const target = await gitIdentity(cwd);
-    if (JSON.stringify(target) !== JSON.stringify(preview.snapshot.origin.repository)) throw new Error("Switch Pi to the task's originating worktree before importing results.");
+    if (JSON.stringify(target) !== JSON.stringify(preview.snapshot.origin.repository))
+      throw new Error("Switch Pi to the task's originating worktree before importing results.");
     if (this.resultOperations.has(id)) throw new Error("A task result operation is already active.");
     const release = acquireOperation(target.root, "task result import");
     let releaseCwd = () => {};
@@ -233,15 +294,30 @@ export class BackgroundAgentManager implements vscode.Disposable {
       if (cwd !== target.root) releaseCwd = acquireOperation(cwd, "task result import");
       this.resultOperations.add(id);
       this.patchTask(id, { reviewing: true });
-      if (await vscode.window.showWarningMessage(`Import ${preview.selected.length} previewed files into ${target.root}? No staging or branch changes. Filesystem writes are not atomic across files.`, { modal: true }, "Import Selected") !== "Import Selected") return;
+      if (
+        (await vscode.window.showWarningMessage(
+          `Import ${preview.selected.length} previewed files into ${target.root}? No staging or branch changes. Filesystem writes are not atomic across files.`,
+          { modal: true },
+          "Import Selected",
+        )) !== "Import Selected"
+      )
+        return;
       const report = await importBackgroundResult(preview.snapshot, preview.selected, {
-        assertInactive: () => { requireTrustedFile(); this.assertTaskInactive(id); },
+        assertInactive: () => {
+          requireTrustedFile();
+          this.assertTaskInactive(id);
+        },
         isDirty: isDirtyFile,
       });
       this.patchTask(id, { importReport: report });
       this.resultPreviews.delete(id);
       await this.documents.inspect("Task import report", JSON.stringify(report, null, 2));
-    } finally { releaseCwd(); release(); this.resultOperations.delete(id); this.patchTask(task.id, { reviewing: false }); }
+    } finally {
+      releaseCwd();
+      release();
+      this.resultOperations.delete(id);
+      this.patchTask(task.id, { reviewing: false });
+    }
   }
 
   public async cleanupWorktree(id: string): Promise<void> {
@@ -256,7 +332,8 @@ export class BackgroundAgentManager implements vscode.Disposable {
     this.assertTaskInactive(id);
     const storageRoot = await realpath(path.join(this.context.globalStorageUri.fsPath, "worktrees"));
     const worktree = await realpath(task.worktreePath);
-    if (path.dirname(worktree) !== storageRoot || path.basename(worktree) !== task.id) throw new Error("Worktree cleanup path is not owned by this task.");
+    if (path.dirname(worktree) !== storageRoot || path.basename(worktree) !== task.id)
+      throw new Error("Worktree cleanup path is not owned by this task.");
     const repository = await primaryWorktree(worktree);
     await execFilePromise("git", ["-C", repository, "worktree", "remove", "--force", worktree]);
     this.resultPreviews.delete(id);
@@ -280,7 +357,17 @@ export class BackgroundAgentManager implements vscode.Disposable {
     const root = path.join(this.context.globalStorageUri.fsPath, "worktrees");
     const target = path.join(root, id);
     await mkdir(root, { recursive: true });
-    await execFilePromise("git", ["-c", "core.hooksPath=/dev/null", "-C", repository, "worktree", "add", "--detach", target, baseCommit]);
+    await execFilePromise("git", [
+      "-c",
+      "core.hooksPath=/dev/null",
+      "-C",
+      repository,
+      "worktree",
+      "add",
+      "--detach",
+      target,
+      baseCommit,
+    ]);
     return { worktreePath: await realpath(target), origin: { repository: identity, baseCommit } };
   }
 
@@ -298,7 +385,7 @@ export class BackgroundAgentManager implements vscode.Disposable {
     } else if (event.type === "agent_settled") {
       void this.completeTask(id);
     } else if (event.type === "extension_ui_request") {
-      void this.handleExtensionUi(id, event).catch(error => this.failTask(id, error));
+      void this.handleExtensionUi(id, event).catch((error) => this.failTask(id, error));
     } else if (event.type === "process_exit" && !event.expected && this.active.has(id)) {
       this.failTask(id, new Error("The background Pi process exited unexpectedly."));
       void this.stopActive(id);
@@ -318,8 +405,10 @@ export class BackgroundAgentManager implements vscode.Disposable {
       const choice = await vscode.window.showWarningMessage(`${title}\n${message}`, { modal: true }, "Allow");
       active.client.sendExtensionUiResponse(id, { confirmed: choice === "Allow" });
     } else if (method === "select") {
-      const options = Array.isArray(event.options) ? event.options.filter(value => typeof value === "string") : [];
-      const value = await vscode.window.showQuickPick(options, { title: typeof event.title === "string" ? event.title : "Pi" });
+      const options = Array.isArray(event.options) ? event.options.filter((value) => typeof value === "string") : [];
+      const value = await vscode.window.showQuickPick(options, {
+        title: typeof event.title === "string" ? event.title : "Pi",
+      });
       active.client.sendExtensionUiResponse(id, value === undefined ? { cancelled: true } : { value });
     } else if (method === "input" || method === "editor") {
       const value = await vscode.window.showInputBox({
@@ -368,13 +457,18 @@ export class BackgroundAgentManager implements vscode.Disposable {
     }
     this.active.delete(id);
     active.subscription.dispose();
-    try { await active.client.stop(); } finally { active.releaseOperation(); }
+    try {
+      await active.client.stop();
+    } finally {
+      active.releaseOperation();
+    }
   }
 
   private setTask(task: BackgroundTaskState): void {
     this.tasks.set(task.id, task);
     const protectedTasks = {
-      has: (id: string) => this.active.has(id) || this.resultOperations.has(id) || isBackgroundTaskActive(this.tasks.get(id)?.status),
+      has: (id: string) =>
+        this.active.has(id) || this.resultOperations.has(id) || isBackgroundTaskActive(this.tasks.get(id)?.status),
     };
     for (const id of backgroundTaskIdsToEvict(this.tasks.keys(), protectedTasks, maxTasks)) {
       this.tasks.delete(id);
@@ -390,10 +484,15 @@ export class BackgroundAgentManager implements vscode.Disposable {
 
   private assertTaskInactive(id: string): void {
     const task = this.requireTask(id);
-    if (this.active.has(id) || task.inactivityUnverified) throw new Error("Task inactivity is unverified. Inspect its worktree instead of importing.");
+    if (this.active.has(id) || task.inactivityUnverified)
+      throw new Error("Task inactivity is unverified. Inspect its worktree instead of importing.");
     if (task.processId) {
-      try { process.kill(task.processId, 0); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code === "ESRCH") return; throw new Error("Cannot verify task process inactivity."); }
+      try {
+        process.kill(task.processId, 0);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
+        throw new Error("Cannot verify task process inactivity.");
+      }
       throw new Error("The recorded task process is still running (or its PID was reused); import is unavailable.");
     }
   }
@@ -415,7 +514,7 @@ export class BackgroundAgentManager implements vscode.Disposable {
 
 async function primaryWorktree(cwd: string): Promise<string> {
   const { stdout } = await execFilePromise("git", ["-C", cwd, "worktree", "list", "--porcelain", "-z"]);
-  const first = stdout.split("\0").find(line => line.startsWith("worktree "));
+  const first = stdout.split("\0").find((line) => line.startsWith("worktree "));
   if (!first) {
     throw new Error("Could not locate the primary Git worktree.");
   }
@@ -424,13 +523,25 @@ async function primaryWorktree(cwd: string): Promise<string> {
 
 function execFilePromise(command: string, args: readonly string[]): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFile(command, [...args], { encoding: "utf8", maxBuffer: 5 * 1024 * 1024, timeout: 30_000, shell: false, windowsHide: true, env: gitEnvironment() }, (error, stdout, stderr) => {
-      if (error) {
-        reject(new Error(`${command} ${args.join(" ")} failed: ${stderr || error.message}`));
-      } else {
-        resolve({ stdout, stderr });
-      }
-    });
+    execFile(
+      command,
+      [...args],
+      {
+        encoding: "utf8",
+        maxBuffer: 5 * 1024 * 1024,
+        timeout: 30_000,
+        shell: false,
+        windowsHide: true,
+        env: gitEnvironment(),
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(`${command} ${args.join(" ")} failed: ${stderr || error.message}`));
+        } else {
+          resolve({ stdout, stderr });
+        }
+      },
+    );
   });
 }
 
@@ -439,9 +550,18 @@ function isBackgroundTaskState(value: unknown): value is BackgroundTaskState {
     isRecord(value) &&
     typeof value.id === "string" &&
     typeof value.title === "string" &&
-    (value.status === "starting" || value.status === "running" || value.status === "completed" || value.status === "failed" || value.status === "cancelled") &&
-    typeof value.output === "string" && value.output.length <= maxOutputCharacters && value.id.length <= 200 && value.title.length <= 500 &&
-    [value.cwd, value.worktreePath, value.sessionFile].every(item => item === undefined || (typeof item === "string" && path.isAbsolute(item) && !item.includes("\0"))) &&
+    (value.status === "starting" ||
+      value.status === "running" ||
+      value.status === "completed" ||
+      value.status === "failed" ||
+      value.status === "cancelled") &&
+    typeof value.output === "string" &&
+    value.output.length <= maxOutputCharacters &&
+    value.id.length <= 200 &&
+    value.title.length <= 500 &&
+    [value.cwd, value.worktreePath, value.sessionFile].every(
+      (item) => item === undefined || (typeof item === "string" && path.isAbsolute(item) && !item.includes("\0")),
+    ) &&
     (value.importReport === undefined || isImportReport(value.importReport)) &&
     (value.processId === undefined || (Number.isSafeInteger(value.processId) && Number(value.processId) > 0)) &&
     (value.inactivityUnverified === undefined || typeof value.inactivityUnverified === "boolean")
@@ -449,10 +569,17 @@ function isBackgroundTaskState(value: unknown): value is BackgroundTaskState {
 }
 
 function isImportReport(value: unknown): boolean {
-  return isRecord(value) && ["applied", "skipped", "failed"].every(key => {
-    const list = value[key];
-    return Array.isArray(list) && list.length <= 100 && list.every(item => typeof item === "string" && item.length <= 4000);
-  });
+  return (
+    isRecord(value) &&
+    ["applied", "skipped", "failed"].every((key) => {
+      const list = value[key];
+      return (
+        Array.isArray(list) &&
+        list.length <= 100 &&
+        list.every((item) => typeof item === "string" && item.length <= 4000)
+      );
+    })
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

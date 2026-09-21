@@ -26,7 +26,7 @@ export default function (pi: ExtensionAPI) {
     if (event.toolName === "bash") {
       const command = typeof event.input.command === "string" ? event.input.command : "";
       summary = command;
-      needsConfirmation ||= dangerousCommandPatterns.some(pattern => pattern.test(command));
+      needsConfirmation ||= dangerousCommandPatterns.some((pattern) => pattern.test(command));
     } else {
       const target = typeof event.input.path === "string" ? event.input.path : "";
       summary = target;

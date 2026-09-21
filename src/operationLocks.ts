@@ -8,6 +8,13 @@ export function acquireOperation(root: string, label: string): () => void {
   if (existing) throw new Error(`Wait for ${existing} before ${label}.`);
   operations.set(key, label);
   let released = false;
-  return () => { if (!released) { released = true; operations.delete(key); } };
+  return () => {
+    if (!released) {
+      released = true;
+      operations.delete(key);
+    }
+  };
 }
-export function hasOperation(root: string): boolean { return operations.has(path.resolve(root)); }
+export function hasOperation(root: string): boolean {
+  return operations.has(path.resolve(root));
+}

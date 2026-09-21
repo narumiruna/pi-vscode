@@ -60,6 +60,36 @@
     },
     "commands": [
       {
+        "command": "picode.reviewChanges",
+        "title": "Review Changes",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "picode.showReviewFindings",
+        "title": "Show Review Findings",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "picode.fixWorkspaceDiagnostics",
+        "title": "Fix Workspace Diagnostics (Preview)",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "picode.askReviewFinding",
+        "title": "Ask About Review Finding",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "picode.fixReviewFinding",
+        "title": "Fix Review Finding (Preview)",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
         "command": "picode.repairFailedTest",
         "title": "Repair Failed Test (Preview)",
         "category": "Pi",
@@ -186,6 +216,16 @@
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "picode.askReviewFinding",
+          "when": "false"
+        },
+        {
+          "command": "picode.fixReviewFinding",
+          "when": "false"
+        }
+      ],
       "editor/title": [
         {
           "command": "picode.quickFix",
@@ -363,6 +403,8 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "test": "npm run compile && vitest run",
+    "test:native": "npm run compile && node scripts/test-native.mjs",
+    "test:native-ui": "npm run compile && node scripts/test-native-ui.mjs",
     "package": "npm run test && vsce package --out pi-coding-agent-vscode.vsix",
     "changeset": "changeset",
     "changeset:version": "changeset version",
@@ -373,8 +415,10 @@
     "@changesets/cli": "^3.0.3",
     "@types/node": "^22.0.0",
     "@types/vscode": "1.106.0",
+    "@vscode/test-electron": "2.5.2",
     "@vscode/vsce": "^3.6.2",
     "husky": "^9.1.7",
+    "playwright-core": "1.63.0",
     "typescript": "^5.7.0",
     "vitest": "^4.1.11"
   }

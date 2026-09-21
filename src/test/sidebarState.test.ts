@@ -4,9 +4,9 @@ import {
   limitSidebarMessages,
   persistableSidebarMessages,
   restoreSidebarMessages,
+  type SidebarMessage,
   shortTranscriptLabel,
   sidebarMessagesForWebview,
-  type SidebarMessage,
 } from "../sidebarState";
 
 const messages: SidebarMessage[] = [
@@ -42,13 +42,20 @@ test("restore accepts legacy text-only records and converts the legacy context l
     content: "hello",
     attachments: [{ type: "context" as const, label: "src/legacy.ts:1-2", fullLabel: "src/legacy.ts:1-2" }],
   };
-  assert.deepEqual(restoreSidebarMessages([
-    { id: "legacy", role: "user", content: "hello", contextLabel: "src/legacy.ts:1-2" },
-    { id: "malformed", role: "user", content: "hello", contextLabel: "src/legacy.ts:1-2", attachments: "invalid" },
-  ], 10, 100), [
-    { id: "legacy", ...expected },
-    { id: "malformed", ...expected },
-  ]);
+  assert.deepEqual(
+    restoreSidebarMessages(
+      [
+        { id: "legacy", role: "user", content: "hello", contextLabel: "src/legacy.ts:1-2" },
+        { id: "malformed", role: "user", content: "hello", contextLabel: "src/legacy.ts:1-2", attachments: "invalid" },
+      ],
+      10,
+      100,
+    ),
+    [
+      { id: "legacy", ...expected },
+      { id: "malformed", ...expected },
+    ],
+  );
 });
 
 test("restore rejects malformed transcript metadata, bounds descriptors, and never restores payload bytes", () => {
@@ -56,13 +63,39 @@ test("restore rejects malformed transcript metadata, bounds descriptors, and nev
   const attachments = [
     { type: "context", label: "ok", fullLabel: "src/ok.ts" },
     { type: "context", label: "x".repeat(81), fullLabel: "too long" },
-    { type: "image", assetId, label: "photo.png", fullLabel: "photos/photo.png", mimeType: "image/png", width: 2, height: 3, availability: "available", data: "must-not-survive" },
-    { type: "image", assetId: "unsafe", label: "bad", fullLabel: "bad", mimeType: "image/svg+xml", availability: "available" },
+    {
+      type: "image",
+      assetId,
+      label: "photo.png",
+      fullLabel: "photos/photo.png",
+      mimeType: "image/png",
+      width: 2,
+      height: 3,
+      availability: "available",
+      data: "must-not-survive",
+    },
+    {
+      type: "image",
+      assetId: "unsafe",
+      label: "bad",
+      fullLabel: "bad",
+      mimeType: "image/svg+xml",
+      availability: "available",
+    },
   ];
   const restored = restoreSidebarMessages([{ id: "m", role: "user", content: "look", attachments }], 10, 100);
   assert.deepEqual(restored[0]?.attachments, [
     { type: "context", label: "ok", fullLabel: "src/ok.ts" },
-    { type: "image", assetId, label: "photo.png", fullLabel: "photos/photo.png", mimeType: "image/png", width: 2, height: 3, availability: "unavailable" },
+    {
+      type: "image",
+      assetId,
+      label: "photo.png",
+      fullLabel: "photos/photo.png",
+      mimeType: "image/png",
+      width: 2,
+      height: 3,
+      availability: "unavailable",
+    },
   ]);
   assert.doesNotMatch(JSON.stringify(persistableSidebarMessages(restored)), /must-not-survive|data/);
   const streamed = sidebarMessagesForWebview(restored, () => true);
@@ -72,8 +105,16 @@ test("restore rejects malformed transcript metadata, bounds descriptors, and nev
 });
 
 test("restore caps transcript descriptor and image counts", () => {
-  const contexts = Array.from({ length: 10 }, (_, index) => ({ type: "context", label: `c${index}`, fullLabel: `context-${index}` }));
-  const restored = restoreSidebarMessages([{ id: "bounded", role: "user", content: "request", attachments: contexts }], 10, 100);
+  const contexts = Array.from({ length: 10 }, (_, index) => ({
+    type: "context",
+    label: `c${index}`,
+    fullLabel: `context-${index}`,
+  }));
+  const restored = restoreSidebarMessages(
+    [{ id: "bounded", role: "user", content: "request", attachments: contexts }],
+    10,
+    100,
+  );
   assert.equal(restored[0]?.attachments?.length, 8);
 });
 
@@ -85,7 +126,11 @@ test("transcript labels are single-line and preserve long path suffixes within b
   assert.match(short, /file\.ts:100-200$/);
   assert.equal(shortTranscriptLabel("line\nname"), "line name");
 
-  const restored = restoreSidebarMessages([{ id: "legacy", role: "user", content: "hello", contextLabel: label }], 10, 100);
+  const restored = restoreSidebarMessages(
+    [{ id: "legacy", role: "user", content: "hello", contextLabel: label }],
+    10,
+    100,
+  );
   const context = restored[0]?.attachments?.[0];
   assert.equal(context?.type, "context");
   if (context?.type !== "context") assert.fail("expected a restored context attachment");

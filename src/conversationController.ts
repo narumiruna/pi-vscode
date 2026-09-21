@@ -11,6 +11,8 @@ export interface ConversationRequestOptions {
 
 export interface EditProposalInput {
   readonly label: string;
+  /** The adapter locks its captured workspace during Apply instead of the Sidebar's current directory. */
+  readonly managesApplyLock?: boolean;
   readonly hunks?: readonly { readonly id: string; readonly label: string }[];
   readonly onPreview: (selected?: readonly string[]) => Promise<void>;
   readonly onApply: (selected?: readonly string[]) => Promise<void>;
@@ -136,8 +138,8 @@ function assistantMessageText(message: unknown): string | undefined {
     return "";
   }
   return message.content
-    .filter(part => isRecord(part) && part.type === "text" && typeof part.text === "string")
-    .map(part => String(part.text))
+    .filter((part) => isRecord(part) && part.type === "text" && typeof part.text === "string")
+    .map((part) => String(part.text))
     .join("\n");
 }
 
@@ -145,9 +147,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-export function shouldTrackConversationChanges(
-  policy: AgentRequestPolicy | undefined,
-): boolean {
+export function shouldTrackConversationChanges(policy: AgentRequestPolicy | undefined): boolean {
   return policy !== "read-only";
 }
 

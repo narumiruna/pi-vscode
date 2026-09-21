@@ -133,7 +133,7 @@ function cancellableDelay(milliseconds: number, token: vscode.CancellationToken)
   if (token.isCancellationRequested) {
     return Promise.resolve(false);
   }
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     const timer = setTimeout(() => {
       cancellation.dispose();
       resolve(true);

@@ -1,33 +1,35 @@
 import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
-import { acquireOperation } from "./operationLocks";
-import { WorkflowDocuments } from "./workflowUi";
 import { homedir } from "node:os";
 import path from "node:path";
 import * as vscode from "vscode";
 import { BackgroundAgentManager } from "./backgroundAgents";
+import { type TrackedFileChange, WorkspaceChangeTracker } from "./changeTracker";
 import {
   ConversationRequestGate,
   ConversationRequestLifecycle,
-  ConversationSideEffectTracker,
-  ExclusiveOperationGate,
-  conversationRequestBehavior,
-  shouldTrackConversationChanges,
   type ConversationRequestOptions,
   type ConversationRequestOrigin,
+  ConversationSideEffectTracker,
+  conversationRequestBehavior,
   type EditProposalInput,
+  ExclusiveOperationGate,
   type PiConversationController,
+  shouldTrackConversationChanges,
 } from "./conversationController";
 import { EditProposalStore } from "./editProposals";
-import { WorkspaceChangeTracker, type TrackedFileChange } from "./changeTracker";
-import { getSidebarHtml } from "./sidebarHtml";
-import { renderSafeMarkdown } from "./markdown";
-import { buildAgentPrompt, type AgentRequestPolicy, type ChatReferenceContext } from "./prompts";
-import { deleteConversationWithTrashFallback, runtimeSessionIdentityChanged, type PiRuntimeManager } from "./piRuntime";
-import type { PiRpcEvent, PiRpcImage } from "./piRpcClient";
-import { resolveSidebarQueueSubmission, resolveSidebarSubmissionText, SidebarAttachmentManager } from "./sidebarAttachments";
 import { ImageAssetCache, ImageAssetDeliveryTracker } from "./imageAssets";
-import { listRecentPiSessions, piSessionKey, type PiSessionSummary } from "./sessionHistory";
+import { renderSafeMarkdown } from "./markdown";
+import { acquireOperation } from "./operationLocks";
+import type { PiRpcEvent, PiRpcImage } from "./piRpcClient";
+import { deleteConversationWithTrashFallback, type PiRuntimeManager, runtimeSessionIdentityChanged } from "./piRuntime";
+import { type AgentRequestPolicy, buildAgentPrompt, type ChatReferenceContext } from "./prompts";
+import { listRecentPiSessions, type PiSessionSummary, piSessionKey } from "./sessionHistory";
+import {
+  resolveSidebarQueueSubmission,
+  resolveSidebarSubmissionText,
+  SidebarAttachmentManager,
+} from "./sidebarAttachments";
 import {
   convertPiMessages,
   extractToolText,
@@ -41,16 +43,18 @@ import {
   stringValue,
   type WebviewMessage,
 } from "./sidebarHelpers";
+import { getSidebarHtml } from "./sidebarHtml";
 import {
   contextTranscriptAttachment,
   historySyncFailureState,
   limitSidebarMessages,
   persistableSidebarMessages,
-  sidebarMessagesForWebview,
-  shortTranscriptLabel,
   type SidebarMessage,
+  shortTranscriptLabel,
+  sidebarMessagesForWebview,
   type TranscriptAttachment,
 } from "./sidebarState";
+import { WorkflowDocuments } from "./workflowUi";
 
 const viewId = "picode.chatView";
 const storageKey = "picode.sidebar.messages.v1";
@@ -107,7 +111,11 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   private tools: ToolActivity[] = [];
   private changes: TrackedFileChange[] = [];
   private readonly proposals: EditProposalStore;
-  private readonly imageAssets = new ImageAssetCache({ maxImageBytes, maxTotalBytes: maxImageAssetCacheBytes, maxAssets: maxImageAssets });
+  private readonly imageAssets = new ImageAssetCache({
+    maxImageBytes,
+    maxTotalBytes: maxImageAssetCacheBytes,
+    maxAssets: maxImageAssets,
+  });
   private readonly imageAssetDelivery = new ImageAssetDeliveryTracker();
   private readonly attachments: SidebarAttachmentManager;
   private readonly requestGate = new ConversationRequestGate();
@@ -119,15 +127,17 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   private trackCurrentRequestChanges = false;
   private readonly currentRequestSideEffects = new ConversationSideEffectTracker(this.requestLifecycle);
   private historyRecoveryAvailable = false;
-  private retryRequest: {
-    readonly request: string;
-    readonly contexts: readonly ChatReferenceContext[];
-    readonly images: readonly PiRpcImage[];
-    readonly resource?: vscode.Uri;
-    readonly instructions?: string;
-    readonly policy?: AgentRequestPolicy;
-    readonly transcriptAttachments: readonly TranscriptAttachment[];
-  } | undefined;
+  private retryRequest:
+    | {
+        readonly request: string;
+        readonly contexts: readonly ChatReferenceContext[];
+        readonly images: readonly PiRpcImage[];
+        readonly resource?: vscode.Uri;
+        readonly instructions?: string;
+        readonly policy?: AgentRequestPolicy;
+        readonly transcriptAttachments: readonly TranscriptAttachment[];
+      }
+    | undefined;
   private streamingAssistantId: string | undefined;
   private readonly queuedTranscriptPresentations = new Map<string, QueuedTranscriptPresentation>();
   private renderTimer: NodeJS.Timeout | undefined;
@@ -159,7 +169,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     });
     this.messages = restoreMessages(context.workspaceState.get<unknown>(storageKey), maxMessages, maxStoredCharacters);
     this.disposables.push(
-      runtime.onEvent(event => this.handleRuntimeEvent(event)),
+      runtime.onEvent((event) => this.handleRuntimeEvent(event)),
       runtime.onDidChangeState(() => this.scheduleState()),
       backgroundAgents.onDidChange(() => this.scheduleState()),
     );
@@ -174,7 +184,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     };
     webviewView.webview.html = getSidebarHtml(maxInputCharacters, maxImageBytes);
 
-    const messageListener = webviewView.webview.onDidReceiveMessage(message => {
+    const messageListener = webviewView.webview.onDidReceiveMessage((message) => {
       void this.handleMessage(message);
     });
     const viewListener = webviewView.onDidDispose(() => {
@@ -226,7 +236,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       options.onResponse,
       undefined,
       options.validate,
-      contexts.flatMap(context => contextTranscriptAttachment(context.label) ?? []),
+      contexts.flatMap((context) => contextTranscriptAttachment(context.label) ?? []),
     );
   }
 
@@ -284,16 +294,25 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
         case "inspectQueue": {
           const documents = new WorkflowDocuments();
           const state = this.runtime.currentState;
-          try { await documents.inspect("Pi pending queue snapshot", `Session ${state.sessionId ?? "unknown"}; captured ${new Date().toISOString()}. Pending state can change while inspecting; not delivery evidence.\n\n${JSON.stringify(state.queue ?? { steering: [], followUp: [] }, null, 2)}`); }
-          finally { documents.dispose(); }
+          try {
+            await documents.inspect(
+              "Pi pending queue snapshot",
+              `Session ${state.sessionId ?? "unknown"}; captured ${new Date().toISOString()}. Pending state can change while inspecting; not delivery evidence.\n\n${JSON.stringify(state.queue ?? { steering: [], followUp: [] }, null, 2)}`,
+            );
+          } finally {
+            documents.dispose();
+          }
           break;
         }
         case "recoverQueue": {
-          const picked = await vscode.window.showQuickPick((this.runtime.currentState.recoveredDrafts ?? []).map(draft => ({
-            label: draft.text.slice(0, 150),
-            description: `${draft.uncertain ? "Delivery uncertain — inspect history before resending" : "Cleared before delivery"}${draft.hasAttachments ? " · attachments available" : ""}`,
-            draft,
-          })), { title: "Recovered queue drafts (never replayed automatically)" });
+          const picked = await vscode.window.showQuickPick(
+            (this.runtime.currentState.recoveredDrafts ?? []).map((draft) => ({
+              label: draft.text.slice(0, 150),
+              description: `${draft.uncertain ? "Delivery uncertain — inspect history before resending" : "Cleared before delivery"}${draft.hasAttachments ? " · attachments available" : ""}`,
+              draft,
+            })),
+            { title: "Recovered queue drafts (never replayed automatically)" },
+          );
           if (picked) {
             this.postMessage({
               type: "appendDraft",
@@ -431,11 +450,21 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
         case "proposalAction":
           if (this.isForegroundRequestActive()) throw new Error("Wait for Pi before changing or applying proposals.");
           if (message.action === "select") {
-            const choices = await vscode.window.showQuickPick(this.proposals.hunkChoices(message.id), { title: "Choose edit hunks · changing selection invalidates Preview", canPickMany: true });
-            if (choices) this.proposals.select(message.id, choices.map(choice => choice.id));
+            const choices = await vscode.window.showQuickPick(this.proposals.hunkChoices(message.id), {
+              title: "Choose edit hunks · changing selection invalidates Preview",
+              canPickMany: true,
+            });
+            if (choices)
+              this.proposals.select(
+                message.id,
+                choices.map((choice) => choice.id),
+              );
           } else {
-            const release = acquireOperation(await realpath(this.runtime.currentCwd), "edit proposal action");
-            try { await this.proposals.handleAction(message.id, message.action); } finally { release(); }
+            await this.proposals.handleLockedAction(
+              message.id,
+              message.action,
+              await realpath(this.runtime.currentCwd),
+            );
           }
           break;
         case "runBackground":
@@ -506,6 +535,9 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     const selected = await vscode.window.showQuickPick(
       [
         { label: "$(history) Request Checkpoints", action: "checkpoints" },
+        { label: "$(git-pull-request) Review Changes…", action: "review" },
+        { label: "$(list-unordered) Show Review Findings", action: "findings" },
+        { label: "$(wrench) Fix Workspace Diagnostics (Preview)", action: "diagnostics" },
         { label: "$(git-pull-request) Review Staged Changes", action: "staged" },
         { label: "$(beaker) Repair Failed Test", action: "repair" },
         { label: "$(debug) Ask Debug Context", action: "debug" },
@@ -527,13 +559,19 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       if (this.isForegroundRequestActive()) throw new Error("Wait for Pi before restoring checkpoints.");
       const release = this.requestGate.acquire();
       this.postState();
-      try { await this.changeTracker.selectCheckpoint(this.runtime.currentCwd, this.runtime.currentState.sessionId); }
-      finally {
+      try {
+        await this.changeTracker.selectCheckpoint(this.runtime.currentCwd, this.runtime.currentState.sessionId);
+      } finally {
         // Even partial restore failures invalidate dependent previews.
-        this.proposals.clear(); this.backgroundAgents.invalidateResults(); this.changes = this.changeTracker.changes;
-        release(); this.postState();
+        this.proposals.clear();
+        this.backgroundAgents.invalidateResults();
+        this.changes = this.changeTracker.changes;
+        release();
+        this.postState();
       }
-    }
+    } else if (selected.action === "review") await vscode.commands.executeCommand("picode.reviewChanges");
+    else if (selected.action === "findings") await vscode.commands.executeCommand("picode.showReviewFindings");
+    else if (selected.action === "diagnostics") await vscode.commands.executeCommand("picode.fixWorkspaceDiagnostics");
     else if (selected.action === "staged") await vscode.commands.executeCommand("picode.reviewStagedChanges");
     else if (selected.action === "repair") await vscode.commands.executeCommand("picode.repairFailedTest");
     else if (selected.action === "debug") await vscode.commands.executeCommand("picode.askDebugContext");
@@ -552,16 +590,18 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   private async pickModel(): Promise<void> {
     const models = this.runtime.currentState.availableModels;
     const selected = await vscode.window.showQuickPick(
-      models.flatMap(model => {
+      models.flatMap((model) => {
         const provider = stringValue(model.provider);
         const id = stringValue(model.id);
         if (!provider || !id) return [];
-        return [{
-          label: stringValue(model.name) ?? `${provider}/${id}`,
-          description: `${provider}/${id}`,
-          provider,
-          id,
-        }];
+        return [
+          {
+            label: stringValue(model.name) ?? `${provider}/${id}`,
+            description: `${provider}/${id}`,
+            provider,
+            id,
+          },
+        ];
       }),
       { title: "Choose Pi Model", matchOnDescription: true },
     );
@@ -571,10 +611,9 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   }
 
   private async pickThinkingLevel(): Promise<void> {
-    const selected = await vscode.window.showQuickPick(
-      this.runtime.currentState.availableThinkingLevels,
-      { title: "Choose Pi Thinking Level" },
-    );
+    const selected = await vscode.window.showQuickPick(this.runtime.currentState.availableThinkingLevels, {
+      title: "Choose Pi Thinking Level",
+    });
     if (selected) {
       await this.runtime.setThinkingLevel(selected);
     }
@@ -586,7 +625,9 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       throw new Error("There is no failed or cancelled Pi request to retry.");
     }
     if (retry.images.length > 0 && !modelSupportsImages(this.runtime.currentState.model)) {
-      throw new Error("The current model does not support the images in this request. Change the model before retrying.");
+      throw new Error(
+        "The current model does not support the images in this request. Change the model before retrying.",
+      );
     }
     for (const image of retry.images) this.imageAssets.store(image.mimeType, image.data);
     await this.runRequest(
@@ -612,7 +653,9 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       return;
     }
     if (submission.images.length > 0 && !modelSupportsImages(this.runtime.currentState.model)) {
-      throw new Error("The current model does not support images. Change the model or remove image attachments before sending.");
+      throw new Error(
+        "The current model does not support images. Change the model or remove image attachments before sending.",
+      );
     }
     const instructionId = randomUUID();
     this.queuedTranscriptPresentations.set(instructionId, {
@@ -649,12 +692,17 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       this.postMessage({ type: "sendRejected" });
       return;
     }
-    if (text.length > maxInputCharacters) throw new Error(`Messages are limited to ${maxInputCharacters.toLocaleString()} characters.`);
+    if (text.length > maxInputCharacters)
+      throw new Error(`Messages are limited to ${maxInputCharacters.toLocaleString()} characters.`);
     if (submission.images.length > 0 && !modelSupportsImages(this.runtime.currentState.model)) {
-      throw new Error("The current model does not support images. Change the model or remove image attachments before sending.");
+      throw new Error(
+        "The current model does not support images. Change the model or remove image attachments before sending.",
+      );
     }
-    if (this.isForegroundRequestActive()) throw new Error("Cancel or wait for the active request before starting a new session.");
-    if (this.backgroundSubmissionGate.isPending) throw new Error("Wait for the background or worktree agent to finish starting before starting a new session.");
+    if (this.isForegroundRequestActive())
+      throw new Error("Cancel or wait for the active request before starting a new session.");
+    if (this.backgroundSubmissionGate.isPending)
+      throw new Error("Wait for the background or worktree agent to finish starting before starting a new session.");
 
     const releaseRequest = this.requestGate.acquire();
     this.postState();
@@ -694,7 +742,9 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       return;
     }
     if (submission.images.length > 0 && !modelSupportsImages(this.runtime.currentState.model)) {
-      throw new Error("The current model does not support images. Change the model or remove image attachments before sending.");
+      throw new Error(
+        "The current model does not support images. Change the model or remove image attachments before sending.",
+      );
     }
     await this.runRequest(
       text,
@@ -758,16 +808,35 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       await this.runtime.ensureStarted(resource);
       releaseOperation = acquireOperation(await realpath(this.runtime.currentCwd), "foreground Pi request");
       const submittedTranscriptAttachments = transcriptAttachments ?? [
-        ...contexts.flatMap(context => contextTranscriptAttachment(context.label) ?? []),
+        ...contexts.flatMap((context) => contextTranscriptAttachment(context.label) ?? []),
         ...images.flatMap((image, index) => {
           const asset = this.imageAssets.store(image.mimeType, image.data);
           if (!asset) return [];
           const fullLabel = `Image ${index + 1}`;
-          return [{ type: "image" as const, assetId: asset.id, label: shortTranscriptLabel(fullLabel), fullLabel, mimeType: asset.mimeType, width: asset.width, height: asset.height, availability: "available" as const }];
+          return [
+            {
+              type: "image" as const,
+              assetId: asset.id,
+              label: shortTranscriptLabel(fullLabel),
+              fullLabel,
+              mimeType: asset.mimeType,
+              width: asset.width,
+              height: asset.height,
+              availability: "available" as const,
+            },
+          ];
         }),
       ];
       this.retryRequest = retryable
-        ? { request: text, contexts: [...contexts], images: [...images], resource, instructions, policy, transcriptAttachments: submittedTranscriptAttachments }
+        ? {
+            request: text,
+            contexts: [...contexts],
+            images: [...images],
+            resource,
+            instructions,
+            policy,
+            transcriptAttachments: submittedTranscriptAttachments,
+          }
         : undefined;
       this.messages = limitSidebarMessages(
         [
@@ -795,7 +864,8 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
         images,
         behavior.clearComposerOnAccepted ? onAccepted : undefined,
         () => {
-          this.requestLifecycle.throwIfCancelled(); validate?.();
+          this.requestLifecycle.throwIfCancelled();
+          validate?.();
           if (shouldTrackConversationChanges(policy)) {
             this.changeTracker.startRequest(this.runtime.currentCwd, this.runtime.currentState.sessionId);
             this.trackCurrentRequestChanges = true;
@@ -857,7 +927,11 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
         } else {
           this.historyRecoveryAvailable = false;
           this.status = "Pi completed · Follow-up action failed";
-          this.postNotice("Pi completed the request, but the follow-up action failed. The request will not be retried.", "warning", message);
+          this.postNotice(
+            "Pi completed the request, but the follow-up action failed. The request will not be retried.",
+            "warning",
+            message,
+          );
         }
       } else if (this.requestLifecycle.wasCancelled || /cancelled/i.test(message)) {
         this.status = retryable ? "Cancelled · Ready to retry" : "Cancelled · Run the action again to retry";
@@ -870,7 +944,9 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       } else {
         this.status = retryable ? "Request failed · Retry available" : "Request failed · Run the action again";
         this.postNotice(
-          retryable ? "Pi request failed. Retry the message after resolving the problem." : "Pi request failed. Run the editor action again to retry.",
+          retryable
+            ? "Pi request failed. Retry the message after resolving the problem."
+            : "Pi request failed. Run the editor action again to retry.",
           "error",
           message,
         );
@@ -886,7 +962,11 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   }
 
   private isForegroundRequestActive(): boolean {
-    return this.requestGate.isPending || this.runtime.currentState.busy || this.proposals.states.some(proposal => ["previewing", "applying", "rejecting"].includes(proposal.status));
+    return (
+      this.requestGate.isPending ||
+      this.runtime.currentState.busy ||
+      this.proposals.states.some((proposal) => ["previewing", "applying", "rejecting"].includes(proposal.status))
+    );
   }
 
   private async runBackground(rawText: string, isolated: boolean, composerRevision: number): Promise<void> {
@@ -911,7 +991,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       if (!confirmation) {
         return;
       }
-      const submittedAttachmentIds = this.attachments.values.map(attachment => attachment.id);
+      const submittedAttachmentIds = this.attachments.values.map((attachment) => attachment.id);
       const contexts = this.attachments.textContexts;
       const images = this.attachments.images;
       await this.backgroundAgents.start(text, contexts, images, this.runtime.currentCwd, isolated);
@@ -986,13 +1066,15 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
         this.status = "Session kept · Trash unavailable";
         this.postNotice("Trash is unavailable for this file provider. The session was kept.", "warning");
         this.postState();
-        return await vscode.window.showWarningMessage(
-          `Trash is unavailable. Permanently delete ${target}? This cannot be undone.`,
-          { modal: true },
-          "Delete Permanently",
-        ) === "Delete Permanently";
+        return (
+          (await vscode.window.showWarningMessage(
+            `Trash is unavailable. Permanently delete ${target}? This cannot be undone.`,
+            { modal: true },
+            "Delete Permanently",
+          )) === "Delete Permanently"
+        );
       },
-      deletePermanently: async trashError => {
+      deletePermanently: async (trashError) => {
         this.status = "Permanently deleting session…";
         this.postState();
         await this.runtime.deleteSessionPermanently(trashError.sessionFile);
@@ -1000,7 +1082,9 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     });
     if (outcome.status === "deleted") {
       const next = this.runtime.currentState.connected ? "New Pi session" : "Reconnect available";
-      await this.resetConversation(`${outcome.permanently ? "Session permanently deleted" : "Session deleted"} · ${next}`);
+      await this.resetConversation(
+        `${outcome.permanently ? "Session permanently deleted" : "Session deleted"} · ${next}`,
+      );
       await this.refreshRecentSessions();
       return;
     }
@@ -1008,7 +1092,9 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     const status = outcome.status === "failed" ? "Session kept · Delete failed" : "Session kept · Trash unavailable";
     if (outcome.status === "failed") {
       this.postNotice(
-        outcome.permanently ? "The session could not be permanently deleted and was kept." : "The session could not be moved to Trash and was kept.",
+        outcome.permanently
+          ? "The session could not be permanently deleted and was kept."
+          : "The session could not be moved to Trash and was kept.",
         "error",
         formatError(outcome.error),
       );
@@ -1049,7 +1135,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   }
 
   private async revertChange(id: string): Promise<void> {
-    const change = this.changes.find(item => item.id === id);
+    const change = this.changes.find((item) => item.id === id);
     if (!change) {
       throw new Error("The selected Pi change is no longer available.");
     }
@@ -1057,12 +1143,19 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     const release = this.requestGate.acquire();
     this.postState();
     try {
-      const confirmation = await vscode.window.showWarningMessage(`Revert Pi's change to ${change.label}?`, { modal: true }, "Revert File");
+      const confirmation = await vscode.window.showWarningMessage(
+        `Revert Pi's change to ${change.label}?`,
+        { modal: true },
+        "Revert File",
+      );
       if (confirmation !== "Revert File") return;
       this.changes = this.changeTracker.revert(id);
     } finally {
-      this.proposals.clear(); this.backgroundAgents.invalidateResults(); this.changes = this.changeTracker.changes;
-      release(); this.postState();
+      this.proposals.clear();
+      this.backgroundAgents.invalidateResults();
+      this.changes = this.changeTracker.changes;
+      release();
+      this.postState();
     }
   }
 
@@ -1086,8 +1179,9 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       this.postNotice("Cancel or wait for the active request before switching sessions.", "warning");
       return;
     }
-    const selected = this.recentSessions.find(session => session.key === id);
-    if (!selected) throw new Error("The selected session is no longer in the recent session list. Refresh Sessions and try again.");
+    const selected = this.recentSessions.find((session) => session.key === id);
+    if (!selected)
+      throw new Error("The selected session is no longer in the recent session list. Refresh Sessions and try again.");
     if (selected.path === this.runtime.currentState.sessionFile) {
       this.postState();
       return;
@@ -1133,18 +1227,20 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
 
   private async pickPiCommand(): Promise<void> {
     const commands = this.runtime.currentState.commands
-      .map(command => ({
+      .map((command) => ({
         name: typeof command.name === "string" ? command.name : undefined,
         description: typeof command.description === "string" ? command.description : undefined,
         source: typeof command.source === "string" ? command.source : undefined,
       }))
-      .filter((command): command is { name: string; description: string | undefined; source: string | undefined } => Boolean(command.name));
+      .filter((command): command is { name: string; description: string | undefined; source: string | undefined } =>
+        Boolean(command.name),
+      );
     if (commands.length === 0) {
       this.postNotice("Pi did not discover any extension commands, prompt templates, or skills.", "info");
       return;
     }
     const selected = await vscode.window.showQuickPick(
-      commands.map(command => ({
+      commands.map((command) => ({
         label: `/${command.name}`,
         description: command.source,
         detail: command.description,
@@ -1161,7 +1257,10 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     const defaultName = `${this.runtime.currentState.sessionName ?? "pi-session"}.html`;
     const target = await vscode.window.showSaveDialog({
       title: "Export Pi Session",
-      defaultUri: vscode.Uri.joinPath(vscode.workspace.workspaceFolders?.[0]?.uri ?? vscode.Uri.file(homedir()), defaultName),
+      defaultUri: vscode.Uri.joinPath(
+        vscode.workspace.workspaceFolders?.[0]?.uri ?? vscode.Uri.file(homedir()),
+        defaultName,
+      ),
       filters: { HTML: ["html"] },
       saveLabel: "Export",
     });
@@ -1184,7 +1283,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
         const presentation = this.queuedTranscriptPresentations.get(id);
         const message = presentation?.message ?? { id: `picode-queued-${id}`, role: "user" as const, content: text };
         this.queuedTranscriptPresentations.delete(id);
-        if (!this.messages.some(candidate => candidate.id === message.id)) {
+        if (!this.messages.some((candidate) => candidate.id === message.id)) {
           this.messages = limitSidebarMessages([...this.messages, message], maxMessages, maxStoredCharacters);
           void this.persistMessages();
         }
@@ -1253,9 +1352,13 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       this.status = "Disconnected · Reconnect available";
     } else if (event.type === "runtime_warning" || event.type === "protocol_error") {
       const details = stringValue(event.message);
-      this.postNotice(event.type === "protocol_error" ? "Pi reported a protocol error." : "Pi reported a runtime warning.", "warning", details);
+      this.postNotice(
+        event.type === "protocol_error" ? "Pi reported a protocol error." : "Pi reported a runtime warning.",
+        "warning",
+        details,
+      );
     } else if (event.type === "extension_ui_request") {
-      void this.handleExtensionUiRequest(event).catch(error => {
+      void this.handleExtensionUiRequest(event).catch((error) => {
         this.postNotice("The Pi extension UI request failed.", "error", formatError(error));
       });
     }
@@ -1270,7 +1373,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     }
 
     if (method === "select") {
-      const options = Array.isArray(event.options) ? event.options.filter(value => typeof value === "string") : [];
+      const options = Array.isArray(event.options) ? event.options.filter((value) => typeof value === "string") : [];
       const value = await vscode.window.showQuickPick(options, {
         title: stringValue(event.title) ?? "Pi",
         ignoreFocusOut: true,
@@ -1321,7 +1424,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
         maxStoredCharacters,
       );
     } else {
-      this.messages = this.messages.map(message =>
+      this.messages = this.messages.map((message) =>
         message.id === id ? { ...message, content: message.content + delta } : message,
       );
     }
@@ -1329,11 +1432,11 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   }
 
   private upsertTool(activity: ToolActivity): void {
-    this.tools = [...this.tools.filter(tool => tool.id !== activity.id), activity].slice(-maxToolActivities);
+    this.tools = [...this.tools.filter((tool) => tool.id !== activity.id), activity].slice(-maxToolActivities);
   }
 
   private updateTool(id: string, changes: Partial<ToolActivity>): void {
-    this.tools = this.tools.map(tool => (tool.id === id ? { ...tool, ...changes } : tool));
+    this.tools = this.tools.map((tool) => (tool.id === id ? { ...tool, ...changes } : tool));
   }
 
   private async syncMessagesFromPi(): Promise<void> {
@@ -1348,7 +1451,11 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       throw new Error("Wait for Pi to finish before refreshing conversation history.");
     }
     try {
-      const messages = convertPiMessages(await this.runtime.getMessages(), { imageAssets: this.imageAssets, knownMessages: this.messages, maxMessages });
+      const messages = convertPiMessages(await this.runtime.getMessages(), {
+        imageAssets: this.imageAssets,
+        knownMessages: this.messages,
+        maxMessages,
+      });
       if (messages.length > 0 || this.runtime.currentState.sessionId) {
         this.messages = limitSidebarMessages(messages, maxMessages, maxStoredCharacters);
         await this.persistMessages();
@@ -1376,16 +1483,24 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
 
     try {
       const sessions = await listRecentPiSessions(activeSessionFile, this.runtime.currentCwd);
-      if (revision !== this.sessionRefreshRevision || activeSessionFile !== this.runtime.currentState.sessionFile || !sessions) return;
-      this.recentSessions = sessions.some(session => session.path === activeSessionFile)
+      if (
+        revision !== this.sessionRefreshRevision ||
+        activeSessionFile !== this.runtime.currentState.sessionFile ||
+        !sessions
+      )
+        return;
+      this.recentSessions = sessions.some((session) => session.path === activeSessionFile)
         ? sessions
-        : [{
-          key: piSessionKey(activeSessionFile),
-          path: activeSessionFile,
-          sessionId: runtime.sessionId ?? "",
-          title: runtime.sessionName?.trim() || "New conversation",
-          updatedAt: Date.now(),
-        }, ...sessions].slice(0, 100);
+        : [
+            {
+              key: piSessionKey(activeSessionFile),
+              path: activeSessionFile,
+              sessionId: runtime.sessionId ?? "",
+              title: runtime.sessionName?.trim() || "New conversation",
+              updatedAt: Date.now(),
+            },
+            ...sessions,
+          ].slice(0, 100);
     } catch {
       if (revision !== this.sessionRefreshRevision) return;
       // Keep the previous index on transient filesystem failures.
@@ -1417,8 +1532,8 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     const attachmentSummaries = this.attachments.summaries;
     const messages = sidebarMessagesForWebview(
       this.messages,
-      assetId => this.imageAssets.has(assetId) || this.imageAssetDelivery.has(assetId),
-    ).map(message => ({ ...message, html: renderSafeMarkdown(message.content) }));
+      (assetId) => this.imageAssets.has(assetId) || this.imageAssetDelivery.has(assetId),
+    ).map((message) => ({ ...message, html: renderSafeMarkdown(message.content) }));
     this.postMessage({
       type: "state",
       messages,
@@ -1428,12 +1543,17 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       backgroundTasks: this.backgroundAgents.states,
       status: this.status,
       attachments: attachmentSummaries,
-      attachmentEstimate: { characters: estimate.characters, bytes: estimate.bytes, estimatedTextTokens: estimate.estimatedTextTokens, imageUsage: estimate.imageUsage },
+      attachmentEstimate: {
+        characters: estimate.characters,
+        bytes: estimate.bytes,
+        estimatedTextTokens: estimate.estimatedTextTokens,
+        imageUsage: estimate.imageUsage,
+      },
       imageSupported: modelSupportsImages(this.runtime.currentState.model),
       retryAvailable: Boolean(this.retryRequest) && !requestBusy,
       historyRecoveryAvailable: this.historyRecoveryAvailable && !requestBusy,
       backgroundSubmissionPending: this.backgroundSubmissionGate.isPending,
-      sessions: this.recentSessions.map(session => ({
+      sessions: this.recentSessions.map((session) => ({
         id: session.key,
         title: session.title,
         updatedAt: session.updatedAt,
@@ -1441,28 +1561,38 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       })),
       runtime: { ...this.runtime.currentState, busy: requestBusy, cancellable: this.foregroundCancellable },
     });
-    this.deliverReferencedImageAssets(messages, attachmentSummaries.flatMap(attachment => attachment.assetId ? [attachment.assetId] : []));
+    this.deliverReferencedImageAssets(
+      messages,
+      attachmentSummaries.flatMap((attachment) => (attachment.assetId ? [attachment.assetId] : [])),
+    );
   }
 
-  private deliverReferencedImageAssets(messages: readonly SidebarMessage[], composerAssetIds: readonly string[] = []): void {
+  private deliverReferencedImageAssets(
+    messages: readonly SidebarMessage[],
+    composerAssetIds: readonly string[] = [],
+  ): void {
     const webview = this.view?.webview;
     if (!webview) return;
     const referenced = new Set([
-      ...messages.flatMap(message => (message.attachments ?? []).flatMap(attachment => attachment.type === "image" ? [attachment.assetId] : [])),
+      ...messages.flatMap((message) =>
+        (message.attachments ?? []).flatMap((attachment) => (attachment.type === "image" ? [attachment.assetId] : [])),
+      ),
       ...composerAssetIds,
     ]);
     for (const asset of this.imageAssetDelivery.pending(referenced, this.imageAssets)) {
-      void webview.postMessage({
-        type: "imageAsset",
-        id: asset.id,
-        mimeType: asset.mimeType,
-        data: asset.data,
-        byteLength: asset.byteLength,
-        width: asset.width,
-        height: asset.height,
-      }).then(delivered => {
-        if (!delivered && this.view?.webview === webview) this.imageAssetDelivery.retry(asset.id);
-      });
+      void webview
+        .postMessage({
+          type: "imageAsset",
+          id: asset.id,
+          mimeType: asset.mimeType,
+          data: asset.data,
+          byteLength: asset.byteLength,
+          width: asset.width,
+          height: asset.height,
+        })
+        .then((delivered) => {
+          if (!delivered && this.view?.webview === webview) this.imageAssetDelivery.retry(asset.id);
+        });
     }
   }
 
@@ -1478,8 +1608,10 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
 }
 
 function actionErrorSummary(action: WebviewMessage["type"]): string {
-  if (action === "queueInstruction") return "Pi could not confirm queued message delivery. Inspect history and recovered drafts before resending.";
-  if (action === "send" || action === "sendNewSession" || action === "retry") return "Pi could not accept the message. Review details, then retry when safe.";
+  if (action === "queueInstruction")
+    return "Pi could not confirm queued message delivery. Inspect history and recovered drafts before resending.";
+  if (action === "send" || action === "sendNewSession" || action === "retry")
+    return "Pi could not accept the message. Review details, then retry when safe.";
   if (action === "reconnect") return "Pi could not reconnect. Review details and try again.";
   if (action === "refreshHistory") return "Conversation history could not be refreshed. Review details and try again.";
   if (action === "deleteSession") return "The session could not be deleted and was kept.";

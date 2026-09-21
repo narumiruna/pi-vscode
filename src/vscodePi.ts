@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
+import { type PiCodeConfiguration, picodeConfiguration } from "./configuration";
 import { invokePi, type PiInvocationOptions } from "./piClient";
-import { picodeConfiguration, type PiCodeConfiguration } from "./configuration";
 
 const activeControllers = new Set<AbortController>();
 

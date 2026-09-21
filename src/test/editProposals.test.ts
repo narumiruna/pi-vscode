@@ -6,15 +6,16 @@ test("edit proposals retain content until terminal state and reject concurrent a
   let disposed = 0;
   const changes: string[][] = [];
   const store = new EditProposalStore(
-    () => changes.push(store.states.map(proposal => proposal.status)),
+    () => changes.push(store.states.map((proposal) => proposal.status)),
     () => {},
   );
   const id = store.add({
     label: "src/app.ts:1-2",
     onPreview: async () => {},
-    onApply: () => new Promise<void>(resolve => {
-      finishApply = resolve;
-    }),
+    onApply: () =>
+      new Promise<void>((resolve) => {
+        finishApply = resolve;
+      }),
     onDispose: () => {
       disposed += 1;
     },
@@ -36,18 +37,25 @@ test("edit proposals retain content until terminal state and reject concurrent a
   store.clear();
   assert.equal(disposed, 1);
   assert.equal(store.states.length, 0);
-  assert.equal(changes.some(statuses => statuses.includes("applying")), true);
+  assert.equal(
+    changes.some((statuses) => statuses.includes("applying")),
+    true,
+  );
 });
 
 test("applies are serialized across separate live proposals", async () => {
   let finishFirstApply: (() => void) | undefined;
-  const store = new EditProposalStore(() => {}, () => {});
+  const store = new EditProposalStore(
+    () => {},
+    () => {},
+  );
   const first = store.add({
     label: "src/app.ts:1",
     onPreview: async () => {},
-    onApply: () => new Promise<void>(resolve => {
-      finishFirstApply = resolve;
-    }),
+    onApply: () =>
+      new Promise<void>((resolve) => {
+        finishFirstApply = resolve;
+      }),
   });
   const second = store.add({
     label: "src/app.ts:2",
@@ -59,17 +67,20 @@ test("applies are serialized across separate live proposals", async () => {
 
   const applying = store.handleAction(first, "apply");
   await assert.rejects(store.handleAction(second, "apply"), /current edit Apply operation/);
-  assert.equal(store.states.find(proposal => proposal.id === second)?.status, "previewed");
+  assert.equal(store.states.find((proposal) => proposal.id === second)?.status, "previewed");
 
   finishFirstApply?.();
   await applying;
   await store.handleAction(second, "apply");
-  assert.equal(store.states.find(proposal => proposal.id === second)?.status, "applied");
+  assert.equal(store.states.find((proposal) => proposal.id === second)?.status, "applied");
 });
 
 test("terminal proposals release callbacks and retain only bounded lightweight states", async () => {
   let disposed = 0;
-  const store = new EditProposalStore(() => {}, () => {});
+  const store = new EditProposalStore(
+    () => {},
+    () => {},
+  );
 
   for (let index = 0; index < 25; index += 1) {
     const id = store.add({
@@ -85,7 +96,10 @@ test("terminal proposals release callbacks and retain only bounded lightweight s
 
   assert.equal(disposed, 25);
   assert.equal(store.states.length, 20);
-  assert.equal(store.states.every(proposal => proposal.status === "rejected"), true);
+  assert.equal(
+    store.states.every((proposal) => proposal.status === "rejected"),
+    true,
+  );
 });
 
 test("stale preview failures release retained content and become terminal", async () => {
@@ -93,7 +107,7 @@ test("stale preview failures release retained content and become terminal", asyn
   const notices: string[] = [];
   const store = new EditProposalStore(
     () => {},
-    message => notices.push(message),
+    (message) => notices.push(message),
   );
   const id = store.add({
     label: "src/app.ts:1",
