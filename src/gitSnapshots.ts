@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
+import { type BigIntStats, constants } from "node:fs";
 import { type FileHandle, lstat, open, realpath } from "node:fs/promises";
 import path from "node:path";
 import { runBoundedProcess } from "./boundedProcess";
@@ -524,18 +524,38 @@ async function readTreeText(
 async function readWorktreeText(root: string, relative: string): Promise<string | undefined> {
   if (!safeRelativePath(relative)) throw new Error("Unsupported or unsafe path");
   if ((await realpath(root)) !== root) throw new Error("Repository root changed.");
+  const parents: { path: string; stat: BigIntStats }[] = [];
   let parent = root;
-  for (const part of relative.split("/").slice(0, -1)) {
+  for (const part of ["", ...relative.split("/").slice(0, -1)]) {
     parent = path.join(parent, part);
     try {
-      const info = await lstat(parent);
+      const info = await lstat(parent, { bigint: true });
       if (info.isSymbolicLink() || !info.isDirectory()) throw new Error("Unsupported worktree parent");
+      parents.push({ path: parent, stat: info });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
       throw error;
     }
   }
   const absolute = path.join(root, relative);
+  const checkedName = async () => {
+    if ((await realpath(absolute)) !== absolute) throw new Error("Worktree file escaped its canonical path");
+    // O_NOFOLLOW protects only the leaf. Bind the name to the captured directory
+    // chain as well; change times detect a renamed parent restored before this check.
+    for (const parent of parents) {
+      const current = await lstat(parent.path, { bigint: true });
+      if (
+        !current.isDirectory() ||
+        current.isSymbolicLink() ||
+        current.dev !== parent.stat.dev ||
+        current.ino !== parent.stat.ino ||
+        current.ctimeNs !== parent.stat.ctimeNs ||
+        current.mtimeNs !== parent.stat.mtimeNs
+      )
+        throw new Error("Worktree parent changed during capture");
+    }
+    return lstat(absolute);
+  };
   let handle: FileHandle | undefined;
   try {
     const namedBefore = await lstat(absolute);
@@ -546,16 +566,28 @@ async function readWorktreeText(root: string, relative: string): Promise<string 
       namedBefore.size > maxGitReviewFileBytes
     )
       throw new Error("Oversized or unsupported worktree file");
-    handle = await open(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
+    handle = await open(absolute, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     const opened = await handle.stat();
-    if (opened.dev !== namedBefore.dev || opened.ino !== namedBefore.ino || opened.nlink !== 1)
+    if (!opened.isFile() || opened.nlink !== 1 || opened.size > maxGitReviewFileBytes)
+      throw new Error("Oversized or unsupported opened worktree file");
+    const namedOpened = await checkedName();
+    if (
+      opened.dev !== namedBefore.dev ||
+      opened.ino !== namedBefore.ino ||
+      namedOpened.isSymbolicLink() ||
+      namedOpened.dev !== opened.dev ||
+      namedOpened.ino !== opened.ino ||
+      namedOpened.nlink !== 1
+    )
       throw new Error("Worktree file identity changed during capture");
     const bytes = Buffer.alloc(opened.size + 1);
     const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
     const after = await handle.stat();
-    const namedAfter = await lstat(absolute);
+    const namedAfter = await checkedName();
     if (
       namedAfter.isSymbolicLink() ||
+      namedAfter.nlink !== 1 ||
+      after.nlink !== 1 ||
       namedAfter.dev !== opened.dev ||
       namedAfter.ino !== opened.ino ||
       bytesRead !== opened.size ||
