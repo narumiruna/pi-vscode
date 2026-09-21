@@ -47,7 +47,7 @@ export function registerWorkspaceDiagnostics(
       for (const [uri, diagnostics] of vscode.languages.getDiagnostics()) {
         if (uri.scheme !== "file" || vscode.workspace.getWorkspaceFolder(uri)?.uri.toString() !== folder.toString())
           continue;
-        const relative = path.relative(root, uri.fsPath).split(path.sep).join("/");
+        const relative = path.relative(folder.fsPath, uri.fsPath).split(path.sep).join("/");
         if (!relative || relative.startsWith("../") || path.isAbsolute(relative)) continue;
         for (const diagnostic of filterFixableDiagnostics(diagnostics)) {
           if (diagnostic.message.length > 2_000) continue;
@@ -157,6 +157,7 @@ export function registerWorkspaceDiagnostics(
               conversation,
               {
                 root,
+                workspacePath: folder.fsPath,
                 files: replacements.map((replacement) => {
                   const source = snapshot.files.find((file) => file.path === replacement.path)!;
                   return {

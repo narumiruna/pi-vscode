@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,6 +11,8 @@ import { chromium } from "playwright-core";
 // Actual Quick Picks, modals, Problems, code actions and webview clicks; only Pi is simulated.
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const version = process.argv[2] ?? "1.106.0";
+const workspaceAlias = process.argv[3] === "alias";
+const evidenceLabel = `${version}${workspaceAlias ? "-alias" : ""}`;
 if (process.platform !== "linux") throw new Error("The native UI runner currently supports Linux only.");
 const directory = await mkdtemp(path.join(tmpdir(), "pi-native-ui-"));
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -53,8 +55,10 @@ let exited;
 let log = "";
 try {
   const workspace = path.join(directory, "workspace");
+  const openedWorkspace = workspaceAlias ? path.join(directory, "workspace-alias") : workspace;
   const userData = path.join(directory, "user");
   await mkdir(workspace);
+  if (workspaceAlias) await symlink(workspace, openedWorkspace, "junction");
   await mkdir(path.join(userData, "User"), { recursive: true });
   const executableFixture = path.join(directory, "pi-fixture");
   await copyFile(path.join(repository, "scripts", "fixtures", "native-pi.cjs"), executableFixture);
@@ -132,7 +136,7 @@ try {
   child = spawn(
     executable,
     [
-      workspace,
+      openedWorkspace,
       "--no-sandbox",
       "--disable-gpu",
       "--disable-updates",
@@ -187,6 +191,7 @@ try {
   page.setDefaultTimeout(15_000);
   const ready = await until(() => json("ready.json"), "native coordinator ready", 40_000);
   assert.equal(ready.trusted, true);
+  assert.equal(ready.workspace, openedWorkspace, "VS Code must retain the requested editor URI spelling");
   const frame = () =>
     until(async () => {
       for (const candidate of page.frames()) {
@@ -358,7 +363,7 @@ try {
   await invoke("undo");
   assert.deepEqual((await invoke("state")).texts, initial.texts);
   console.log("PI_NATIVE_UI selected-hunk multi-file Preview/Apply/Undo passed");
-  const screenshot = path.join(tmpdir(), `pi-native-ui-${version}.png`);
+  const screenshot = path.join(tmpdir(), `pi-native-ui-${evidenceLabel}.png`);
   await page.screenshot({ path: screenshot });
   await invoke("command", { command: "workbench.action.reloadWindow" }, false);
   await until(
@@ -390,6 +395,7 @@ try {
     JSON.stringify({
       version: ready.version,
       platform: process.platform,
+      workspaceAlias,
       semanticAttachmentPicker: "passed",
       fourReviewScopes: "passed",
       nativeProblemsAndAskFix: "passed",
@@ -403,7 +409,7 @@ try {
   await invoke("finish", {}, false);
 } catch (error) {
   if (page) {
-    await page.screenshot({ path: path.join(tmpdir(), `pi-native-ui-${version}-failure.png`) }).catch(() => {});
+    await page.screenshot({ path: path.join(tmpdir(), `pi-native-ui-${evidenceLabel}-failure.png`) }).catch(() => {});
     console.error(
       (
         await page

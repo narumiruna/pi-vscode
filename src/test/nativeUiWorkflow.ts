@@ -34,7 +34,12 @@ export async function run(): Promise<void> {
     .catch(() => 0);
   await writeFile(
     path.join(directory, "ready.json"),
-    JSON.stringify({ version: vscode.version, boot: Date.now(), trusted: vscode.workspace.isTrusted }),
+    JSON.stringify({
+      version: vscode.version,
+      boot: Date.now(),
+      trusted: vscode.workspace.isTrusted,
+      workspace: root.fsPath,
+    }),
   );
   try {
     for (let attempt = 0; attempt < 6000; attempt++) {

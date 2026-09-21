@@ -1,16 +1,21 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type { Uri } from "vscode";
 import { installVscodeMock, MockUri } from "./vscodeMock";
 
 const vscode = installVscodeMock();
 const { queryCodeContext, semanticAttachmentText } =
   require("../semanticContext") as typeof import("../semanticContext");
 const range = (start = 0, end = start) => ({ start: { line: start, character: 0 }, end: { line: end, character: 1 } });
-async function fixture(run: (root: string, uri: any, document: any) => Promise<void>) {
-  const root = await mkdtemp(path.join(tmpdir(), "pi-semantic-"));
+async function fixture(run: (root: string, uri: any, document: any) => Promise<void>, aliasRoot = false) {
+  const directory = await mkdtemp(path.join(tmpdir(), "pi-semantic-"));
+  const canonicalRoot = path.join(directory, "workspace");
+  await mkdir(canonicalRoot);
+  const root = aliasRoot ? path.join(directory, "alias") : canonicalRoot;
+  if (aliasRoot) await symlink(canonicalRoot, root, "junction");
   const uri = MockUri.file(path.join(root, "source.ts"));
   const folder = { uri: MockUri.file(root), name: "Fixture" };
   const document = {
@@ -31,15 +36,18 @@ async function fixture(run: (root: string, uri: any, document: any) => Promise<v
   try {
     await run(root, uri, document);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true });
   }
 }
 
-test("semantic context normalizes locations/links, deduplicates and excludes escaped results", async () =>
+test.each([false, true])("semantic targets and excerpts (workspace alias: %s)", async (aliasRoot) =>
   fixture(async (root, uri) => {
     const target = MockUri.file(path.join(root, "target.ts"));
     await writeFile(target.fsPath, "target");
     await symlink("/etc/passwd", path.join(root, "link"));
+    await mkdir(path.join(root, "nested"));
+    await writeFile(path.join(root, "nested", "target.ts"), "nested");
+    await symlink(path.join(root, "nested"), path.join(root, "directory-link"), "junction");
     const commands: string[] = [];
     vscode.commands.executeCommand = async (command: string) => {
       commands.push(command);
@@ -48,6 +56,7 @@ test("semantic context normalizes locations/links, deduplicates and excludes esc
         { targetUri: target, targetRange: range(1), targetSelectionRange: range(1) },
         { uri: MockUri.file("/outside"), range: range() },
         { uri: MockUri.file(path.join(root, "link")), range: range() },
+        { uri: MockUri.file(path.join(root, "directory-link", "target.ts")), range: range() },
         { uri: target, range: { start: { line: -1, character: 0 }, end: { line: 2, character: 0 } } },
       ];
     };
@@ -60,7 +69,16 @@ test("semantic context normalizes locations/links, deduplicates and excludes esc
     const refs = await queryCodeContext("references", uri, new vscode.Position(0, 0));
     assert.equal(refs.items.length, 1);
     assert.equal(commands.at(-1), "vscode.executeReferenceProvider");
-  }));
+    await assert.rejects(
+      queryCodeContext(
+        "definition",
+        MockUri.file(path.join(root, "link")) as unknown as Uri,
+        new vscode.Position(0, 0),
+      ),
+      /Symlink/,
+    );
+  }, aliasRoot),
+);
 
 test("semantic context supports hierarchical and flat symbols, call directions, result bounds and no provider", async () =>
   fixture(async (_root, uri) => {
@@ -234,7 +252,7 @@ test("semantic attachments remain inspectable snapshots, respect aggregate bound
     }
   }));
 
-test("authenticated bridge codeContext returns metadata and rejects invalid targets/operations/positions", async () =>
+test.each([false, true])("authenticated semantic bridge (workspace alias: %s)", async (aliasRoot) =>
   fixture(async (_root, uri) => {
     const { VscodeBridgeServer } = require("../vscodeBridge") as typeof import("../vscodeBridge");
     const bridge = new VscodeBridgeServer();
@@ -270,4 +288,5 @@ test("authenticated bridge codeContext returns metadata and rejects invalid targ
     } finally {
       bridge.dispose();
     }
-  }));
+  }, aliasRoot),
+);

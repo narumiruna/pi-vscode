@@ -1,18 +1,23 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { EditProposalInput } from "../conversationController";
+import { hasOperation } from "../operationLocks";
 import { installVscodeMock, MockUri } from "./vscodeMock";
 
 const vscode = installVscodeMock();
-test("workspace repair selects two files, confirms read-only context, previews and applies once with observed diagnostics", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "pi-diagnostic-controller-"));
+test.each([false, true])("batch diagnostic repair (workspace alias: %s)", async (aliasRoot) => {
+  const directory = await mkdtemp(path.join(tmpdir(), "pi-diagnostic-controller-"));
+  const root = path.join(directory, "workspace");
+  await mkdir(root);
+  const workspacePath = aliasRoot ? path.join(directory, "alias") : root;
+  if (aliasRoot) await symlink(root, workspacePath, "junction");
   const context: any = { subscriptions: [] };
-  const folder = { uri: MockUri.file(root), name: "Fixture" };
-  const runtime: any = { currentCwd: root, currentState: { connected: true, sessionId: "s", busy: false } };
+  const folder = { uri: MockUri.file(workspacePath), name: "Fixture" };
+  const runtime: any = { currentCwd: workspacePath, currentState: { connected: true, sessionId: "s", busy: false } };
   const source = (name: string): any => ({
-    uri: MockUri.file(path.join(root, name)),
+    uri: MockUri.file(path.join(workspacePath, name)),
     isClosed: false,
     isDirty: true,
     eol: 1,
@@ -47,7 +52,8 @@ test("workspace repair selects two files, confirms read-only context, previews a
   vscode.FilePermission = { Readonly: 1 };
   vscode.workspace.workspaceFolders = [folder];
   vscode.workspace.isTrusted = true;
-  vscode.workspace.getWorkspaceFolder = (uri: any) => (uri.fsPath.startsWith(root) ? folder : undefined);
+  vscode.workspace.getWorkspaceFolder = (uri: any) =>
+    uri.fsPath.startsWith(`${workspacePath}${path.sep}`) ? folder : undefined;
   vscode.workspace.fs = { isWritableFileSystem: () => true, stat: async () => ({ permissions: 0 }) };
   vscode.workspace.registerTextDocumentContentProvider = (scheme: string, provider: any) => {
     providers.set(scheme, provider);
@@ -63,7 +69,7 @@ test("workspace repair selects two files, confirms read-only context, previews a
     notices.push(message);
     // Native non-modal notifications can remain open indefinitely. Apply and
     // listener disposal must finish without waiting for acknowledgement.
-    return new Promise<undefined>(() => {});
+    return message.startsWith("Diagnostic update:") ? new Promise<undefined>(() => {}) : undefined;
   };
   vscode.window.showErrorMessage = async (message: string) => {
     errors.push(message);
@@ -93,6 +99,8 @@ test("workspace repair selects two files, confirms read-only context, previews a
   };
   vscode.workspace.applyEdit = async (edit: any) => {
     applications++;
+    assert.equal(hasOperation(root), true, "Apply owns the canonical root lock even through an alias");
+    if (aliasRoot) assert.equal(hasOperation(workspacePath), false);
     assert.equal(edit.edits.length, 2);
     for (const entry of edit.edits) {
       const document = [a, b].find((document) => document.uri.toString() === entry.uri.toString());
@@ -115,7 +123,7 @@ test("workspace repair selects two files, confirms read-only context, previews a
       assert.equal(options?.policy, "read-only");
       options?.validate?.();
       const snapshot = JSON.parse(contexts[0]!.content);
-      assert.equal(snapshot.files.length, 2);
+      assert.deepEqual(snapshot.files.map((file: { path: string }) => file.path).sort(), ["a.ts", "b.ts"]);
       assert.equal(snapshot.diagnostics.length, 2);
       const response = JSON.stringify({
         files: snapshot.files.map((file: any) => ({ path: file.path, content: "good\n" })),
@@ -147,6 +155,46 @@ test("workspace repair selects two files, confirms read-only context, previews a
     assert.equal(applications, 0);
     await proposal.onPreview();
     assert.equal(diffs, 2);
+    if (aliasRoot) {
+      const foreign = path.join(directory, "foreign");
+      await mkdir(foreign);
+      await writeFile(path.join(foreign, "a.ts"), a.text);
+      await writeFile(path.join(foreign, "b.ts"), b.text);
+      await unlink(workspacePath);
+      await symlink(foreign, workspacePath, "junction");
+      await assert.rejects(proposal.onPreview(), /Workspace root changed/);
+      await assert.rejects(proposal.onApply(), /Workspace root changed/);
+      assert.equal(applications, 0);
+      assert.equal(hasOperation(root), false);
+      assert.equal(await readFile(path.join(foreign, "a.ts"), "utf8"), "bad\n");
+      await unlink(workspacePath);
+      await symlink(root, workspacePath, "junction");
+      const stat = vscode.workspace.fs.stat;
+      let retargeted = false;
+      vscode.workspace.fs.stat = async (uri: unknown) => {
+        if (!retargeted) {
+          await unlink(workspacePath);
+          await symlink(foreign, workspacePath, "junction");
+          retargeted = true;
+        }
+        return stat(uri);
+      };
+      try {
+        await assert.rejects(proposal.onApply(), /Workspace root changed/);
+        assert.equal(applications, 0, "Retargeting during async preflight must reject the whole Apply");
+        assert.equal(hasOperation(root), false);
+      } finally {
+        vscode.workspace.fs.stat = stat;
+        await unlink(workspacePath);
+        await symlink(root, workspacePath, "junction");
+      }
+      await unlink(a.uri.fsPath);
+      await symlink(path.join(foreign, "a.ts"), a.uri.fsPath);
+      await assert.rejects(proposal.onApply(), /Symlink/);
+      assert.equal(applications, 0);
+      await unlink(a.uri.fsPath);
+      await writeFile(a.uri.fsPath, a.text);
+    }
     const apply = vscode.workspace.applyEdit;
     vscode.workspace.applyEdit = async () => false;
     await assert.rejects(proposal.onApply(), /could not apply/);
@@ -175,6 +223,6 @@ test("workspace repair selects two files, confirms read-only context, previews a
     assert.equal(requests, 2);
   } finally {
     for (const item of context.subscriptions) item.dispose();
-    await rm(root, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true });
   }
 });

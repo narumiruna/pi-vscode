@@ -41,7 +41,7 @@ export async function queryCodeContext(
   if (!isCodeContextOperation(operation)) throw new Error("Unsupported semantic operation.");
   const folder = requireWorkspaceResource(uri);
   const root = await realpath(folder.uri.fsPath);
-  await assertSafeFile(root, path.relative(root, uri.fsPath).split(path.sep).join("/"));
+  await assertSafeFile(root, path.relative(folder.uri.fsPath, uri.fsPath).split(path.sep).join("/"));
   const source = await vscode.workspace.openTextDocument(uri);
   const version = source.version;
   if (
@@ -79,7 +79,10 @@ export async function queryCodeContext(
     for (const item of normalizeValue(value, operation)) {
       if (item.uri.length > 4_000 || item.path.length > 4_000 || !belongsToFolder(item, folder)) continue;
       try {
-        await assertSafeFile(root, path.relative(root, vscode.Uri.parse(item.uri).fsPath).split(path.sep).join("/"));
+        await assertSafeFile(
+          root,
+          path.relative(folder.uri.fsPath, vscode.Uri.parse(item.uri).fsPath).split(path.sep).join("/"),
+        );
         normalized.push({ ...item, path: relativePath(folder.uri, vscode.Uri.parse(item.uri)) });
       } catch {
         /* Skip symlink or escaped provider targets. */
@@ -119,7 +122,7 @@ export async function semanticAttachmentText(result: CodeContextResult): Promise
     const uri = vscode.Uri.parse(item.uri);
     const folder = requireWorkspaceResource(uri);
     const root = await realpath(folder.uri.fsPath);
-    await assertSafeFile(root, path.relative(root, uri.fsPath).split(path.sep).join("/"));
+    await assertSafeFile(root, path.relative(folder.uri.fsPath, uri.fsPath).split(path.sep).join("/"));
     const document = await vscode.workspace.openTextDocument(uri);
     if (document.isClosed || item.range.start.line >= document.lineCount || item.range.end.line >= document.lineCount)
       continue;

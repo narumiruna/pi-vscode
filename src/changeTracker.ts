@@ -118,9 +118,18 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
     if (!request) return;
     const tool = String(event.toolName ?? "");
     if (
-      !["read", "grep", "find", "ls", "vscode_context", "vscode_open_file", "vscode_notify", "edit", "write"].includes(
-        tool,
-      )
+      ![
+        "read",
+        "grep",
+        "find",
+        "ls",
+        "vscode_context",
+        "vscode_code_context",
+        "vscode_open_file",
+        "vscode_notify",
+        "edit",
+        "write",
+      ].includes(tool)
     ) {
       request.unprovenEffects = true;
       if (request.exclusions.length < 1000)
