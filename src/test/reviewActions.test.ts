@@ -48,7 +48,8 @@ test("review findings expose ask/fix only for matching after text and revalidate
   vscode.window.withProgress = async (_options: unknown, fn: any) =>
     fn({}, { onCancellationRequested: () => ({ dispose() {} }) });
   vscode.window.showWarningMessage = async () => "Send Staged Review";
-  vscode.window.showInformationMessage = async () => undefined;
+  // An ignored native notification must not retain the review operation lock.
+  vscode.window.showInformationMessage = () => new Promise<undefined>(() => {});
   const errors: string[] = [];
   vscode.window.showErrorMessage = async (message: string) => {
     errors.push(message);

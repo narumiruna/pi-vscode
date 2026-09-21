@@ -61,6 +61,9 @@ test("workspace repair selects two files, confirms read-only context, previews a
   vscode.window.showWarningMessage = async () => (approved ? "Send Diagnostic Repair" : undefined);
   vscode.window.showInformationMessage = async (message: string) => {
     notices.push(message);
+    // Native non-modal notifications can remain open indefinitely. Apply and
+    // listener disposal must finish without waiting for acknowledgement.
+    return new Promise<undefined>(() => {});
   };
   vscode.window.showErrorMessage = async (message: string) => {
     errors.push(message);
@@ -144,6 +147,17 @@ test("workspace repair selects two files, confirms read-only context, previews a
     assert.equal(applications, 0);
     await proposal.onPreview();
     assert.equal(diffs, 2);
+    const apply = vscode.workspace.applyEdit;
+    vscode.workspace.applyEdit = async () => false;
+    await assert.rejects(proposal.onApply(), /could not apply/);
+    assert.equal(diagListener, undefined, "False Apply must release the diagnostic observer immediately");
+    vscode.workspace.applyEdit = async () => {
+      throw new Error("Native Apply failed");
+    };
+    await assert.rejects(proposal.onApply(), /Native Apply failed/);
+    assert.equal(diagListener, undefined, "Thrown Apply must release the diagnostic observer immediately");
+    vscode.workspace.applyEdit = apply;
+    await proposal.onPreview();
     await proposal.onApply();
     assert.equal(applications, 1);
     assert.ok(notices.some((message) => /2 disappeared, 0 still present, 0 not revalidated/.test(message)));

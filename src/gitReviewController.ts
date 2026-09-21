@@ -95,12 +95,18 @@ export function registerGitReview(
             const result = parseGitReview(response, snapshot);
             await validateTarget(snapshot, folder, sessionId);
             await assertGitReviewCurrent(snapshot);
-            const record = findings.publish({ snapshot, result, folder, sessionId });
-            const action = await vscode.window.showInformationMessage(
-              `${result.findings.length} ${scopeLabel(scope).toLowerCase()} findings${result.incomplete ? " · Incomplete review; see skipped scope" : " · Review complete"}.`,
-              "Findings",
-            );
-            if (action) await navigate(record);
+            const id = findings.publish({ snapshot, result, folder, sessionId }).id;
+            // Do not hold the request/operation locks until a non-modal toast is
+            // dismissed, or retain an evicted snapshot in its action callback.
+            void vscode.window
+              .showInformationMessage(
+                `${result.findings.length} ${scopeLabel(scope).toLowerCase()} findings${result.incomplete ? " · Incomplete review; see skipped scope" : " · Review complete"}.`,
+                "Findings",
+              )
+              .then((action) => (action ? navigate(findings.get(id)) : undefined))
+              .then(undefined, (error: unknown) => {
+                void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+              });
           },
         },
       );

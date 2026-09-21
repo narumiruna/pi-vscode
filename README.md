@@ -80,7 +80,7 @@ Automatic inline completions are disabled by default. Enable `picode.inlineCompl
 | --- | --- |
 | **Staged review** | Run **Pi: Review Staged Changes**, confirm the bounded snapshot, then use **Pi: Show Staged Findings** to navigate immutable before/after content. Findings become stale when HEAD or the index changes. |
 | **Change review** | Run **Pi: Review Changes**, choose staged, unstaged (including untracked), all working-tree changes, or current branch versus a selected local/remote base ref. **Pi: Show Review Findings** navigates the latest captured result. No fetch or hosted PR access is performed. |
-| **Review findings** | Problems entries open immutable captured text, labelled with scope/time. The lightbulb offers **Ask Pi About Finding** and, only for an exact writable after-image match, **Fix Finding with Pi (Preview)**. Stale actions require a new review; Problems are not live diagnostics. |
+| **Review findings** | Problems entries open immutable captured text, labelled with scope/time. The Problems row's Quick Fix/lightbulb menu offers **Ask Pi About Finding** and, only for an exact writable after-image match, **Fix Finding with Pi (Preview)**. Stale actions require a new review; Problems are not live diagnostics. |
 | **Workspace diagnostic repair** | Run **Pi: Fix Workspace Diagnostics (Preview)**, select errors/warnings in one workspace, inspect the complete captured files, and confirm transmission. Choose hunks, preview every selected file, then apply once. Diagnostic updates are observations, not test results. |
 | **Semantic context** | Choose **Attach → Definition / References / Callers / Callees / Document Symbols** at the active cursor. Inspect/redact or pin the captured context before sending; attach again for a fresh provider lookup. Missing providers produce a notice, not guessed results. |
 | **Selected edits** | On a proposal card, choose **Choose Hunks → Preview → Apply**. Changing the selection invalidates the preview; normal editor Undo remains available after application. |
@@ -156,6 +156,8 @@ npm run package
 ```
 
 `npm run test:native -- 1.106.0` runs isolated, noninteractive native Extension Host assertions (on headless Linux, prefix with `xvfb-run -a`). Use `stable` for the current stable build and append `untrusted` for Restricted Mode. The runner downloads a test build to the system temporary cache, creates disposable profiles/workspaces, and never invokes a model. See [Workflow Validation](docs/WORKFLOW_VALIDATION.md) for coverage and remaining manual checks.
+
+On Linux, `xvfb-run -a npm run test:native-ui -- 1.106.0` exercises the actual attachment picker, review confirmations, Problems actions, Sidebar proposals, multi-file Apply/Undo and window reload. Use `stable` for current VS Code. Playwright connects only to the disposable VS Code profile's loopback debugging endpoint; a deterministic Pi RPC fixture replaces provider requests. No live model, user profile or workspace is used.
 
 `npm test` compiles the extension and runs the Node test suite. `npm run package` repeats those checks and creates `pi-coding-agent-vscode.vsix`.
 

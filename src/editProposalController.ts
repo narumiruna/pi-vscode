@@ -132,7 +132,7 @@ export function addMultiFileEditProposal(
   snapshot: MultiFileEditSnapshot,
   options?: {
     readonly label?: string;
-    readonly onWillApply?: () => void;
+    readonly onWillApply?: () => vscode.Disposable | void;
     readonly onApplied?: () => Promise<void> | void;
     readonly onDispose?: () => void;
   },
@@ -214,15 +214,19 @@ export function addMultiFileEditProposal(
           const range = new vscode.Range(file.document.positionAt(0), file.document.positionAt(file.original.length));
           edit.replace(file.document.uri, range, selectedReplacement(file.original, file.hunks, selectedIds));
         }
-        options?.onWillApply?.();
-        if (!(await vscode.workspace.applyEdit(edit)))
-          throw new Error("VS Code could not apply the Pi workspace edit.");
+        const observation = options?.onWillApply?.();
         try {
-          await options?.onApplied?.();
-        } catch {
-          void vscode.window.showWarningMessage(
-            "Edits applied; diagnostic verification was unavailable. Do not apply again.",
-          );
+          if (!(await vscode.workspace.applyEdit(edit)))
+            throw new Error("VS Code could not apply the Pi workspace edit.");
+          try {
+            await options?.onApplied?.();
+          } catch {
+            void vscode.window.showWarningMessage(
+              "Edits applied; diagnostic verification was unavailable. Do not apply again.",
+            );
+          }
+        } finally {
+          observation?.dispose();
         }
       } finally {
         release();
