@@ -12,6 +12,7 @@ import type { CodeContextResult } from "../semanticContext";
 import { queryCodeContext } from "../semanticContext";
 import { VscodeBridgeServer } from "../vscodeBridge";
 import { vscodeBridgePortEnvironmentKey, vscodeBridgeTokenEnvironmentKey } from "../vscodeBridgeProtocol";
+import { verifyDiagnosticEncodings } from "./nativeDiagnosticEncoding";
 
 export async function run(): Promise<void> {
   const root = vscode.workspace.workspaceFolders?.[0]?.uri;
@@ -146,6 +147,7 @@ export async function run(): Promise<void> {
   assert.equal(other.getText(), originals[1]);
   proposals.clear();
   for (const item of context.subscriptions) item.dispose();
+  const diagnosticEncodingCases = await verifyDiagnosticEncodings(root);
   await evidence({
     version: vscode.version,
     trusted: true,
@@ -158,6 +160,7 @@ export async function run(): Promise<void> {
     capturedDiagnostics: "passed",
     nativeDiffAndWorkspaceEdit: "passed",
     nativeUndo: "passed",
+    diagnosticEncodingCases,
   });
 }
 
