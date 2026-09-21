@@ -9,11 +9,11 @@ import {
 
 test("background launch waits for prompt acceptance but not task settlement", async () => {
   let acceptPrompt: (() => void) | undefined;
-  const promptAcceptance = new Promise<void>(resolve => {
+  const promptAcceptance = new Promise<void>((resolve) => {
     acceptPrompt = resolve;
   });
   let notifyDispatched: (() => void) | undefined;
-  const dispatched = new Promise<void>(resolve => {
+  const dispatched = new Promise<void>((resolve) => {
     notifyDispatched = resolve;
   });
   let launchResolved = false;
@@ -52,7 +52,12 @@ test("background task capacity and eviction preserve starting and running tasks"
   assert.equal(isBackgroundTaskActive("completed"), false);
   assert.equal(
     countOccupiedBackgroundTaskSlots(
-      [["starting", "starting"], ["running", "running"], ["done", "completed"], ["failed-active", "failed"]],
+      [
+        ["starting", "starting"],
+        ["running", "running"],
+        ["done", "completed"],
+        ["failed-active", "failed"],
+      ],
       ["running", "failed-active"],
     ),
     3,

@@ -1,16 +1,18 @@
-import path from "node:path";
 import * as vscode from "vscode";
 import type { PiConversationController } from "./conversationController";
-import { computeEditHunks, selectedReplacement } from "./editHunks";
-import { requireTrustedFile } from "./workflowUi";
 import {
   buildDiagnosticFixInstruction,
   filterFixableDiagnostics,
   selectDiagnosticAtPosition,
 } from "./diagnosticQuickFix";
+import {
+  addDocumentEditProposal,
+  type EditPreviewProvider,
+  isDocumentWritable,
+  registerEditPreviewProvider,
+} from "./editProposalController";
 import { buildSelectionReference, extractReplacement, type SelectionContext } from "./prompts";
 
-const previewScheme = "picode-edit-preview";
 const maxWholeDocumentEditCharacters = 200_000;
 
 interface SelectionSnapshot {
@@ -25,15 +27,10 @@ interface DiagnosticCommandTarget {
   readonly diagnostic: vscode.Diagnostic;
 }
 
-export function registerEditorActions(
-  context: vscode.ExtensionContext,
-  conversation: PiConversationController,
-): void {
-  const previews = new EditPreviewProvider();
+export function registerEditorActions(context: vscode.ExtensionContext, conversation: PiConversationController): void {
+  const previews = registerEditPreviewProvider(context);
   const selectionActionKind = vscode.CodeActionKind.RefactorRewrite.append("picode");
   context.subscriptions.push(
-    previews,
-    vscode.workspace.registerTextDocumentContentProvider(previewScheme, previews),
     vscode.languages.registerCodeActionsProvider("*", new PiCodeQuickFixProvider(), {
       providedCodeActionKinds: [vscode.CodeActionKind.QuickFix],
     }),
@@ -43,15 +40,36 @@ export function registerEditorActions(
     vscode.commands.registerCommand("picode.askSelection", () => askSelection(conversation)),
     vscode.commands.registerCommand("picode.modifySelection", () => inlineEdit(previews, conversation)),
     vscode.commands.registerCommand("picode.inlineEdit", () => inlineEdit(previews, conversation)),
-    vscode.commands.registerCommand("picode.quickFix", (target?: unknown) =>
-      quickFix(previews, conversation, target),
+    vscode.commands.registerCommand("picode.quickFix", (target?: unknown) => quickFix(previews, conversation, target)),
+    vscode.commands.registerCommand("picode.explainSelection", () =>
+      answerPreset(conversation, "Explain this code, including its behavior and assumptions."),
     ),
-    vscode.commands.registerCommand("picode.explainSelection", () => answerPreset(conversation, "Explain this code, including its behavior and assumptions.")),
-    vscode.commands.registerCommand("picode.reviewSelection", () => answerPreset(conversation, "Review this code for correctness, security, maintainability, performance, and missing tests. Prioritize actionable findings.")),
-    vscode.commands.registerCommand("picode.fixSelection", () => previewPreset(previews, conversation, "Fix bugs and diagnostics in this code while preserving intended behavior.")),
-    vscode.commands.registerCommand("picode.documentSelection", () => previewPreset(previews, conversation, "Add or improve idiomatic documentation for this code without changing its behavior.")),
+    vscode.commands.registerCommand("picode.reviewSelection", () =>
+      answerPreset(
+        conversation,
+        "Review this code for correctness, security, maintainability, performance, and missing tests. Prioritize actionable findings.",
+      ),
+    ),
+    vscode.commands.registerCommand("picode.fixSelection", () =>
+      previewPreset(
+        previews,
+        conversation,
+        "Fix bugs and diagnostics in this code while preserving intended behavior.",
+      ),
+    ),
+    vscode.commands.registerCommand("picode.documentSelection", () =>
+      previewPreset(
+        previews,
+        conversation,
+        "Add or improve idiomatic documentation for this code without changing its behavior.",
+      ),
+    ),
     vscode.commands.registerCommand("picode.generateTests", () =>
-      previewPreset(previews, conversation, "Keep the selected code and append comprehensive idiomatic tests that cover normal behavior and important edge cases."),
+      previewPreset(
+        previews,
+        conversation,
+        "Keep the selected code and append comprehensive idiomatic tests that cover normal behavior and important edge cases.",
+      ),
     ),
     vscode.commands.registerCommand("picode.suggestNextEdit", () => suggestNextEdit(previews, conversation)),
   );
@@ -88,7 +106,8 @@ async function showAnswer(
 ): Promise<void> {
   try {
     await conversation.sendRequest(question, [buildSelectionReference(snapshot.context)], {
-      instructions: "Answer the user's question about the selected code. Be concrete and concise. Use Markdown when useful. Do not modify files.",
+      instructions:
+        "Answer the user's question about the selected code. Be concrete and concise. Use Markdown when useful. Do not modify files.",
       resource: snapshot.document.uri,
       policy: "read-only",
     });
@@ -97,10 +116,7 @@ async function showAnswer(
   }
 }
 
-async function inlineEdit(
-  previews: EditPreviewProvider,
-  conversation: PiConversationController,
-): Promise<void> {
+async function inlineEdit(previews: EditPreviewProvider, conversation: PiConversationController): Promise<void> {
   const snapshot = captureEditTarget();
   if (!snapshot) {
     return;
@@ -135,11 +151,11 @@ async function quickFix(
 
   const diagnostics = filterFixableDiagnostics(vscode.languages.getDiagnostics(editor.document.uri));
   const requestedTarget = isDiagnosticCommandTarget(target) ? target : undefined;
-  const requestedDiagnostic = requestedTarget?.uri.toString() === editor.document.uri.toString()
-    ? findCurrentDiagnostic(diagnostics, requestedTarget.diagnostic)
-    : undefined;
-  const diagnostic = requestedDiagnostic
-    ?? selectDiagnosticAtPosition(diagnostics, editor.selection.active);
+  const requestedDiagnostic =
+    requestedTarget?.uri.toString() === editor.document.uri.toString()
+      ? findCurrentDiagnostic(diagnostics, requestedTarget.diagnostic)
+      : undefined;
+  const diagnostic = requestedDiagnostic ?? selectDiagnosticAtPosition(diagnostics, editor.selection.active);
   if (!diagnostic) {
     await inlineEdit(previews, conversation);
     return;
@@ -173,17 +189,15 @@ function findCurrentDiagnostic(
   diagnostics: readonly vscode.Diagnostic[],
   requested: vscode.Diagnostic,
 ): vscode.Diagnostic | undefined {
-  return diagnostics.find(diagnostic =>
-    diagnostic.severity === requested.severity
-    && diagnostic.message === requested.message
-    && diagnostic.range.isEqual(requested.range),
+  return diagnostics.find(
+    (diagnostic) =>
+      diagnostic.severity === requested.severity &&
+      diagnostic.message === requested.message &&
+      diagnostic.range.isEqual(requested.range),
   );
 }
 
-async function suggestNextEdit(
-  previews: EditPreviewProvider,
-  conversation: PiConversationController,
-): Promise<void> {
+async function suggestNextEdit(previews: EditPreviewProvider, conversation: PiConversationController): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
     await vscode.window.showWarningMessage("Open a text editor before requesting a next edit suggestion.");
@@ -195,16 +209,19 @@ async function suggestNextEdit(
     return;
   }
   const range = new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length));
-  const diagnostics = vscode.languages.getDiagnostics(document.uri)
+  const diagnostics = vscode.languages
+    .getDiagnostics(document.uri)
     .slice(0, 20)
-    .map(diagnostic => `Line ${diagnostic.range.start.line + 1}: ${diagnostic.message}`)
+    .map((diagnostic) => `Line ${diagnostic.range.start.line + 1}: ${diagnostic.message}`)
     .join("\n");
   const snapshot = selectionSnapshot(document, range);
   const instruction = [
     `Predict and implement the next logical edit for this file based on the cursor at line ${editor.selection.active.line + 1}, column ${editor.selection.active.character + 1}.`,
     "Make one focused, useful change and preserve unrelated code.",
     diagnostics ? `Current diagnostics:\n${diagnostics}` : "",
-  ].filter(Boolean).join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
   await previewEdit(previews, conversation, snapshot, instruction);
 }
 
@@ -240,7 +257,7 @@ async function previewEdit(
       ].join(" "),
       resource: snapshot.document.uri,
       policy: "read-only",
-      onResponse: response => {
+      onResponse: (response) => {
         try {
           createEditProposal(previews, conversation, snapshot, response);
         } catch (error) {
@@ -266,47 +283,7 @@ function createEditProposal(
   if (replacement === undefined) {
     throw new Error("Pi returned an unexpected edit format. No changes were applied.");
   }
-  assertSnapshotCurrent(snapshot, "The document changed while Pi was working. Regenerate the edit before previewing it.");
-
-  const convertedReplacement = convertLineEndings(replacement, snapshot.document.eol);
-  const originalText = snapshot.document.getText();
-  const startOffset = snapshot.document.offsetAt(snapshot.range.start);
-  const endOffset = snapshot.document.offsetAt(snapshot.range.end);
-  const originalTarget = originalText.slice(startOffset, endOffset);
-  const { hunks } = computeEditHunks(originalTarget, convertedReplacement);
-  if (!hunks.length) throw new Error("Pi proposed no changes.");
-  let previewUri: vscode.Uri | undefined;
-  let previewSelection: string | undefined;
-  conversation.addEditProposal({
-    label: `${path.basename(snapshot.document.uri.fsPath)}:${snapshot.range.start.line + 1}-${snapshot.range.end.line + 1}`,
-    hunks,
-    onPreview: async selected => {
-      requireTrustedFile(snapshot.document.isUntitled ? undefined : snapshot.document.uri);
-      assertSnapshotCurrent(snapshot, "The document changed after Pi generated the proposal. Regenerate the edit before previewing it.");
-      const target = selectedReplacement(originalTarget, hunks, selected ?? hunks.map(hunk => hunk.id));
-      if (previewUri) previews.delete(previewUri);
-      previewUri = previews.create(snapshot.document.uri, originalText.slice(0, startOffset) + target + originalText.slice(endOffset));
-      previewSelection = JSON.stringify(selected);
-      await vscode.commands.executeCommand(
-        "vscode.diff",
-        snapshot.document.uri,
-        previewUri,
-        `Pi Edit Preview: ${path.basename(snapshot.document.uri.fsPath)}`,
-        { preview: true },
-      );
-    },
-    onApply: async selected => {
-      requireTrustedFile(snapshot.document.isUntitled ? undefined : snapshot.document.uri);
-      assertSnapshotCurrent(snapshot, "The document changed after Pi generated the proposal. Regenerate the edit before applying it.");
-      if (!previewUri || previewSelection !== JSON.stringify(selected)) throw new Error("Preview the current hunk selection before applying.");
-      const edit = new vscode.WorkspaceEdit();
-      edit.replace(snapshot.document.uri, snapshot.range, selectedReplacement(originalTarget, hunks, selected ?? hunks.map(hunk => hunk.id)));
-      if (!(await vscode.workspace.applyEdit(edit))) {
-        throw new Error("VS Code could not apply the Pi edit.");
-      }
-    },
-    onDispose: () => { if (previewUri) previews.delete(previewUri); },
-  });
+  addDocumentEditProposal(previews, conversation, snapshot, replacement);
 }
 
 function captureSelection(): SelectionSnapshot | undefined {
@@ -332,12 +309,6 @@ function captureEditTarget(): SelectionSnapshot | undefined {
   return selectionSnapshot(editor.document, range);
 }
 
-function assertSnapshotCurrent(snapshot: SelectionSnapshot, message: string): void {
-  if (snapshot.document.isClosed || snapshot.document.version !== snapshot.version) {
-    throw new Error(message);
-  }
-}
-
 function selectionSnapshot(document: vscode.TextDocument, range: vscode.Range): SelectionSnapshot {
   const file = document.uri.scheme === "file" ? document.uri.fsPath : document.uri.toString();
   return {
@@ -352,10 +323,6 @@ function selectionSnapshot(document: vscode.TextDocument, range: vscode.Range): 
       code: document.getText(range),
     },
   };
-}
-
-function convertLineEndings(value: string, lineEnding: vscode.EndOfLine): string {
-  return lineEnding === vscode.EndOfLine.CRLF ? value.replace(/\n/g, "\r\n") : value;
 }
 
 async function reportError(error: unknown): Promise<void> {
@@ -410,68 +377,22 @@ class PiCodeQuickFixProvider implements vscode.CodeActionProvider {
     if (!(await isDocumentWritable(document)) || document.getText().length > maxWholeDocumentEditCharacters) {
       return [];
     }
-    return filterFixableDiagnostics(context.diagnostics)
-      .map(diagnostic => {
-        const action = new vscode.CodeAction(`Fix with Pi: ${truncate(diagnostic.message, 80)}`, vscode.CodeActionKind.QuickFix);
-        action.diagnostics = [diagnostic];
-        action.command = {
-          command: "picode.quickFix",
-          title: "Quick Fix with Pi",
-          arguments: [{ uri: document.uri, diagnostic } satisfies DiagnosticCommandTarget],
-        };
-        return action;
-      });
-  }
-}
-
-async function isDocumentWritable(document: vscode.TextDocument): Promise<boolean> {
-  if (document.isUntitled) {
-    return true;
-  }
-  if (vscode.workspace.fs.isWritableFileSystem(document.uri.scheme) !== true) {
-    return false;
-  }
-  try {
-    const stat = await vscode.workspace.fs.stat(document.uri);
-    return ((stat.permissions ?? 0) & vscode.FilePermission.Readonly) === 0;
-  } catch {
-    return false;
-  }
-}
-
-class EditPreviewProvider implements vscode.TextDocumentContentProvider, vscode.Disposable {
-  private readonly contents = new Map<string, string>();
-  private readonly emitter = new vscode.EventEmitter<vscode.Uri>();
-  public readonly onDidChange = this.emitter.event;
-
-  public create(original: vscode.Uri, content: string): vscode.Uri {
-    const uri = vscode.Uri.from({
-      scheme: previewScheme,
-      path: original.path,
-      query: randomId(),
+    return filterFixableDiagnostics(context.diagnostics).map((diagnostic) => {
+      const action = new vscode.CodeAction(
+        `Fix with Pi: ${truncate(diagnostic.message, 80)}`,
+        vscode.CodeActionKind.QuickFix,
+      );
+      action.diagnostics = [diagnostic];
+      action.command = {
+        command: "picode.quickFix",
+        title: "Quick Fix with Pi",
+        arguments: [{ uri: document.uri, diagnostic } satisfies DiagnosticCommandTarget],
+      };
+      return action;
     });
-    this.contents.set(uri.toString(), content);
-    return uri;
-  }
-
-  public delete(uri: vscode.Uri): void {
-    this.contents.delete(uri.toString());
-  }
-
-  public provideTextDocumentContent(uri: vscode.Uri): string {
-    return this.contents.get(uri.toString()) ?? "";
-  }
-
-  public dispose(): void {
-    this.contents.clear();
-    this.emitter.dispose();
   }
 }
 
 function truncate(value: string, maxLength: number): string {
   return value.length <= maxLength ? value : `${value.slice(0, maxLength - 1)}…`;
-}
-
-function randomId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }

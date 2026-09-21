@@ -1,14 +1,15 @@
-import * as vscode from "vscode";
+import type * as vscode from "vscode";
 import { registerPiChat } from "./chat";
-import { registerGitReview } from "./gitReviewController";
-import { registerTestRepair } from "./testRepairController";
 import { registerDebugContext } from "./debugContextController";
 import { registerEditorActions } from "./editorActions";
+import { registerGitReview } from "./gitReviewController";
 import { registerInlineCompletions } from "./inlineCompletion";
 import { removeLegacyGlobalBridgeExtensions } from "./legacyBridge";
 import { PiRuntimeManager } from "./piRuntime";
 import { registerPiCodeSidebar } from "./sidebar";
+import { registerTestRepair } from "./testRepairController";
 import { abortAllPiInvocations } from "./vscodePi";
+import { registerWorkspaceDiagnostics } from "./workspaceDiagnosticsController";
 
 export interface PiVscodeApi {
   broadcast(event: string, data: unknown): number;
@@ -27,6 +28,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<PiVsco
   registerPiChat(context);
   registerEditorActions(context, conversation);
   registerGitReview(context, runtime, conversation);
+  registerWorkspaceDiagnostics(context, runtime, conversation);
   registerTestRepair(context, runtime, conversation);
   registerDebugContext(context, runtime, conversation);
   registerInlineCompletions(context);

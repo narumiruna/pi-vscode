@@ -26,9 +26,15 @@ export interface ImageAssetCacheOptions {
 export class ImageAssetDeliveryTracker {
   private readonly delivered = new Set<string>();
 
-  public reset(): void { this.delivered.clear(); }
-  public has(id: string): boolean { return this.delivered.has(id); }
-  public retry(id: string): void { this.delivered.delete(id); }
+  public reset(): void {
+    this.delivered.clear();
+  }
+  public has(id: string): boolean {
+    return this.delivered.has(id);
+  }
+  public retry(id: string): void {
+    this.delivered.delete(id);
+  }
 
   public pending(ids: Iterable<string>, cache: ImageAssetCache): CachedImageAsset[] {
     const assets: CachedImageAsset[] = [];
@@ -50,9 +56,15 @@ export class ImageAssetCache {
 
   public constructor(private readonly options: ImageAssetCacheOptions) {}
 
-  public get totalBytes(): number { return this.retainedBytes; }
-  public get maxTotalBytes(): number { return Math.max(0, this.options.maxTotalBytes); }
-  public get size(): number { return this.assets.size; }
+  public get totalBytes(): number {
+    return this.retainedBytes;
+  }
+  public get maxTotalBytes(): number {
+    return Math.max(0, this.options.maxTotalBytes);
+  }
+  public get size(): number {
+    return this.assets.size;
+  }
 
   public store(mimeType: string, data: string): CachedImageAsset | undefined {
     const normalizedMimeType = mimeType.toLowerCase();
@@ -87,8 +99,12 @@ export class ImageAssetCache {
     return asset;
   }
 
-  public get(id: string): CachedImageAsset | undefined { return this.assets.get(id); }
-  public has(id: string): boolean { return this.assets.has(id); }
+  public get(id: string): CachedImageAsset | undefined {
+    return this.assets.get(id);
+  }
+  public has(id: string): boolean {
+    return this.assets.has(id);
+  }
 
   public discard(id: string): boolean {
     const asset = this.assets.get(id);
@@ -109,9 +125,15 @@ export class ImageAssetCache {
     }
   }
 
-  public isRejected(id: string): boolean { return this.rejected.has(id); }
+  public isRejected(id: string): boolean {
+    return this.rejected.has(id);
+  }
 
-  public clear(): void { this.assets.clear(); this.rejected.clear(); this.retainedBytes = 0; }
+  public clear(): void {
+    this.assets.clear();
+    this.rejected.clear();
+    this.retainedBytes = 0;
+  }
 }
 
 export function imageAssetId(bytes: Uint8Array): string {
@@ -133,7 +155,12 @@ export function imageDimensions(bytes: Uint8Array, mimeType: string): ImageAsset
 }
 
 function pngDimensions(bytes: Buffer): ImageAssetDimensions | undefined {
-  if (bytes.length < 24 || !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) || bytes.toString("ascii", 12, 16) !== "IHDR") return undefined;
+  if (
+    bytes.length < 24 ||
+    !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ||
+    bytes.toString("ascii", 12, 16) !== "IHDR"
+  )
+    return undefined;
   return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
 }
 
@@ -148,7 +175,10 @@ function jpegDimensions(bytes: Buffer): ImageAssetDimensions | undefined {
   const startOfFrame = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
   let offset = 2;
   while (offset + 3 < bytes.length) {
-    if (bytes[offset] !== 0xff) { offset += 1; continue; }
+    if (bytes[offset] !== 0xff) {
+      offset += 1;
+      continue;
+    }
     while (offset < bytes.length && bytes[offset] === 0xff) offset += 1;
     const marker = bytes[offset++];
     if (marker === undefined || marker === 0xd9 || marker === 0xda) break;
@@ -166,7 +196,8 @@ function jpegDimensions(bytes: Buffer): ImageAssetDimensions | undefined {
 }
 
 function webpDimensions(bytes: Buffer): ImageAssetDimensions | undefined {
-  if (bytes.length < 30 || bytes.toString("ascii", 0, 4) !== "RIFF" || bytes.toString("ascii", 8, 12) !== "WEBP") return undefined;
+  if (bytes.length < 30 || bytes.toString("ascii", 0, 4) !== "RIFF" || bytes.toString("ascii", 8, 12) !== "WEBP")
+    return undefined;
   const kind = bytes.toString("ascii", 12, 16);
   if (kind === "VP8X") {
     return { width: 1 + readUInt24LE(bytes, 24), height: 1 + readUInt24LE(bytes, 27) };
@@ -188,5 +219,13 @@ function readUInt24LE(bytes: Buffer, offset: number): number {
 }
 
 function validDimensions(value: ImageAssetDimensions): boolean {
-  return Number.isInteger(value.width) && Number.isInteger(value.height) && value.width > 0 && value.height > 0 && value.width <= 100_000 && value.height <= 100_000 && value.width * value.height <= maxImagePixels;
+  return (
+    Number.isInteger(value.width) &&
+    Number.isInteger(value.height) &&
+    value.width > 0 &&
+    value.height > 0 &&
+    value.width <= 100_000 &&
+    value.height <= 100_000 &&
+    value.width * value.height <= maxImagePixels
+  );
 }

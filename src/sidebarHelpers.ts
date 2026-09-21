@@ -1,24 +1,59 @@
 import path from "node:path";
 import * as vscode from "vscode";
 import { isSupportedImageMimeType } from "./attachmentUtils";
-import { extractReplacement, parseAgentPrompt } from "./prompts";
 import { type ImageAssetCache, unavailableImageAssetId } from "./imageAssets";
+import { extractReplacement, parseAgentPrompt } from "./prompts";
 import {
   contextTranscriptAttachment,
   maxTranscriptAttachments,
   maxTranscriptImages,
   restoreSidebarMessages,
-  shortTranscriptLabel,
   type SidebarMessage,
+  shortTranscriptLabel,
   type TranscriptAttachment,
   type TranscriptImageAttachment,
 } from "./sidebarState";
 
 export type WebviewMessage =
-  | { readonly type: "ready" | "cancel" | "reconnect" | "refreshHistory" | "refreshSessions" | "retry" | "newSession" | "deleteSession" | "showNoticeDetails" | "pickContext" | "pickModel" | "attachSelection" | "attachFile" | "attachCurrentFile" | "attachDiagnostics" | "attachImage" | "attachTerminal" | "clearAttachments" | "compact" | "nameSession" | "resumeSession" | "exportSession" | "openTerminal" | "openSourceControl" | "pickCommand" | "inspectContext" | "clearQueue" | "inspectQueue" }
+  | {
+      readonly type:
+        | "ready"
+        | "cancel"
+        | "reconnect"
+        | "refreshHistory"
+        | "refreshSessions"
+        | "retry"
+        | "newSession"
+        | "deleteSession"
+        | "showNoticeDetails"
+        | "pickContext"
+        | "pickModel"
+        | "attachSelection"
+        | "attachFile"
+        | "attachCurrentFile"
+        | "attachDiagnostics"
+        | "attachImage"
+        | "attachTerminal"
+        | "clearAttachments"
+        | "compact"
+        | "nameSession"
+        | "resumeSession"
+        | "exportSession"
+        | "openTerminal"
+        | "openSourceControl"
+        | "pickCommand"
+        | "inspectContext"
+        | "clearQueue"
+        | "inspectQueue";
+    }
   | { readonly type: "switchRecentSession"; readonly id: string }
   | { readonly type: "send" | "sendNewSession"; readonly text: string; readonly revision: number }
-  | { readonly type: "queueInstruction"; readonly text: string; readonly revision: number; readonly kind: "steer" | "followUp" }
+  | {
+      readonly type: "queueInstruction";
+      readonly text: string;
+      readonly revision: number;
+      readonly kind: "steer" | "followUp";
+    }
   | { readonly type: "recoverQueue"; readonly revision: number }
   | { readonly type: "restoreQueueAttachments"; readonly id: string }
   | { readonly type: "showMoreActions"; readonly text: string; readonly revision: number }
@@ -26,17 +61,41 @@ export type WebviewMessage =
   | { readonly type: "setModel"; readonly provider: string; readonly modelId: string }
   | { readonly type: "setThinking"; readonly level: string }
   | { readonly type: "imageAssetEvicted" | "imageAssetRejected"; readonly id: string }
-  | { readonly type: "reviewChange" | "openChange" | "revertChange" | "cancelBackground" | "resumeBackground" | "openWorktree" | "cleanupWorktree" | "removeAttachment" | "reviewBackground" | "applyBackground"; readonly id: string }
+  | {
+      readonly type:
+        | "reviewChange"
+        | "openChange"
+        | "revertChange"
+        | "cancelBackground"
+        | "resumeBackground"
+        | "openWorktree"
+        | "cleanupWorktree"
+        | "removeAttachment"
+        | "reviewBackground"
+        | "applyBackground";
+      readonly id: string;
+    }
   | { readonly type: "proposalAction"; readonly id: string; readonly action: "preview" | "apply" | "reject" | "select" }
   | { readonly type: "runBackground"; readonly text: string; readonly isolated: boolean; readonly revision: number };
 
 export function isWebviewMessage(value: unknown, maxImageBytes: number): value is WebviewMessage {
   if (!isRecord(value) || typeof value.type !== "string") return false;
-  if (value.type === "send" || value.type === "sendNewSession") return typeof value.text === "string" && isComposerRevision(value.revision);
+  if (value.type === "send" || value.type === "sendNewSession")
+    return typeof value.text === "string" && isComposerRevision(value.revision);
   if (value.type === "switchRecentSession") return typeof value.id === "string" && /^[a-f0-9]{24}$/.test(value.id);
-  if (value.type === "queueInstruction") return typeof value.text === "string" && value.text.length <= 50_000 && isComposerRevision(value.revision) && ["steer", "followUp"].includes(String(value.kind));
+  if (value.type === "queueInstruction")
+    return (
+      typeof value.text === "string" &&
+      value.text.length <= 50_000 &&
+      isComposerRevision(value.revision) &&
+      ["steer", "followUp"].includes(String(value.kind))
+    );
   if (value.type === "recoverQueue") return isComposerRevision(value.revision);
-  if (value.type === "restoreQueueAttachments") return typeof value.id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value.id);
+  if (value.type === "restoreQueueAttachments")
+    return (
+      typeof value.id === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value.id)
+    );
   if (value.type === "showMoreActions") {
     return typeof value.text === "string" && isComposerRevision(value.revision);
   }
@@ -44,30 +103,74 @@ export function isWebviewMessage(value: unknown, maxImageBytes: number): value i
     return (
       typeof value.data === "string" &&
       value.data.length <= Math.ceil(maxImageBytes / 3) * 4 + 4 &&
-      typeof value.mimeType === "string" && value.mimeType.length <= 100 &&
+      typeof value.mimeType === "string" &&
+      value.mimeType.length <= 100 &&
       (value.fileName === undefined || (typeof value.fileName === "string" && value.fileName.length <= 500))
     );
   }
   if (value.type === "setModel") return typeof value.provider === "string" && typeof value.modelId === "string";
   if (value.type === "setThinking") return typeof value.level === "string";
-  if (value.type === "imageAssetEvicted" || value.type === "imageAssetRejected") return typeof value.id === "string" && /^sha256-[a-f0-9]{64}$/.test(value.id);
+  if (value.type === "imageAssetEvicted" || value.type === "imageAssetRejected")
+    return typeof value.id === "string" && /^sha256-[a-f0-9]{64}$/.test(value.id);
   if (value.type === "runBackground") {
     return typeof value.text === "string" && typeof value.isolated === "boolean" && isComposerRevision(value.revision);
   }
   if (value.type === "proposalAction") {
     return typeof value.id === "string" && ["preview", "apply", "reject", "select"].includes(String(value.action));
   }
-  if (["reviewChange", "openChange", "revertChange", "cancelBackground", "resumeBackground", "openWorktree", "cleanupWorktree", "removeAttachment", "reviewBackground", "applyBackground"].includes(value.type)) {
+  if (
+    [
+      "reviewChange",
+      "openChange",
+      "revertChange",
+      "cancelBackground",
+      "resumeBackground",
+      "openWorktree",
+      "cleanupWorktree",
+      "removeAttachment",
+      "reviewBackground",
+      "applyBackground",
+    ].includes(value.type)
+  ) {
     return typeof value.id === "string";
   }
   return [
-    "ready", "cancel", "reconnect", "refreshHistory", "refreshSessions", "retry", "newSession", "deleteSession", "showNoticeDetails", "pickContext", "pickModel", "attachSelection", "attachFile",
-    "attachCurrentFile", "attachDiagnostics", "attachImage", "attachTerminal", "clearAttachments", "compact",
-    "nameSession", "resumeSession", "exportSession", "openTerminal", "openSourceControl", "pickCommand", "inspectContext", "clearQueue", "inspectQueue",
+    "ready",
+    "cancel",
+    "reconnect",
+    "refreshHistory",
+    "refreshSessions",
+    "retry",
+    "newSession",
+    "deleteSession",
+    "showNoticeDetails",
+    "pickContext",
+    "pickModel",
+    "attachSelection",
+    "attachFile",
+    "attachCurrentFile",
+    "attachDiagnostics",
+    "attachImage",
+    "attachTerminal",
+    "clearAttachments",
+    "compact",
+    "nameSession",
+    "resumeSession",
+    "exportSession",
+    "openTerminal",
+    "openSourceControl",
+    "pickCommand",
+    "inspectContext",
+    "clearQueue",
+    "inspectQueue",
   ].includes(value.type);
 }
 
-export function shouldPostActionErrorNotice(action: WebviewMessage["type"], initialRevision: number, currentRevision: number): boolean {
+export function shouldPostActionErrorNotice(
+  action: WebviewMessage["type"],
+  initialRevision: number,
+  currentRevision: number,
+): boolean {
   return action === "queueInstruction" || initialRevision === currentRevision;
 }
 
@@ -100,7 +203,10 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
   for (let entryIndex = retainedEntries.length - 1; entryIndex >= 0; entryIndex -= 1) {
     const { index, value } = retainedEntries[entryIndex]!;
     if (value.role === "user") {
-      imageAttachmentsByIndex.set(index, extractMessageImages(value.content, index, options.imageAssets, imageWorkBudget));
+      imageAttachmentsByIndex.set(
+        index,
+        extractMessageImages(value.content, index, options.imageAssets, imageWorkBudget),
+      );
     }
   }
 
@@ -112,7 +218,7 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
       if (!text && imageAttachments.length === 0) continue;
       const parsed = parseAgentPrompt(text, maxTranscriptAttachments - imageAttachments.length);
       const attachments: TranscriptAttachment[] = [
-        ...parsed.contextLabels.flatMap(label => contextTranscriptAttachment(label) ?? []),
+        ...parsed.contextLabels.flatMap((label) => contextTranscriptAttachment(label) ?? []),
         ...imageAttachments,
       ];
       messages.push({
@@ -131,13 +237,22 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
       });
     }
   }
-  const availableMessages = messages.map(message => ({
+  const availableMessages = messages.map((message) => ({
     ...message,
-    ...(message.attachments ? {
-      attachments: message.attachments.map(attachment => attachment.type === "image"
-        ? { ...attachment, availability: options.imageAssets.has(attachment.assetId) ? "available" as const : "unavailable" as const }
-        : attachment),
-    } : {}),
+    ...(message.attachments
+      ? {
+          attachments: message.attachments.map((attachment) =>
+            attachment.type === "image"
+              ? {
+                  ...attachment,
+                  availability: options.imageAssets.has(attachment.assetId)
+                    ? ("available" as const)
+                    : ("unavailable" as const),
+                }
+              : attachment,
+          ),
+        }
+      : {}),
   }));
   return mergeKnownImageLabels(availableMessages, options.knownMessages ?? []);
 }
@@ -145,7 +260,10 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
 export function extractToolText(value: unknown, maxCharacters: number): string {
   if (!isRecord(value)) return safeJson(value, maxCharacters).slice(-maxCharacters);
   const content = Array.isArray(value.content)
-    ? value.content.filter(part => isRecord(part) && part.type === "text" && typeof part.text === "string").map(part => String(part.text)).join("\n")
+    ? value.content
+        .filter((part) => isRecord(part) && part.type === "text" && typeof part.text === "string")
+        .map((part) => String(part.text))
+        .join("\n")
     : safeJson(value, maxCharacters);
   return content.slice(-maxCharacters);
 }
@@ -188,28 +306,34 @@ function extractMessageText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content
-    .filter(part => isRecord(part) && part.type === "text" && typeof part.text === "string")
-    .map(part => String(part.text))
+    .filter((part) => isRecord(part) && part.type === "text" && typeof part.text === "string")
+    .map((part) => String(part.text))
     .join("\n");
 }
 
 function hasMessageText(content: unknown): boolean {
   return typeof content === "string"
     ? content.length > 0
-    : Array.isArray(content) && content.some(part => isRecord(part) && part.type === "text" && typeof part.text === "string" && part.text.length > 0);
+    : Array.isArray(content) &&
+        content.some(
+          (part) => isRecord(part) && part.type === "text" && typeof part.text === "string" && part.text.length > 0,
+        );
 }
 
 function hasMessageImages(content: unknown): boolean {
-  return Array.isArray(content) && content.some(part => isRecord(part) && part.type === "image");
+  return Array.isArray(content) && content.some((part) => isRecord(part) && part.type === "image");
 }
 
 interface ImageLabelQueue {
   skip: number;
-  readonly labels: Array<Pick<TranscriptImageAttachment, "label" | "fullLabel">>;
+  readonly labels: Pick<TranscriptImageAttachment, "label" | "fullLabel">[];
 }
 
-function mergeKnownImageLabels(messages: readonly SidebarMessage[], knownMessages: readonly SidebarMessage[]): SidebarMessage[] {
-  const knownLabels = new Map<string, Array<Pick<TranscriptImageAttachment, "label" | "fullLabel">>>();
+function mergeKnownImageLabels(
+  messages: readonly SidebarMessage[],
+  knownMessages: readonly SidebarMessage[],
+): SidebarMessage[] {
+  const knownLabels = new Map<string, Pick<TranscriptImageAttachment, "label" | "fullLabel">[]>();
   for (const message of knownMessages) {
     for (const attachment of message.attachments ?? []) {
       if (attachment.type !== "image" || !attachment.assetId.startsWith("sha256-")) continue;
@@ -221,7 +345,8 @@ function mergeKnownImageLabels(messages: readonly SidebarMessage[], knownMessage
   const currentCounts = new Map<string, number>();
   for (const message of messages) {
     for (const attachment of message.attachments ?? []) {
-      if (attachment.type === "image") currentCounts.set(attachment.assetId, (currentCounts.get(attachment.assetId) ?? 0) + 1);
+      if (attachment.type === "image")
+        currentCounts.set(attachment.assetId, (currentCounts.get(attachment.assetId) ?? 0) + 1);
     }
   }
   const queues = new Map<string, ImageLabelQueue>();
@@ -229,19 +354,23 @@ function mergeKnownImageLabels(messages: readonly SidebarMessage[], knownMessage
     const labels = knownLabels.get(assetId) ?? [];
     queues.set(assetId, { skip: Math.max(0, count - labels.length), labels: labels.slice(-count) });
   }
-  return messages.map(message => ({
+  return messages.map((message) => ({
     ...message,
-    ...(message.attachments ? { attachments: message.attachments.map(attachment => {
-      if (attachment.type !== "image") return attachment;
-      const queue = queues.get(attachment.assetId);
-      if (!queue) return attachment;
-      if (queue.skip > 0) {
-        queue.skip -= 1;
-        return attachment;
-      }
-      const known = queue.labels.shift();
-      return known ? { ...attachment, ...known } : attachment;
-    }) } : {}),
+    ...(message.attachments
+      ? {
+          attachments: message.attachments.map((attachment) => {
+            if (attachment.type !== "image") return attachment;
+            const queue = queues.get(attachment.assetId);
+            if (!queue) return attachment;
+            if (queue.skip > 0) {
+              queue.skip -= 1;
+              return attachment;
+            }
+            const known = queue.labels.shift();
+            return known ? { ...attachment, ...known } : attachment;
+          }),
+        }
+      : {}),
   }));
 }
 
@@ -262,7 +391,8 @@ function extractMessageImages(
     const canProcess = estimatedBytes <= workBudget.remainingBytes;
     if (canProcess) workBudget.remainingBytes -= estimatedBytes;
     const asset = canProcess ? cache.store(mimeType, data) : undefined;
-    const assetId = asset?.id ?? unavailableImageAssetId(`${messageIndex}:${partIndex}:${mimeType}:${data.slice(0, 10_000)}`);
+    const assetId =
+      asset?.id ?? unavailableImageAssetId(`${messageIndex}:${partIndex}:${mimeType}:${data.slice(0, 10_000)}`);
     const fullLabel = `Image ${images.length + 1}`;
     images.push({
       type: "image",
@@ -271,7 +401,9 @@ function extractMessageImages(
       fullLabel,
       ...(asset
         ? { mimeType: asset.mimeType, width: asset.width, height: asset.height }
-        : isSupportedImageMimeType(mimeType) ? { mimeType } : {}),
+        : isSupportedImageMimeType(mimeType)
+          ? { mimeType }
+          : {}),
       availability: asset ? "available" : "unavailable",
     });
   }
@@ -280,7 +412,7 @@ function extractMessageImages(
 
 function estimatedBase64Bytes(data: string): number {
   if (!data) return 0;
-  if (data.length % 4 !== 0) return Math.ceil(data.length * 3 / 4);
+  if (data.length % 4 !== 0) return Math.ceil((data.length * 3) / 4);
   const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
-  return Math.max(0, data.length / 4 * 3 - padding);
+  return Math.max(0, (data.length / 4) * 3 - padding);
 }

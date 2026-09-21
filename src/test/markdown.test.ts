@@ -2,16 +2,11 @@ import assert from "node:assert/strict";
 import { renderSafeMarkdown } from "../markdown";
 
 test("renderSafeMarkdown renders common code-oriented Markdown", () => {
-  const html = renderSafeMarkdown([
-    "# Result",
-    "",
-    "- **Changed** parser",
-    "- Added `validate()`",
-    "",
-    "```ts",
-    "const value = 1 < 2;",
-    "```",
-  ].join("\n"));
+  const html = renderSafeMarkdown(
+    ["# Result", "", "- **Changed** parser", "- Added `validate()`", "", "```ts", "const value = 1 < 2;", "```"].join(
+      "\n",
+    ),
+  );
 
   assert.match(html, /<h1>Result<\/h1>/);
   assert.match(html, /<strong>Changed<\/strong>/);
@@ -39,8 +34,10 @@ test("renderSafeMarkdown keeps empty assistant turns invisible", () => {
 });
 
 test("renderSafeMarkdown separates paragraphs without extra blank-line artifacts", () => {
-  assert.equal(renderSafeMarkdown("\nFirst paragraph.\n\n\nSecond paragraph.\n\n"),
-    "<p>First paragraph.</p><p>Second paragraph.</p>");
+  assert.equal(
+    renderSafeMarkdown("\nFirst paragraph.\n\n\nSecond paragraph.\n\n"),
+    "<p>First paragraph.</p><p>Second paragraph.</p>",
+  );
   assert.equal(renderSafeMarkdown("- One\n\nAfter the list."), "<ul><li>One</li></ul><p>After the list.</p>");
 });
 

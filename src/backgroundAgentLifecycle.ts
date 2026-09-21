@@ -37,7 +37,7 @@ export function backgroundTaskIdsToEvict(
   const retained = [...taskIds];
   const evicted: string[] = [];
   while (retained.length > maximumTaskCount) {
-    const index = retained.findIndex(id => !protectedTaskIds.has(id));
+    const index = retained.findIndex((id) => !protectedTaskIds.has(id));
     if (index < 0) {
       break;
     }

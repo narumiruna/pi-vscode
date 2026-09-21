@@ -1,15 +1,10 @@
+import { randomUUID } from "node:crypto";
 import net from "node:net";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-  DEFAULT_MAX_BYTES,
-  DEFAULT_MAX_LINES,
-  formatSize,
-  truncateHead,
-} from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 const responseLimitBytes = 1024 * 1024;
@@ -25,8 +20,8 @@ export default function (pi: ExtensionAPI) {
     const id = typeof value.id === "string" ? value.id : randomUUID();
     const params = isRecord(value.params) ? value.params : {};
     void bridgeRequest(value.method, params).then(
-      result => pi.events.emit("vscode:response", { id, ok: true, result }),
-      error => pi.events.emit("vscode:response", { id, ok: false, error: formatError(error) }),
+      (result) => pi.events.emit("vscode:response", { id, ok: true, result }),
+      (error) => pi.events.emit("vscode:response", { id, ok: false, error: formatError(error) }),
     );
   });
 
@@ -46,7 +41,8 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "vscode_context",
     label: "VS Code Context",
-    description: "Get bounded context from the connected VS Code window: workspace folders, active editor, selection, visible editors, and active-file diagnostics.",
+    description:
+      "Get bounded context from the connected VS Code window: workspace folders, active editor, selection, visible editors, and active-file diagnostics.",
     promptSnippet: "Read the connected VS Code editor, selection, and diagnostics",
     promptGuidelines: [
       "Use vscode_context when a request depends on the user's current VS Code editor, selection, or diagnostics and that context was not included in the prompt.",
@@ -59,9 +55,42 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerTool({
+    name: "vscode_code_context",
+    label: "VS Code Code Context",
+    description:
+      "Get bounded language-provider metadata for a definition, references, callers, callees, or document symbols at a workspace source location. Returns locations and symbol metadata only, not source text.",
+    promptSnippet: "Query VS Code language providers for code-navigation metadata",
+    promptGuidelines: [
+      "Use vscode_code_context when definitions, references, callers, callees, or document symbols from the connected editor's language providers would clarify a code question.",
+      "vscode_code_context returns at most 50 locations, with zero-based result ranges and a five-second provider deadline. It contains metadata only; use read when source text is needed.",
+    ],
+    parameters: Type.Object({
+      operation: StringEnum(["definition", "references", "callers", "callees", "documentSymbols"] as const),
+      path: Type.String({ description: "Absolute path or path relative to Pi's working directory" }),
+      line: Type.Optional(Type.Integer({ minimum: 1, description: "1-based source line" })),
+      column: Type.Optional(Type.Integer({ minimum: 1, description: "1-based source column" })),
+    }),
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      const target = params.path.startsWith("@") ? params.path.slice(1) : params.path;
+      const result = await bridgeRequest(
+        "codeContext",
+        {
+          operation: params.operation,
+          path: path.resolve(ctx.cwd, target),
+          line: params.line,
+          column: params.column,
+        },
+        signal,
+      );
+      return textResult(result);
+    },
+  });
+
+  pi.registerTool({
     name: "vscode_open_file",
     label: "Open in VS Code",
-    description: "Open a local file in the connected VS Code window and optionally reveal a 1-based line and column. This changes editor UI only, not file contents.",
+    description:
+      "Open a local file in the connected VS Code window and optionally reveal a 1-based line and column. This changes editor UI only, not file contents.",
     promptSnippet: "Open a file or source location in the connected VS Code window",
     parameters: Type.Object({
       path: Type.String({ description: "Absolute path or path relative to Pi's working directory" }),
@@ -71,12 +100,16 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const target = params.path.startsWith("@") ? params.path.slice(1) : params.path;
-      const result = await bridgeRequest("open", {
-        path: path.resolve(ctx.cwd, target),
-        line: params.line,
-        column: params.column,
-        preserveFocus: params.preserveFocus,
-      }, signal);
+      const result = await bridgeRequest(
+        "open",
+        {
+          path: path.resolve(ctx.cwd, target),
+          line: params.line,
+          column: params.column,
+          preserveFocus: params.preserveFocus,
+        },
+        signal,
+      );
       return textResult(result);
     },
   });
@@ -84,7 +117,8 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "vscode_notify",
     label: "VS Code Notification",
-    description: "Show a bounded native notification in the connected VS Code window. Use only when the user explicitly asks for a notification.",
+    description:
+      "Show a bounded native notification in the connected VS Code window. Use only when the user explicitly asks for a notification.",
     parameters: Type.Object({
       message: Type.String({ minLength: 1, maxLength: 4_000 }),
       level: Type.Optional(StringEnum(["info", "warning", "error"] as const)),
@@ -96,11 +130,7 @@ export default function (pi: ExtensionAPI) {
   });
 }
 
-async function bridgeRequest(
-  method: string,
-  params: Record<string, unknown>,
-  signal?: AbortSignal,
-): Promise<unknown> {
+async function bridgeRequest(method: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
   const connection = bridgeConnection();
   if (!connection) {
     throw new Error("VS Code bridge is unavailable. Start Pi from a VS Code integrated terminal.");
@@ -176,7 +206,7 @@ async function bridgeRequest(
         finish(new Error("VS Code bridge closed without a response."));
       }
     });
-    socket.once("error", error => finish(new Error(`VS Code bridge connection failed: ${error.message}`)));
+    socket.once("error", (error) => finish(new Error(`VS Code bridge connection failed: ${error.message}`)));
   });
 }
 
@@ -223,12 +253,14 @@ function subscribeToBridgeEvents(
   };
 
   socket.once("connect", () => {
-    socket.write(`${JSON.stringify({
-      id,
-      token: connection.token,
-      method: "subscribe",
-      params: metadata,
-    })}\n`);
+    socket.write(
+      `${JSON.stringify({
+        id,
+        token: connection.token,
+        method: "subscribe",
+        params: metadata,
+      })}\n`,
+    );
   });
   socket.on("data", (chunk: Buffer) => {
     buffer += decoder.write(chunk);
@@ -246,7 +278,7 @@ function subscribeToBridgeEvents(
       processLine(line);
     }
   });
-  socket.once("error", error => {
+  socket.once("error", (error) => {
     disconnectEmitted = true;
     pi.events.emit("vscode:disconnected", { error: error.message });
   });
@@ -261,12 +293,13 @@ function subscribeToBridgeEvents(
 function bridgeConnection(): { port: number; token: string } | undefined {
   const port = Number.parseInt(process.env.PICODE_BRIDGE_PORT ?? "", 10);
   const token = process.env.PICODE_BRIDGE_TOKEN;
-  return Number.isInteger(port) && port >= 1 && port <= 65_535 && token
-    ? { port, token }
-    : undefined;
+  return Number.isInteger(port) && port >= 1 && port <= 65_535 && token ? { port, token } : undefined;
 }
 
-function textResult(value: unknown): { content: Array<{ type: "text"; text: string }>; details: { truncated: boolean } } {
+function textResult(value: unknown): {
+  content: Array<{ type: "text"; text: string }>;
+  details: { truncated: boolean };
+} {
   const text = JSON.stringify(value, undefined, 2) ?? String(value);
   const truncation = truncateHead(text, {
     maxBytes: DEFAULT_MAX_BYTES,

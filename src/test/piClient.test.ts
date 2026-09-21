@@ -36,5 +36,8 @@ test("buildPiArguments never includes prompt content", () => {
   const selectedCode = "const privateValue = 'never put this in argv';";
   const args = buildPiArguments(baseOptions);
 
-  assert.equal(args.some(argument => argument.includes(selectedCode)), false);
+  assert.equal(
+    args.some((argument) => argument.includes(selectedCode)),
+    false,
+  );
 });

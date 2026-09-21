@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { parseRpcQueue, PiRpcClient, StrictJsonLineDecoder, type PiRpcEvent } from "../piRpcClient";
+import { PiRpcClient, type PiRpcEvent, parseRpcQueue, StrictJsonLineDecoder } from "../piRpcClient";
 
 test("RPC queue fixtures preserve duplicates, ack before delivery, clear-before-abort and unsupported/ambiguous responses", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "picode-queue-"));
   const script = path.join(directory, "queue.cjs");
-  await writeFile(script, `
+  await writeFile(
+    script,
+    `
 let buffer = '', steering = [], followUp = [];
 const emit = value => process.stdout.write(JSON.stringify(value) + '\\n');
 process.stdin.setEncoding('utf8');
@@ -30,34 +32,62 @@ process.stdin.on('data', chunk => {
     emit({type:'agent_settled'});
   }
  }
-});`);
+});`,
+  );
   const events: PiRpcEvent[] = [];
-  const client = new PiRpcClient({ executablePath: process.execPath, executableArgs: [script], cwd: directory, requestTimeoutMs: 100 });
-  client.onEvent(event => events.push(event));
+  const client = new PiRpcClient({
+    executablePath: process.execPath,
+    executableArgs: [script],
+    cwd: directory,
+    requestTimeoutMs: 100,
+  });
+  client.onEvent((event) => events.push(event));
   try {
     await client.start();
     const image = { type: "image" as const, data: "YQ==", mimeType: "image/png" };
-    await client.steer("same", [image]); await client.steer("same"); await client.followUp("last", [image]);
-    const queueCommands = events.filter(event => event.type === "command_seen" && ["steer", "follow_up"].includes(String(event.command)));
+    await client.steer("same", [image]);
+    await client.steer("same");
+    await client.followUp("last", [image]);
+    const queueCommands = events.filter(
+      (event) => event.type === "command_seen" && ["steer", "follow_up"].includes(String(event.command)),
+    );
     assert.deepEqual(queueCommands[0]?.images, [image]);
     assert.equal("images" in (queueCommands[1] ?? {}), false, "text-only queue commands remain unchanged");
     assert.deepEqual(queueCommands[2]?.images, [image], "follow-up commands carry the same native image payload shape");
-    assert.equal(events.some(event => event.type === "delivered"), false);
+    assert.equal(
+      events.some((event) => event.type === "delivered"),
+      false,
+    );
     assert.deepEqual(await client.clearQueue(), { steering: ["same", "same"], followUp: ["last"] });
     await client.abort();
-    assert.deepEqual(events.filter(event => event.type === "command_seen").map(event => event.command).slice(-2), ["clear_queue", "abort"]);
+    assert.deepEqual(
+      events
+        .filter((event) => event.type === "command_seen")
+        .map((event) => event.command)
+        .slice(-2),
+      ["clear_queue", "abort"],
+    );
     await assert.rejects(client.steer("/skill:example"), /plain text/);
     await assert.rejects(client.steer("too many", Array(6).fill(image)), /attachment limits/);
     await assert.rejects(client.steer("unsupported"), /Unknown command/);
     await assert.rejects(client.followUp("timeout"), /Timed out/);
-    assert.equal(events.filter(event => event.type === "command_seen" && event.command === "follow_up").length, 2);
+    assert.equal(events.filter((event) => event.type === "command_seen" && event.command === "follow_up").length, 2);
     await assert.rejects(client.steer("crash"), /exited/);
-  } finally { await client.stop(); await rm(directory, { recursive: true, force: true }); }
+  } finally {
+    await client.stop();
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("queue state rejects malformed and oversized payloads without normalizing duplicate text", () => {
   assert.deepEqual(parseRpcQueue({ steering: ["x", "x"], followUp: [] }).steering, ["x", "x"]);
-  for (const value of [{}, { steering: [null], followUp: [] }, { steering: Array(11).fill("x"), followUp: [] }, { steering: [], followUp: ["x".repeat(50001)] }]) assert.throws(() => parseRpcQueue(value));
+  for (const value of [
+    {},
+    { steering: [null], followUp: [] },
+    { steering: Array(11).fill("x"), followUp: [] },
+    { steering: [], followUp: ["x".repeat(50001)] },
+  ])
+    assert.throws(() => parseRpcQueue(value));
 });
 
 test("RPC framing bounds complete, partial and EOF lines before dispatch", () => {
@@ -74,14 +104,22 @@ test("RPC framing bounds complete, partial and EOF lines before dispatch", () =>
 test("forced RPC shutdown emits settlement-breaking process exit once even when SIGTERM is ignored", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "picode-rpc-forced-stop-"));
   const script = path.join(directory, "fixture.cjs");
-  await writeFile(script, `process.on('SIGTERM',()=>{});require('readline').createInterface({input:process.stdin}).on('line',line=>{const r=JSON.parse(line);process.stdout.write(JSON.stringify({type:'response',id:r.id,command:r.type,success:true,data:{}})+'\\n');});`);
+  await writeFile(
+    script,
+    `process.on('SIGTERM',()=>{});require('readline').createInterface({input:process.stdin}).on('line',line=>{const r=JSON.parse(line);process.stdout.write(JSON.stringify({type:'response',id:r.id,command:r.type,success:true,data:{}})+'\\n');});`,
+  );
   const client = new PiRpcClient({ executablePath: process.execPath, executableArgs: [script], cwd: directory });
-  const events: PiRpcEvent[] = []; client.onEvent(event => events.push(event));
+  const events: PiRpcEvent[] = [];
+  client.onEvent((event) => events.push(event));
   try {
-    await client.start(); await Promise.all([client.stop(), client.stop()]);
+    await client.start();
+    await Promise.all([client.stop(), client.stop()]);
     assert.equal(client.isRunning, false);
-    assert.equal(events.filter(event => event.type === "process_exit").length, 1);
-    await new Promise(resolve => setTimeout(resolve, 25));
-    assert.equal(events.filter(event => event.type === "process_exit").length, 1);
-  } finally { await client.stop(); await rm(directory, { recursive: true, force: true }); }
+    assert.equal(events.filter((event) => event.type === "process_exit").length, 1);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(events.filter((event) => event.type === "process_exit").length, 1);
+  } finally {
+    await client.stop();
+    await rm(directory, { recursive: true, force: true });
+  }
 });

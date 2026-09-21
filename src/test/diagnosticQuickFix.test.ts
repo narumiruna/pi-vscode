@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import {
   buildDiagnosticFixInstruction,
+  type DiagnosticLike,
   filterFixableDiagnostics,
   selectDiagnosticAtPosition,
-  type DiagnosticLike,
 } from "../diagnosticQuickFix";
 
 const warning: DiagnosticLike = {
   severity: 1,
-  message: "Missing property \"icon\".",
+  message: 'Missing property "icon".',
   source: "json",
   code: "missing-property",
   range: {
