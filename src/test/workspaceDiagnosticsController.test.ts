@@ -51,6 +51,7 @@ test.each([false, true])("batch diagnostic repair (workspace alias: %s)", async 
   vscode.EndOfLine = { LF: 1, CRLF: 2 };
   vscode.FilePermission = { Readonly: 1 };
   vscode.workspace.workspaceFolders = [folder];
+  vscode.workspace.textDocuments = [a, b];
   vscode.workspace.isTrusted = true;
   vscode.workspace.getWorkspaceFolder = (uri: any) =>
     uri.fsPath.startsWith(`${workspacePath}${path.sep}`) ? folder : undefined;
@@ -125,6 +126,8 @@ test.each([false, true])("batch diagnostic repair (workspace alias: %s)", async 
       const snapshot = JSON.parse(contexts[0]!.content);
       assert.deepEqual(snapshot.files.map((file: { path: string }) => file.path).sort(), ["a.ts", "b.ts"]);
       assert.equal(snapshot.diagnostics.length, 2);
+      assert.equal(snapshot.files[0].content, a.text);
+      assert.equal(snapshot.files[1].content, b.text);
       const response = JSON.stringify({
         files: snapshot.files.map((file: any) => ({ path: file.path, content: "good\n" })),
       });
@@ -138,8 +141,8 @@ test.each([false, true])("batch diagnostic repair (workspace alias: %s)", async 
     },
   });
   try {
-    await writeFile(a.uri.fsPath, a.text);
-    await writeFile(b.uri.fsPath, b.text);
+    await writeFile(a.uri.fsPath, "different disk bytes\n");
+    await writeFile(b.uri.fsPath, "different disk bytes\n");
     const command = vscode.registrations.get("picode.fixWorkspaceDiagnostics")!;
     await command();
     selection = "empty";
@@ -148,6 +151,19 @@ test.each([false, true])("batch diagnostic repair (workspace alias: %s)", async 
     await command();
     assert.equal(requests, 0);
     approved = true;
+    const statBeforeCapture = vscode.workspace.fs.stat;
+    vscode.workspace.fs.stat = async (uri: any) => {
+      if (uri.toString() === a.uri.toString()) {
+        b.text = "changed while capturing the earlier file\n";
+        b.version++;
+      }
+      return statBeforeCapture(uri);
+    };
+    await command();
+    assert.match(errors.pop()!, /Document changed/);
+    assert.equal(requests, 0, "All dirty sources must be frozen before capturing the first file");
+    vscode.workspace.fs.stat = statBeforeCapture;
+    b.text = "bad\n";
     await command();
     assert.deepEqual(errors, []);
     assert.equal(requests, 1);
