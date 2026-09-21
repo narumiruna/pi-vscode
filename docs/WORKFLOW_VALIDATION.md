@@ -186,6 +186,14 @@ The original URI bug fails a distinct-buffer regression and an actual VS Code 1.
 
 On Linux **1.106.0 and 1.138.0**, ordinary and alias native UI runs now verify dirty finding buffers are Ask-only and direct Fix commands reject without a prompt. After Undo, actual Problems Fix → Preview → Apply changes the workspace document, and one native Undo restores it. The existing semantic, four review scopes, partial-hunk diagnostic repair, cancellation and reload assertions still pass with exactly seven approved read-only fixture prompts. This round does not newly claim Windows/SSH alias, live-provider or human accessibility coverage. The [review ledger](reviews/2026-09-21_pr-36-review.md) records all four submitted findings plus the independently discovered race and their evidence.
 
+### PR #36 semantic ordering follow-up
+
+Semantic ranges now sort numerically by start line/column and end line/column after file path, before the existing result and excerpt limits. Two regressions fail against `4de0acb` and pass after correction: they cover all four coordinates, reversed provider order, duplicate locations, path precedence, the exact earliest 50 results from 101 unique locations, and the first 20 attachment excerpt headings. Deduplication keys, safety guards and resource limits are unchanged.
+
+Validation passes **24 focused tests / 4 files** and **221 full-suite tests / 41 files**, including normal, Git-hook-environment and package runs. Biome has zero errors (374 warnings / 9 infos); production audit has zero vulnerabilities; `git diff --check` passes. Native Linux Extension Host API smoke tests pass on **1.106.0 and 1.138.0**. The deterministic fixtures prove numeric ordering; the native runs separately verify real provider/bridge/API compatibility. Native UI walkthroughs, Windows/SSH and live-provider quality were not rerun for this comparator-only change.
+
+The inspected VSIX (`8c3391db976f9fa3260e51fc5561a59a03458c39eb69f63f818478d85b818f81`) contains the numeric comparisons and unchanged deduplication/limit paths, retains 63 entries / 50 runtime modules and all prior exclusions. The original ignored VSIX is checksum-verified unchanged. All five submitted findings and the independently discovered writable-check race have evidence-backed outcomes in the [review ledger](reviews/2026-09-21_pr-36-review.md).
+
 ## Deferred usage checks from earlier plans
 
 Per the user's explicit acceptance decision for those earlier plans, later real-world use will cover native Quick Picks/diff editors/Undo, full keyboard navigation and actual theme contrast on minimum/current VS Code, untrusted UI, SSH/container placement, installed Pi versions/provider behavior, and paused Node.js debugger interaction. Unsupported/uncertain queue commands disconnect without replay; unsupported adapters/resources and unverified task inactivity fail closed. These limitations and workflow bounds are documented in the README and Security guide.

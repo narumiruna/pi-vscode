@@ -118,6 +118,62 @@ test("semantic context supports hierarchical and flat symbols, call directions, 
     assert.equal((await queryCodeContext("references", uri, new vscode.Position(0, 0))).items.length, 0);
   }));
 
+test("semantic ranges sort by path then numeric start/end coordinates, independent of provider order", async () =>
+  fixture(async (root, uri) => {
+    const firstFile = MockUri.file(path.join(root, "a.ts"));
+    await writeFile(firstFile.fsPath, "first file\n");
+    const coordinates = [
+      [0, 0, 0, 1],
+      [2, 2, 2, 2],
+      [2, 2, 2, 10],
+      [2, 2, 2, 100],
+      [2, 2, 10, 0],
+      [2, 2, 100, 0],
+      [2, 10, 2, 10],
+      [2, 100, 2, 100],
+      [10, 0, 10, 1],
+      [100, 0, 100, 1],
+    ] as const;
+    const locations = coordinates.map(([startLine, startColumn, endLine, endColumn]) => ({
+      uri,
+      range: new vscode.Range(startLine, startColumn, endLine, endColumn),
+    }));
+    const values = [...locations, locations[0], { uri: firstFile, range: range(100) }];
+    for (const providerOrder of [values, [...values].reverse()]) {
+      vscode.commands.executeCommand = async () => providerOrder;
+      const result = await queryCodeContext("references", uri, new vscode.Position(0, 0));
+      assert.equal(result.truncated, false);
+      assert.equal(result.items[0]?.path, "a.ts", "File path precedes coordinate ordering");
+      assert.deepEqual(
+        result.items
+          .slice(1)
+          .map(({ range: value }) => [value.start.line, value.start.column, value.end.line, value.end.column]),
+        coordinates,
+      );
+    }
+  }));
+
+test("semantic result and excerpt limits retain the earliest numeric locations after deduplication", async () =>
+  fixture(async (_root, uri) => {
+    const values = Array.from({ length: 101 }, (_, line) => ({ uri, range: range(line) }));
+    // The repeated early result must not displace another unique result from the budget.
+    vscode.commands.executeCommand = async () => [...values].reverse().flatMap((value) => [value, value]);
+    const result = await queryCodeContext("references", uri, new vscode.Position(0, 0));
+    assert.equal(result.truncated, true);
+    assert.deepEqual(
+      result.items.map((item) => item.range.start.line),
+      Array.from({ length: 50 }, (_, line) => line),
+    );
+    const attachment = await semanticAttachmentText(result);
+    const headings = [...attachment.matchAll(/^source\.ts:(\d+) · document version 1$/gm)].map((match) =>
+      Number(match[1]),
+    );
+    assert.deepEqual(
+      headings,
+      Array.from({ length: 20 }, (_, line) => line + 1),
+    );
+  }));
+
 test("semantic context trust, positions, cancellation and provider errors fail without guessing", async () =>
   fixture(async (_root, uri) => {
     let calls = 0;
