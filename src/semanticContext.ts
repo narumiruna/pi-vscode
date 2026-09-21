@@ -96,7 +96,10 @@ export async function queryCodeContext(
   const sorted = [...unique.values()].sort(
     (left, right) =>
       left.path.localeCompare(right.path) ||
-      rangeKey(left.range).localeCompare(rangeKey(right.range)) ||
+      left.range.start.line - right.range.start.line ||
+      left.range.start.column - right.range.start.column ||
+      left.range.end.line - right.range.end.line ||
+      left.range.end.column - right.range.end.column ||
       (left.name ?? "").localeCompare(right.name ?? ""),
   );
   if (token?.isCancellationRequested) throw new Error("Semantic context request was cancelled.");
