@@ -157,7 +157,7 @@ npm run package
 
 `npm run test:native -- 1.106.0` runs isolated, noninteractive native Extension Host assertions (on headless Linux, prefix with `xvfb-run -a`). Use `stable` for the current stable build and append `untrusted` for Restricted Mode. The runner downloads a test build to the system temporary cache, creates disposable profiles/workspaces, and never invokes a model. See [Workflow Validation](docs/WORKFLOW_VALIDATION.md) for coverage and remaining manual checks.
 
-On Linux, `xvfb-run -a npm run test:native-ui -- 1.106.0` exercises the actual attachment picker, review confirmations, Problems actions, Sidebar proposals, multi-file Apply/Undo and window reload. Use `stable` for current VS Code. Playwright connects only to the disposable VS Code profile's loopback debugging endpoint; a deterministic Pi RPC fixture replaces provider requests. No live model, user profile or workspace is used.
+On Linux, `xvfb-run -a npm run test:native-ui -- 1.106.0` exercises the actual attachment picker, review confirmations, Problems actions, Sidebar proposals, multi-file Apply/Undo and window reload. Use `stable` for current VS Code; append `alias` to exercise a workspace opened through a directory symlink. Playwright connects only to the disposable VS Code profile's loopback debugging endpoint; a deterministic Pi RPC fixture replaces provider requests. No live model, user profile or workspace is used.
 
 `npm test` compiles the extension and runs the Node test suite. `npm run package` repeats those checks and creates `pi-coding-agent-vscode.vsix`.
 

@@ -1,3 +1,4 @@
+import { realpath } from "node:fs/promises";
 import path from "node:path";
 import * as vscode from "vscode";
 import { assertSafeFile } from "./backgroundResults";
@@ -15,7 +16,9 @@ export interface DocumentEditSnapshot {
 }
 
 export interface MultiFileEditSnapshot {
+  /** Canonical root owns the operation lock; editor URIs may use a workspace-root alias. */
   readonly root: string;
+  readonly workspacePath?: string;
   readonly files: readonly {
     readonly path: string;
     readonly document: vscode.TextDocument;
@@ -143,9 +146,10 @@ export function addMultiFileEditProposal(
     new Set(snapshot.files.map((file) => file.document.uri.toString())).size !== snapshot.files.length
   )
     throw new Error("Invalid multi-file proposal targets.");
+  const workspacePath = snapshot.workspacePath ?? snapshot.root;
   const files = snapshot.files
     .map((file, index) => {
-      assertWorkspaceFile(snapshot.root, file.document.uri);
+      assertWorkspaceFile(workspacePath, file.document.uri);
       assertFileCurrent(file);
       const replacement = convertLineEndings(file.replacement, file.document.eol);
       const { hunks } = computeEditHunks(file.original, replacement);
@@ -166,8 +170,9 @@ export function addMultiFileEditProposal(
     hunks: choices,
     onPreview: async (selected) => {
       requireTrustedFile(vscode.Uri.file(snapshot.root));
+      await assertWorkspaceRoot(snapshot.root, workspacePath);
       for (const file of files) {
-        assertWorkspaceFile(snapshot.root, file.document.uri);
+        assertWorkspaceFile(workspacePath, file.document.uri);
         assertFileCurrent(file);
       }
       clearPreviews(previews, previewsByPath);
@@ -195,16 +200,18 @@ export function addMultiFileEditProposal(
         throw new Error("Preview the current hunk selection before applying.");
       const release = acquireOperation(snapshot.root, "workspace edit proposal");
       try {
+        await assertWorkspaceRoot(snapshot.root, workspacePath);
         for (const file of files) {
-          assertWorkspaceFile(snapshot.root, file.document.uri);
+          assertWorkspaceFile(workspacePath, file.document.uri);
           await assertSafeFile(
             snapshot.root,
-            path.relative(snapshot.root, file.document.uri.fsPath).split(path.sep).join("/"),
+            path.relative(workspacePath, file.document.uri.fsPath).split(path.sep).join("/"),
           );
           assertFileCurrent(file);
           if (!(await isDocumentWritable(file.document))) throw new Error(`Read-only document: ${file.path}`);
         }
-        // Recheck all versions after every asynchronous permission/path check.
+        // An alias must still resolve to the captured root after asynchronous checks.
+        await assertWorkspaceRoot(snapshot.root, workspacePath);
         for (const file of files) assertFileCurrent(file);
         const ids = checkedIds(selected, choices);
         const edit = new vscode.WorkspaceEdit();
@@ -255,6 +262,11 @@ export async function isDocumentWritable(document: vscode.TextDocument): Promise
   } catch {
     return false;
   }
+}
+
+async function assertWorkspaceRoot(root: string, workspacePath: string): Promise<void> {
+  if ((await realpath(workspacePath)) !== root)
+    throw new Error("Workspace root changed. Regenerate the edit proposal.");
 }
 
 function assertWorkspaceFile(root: string, uri: vscode.Uri): void {

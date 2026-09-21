@@ -64,7 +64,7 @@ test("rejected checkpoint candidates leave room for later fitting files", () => 
   assert.deepEqual(record.exclusions, ["overflow: retained snapshot limit", "oversized-side: retained snapshot limit"]);
 });
 
-test("request-start snapshots precede immediate subprocess writes; dirty, external and shell changes are not restorable", () => {
+test("semantic lookup preserves attributable request-start checkpoints; dirty, external and shell changes are not restorable", () => {
   const vscode = installVscodeMock();
   const { WorkspaceChangeTracker } = require("../changeTracker") as typeof import("../changeTracker");
   const root = mkdtempSync(path.join(tmpdir(), "picode-checkpoint-"));
@@ -73,6 +73,11 @@ test("request-start snapshots precede immediate subprocess writes; dirty, extern
   try {
     writeFileSync(file, "before");
     tracker.startRequest(root, "session");
+    tracker.captureToolEvent({
+      type: "tool_execution_start",
+      toolName: "vscode_code_context",
+      args: { operation: "definition", path: file },
+    });
     execFileSync(process.execPath, ["-e", "require('fs').writeFileSync(process.argv[1], 'after')", file]);
     // Notification deliberately arrives after the subprocess has already written bytes.
     tracker.captureToolEvent({
@@ -82,6 +87,7 @@ test("request-start snapshots precede immediate subprocess writes; dirty, extern
     });
     const changes = tracker.finishRequest();
     assert.equal(changes.length, 1);
+    assert.equal(changes[0]?.canPreview, true);
     assert.equal(changes[0]?.canRevert, true);
     tracker.revert(changes[0]!.id);
     assert.equal(readFileSync(file, "utf8"), "before");
