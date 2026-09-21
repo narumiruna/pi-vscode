@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rename, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import {
+  aliasedDiagnosticEncodings,
+  diagnosticEncodingAgreementFixtures,
+  diagnosticEncodingFixtures,
+  unsupportedDiagnosticEncodings,
+} from "./diagnosticEncodingFixtures";
 import { installVscodeMock, MockUri } from "./vscodeMock";
 
 const vscode = installVscodeMock();
@@ -233,6 +239,13 @@ test.each([
   { name: "UTF-16BE BOM", bytes: Buffer.from("\ufeffa\n", "utf16le").swap16(), text: "a\n", eol: 1 },
   { name: "multibyte character bound", bytes: Buffer.from("界".repeat(100_000)), text: "界".repeat(100_000), eol: 1 },
   { name: "configured windows1252", bytes: Buffer.from([0x80, 0x0a]), text: "€\n", eol: 1, encoding: "windows1252" },
+  {
+    name: "BOM overrides configured alias",
+    bytes: Buffer.from("\ufeff日本\r\n"),
+    text: "日本\r\n",
+    eol: 2,
+    encoding: "shiftjis",
+  },
 ])("diagnostic capture matches $name", async ({ bytes, text, eol, encoding }) =>
   fixture(async (state) => {
     await writeFile(state.file, bytes);
@@ -245,6 +258,95 @@ test.each([
     assert.deepEqual(state.errors, []);
     assert.equal(state.sent.length, 1);
     assert.equal(JSON.parse(state.sent[0]!).files[0].content, text);
+  }),
+);
+
+test.each(diagnosticEncodingFixtures)(
+  "diagnostic capture verifies VS Code encoding $encoding",
+  async ({ encoding, hex, text }) =>
+    fixture(async (state) => {
+      await writeFile(state.file, Buffer.from(hex, "hex"));
+      vscode.workspace.getConfiguration = () => ({ get: () => encoding });
+      state.hooks.duringStat = async () => {
+        state.document.text = text;
+      };
+      await state.run();
+      assert.deepEqual(state.errors, []);
+      assert.equal(state.sent.length, 1);
+      assert.equal(JSON.parse(state.sent[0]!).files[0].content, text);
+    }),
+);
+
+test.each(diagnosticEncodingAgreementFixtures)(
+  "diagnostic capture requires codec-table agreement for $encoding",
+  async ({ encoding, canonicalEncoding, hex, text }) =>
+    fixture(async (state) => {
+      const bytes = Buffer.from(hex, "hex");
+      const matchesEditor = new TextDecoder(canonicalEncoding, { fatal: true }).decode(bytes) === text;
+      await writeFile(state.file, bytes);
+      vscode.workspace.getConfiguration = () => ({ get: () => encoding });
+      state.hooks.duringStat = async () => {
+        state.document.text = text;
+      };
+      await state.run();
+      if (matchesEditor) {
+        assert.deepEqual(state.errors, []);
+        assert.equal(state.sent.length, 1);
+        assert.equal(JSON.parse(state.sent[0]!).files[0].content, text);
+      } else {
+        assert.deepEqual(state.sent, []);
+        assert.deepEqual(state.inspected, []);
+        assert.equal(state.errors.length, 1);
+        assert.match(state.errors[0]!, /does not match safely captured file/);
+      }
+    }),
+);
+
+test.each(unsupportedDiagnosticEncodings)("diagnostic capture rejects unsupported VS Code codec %s", async (encoding) =>
+  fixture(async (state) => {
+    vscode.workspace.getConfiguration = () => ({ get: () => encoding });
+    await state.run();
+    assert.deepEqual(state.sent, []);
+    assert.deepEqual(state.inspected, []);
+    assert.equal(state.errors.length, 1);
+    assert.match(state.errors[0]!, /Cannot verify diagnostic file encoding/);
+  }),
+);
+
+test.each(aliasedDiagnosticEncodings)("diagnostic capture still rejects mismatched text for %s", async (encoding) =>
+  fixture(async (state) => {
+    const sample = diagnosticEncodingFixtures.find((sample) => sample.encoding === encoding)!;
+    await writeFile(state.file, Buffer.from(sample.hex, "hex"));
+    vscode.workspace.getConfiguration = () => ({ get: () => encoding });
+    state.hooks.duringStat = async () => {
+      state.document.text = foreignText;
+    };
+    await state.run();
+    assert.deepEqual(state.sent, []);
+    assert.deepEqual(state.inspected, []);
+    assert.equal(state.errors.length, 1);
+    assert.match(state.errors[0]!, /does not match safely captured file/);
+  }),
+);
+
+test.each([
+  { encoding: "shiftjis", hex: "82" },
+  { encoding: "eucjp", hex: "a4" },
+  { encoding: "euckr", hex: "c7" },
+  { encoding: "cp950", hex: "a4" },
+  { encoding: "big5hkscs", hex: "9d" },
+])("diagnostic capture rejects truncated $encoding instead of replacement decoding", async ({ encoding, hex }) =>
+  fixture(async (state) => {
+    await writeFile(state.file, Buffer.from(hex, "hex"));
+    vscode.workspace.getConfiguration = () => ({ get: () => encoding });
+    state.hooks.duringStat = async () => {
+      state.document.text = "\ufffd";
+    };
+    await state.run();
+    assert.deepEqual(state.sent, []);
+    assert.deepEqual(state.inspected, []);
+    assert.equal(state.errors.length, 1);
+    assert.match(state.errors[0]!, /Cannot verify diagnostic file encoding/);
   }),
 );
 
