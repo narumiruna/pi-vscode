@@ -31,7 +31,10 @@ try {
     GIT_COMMITTER_NAME: "Fixture",
     GIT_COMMITTER_EMAIL: "fixture@example.invalid",
     GIT_TERMINAL_PROMPT: "0",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: path.join(directory, "empty-gitconfig"),
   });
+  await writeFile(gitEnv.GIT_CONFIG_GLOBAL, "");
   const git = (...args) =>
     execFileSync("git", ["-c", "commit.gpgsign=false", ...args], { cwd: workspace, env: gitEnv, stdio: "pipe" });
   git("init", "-q");
@@ -57,6 +60,8 @@ try {
     "--skip-release-notes",
     "--user-data-dir",
     userData,
+    "--shared-data-dir",
+    path.join(directory, "shared"),
     "--extensions-dir",
     path.join(directory, "extensions"),
     `--extensionDevelopmentPath=${repository}`,

@@ -404,6 +404,7 @@
     "watch": "tsc -watch -p ./",
     "test": "npm run compile && vitest run",
     "test:native": "npm run compile && node scripts/test-native.mjs",
+    "test:native-ui": "npm run compile && node scripts/test-native-ui.mjs",
     "package": "npm run test && vsce package --out pi-coding-agent-vscode.vsix",
     "changeset": "changeset",
     "changeset:version": "changeset version",
@@ -417,6 +418,7 @@
     "@vscode/test-electron": "2.5.2",
     "@vscode/vsce": "^3.6.2",
     "husky": "^9.1.7",
+    "playwright-core": "1.63.0",
     "typescript": "^5.7.0",
     "vitest": "^4.1.11"
   }

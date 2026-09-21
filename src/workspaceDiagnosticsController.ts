@@ -174,6 +174,7 @@ export function registerWorkspaceDiagnostics(
                   disposeObservation();
                   observation = new DiagnosticObservation(snapshot, sources);
                   observations.add(observation);
+                  return { dispose: disposeObservation };
                 },
                 onApplied: async () => {
                   try {
@@ -231,7 +232,9 @@ class DiagnosticObservation implements vscode.Disposable {
         remaining++;
       else disappeared++;
     }
-    await vscode.window.showInformationMessage(
+    // A non-modal notification resolves only when dismissed. Do not retain the
+    // Apply lock or observation listener while the user leaves it open.
+    void vscode.window.showInformationMessage(
       `Diagnostic update: ${disappeared} disappeared, ${remaining} still present, ${unverified} not revalidated. This is not test evidence.`,
     );
     this.dispose();
