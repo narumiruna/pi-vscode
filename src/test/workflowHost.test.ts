@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { stripTypeScriptTypes } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { runInNewContext } from "node:vm";
-import ts from "typescript";
 import { imageAssetId } from "../imageAssets";
 import { buildAgentPrompt } from "../prompts";
 import { assertSessionWorkspace } from "../sessionIdentity";
@@ -17,14 +16,13 @@ import { installVscodeMock, MockUri } from "./vscodeMock";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
-test("packaged read-only gate blocks mutating default and extension tools and restores tools only at settlement", () => {
+test("packaged read-only gate blocks mutating default and extension tools and restores tools only at settlement", async () => {
   const source = readFileSync(path.resolve(__dirname, "../../resources/picode-read-only-gate.ts"), "utf8");
-  const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
-  const exports: any = {};
-  runInNewContext(compiled, { exports });
+  const javascript = stripTypeScriptTypes(source);
+  const { default: readOnlyGate } = await import(`data:text/javascript,${encodeURIComponent(javascript)}`);
   const handlers = new Map<string, (event?: unknown) => unknown>();
   let tools = ["read", "vscode_code_context", "bash", "write", "edit", "custom_mutation"];
-  exports.default({
+  readOnlyGate({
     on: (name: string, callback: (event?: unknown) => unknown) => handlers.set(name, callback),
     getActiveTools: () => tools,
     setActiveTools: (value: string[]) => {
