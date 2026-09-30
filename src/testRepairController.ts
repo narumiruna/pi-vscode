@@ -66,9 +66,15 @@ export function registerTestRepair(
       const relative = path.relative(folder.fsPath, uri.fsPath).split(path.sep).join("/");
       await assertSafeFile(root, relative);
       const document = await vscode.workspace.openTextDocument(uri);
-      const captureSource = async () => {
+      const validateWorkspace = async () => {
         if ((await realpath(folder.fsPath)) !== root)
           throw new Error("Source workspace root changed; start a fresh repair.");
+        // Recheck synchronous guards after the filesystem await.
+        requireTrustedFile(uri);
+        if (runtime.currentState.sessionId !== sessionId) throw new Error("Session changed; start a fresh repair.");
+      };
+      const captureSource = async () => {
+        await validateWorkspace();
         const before = document.getText();
         const version = document.version;
         if (before.length > 200_000) throw new Error("Repair source is limited to 200,000 characters.");
@@ -180,18 +186,16 @@ export function registerTestRepair(
         const applied = await new Promise<boolean>((resolve) => {
           let previewKey: string | undefined;
           let preview: vscode.Uri | undefined;
-          const check = () => {
-            requireTrustedFile(uri);
+          const check = async () => {
+            await validateWorkspace();
             if (document.isClosed || document.version !== version)
               throw new Error("Source changed; regenerate the repair.");
-            if (runtime.currentState.sessionId !== sessionId)
-              throw new Error("Session changed; regenerate the repair.");
           };
           conversation.addEditProposal({
             label: `Test repair ${attempts.attempts}/2: ${uri.fsPath}`,
             hunks,
             onPreview: async (ids) => {
-              check();
+              await check();
               if (preview) documents.release(preview);
               preview = documents.create("test-repair-preview", selectedReplacement(before, hunks, ids ?? []));
               await vscode.commands.executeCommand("vscode.diff", uri, preview, "Pi Test Repair Preview", {
@@ -200,7 +204,7 @@ export function registerTestRepair(
               previewKey = JSON.stringify(ids);
             },
             onApply: async (ids) => {
-              check();
+              await check();
               if (!preview || previewKey !== JSON.stringify(ids))
                 throw new Error("Preview the selected repair hunks first.");
               const edit = new vscode.WorkspaceEdit();
@@ -233,6 +237,7 @@ export function registerTestRepair(
         )
           return;
         await assertRuntimeTarget(runtime, folder.fsPath, sessionId);
+        await validateWorkspace();
         if (!(await document.save())) throw new Error("Source could not be saved; no rerun.");
         testedSource = await captureSource();
         const rerun = await runApproved(command, folder.fsPath, sessionId, () => validateSource(testedSource));
