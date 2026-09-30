@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { gitEnvironment } from "../gitSnapshots";
@@ -252,10 +252,14 @@ for (const workspaceKind of ["root", "subfolder"])
     }
   });
 
-test("failed-test repair runs a real failing Node test, applies a previewed fixture response, and reruns the unchanged command", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "picode-repair-controller-"));
-  const fixture = ui(root);
-  const source = path.join(root, "source.cjs");
+test.each([false, true])("failed-test repair previews and reruns (workspace alias: %s)", async (alias) => {
+  const directory = await mkdtemp(path.join(tmpdir(), "picode-repair-controller-"));
+  const root = path.join(directory, "workspace");
+  await mkdir(root);
+  const workspace = alias ? path.join(directory, "alias") : root;
+  if (alias) await symlink(root, workspace, "junction");
+  const fixture = ui(workspace);
+  const source = path.join(workspace, "source.cjs");
   // The process under test is an independent test runner, not a nested Node test worker.
   const parentTestContext = process.env.NODE_TEST_CONTEXT;
   delete process.env.NODE_TEST_CONTEXT;
@@ -281,7 +285,11 @@ test("failed-test repair runs a real failing Node test, applies a previewed fixt
         return true;
       },
     };
-    vscode.workspace.openTextDocument = async (uri: any) => (uri.scheme === "file" ? document : { uri });
+    vscode.workspace.openTextDocument = async (uri: any) => {
+      if (uri.scheme !== "file") return { uri };
+      assert.equal(uri.toString(), document.uri.toString(), "Keep the selected workspace's editor URI");
+      return document;
+    };
     vscode.window.showOpenDialog = async () => [MockUri.file(source)];
     const command = { executable: process.execPath, args: ["--test", "failure.test.cjs"] };
     vscode.window.showInputBox = async () => JSON.stringify(command);
@@ -294,7 +302,8 @@ test("failed-test repair runs a real failing Node test, applies a previewed fixt
     };
     vscode.WorkspaceEdit = class {
       value = "";
-      replace(_uri: unknown, _range: unknown, value: string) {
+      replace(uri: MockUri, _range: unknown, value: string) {
+        assert.equal(uri.toString(), document.uri.toString());
         this.value = value;
       }
     };
@@ -312,7 +321,11 @@ test("failed-test repair runs a real failing Node test, applies a previewed fixt
       sendRequest: async (_request, contexts, options) => {
         requests++;
         assert.equal(options?.policy, "read-only");
-        assert.match(contexts[0]!.content, /exitCode/);
+        const snapshot = JSON.parse(contexts[0]!.content);
+        assert.equal(snapshot.source.path, source);
+        assert.equal(snapshot.repository, workspace);
+        assert.deepEqual(snapshot.command, command);
+        assert.equal(snapshot.exitCode, 1);
         return "<<<PICODE_REPLACEMENT_START>>>\nmodule.exports = 42;\n\n<<<PICODE_REPLACEMENT_END>>>";
       },
       addEditProposal: (input) => {
@@ -343,7 +356,59 @@ test("failed-test repair runs a real failing Node test, applies a previewed fixt
   } finally {
     if (parentTestContext !== undefined) process.env.NODE_TEST_CONTEXT = parentTestContext;
     fixture.dispose();
-    await rm(root, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("test repair rejects a retargeted workspace alias even when source bytes match", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "picode-repair-alias-"));
+  const root = path.join(directory, "workspace");
+  const outside = path.join(directory, "outside");
+  const workspace = path.join(directory, "alias");
+  await mkdir(root);
+  await mkdir(outside);
+  await symlink(root, workspace, "junction");
+  const fixture = ui(workspace);
+  const source = path.join(workspace, "source.cjs");
+  const text = "module.exports = 0;\n";
+  const document = {
+    uri: MockUri.file(source),
+    isClosed: false,
+    isDirty: false,
+    version: 1,
+    eol: 1,
+    getText: () => text,
+  };
+  let requests = 0;
+  vscode.workspace.openTextDocument = async (uri: any) => (uri.scheme === "file" ? document : { uri });
+  vscode.window.showOpenDialog = async () => [document.uri];
+  vscode.window.showInputBox = async () => JSON.stringify({ executable: "/nonexistent/must-not-run", args: [] });
+  vscode.window.showQuickPick = async () => {
+    await unlink(workspace);
+    await symlink(outside, workspace, "junction");
+    return "Supply Existing Failure Log";
+  };
+  vscode.window.showWarningMessage = async () => "Send Snapshot";
+  const { registerTestRepair } = require("../testRepairController") as typeof import("../testRepairController");
+  registerTestRepair(fixture.context, fixture.runtime, {
+    sendRequest: async () => {
+      requests++;
+      return `<<<PICODE_REPLACEMENT_START>>>\n${text}\n<<<PICODE_REPLACEMENT_END>>>`;
+    },
+    addEditProposal: () => assert.fail("A retargeted workspace must not propose edits"),
+  });
+  try {
+    await writeFile(source, text);
+    await writeFile(path.join(outside, "source.cjs"), text);
+    await vscode.registrations.get("picode.repairFailedTest")!();
+    assert.equal(requests, 0);
+    assert.deepEqual(fixture.inspected, []);
+    assert.match(fixture.errors[0] ?? "", /workspace root changed/);
+    assert.equal(await readFile(path.join(root, "source.cjs"), "utf8"), text);
+    assert.equal(await readFile(path.join(outside, "source.cjs"), "utf8"), text);
+  } finally {
+    fixture.dispose();
+    await rm(directory, { recursive: true, force: true });
   }
 });
 

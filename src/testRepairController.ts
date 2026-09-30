@@ -62,10 +62,13 @@ export function registerTestRepair(
       if (vscode.workspace.getWorkspaceFolder(uri)?.uri.toString() !== folder.toString())
         throw new Error("Choose a source file in the selected workspace.");
       const root = await realpath(folder.fsPath);
-      const relative = path.relative(root, uri.fsPath).split(path.sep).join("/");
+      // Derive names from the selected workspace spelling; root owns filesystem checks.
+      const relative = path.relative(folder.fsPath, uri.fsPath).split(path.sep).join("/");
       await assertSafeFile(root, relative);
       const document = await vscode.workspace.openTextDocument(uri);
       const captureSource = async () => {
+        if ((await realpath(folder.fsPath)) !== root)
+          throw new Error("Source workspace root changed; start a fresh repair.");
         const before = document.getText();
         const version = document.version;
         if (before.length > 200_000) throw new Error("Repair source is limited to 200,000 characters.");
