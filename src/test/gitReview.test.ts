@@ -135,10 +135,20 @@ test("repository identities differ; cancellation and unsafe paths fail closed", 
   await assert.rejects(captureStaged(process.cwd(), abort.signal), /cancelled/);
   for (const file of ["../x", "/x", "C:/x", "x/../y", "x\\y", ".git/config"])
     assert.equal(safeRelativePath(file), false);
-  if (process.platform !== "win32")
-    await fixture(async (root, git) => {
-      await writeFile(Buffer.concat([Buffer.from(root + "/"), Buffer.from([255])]), "unsupported filename");
-      git("add", ".");
-      await assert.rejects(captureStaged(root), /non-UTF-8/);
-    });
 });
+
+test("staged snapshots reject non-UTF-8 index paths without filesystem filename support", async () =>
+  fixture(async (root, git) => {
+    await writeFile(path.join(root, "blob.txt"), "unsupported filename");
+    const oid = git("hash-object", "-w", "blob.txt").toString().trim();
+    // APFS and Windows need not support invalid UTF-8 filenames. Git's index can
+    // represent the raw bytes, which is the boundary the snapshot parser reads.
+    execFileSync("git", ["update-index", "-z", "--index-info"], {
+      cwd: root,
+      env: gitEnvironment(),
+      input: Buffer.concat([Buffer.from(`100644 ${oid}\t`), Buffer.from([255, 0])]),
+    });
+    const index = digest(await readFile(path.join(root, ".git/index")));
+    await assert.rejects(captureStaged(root), /non-UTF-8/);
+    assert.equal(digest(await readFile(path.join(root, ".git/index"))), index);
+  }));
