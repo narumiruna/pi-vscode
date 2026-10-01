@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rename, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseGitReview, reviewContext } from "../gitReview";
@@ -14,7 +14,8 @@ import {
 } from "../gitSnapshots";
 
 async function fixture(run: (root: string, git: (...args: string[]) => string) => Promise<void>) {
-  const root = await mkdtemp(path.join(tmpdir(), "pi-review-scopes-"));
+  // Spies must match the canonical paths used by Git and the workspace reader.
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "pi-review-scopes-")));
   const git = (...args: string[]) =>
     execFileSync("git", ["-c", "commit.gpgsign=false", ...args], {
       cwd: root,
