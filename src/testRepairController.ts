@@ -186,9 +186,11 @@ export function registerTestRepair(
         const applied = await new Promise<boolean>((resolve) => {
           let previewKey: string | undefined;
           let preview: vscode.Uri | undefined;
+          let disposed = false;
           const check = async () => {
             await validateWorkspace();
-            if (document.isClosed || document.version !== version)
+            if (disposed) throw new Error("Repair proposal expired; regenerate the repair.");
+            if (document.isClosed || document.isDirty || document.version !== version)
               throw new Error("Source changed; regenerate the repair.");
           };
           conversation.addEditProposal({
@@ -207,6 +209,24 @@ export function registerTestRepair(
               await check();
               if (!preview || previewKey !== JSON.stringify(ids))
                 throw new Error("Preview the selected repair hunks first.");
+              // Approval and all asynchronous target checks precede the mutation.
+              // Rejection must not leave a dirty repair that a later Save can persist.
+              if (
+                (await vscode.window.showWarningMessage(
+                  "Apply the previewed repair, save the source and rerun the same approved test command?",
+                  { modal: true },
+                  "Save and Rerun",
+                )) !== "Save and Rerun"
+              ) {
+                resolve(false);
+                throw new Error("Repair cancelled before Apply; regenerate to try again.");
+              }
+              try {
+                await assertRuntimeTarget(runtime, folder.fsPath, sessionId);
+                await check();
+              } catch (error) {
+                throw new Error(`${error instanceof Error ? error.message : String(error)} Regenerate the repair.`);
+              }
               const edit = new vscode.WorkspaceEdit();
               edit.replace(
                 uri,
@@ -218,6 +238,7 @@ export function registerTestRepair(
             },
             onReject: () => resolve(false),
             onDispose: () => {
+              disposed = true;
               if (preview) documents.release(preview);
               resolve(false);
             },
@@ -227,17 +248,8 @@ export function registerTestRepair(
           attempts.stop("Rejected/cancelled");
           break;
         }
-        // Reruns read disk, so saving is separate and explicit; preserve failed save/cancel outcomes.
-        if (
-          (await vscode.window.showWarningMessage(
-            "Save the repaired source and rerun the same approved test command?",
-            { modal: true },
-            "Save and Rerun",
-          )) !== "Save and Rerun"
-        )
-          return;
-        await assertRuntimeTarget(runtime, folder.fsPath, sessionId);
-        await validateWorkspace();
+        // Save was explicitly approved and revalidated before Apply. Do not add
+        // another approval/validation wait after dirtying the source buffer.
         if (!(await document.save())) throw new Error("Source could not be saved; no rerun.");
         testedSource = await captureSource();
         const rerun = await runApproved(command, folder.fsPath, sessionId, () => validateSource(testedSource));
