@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { EditProposalInput } from "../conversationController";
@@ -9,7 +9,7 @@ import { installVscodeMock, MockUri } from "./vscodeMock";
 
 const vscode = installVscodeMock();
 test("multi-file proposal previews chosen hunks, rejects stale/readonly/foreign files and applies once", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "pi-multi-edit-"));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "pi-multi-edit-")));
   const context: any = { subscriptions: [] };
   const providers = new Map<string, any>();
   const previewTexts: string[] = [];

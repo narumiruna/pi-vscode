@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { EditProposalInput } from "../conversationController";
@@ -8,7 +8,7 @@ import { installVscodeMock, MockUri } from "./vscodeMock";
 
 const vscode = installVscodeMock();
 test.each([false, true])("batch diagnostic repair (workspace alias: %s)", async (aliasRoot) => {
-  const directory = await mkdtemp(path.join(tmpdir(), "pi-diagnostic-controller-"));
+  const directory = await realpath(await mkdtemp(path.join(tmpdir(), "pi-diagnostic-controller-")));
   const root = path.join(directory, "workspace");
   await mkdir(root);
   const workspacePath = aliasRoot ? path.join(directory, "alias") : root;
