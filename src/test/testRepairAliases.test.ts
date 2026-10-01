@@ -18,7 +18,12 @@ test.each([
   "save-confirmation",
   "pre-save-check",
   "save-denied",
+  "save-denied-retargeted",
   "save-failed",
+  "buffer-change-approval",
+  "session-change-approval",
+  "trust-change-approval",
+  "proposal-disposed",
 ] as const)("test repair retains its captured workspace through %s", async (timing) => {
   const directory = await realpath(await mkdtemp(path.join(tmpdir(), "pi-repair-alias-boundaries-")));
   const root = path.join(directory, "workspace");
@@ -64,6 +69,8 @@ test.each([
     },
     positionAt: (offset: number) => ({ line: 0, character: offset }),
     save: async () => {
+      // Ordinary Save does not write an unchanged, clean document.
+      if (!document.isDirty) return true;
       saves++;
       if (timing === "save-failed") return false;
       // A real pathname write at the mocked VS Code save boundary demonstrates
@@ -96,8 +103,16 @@ test.each([
   vscode.window.showWarningMessage = async (_message: string, ...actions: any[]) => {
     const action = actions.find((value) => typeof value === "string");
     if (action === "Save and Rerun") {
-      if (timing === "save-confirmation") await retarget();
-      if (timing === "save-denied") return undefined;
+      if (["save-confirmation", "save-denied-retargeted"].includes(timing)) await retarget();
+      if (["save-denied", "save-denied-retargeted"].includes(timing)) return undefined;
+      if (timing === "buffer-change-approval") {
+        document.text = "USER_EDIT_MUST_NOT_CHANGE\n";
+        document.version++;
+        document.isDirty = true;
+      }
+      if (timing === "session-change-approval") runtime.currentState.sessionId = "new-session";
+      if (timing === "trust-change-approval") vscode.workspace.isTrusted = false;
+      if (timing === "proposal-disposed") store.clear();
       saveApproved = true;
     }
     return action;
@@ -178,20 +193,47 @@ test.each([
     await invocation;
     assert.equal(hasOperation(root), false, "Proposal actions release the canonical workspace lock");
     assert.equal(requests, 1);
+    if (["save-confirmation", "pre-save-check"].includes(timing)) {
+      const rejectedText = document.text;
+      const rejectedDirty = document.isDirty;
+      // Reproduce the later ordinary Save, not only the guarded workflow save.
+      await document.save();
+      assert.equal(await readFile(foreignSource, "utf8"), foreign, "A later Save must not retain an aborted repair");
+      assert.equal(rejectedText, original, "Rejected aliases must leave no proposed repair in the buffer");
+      assert.equal(rejectedDirty, false, "Rejected aliases must leave the originally clean buffer clean");
+    }
     assert.equal(await readFile(foreignSource, "utf8"), foreign);
-    assert.equal(applications, ["before-preview", "before-apply"].includes(timing) ? 0 : 1);
+    assert.equal(applications, ["stable", "save-failed"].includes(timing) ? 1 : 0);
     assert.equal(saves, ["stable", "save-failed"].includes(timing) ? 1 : 0);
     assert.equal(await readFile(source, "utf8"), timing === "stable" ? replacement : original);
+    if (timing === "buffer-change-approval") {
+      assert.equal(document.text, "USER_EDIT_MUST_NOT_CHANGE\n", "Do not compensate over a concurrent user edit");
+      assert.equal(document.isDirty, true);
+    } else if (!["stable", "save-failed"].includes(timing)) {
+      assert.equal(document.text, original, "Aborted repairs must not change the buffer");
+      assert.equal(document.isDirty, false, "Aborted repairs must not dirty the source");
+    }
     if (timing === "stable") {
       assert.equal(await readFile(path.join(root, "runs"), "utf8"), "ran");
       assert.deepEqual(errors, []);
     } else {
       await assert.rejects(readFile(path.join(root, "runs")), { code: "ENOENT" });
-      if (timing === "save-failed") assert.match(errors[0] ?? "", /could not be saved/);
-      else if (timing === "save-denied") assert.deepEqual(errors, []);
+      const notice = [...notices, ...errors].join("\n");
+      if (timing === "save-failed") {
+        assert.equal(document.text, replacement);
+        assert.equal(document.isDirty, true, "A failed approved save retains the edit for user recovery");
+        assert.match(errors[0] ?? "", /could not be saved/);
+      } else if (["save-denied", "save-denied-retargeted"].includes(timing)) {
+        assert.deepEqual(errors, []);
+        assert.match(notice, /cancelled before Apply/);
+        assert.equal(store.states[0]?.status, "stale", "Cancelled Apply must not be reported as applied");
+      } else if (timing === "buffer-change-approval") assert.match(notice, /Source changed/);
+      else if (timing === "session-change-approval") assert.match(notice, /session changed/);
+      else if (timing === "trust-change-approval") assert.match(notice, /trusted workspace/);
+      else if (timing === "proposal-disposed") assert.match(notice, /proposal expired/);
       else {
         assert.equal(swapped, true, "The alias substitution must execute");
-        assert.match([...notices, ...errors].join("\n"), /workspace root changed/);
+        assert.match(notice, /workspace root changed/);
       }
     }
     await assert.rejects(readFile(path.join(outside, "runs")), { code: "ENOENT" });
