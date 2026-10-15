@@ -216,6 +216,35 @@ test("pending numeric math keeps its source when clear math syntax follows white
   assert.match(render("$2 \\times x$"), /class="katex/);
 });
 
+test("pending numeric division keeps source without whitespace after the operator", () => {
+  for (const number of ["2", "2.5", "5!", "5!!"]) {
+    for (const operand of ["x", "2", "(x+1)", "\\frac{1}{2}"]) {
+      for (const suffix of ["*y*", "**y**", "`y`", "[y](https://example.com)", "_y_"]) {
+        const source = `$${number} /${operand} + ${suffix}`;
+        assert.equal(render(source), `<p>${source}</p>`, source);
+      }
+      assert.match(render(`$${number} /${operand} + y$`), /class="katex/);
+    }
+  }
+});
+
+test("shell redirection after unmatched variables leaves later Markdown available", () => {
+  for (const variable of ["VALUE", "PATH", "HOME", "USER1"]) {
+    for (const operator of [">", "<", ">>", "<<"]) {
+      for (const suffix of ["`output`", "`output` and `input`", "plain output"]) {
+        const plain = `echo ${variable} ${operator} ${suffix}`;
+        const source = plain.replace(variable, `$${variable}`);
+        const expected = render(plain).replace(variable, `$${variable}`);
+        assert.equal(render(source), expected, source);
+      }
+    }
+  }
+  for (const source of ["$$x > `y`", "\\(x < `y`", "\\[x > `y`"]) {
+    const escaped = source.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+    assert.ok(render(source).includes(escaped), source);
+  }
+});
+
 test("pending factorial formulas keep their source before clear math continuations", () => {
   for (const expression of [
     "5! + *x*",

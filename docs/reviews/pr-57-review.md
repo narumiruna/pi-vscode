@@ -116,4 +116,53 @@ Thread: `PRRT_kwDOUAKqMc6s4ksV`.
 - The existing patch Changeset covers this correction. No dependency, manifest, host, trust, CSP, RPC, or storage change is needed. Existing repository-wide lint debt remains deferred to a separate cleanup PR. No issue or extra PR was created for it.
 - Native UI, remote hosts, Windows/macOS, live providers, and screen-reader applications were not rerun. No Marketplace release was run.
 
-The fix uses the existing open PR branch. The review reply records the published commit. Resolve R5 after the push, then verify its state through the API.
+The fix was pushed as `bdbf66b`. R5 received an evidence reply and was resolved through the GitHub API. The current query confirms that state.
+
+## Follow-up review of `bdbf66b`
+
+Target review: https://github.com/narumiruna/pi-vscode/pull/57#pullrequestreview-5537212016
+
+PR #57 is now merged as `2f7aedf`. The checkout remote matches its repository. The description, four commits, complete diff, checks, reviews, inline comments, conversation, and all seven review threads were checked. REST lists were paginated. GraphQL reports no further thread or comment pages. The review summary adds no separate request. The original CI check passed.
+
+No applicable `AGENTS.md` exists. The extension skill and its security and testing guides were read. The minimum VS Code version is still 1.106.0. This change affects host-side Markdown parsing for the chat webview. It does not change the workspace host, manifest, API, RPC, trust, CSP, or storage.
+
+R1 through R5 remain already addressed, P2. Their fixes and tests are present in the merged source. Their evidence replies and resolved states are unchanged. No duplicate replies are needed. The repository-wide lint debt in `docs/reviews/pr-50-review.md`, C2, remains out of scope. Use a separate cleanup PR. No issue or separate cleanup PR was created.
+
+### R6: Preserve division without whitespace after the operator
+
+Source: https://github.com/narumiruna/pi-vscode/pull/57#discussion_r4286147617
+Thread: `PRRT_kwDOUAKqMc6s41pI`.
+
+- Initial outcome: Actionable and not yet addressed.
+- Severity: P2. Markdown changes the visible source of an incomplete formula.
+- Evidence: a new regression against the unchanged production parser renders `$2 /x + *y*` as `<p>$2 /x + <em>y</em></p>`. The numeric prefix check requires whitespace after `/` and returns as currency before the existing slash signal can retain the source.
+- Scope: PR #57 introduces this numeric currency return. Retaining incomplete formulas is part of its goal.
+- Fix: accept `/` without trailing whitespace in the numeric expression prefix. Keep the existing whitespace checks for `*` and `-`.
+- Tests: integer, decimal, single and repeated factorial prefixes; symbolic, numeric, parenthesized, and TeX operands; five Markdown suffixes; complete KaTeX formulas.
+
+### R7: Do not treat shell redirection alone as math
+
+Source: https://github.com/narumiruna/pi-vscode/pull/57#discussion_r4286147621
+Thread: `PRRT_kwDOUAKqMc6s41pM`.
+
+- Initial outcome: Actionable and not yet addressed.
+- Severity: P2. Inline code after shell variables stays literal.
+- Evidence: the unchanged production parser renders `echo $VALUE > ` followed by backticked `output` as `<p>echo $VALUE &gt; ` followed by literal backticks and `output`. The regression expects `<code>output</code>`. PR #57 adds unrestricted `<` and `>` pending signals. README.md explicitly excludes shell-variable expressions from math.
+- Scope: this is a regression from the inequality fix in PR #57, not a request to redesign shell or symbolic-math parsing.
+- Fix: inequality-only pending tokens need a numeric prefix or an explicit display delimiter. Existing TeX and other math signals are unchanged. Numeric inequalities and explicit delimiters retain escaped source.
+- Tests: four shell variable names; `<`, `>`, `<<`, and `>>`; inline-code and plain-text suffixes; explicit pending delimiters. Existing numeric-inequality tests remain in place.
+
+### Follow-up branch and validation
+
+A fresh fetch confirmed remote `main` at `8f8b442`. The follow-up branch is `narumi/fix/pr-57-math-review`. The working tree was clean before this work. It does not reuse the merged PR branch.
+
+Both new regressions fail against unchanged production code. All 20 focused Markdown tests pass after the fix. The focused Biome check and `git diff --check` pass. The first focused command used a source path and found no tests; the configured runner requires compiled paths under `out/test`. The corrected command ran both failing regressions.
+
+The existing pending patch Changeset covers these parser corrections. No dependency file changed. Native UI, remote hosts, Windows/macOS, live providers, and screen-reader applications are not tested in this pass. No Marketplace release is run. Full validation and publication are recorded below and in the follow-up PR.
+
+- R6 and R7: implemented and validated. The follow-up PR and review replies record the published commit and API thread resolution.
+- `npm run package`: 370 tests across 44 files passed. VSIX creation passed with 130 files. `unzip -t pi.vsix` passed. The packaged `extension/out/markdown.js` contains both updated checks. The renderer assets and third-party licenses are present.
+- `npm run test:rich-content`: browser rendering, fonts, math, diagrams, cache eviction, queue bounds, stale updates, detached sessions, and disposal passed.
+- Focused Biome check and `git diff --check`: passed.
+- `npm audit --omit=dev`: zero vulnerabilities. Installation reports two development advisories. The dependency manifest and lockfile are unchanged from the base. Existing dependency maintenance remains outside this parser review; use a separate dependency PR. No issue or extra dependency PR was created.
+- No clarification is needed. No publication blocker is known.

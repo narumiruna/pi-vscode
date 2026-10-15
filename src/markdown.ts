@@ -62,13 +62,16 @@ function mathExtension(block: boolean): TokenizerExtension {
           const amount = /^\d+(?:[.,]\d+)*/.exec(text)?.[0];
           if (amount) {
             const remainder = text.slice(amount.length);
-            const startsMath = /^(?:!+\s*|\s+)(?:\\+[A-Za-z]+|[=+^<>]|_(?:\s|\{)|[*/-]\s)/.test(remainder);
+            const startsMath = /^(?:!+\s*|\s+)(?:\\+[A-Za-z]+|[=+^<>/]|_(?:\s|\{)|[*-]\s)/.test(remainder);
             if (!startsMath && /^(?:\s|[)\]}:;!?,.'"]|$)/.test(remainder)) return undefined;
           }
         }
         if (
           delimiter.startsWith("\\") ||
-          ((delimiter === "$$" || delimiter === "$") && /\\[A-Za-z]+|[_^=+*/<>]/.test(text))
+          ((delimiter === "$$" || delimiter === "$") &&
+            (/\\[A-Za-z]+|[_^=+*/]/.test(text) ||
+              // Bare inequalities need a numeric prefix or an explicit display delimiter.
+              ((delimiter === "$$" || /^\d/.test(text)) && /[<>]/.test(text))))
         ) {
           return { type: block ? "mathBlock" : "mathInline", raw: source, text, pending: true };
         }
