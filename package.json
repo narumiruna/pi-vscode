@@ -400,8 +400,10 @@
     }
   },
   "scripts": {
-    "compile": "tsc -p ./",
+    "compile": "tsc -p ./ && tsc -p tsconfig.webview.json && node scripts/build-rich-content.mjs",
+    "vscode:prepublish": "npm run compile",
     "watch": "tsc -watch -p ./",
+    "test:rich-content": "npm run compile && node scripts/test-rich-content.mjs",
     "dev": "npm run install:extension && node scripts/open-dev-window.mjs",
     "dev:pi": "pi -ne -e resources/picode-bridge.ts",
     "install:vsix": "sh scripts/check-legacy-vscode-extension.sh && npm run package && code --install-extension pi.vsix --force",
@@ -421,7 +423,13 @@
     "@types/vscode": "1.106.0",
     "@vscode/test-electron": "3.1.0",
     "@vscode/vsce": "^4.0.0",
+    "dompurify": "3.4.17",
+    "esbuild": "0.28.2",
+    "highlight.js": "11.12.0",
     "husky": "^9.1.7",
+    "katex": "0.19.0",
+    "marked": "18.1.1",
+    "mermaid": "12.2.0",
     "playwright-core": "1.64.1",
     "typescript": "^7.0.2",
     "vitest": "^5.0.4"

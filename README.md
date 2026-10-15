@@ -4,6 +4,7 @@ Use your existing [Pi](https://pi.dev) setup directly in VS Code. Pi adds a pers
 
 ## Highlights
 
+- **Rich responses** — Read Markdown tables, task lists, highlighted code, LaTeX math, and Mermaid flowcharts or sequence diagrams in the panel. Rendering uses bundled assets without a CDN.
 - **Persistent sessions** — Browse, search, and switch recent workspace sessions, then rename, compact, export, delete, or hand them off to a terminal.
 - **Editor-aware context** — Attach selections, files, diagnostics, language-provider definitions/references/call hierarchy/symbols, terminal text, and images. Inspect, redact, refresh, or pin a snapshot before sending it.
 - **Review-first edits** — Preview a complete proposal or selected hunks, then apply the reviewed result with one workspace edit.
@@ -12,6 +13,16 @@ Use your existing [Pi](https://pi.dev) setup directly in VS Code. Pi adds a pers
 - **VS Code integration** — Fix diagnostics, rewrite selections, generate tests, request inline completions, and predict the next edit.
 
 See the [feature matrix](docs/FEATURE_MATRIX.md) for the complete capability map.
+
+## Panel content
+
+The session panel supports Markdown headings, nested lists, task lists, tables, quotes, links, emphasis, and strikethrough. Code highlighting covers Bash, CSS, JavaScript, JSON, Python, TypeScript, and HTML/XML, including their registered aliases. Other languages stay plain text.
+
+Math uses KaTeX with `$…$`, `$$…$$`, `\(...\)`, and `\[...\]`. This is math rendering, not full TeX document support. Currency text such as `$5 and $10`, shell-variable expressions such as `$PATH:$HOME`, and code are not treated as math. Invalid or incomplete formulas remain readable source. Each message can render up to 50 formulas of 4,000 characters each, with at most 200 macro expansions and a 10em KaTeX size limit.
+
+Complete `mermaid` code fences can render flowcharts (`flowchart` or `graph`) and sequence diagrams. Source stays visible below the diagram. Other diagram types, invalid diagrams, configuration directives, custom CSS, HTML labels, images, links, and callbacks stay source-only. Diagrams are limited to 8,000 characters and 120 lines; flowcharts also have a 100-edge limit. At most 100 diagrams can wait for rendering. Oversized or failed content does not prevent the rest of the response from displaying.
+
+Links permit only HTTP, HTTPS, and email targets. Raw HTML and Markdown images are not enabled; use image attachments instead. Tables, code, and display math scroll horizontally when necessary. Native `@pi` chat and Pi HTML exports retain their own renderers.
 
 ## Requirements
 
@@ -171,6 +182,7 @@ VS Code extensions in the same Extension Host can activate `narumi.narumi-pi` an
 ```bash
 npm install
 npm test
+npm run test:rich-content
 npm exec --yes --package=@biomejs/biome@2.5.13 -- biome check src resources
 npm run package
 ```
@@ -178,6 +190,8 @@ npm run package
 `npm run test:native -- 1.106.0` runs isolated, noninteractive native Extension Host assertions (on headless Linux, prefix with `xvfb-run -a`). Use `stable` for the current stable build and append `untrusted` for Restricted Mode. The runner downloads a test build to the system temporary cache, creates disposable profiles/workspaces, and never invokes a model. See [Workflow Validation](docs/WORKFLOW_VALIDATION.md) for coverage and remaining manual checks.
 
 On Linux, `xvfb-run -a npm run test:native-ui -- 1.106.0` exercises the actual attachment picker, review confirmations, Problems actions, Sidebar proposals, multi-file Apply/Undo and window reload. Use `stable` for current VS Code; append `alias` to exercise a workspace opened through a directory symlink. Playwright connects only to the disposable VS Code profile's loopback debugging endpoint; a deterministic Pi RPC fixture replaces provider requests. No live model, user profile or workspace is used.
+
+Development requires Node.js 22.19 or newer. `npm run compile` also builds the host Markdown bundle and browser JS/CSS/fonts. Run it again after changing renderer sources or styles when using the TypeScript-only `watch` command. `npm run test:rich-content` uses a local headless Playwright Chromium installation (`npm exec -- playwright-core install chromium`) to test the actual sidebar document, CSP, rendering, themes, overflow, and asynchronous lifecycle without a model. Append `packaged` to `npm run test:native-ui -- 1.106.0` to install and test the local `pi.vsix` in a disposable profile.
 
 `npm test` compiles the extension and runs the Node test suite. `npm run package` repeats those checks and creates `pi.vsix`.
 

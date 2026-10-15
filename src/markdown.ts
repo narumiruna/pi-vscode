@@ -1,91 +1,166 @@
-export function renderSafeMarkdown(markdown: string): string {
-  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
-  const output: string[] = [];
-  let inCode = false;
-  let codeLanguage = "";
-  let codeLines: string[] = [];
-  let inList = false;
+import hljs from "highlight.js/lib/core";
+import bash from "highlight.js/lib/languages/bash";
+import css from "highlight.js/lib/languages/css";
+import javascript from "highlight.js/lib/languages/javascript";
+import json from "highlight.js/lib/languages/json";
+import python from "highlight.js/lib/languages/python";
+import typescript from "highlight.js/lib/languages/typescript";
+import xml from "highlight.js/lib/languages/xml";
+import katex from "katex";
 
-  const closeList = (): void => {
-    if (inList) {
-      output.push("</ul>");
-      inList = false;
-    }
-  };
+type TokenizerExtension = import("marked", { with: { "resolution-mode": "import" }}).TokenizerExtension;
 
-  for (const line of lines) {
-    const fence = /^```([A-Za-z0-9_+-]*)\s*$/.exec(line);
-    if (fence) {
-      if (inCode) {
-        output.push(
-          `<pre><code${codeLanguage ? ` class="language-${codeLanguage}"` : ""}>${escapeHtml(codeLines.join("\n"))}</code></pre>`,
-        );
-        inCode = false;
-        codeLanguage = "";
-        codeLines = [];
-      } else {
-        closeList();
-        inCode = true;
-        codeLanguage = fence[1];
-      }
-      continue;
-    }
-    if (inCode) {
-      codeLines.push(line);
-      continue;
-    }
-
-    const heading = /^(#{1,4})\s+(.+)$/.exec(line);
-    if (heading) {
-      closeList();
-      const level = heading[1].length;
-      output.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
-      continue;
-    }
-    const listItem = /^\s*[-*]\s+(.+)$/.exec(line);
-    if (listItem) {
-      if (!inList) {
-        output.push("<ul>");
-        inList = true;
-      }
-      output.push(`<li>${renderInline(listItem[1])}</li>`);
-      continue;
-    }
-
-    closeList();
-    // Paragraph/list margins provide spacing; blank lines must not become
-    // visible content for empty or tool-only assistant messages.
-    if (line.trim()) {
-      output.push(`<p>${renderInline(line)}</p>`);
-    }
-  }
-
-  closeList();
-  if (inCode) {
-    output.push(
-      `<pre><code${codeLanguage ? ` class="language-${codeLanguage}"` : ""}>${escapeHtml(codeLines.join("\n"))}</code></pre>`,
-    );
-  }
-  return output.join("");
+// Bundled to CJS for the Extension Host; marked itself is ESM-only.
+const { Marked } = require("marked") as typeof import("marked", { with: { "resolution-mode": "import" }});
+for (const [name, language] of Object.entries({ bash, css, javascript, json, python, typescript, xml })) {
+  hljs.registerLanguage(name, language);
 }
 
-function renderInline(value: string): string {
-  const codeSegments: string[] = [];
-  let escaped = escapeHtml(value).replace(/`([^`]+)`/g, (_match, code: string) => {
-    const index = codeSegments.push(`<code>${code}</code>`) - 1;
-    return `\u0000${index}\u0000`;
-  });
-  escaped = escaped.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-  escaped = escaped.replace(/\*([^*]+)\*/g, "<em>$1</em>");
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: Restore the NUL-delimited inline-code placeholders created above.
-  return escaped.replace(/\u0000(\d+)\u0000/g, (_match, index: string) => codeSegments[Number(index)] ?? "");
-}
-
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+export function safeMarkdownUrl(value: string): boolean {
+  return (
+    /^(?:https?:\/\/|mailto:)/i.test(value) &&
+    !Array.from(value).some(
+      (character) => /\s/.test(character) || character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+    )
+  );
+}
+
+let mathCount = 0;
+function mathExtension(block: boolean): TokenizerExtension {
+  return {
+    name: block ? "mathBlock" : "mathInline",
+    level: block ? "block" : "inline",
+    start(source) {
+      return source.search(block ? /(?:^|\n) {0,3}(?:\$\$|\\\[)/ : /\$|\\[([]/);
+    },
+    tokenizer(source) {
+      const opening = (block ? /^(?: {0,3})(\$\$|\\\[)/ : /^(\$\$|\$|\\\(|\\\[)/).exec(source);
+      if (!opening) return undefined;
+      const delimiter = opening[1];
+      const close = delimiter === "\\(" ? "\\)" : delimiter === "\\[" ? "\\]" : delimiter;
+      const start = opening[0].length;
+      let end = source.indexOf(close, start);
+      while (end >= 0 && /(?:^|[^\\])(?:\\\\)*\\$/.test(source.slice(0, end)))
+        end = source.indexOf(close, end + close.length);
+      if (end < 0) {
+        const text = source.slice(start);
+        if (
+          delimiter.startsWith("\\") ||
+          ((delimiter === "$$" || delimiter === "$") && /\\[A-Za-z]+|[_^=+*/]/.test(text))
+        ) {
+          return { type: block ? "mathBlock" : "mathInline", raw: source, text, pending: true };
+        }
+        return undefined;
+      }
+      const text = source.slice(start, end);
+      if (!text.trim() || (!block && text.includes("\n"))) return undefined;
+      if (
+        delimiter === "$" &&
+        (/^\s|\s$/.test(text) ||
+          /^\d/.test(source.slice(end + 1)) ||
+          text.includes("`") ||
+          (/^[A-Z_][A-Z0-9_]*(?:[^A-Za-z0-9_\s])?$/.test(text) &&
+            /^[A-Za-z_][A-Za-z0-9_]*/.test(source.slice(end + 1))))
+      )
+        return undefined;
+      const raw = source.slice(0, end + close.length);
+      return {
+        type: block ? "mathBlock" : "mathInline",
+        raw,
+        text,
+        display: block || delimiter === "$$" || delimiter === "\\[",
+      };
+    },
+  };
+}
+
+const parser = new Marked({ gfm: true, breaks: false });
+parser.use({
+  extensions: [mathExtension(true), mathExtension(false)].map((extension) => ({
+    ...extension,
+    renderer(token) {
+      if (
+        token.pending ||
+        ++mathCount > 50 ||
+        token.text.length > 4000 ||
+        /\\(?:href|url|includegraphics|html[A-Za-z]*)\b/.test(token.text)
+      )
+        return escapeHtml(token.raw);
+      try {
+        return katex.renderToString(token.text, {
+          displayMode: token.display,
+          trust: false,
+          strict: "error",
+          throwOnError: true,
+          maxExpand: 200,
+          maxSize: 10,
+          output: "htmlAndMathml",
+        });
+      } catch {
+        return escapeHtml(token.raw);
+      }
+    },
+  })),
+  renderer: {
+    html({ text }) {
+      return escapeHtml(text);
+    },
+    link({ href, tokens }) {
+      const label = this.parser.parseInline(tokens);
+      return safeMarkdownUrl(href) ? `<a href="${escapeHtml(href)}" rel="noreferrer noopener">${label}</a>` : label;
+    },
+    image({ text }) {
+      return escapeHtml(text);
+    },
+    code({ text, lang, raw }) {
+      const language = lang?.trim().split(/\s+/, 1)[0]?.toLowerCase() ?? "";
+      const highlighted = hljs.getLanguage(language)
+        ? hljs.highlight(text, { language, ignoreIllegals: true }).value
+        : escapeHtml(text);
+      const code = `<pre><code${language && /^[a-z0-9_+-]+$/.test(language) ? ` class="language-${language}"` : ""}>${highlighted}</code></pre>`;
+      // An open fence remains source text while streaming.
+      const fence = /^ {0,3}(`{3,}|~{3,})/.exec(raw)?.[1];
+      const closed = fence && new RegExp(`\\n {0,3}${fence[0]}{${fence.length},}\\s*$`).test(raw);
+      return language === "mermaid" && closed ? `<div class="mermaid-source">${code}</div>` : code;
+    },
+    checkbox({ checked }) {
+      return `<span class="task-checkbox" aria-label="${checked ? "Completed" : "Not completed"}">${checked ? "☑" : "☐"}</span> `;
+    },
+  },
+});
+
+const cache = new Map<string, string>();
+let cachedCharacters = 0;
+export function renderSafeMarkdown(markdown: string): string {
+  if (!markdown.trim()) return "";
+  const cached = cache.get(markdown);
+  if (cached !== undefined) return cached;
+  mathCount = 0;
+  let html: string;
+  try {
+    html = (parser.parse(markdown, { async: false }) as string).trim();
+  } catch {
+    html = `<pre>${escapeHtml(markdown)}</pre>`;
+  }
+  const cost = markdown.length + html.length;
+  if (cost <= 2_000_000) {
+    while (cache.size >= 64 || cachedCharacters + cost > 2_000_000) {
+      const oldest = cache.keys().next().value;
+      if (oldest === undefined) break;
+      cachedCharacters -= oldest.length + (cache.get(oldest)?.length ?? 0);
+      cache.delete(oldest);
+    }
+    cache.set(markdown, html);
+    cachedCharacters += cost;
+  }
+  return html;
 }

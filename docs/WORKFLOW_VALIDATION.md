@@ -224,6 +224,22 @@ The new diagnostic disk verifier rejected eight valid VS Code setting names beca
 
 Biome has zero errors (396 warnings / 9 infos), production audit has zero vulnerabilities, and diff checks pass. The inspected VSIX (`ea22b409486e1d66b60efc7bbfe89a494eae651f796014c327270a2592f2d111`) has **65 entries / 52 runtime modules**, contains the pure decoder and retains all prior exclusions; the original ignored artifact is checksum-verified unchanged. The [PR #37 review ledger](reviews/2026-09-21_pr-37-review.md) records the sole feedback item, reproduction, scope and limitations. A patch Changeset is included; no release action is performed.
 
+## Panel rich content — 2026-10-16
+
+The panel uses one host Markdown parser, bundled KaTeX/highlighting, and browser-side Mermaid enrichment with DOMPurify. Original Markdown remains authoritative in RPC and storage. Source is retained for rejected, incomplete, unsupported, or failed diagrams and formulas. Supported syntax and finite limits are specified in README and Security.
+
+Verified on Linux:
+
+- `npm test`: **355 tests / 43 files** passed.
+- `npm run test:rich-content`: actual sidebar HTML, local fonts, fraction/matrix layout, flowchart/sequence labels and geometry, MathML annotations, malicious HTML/SVG/URL rejection, script CSP, no external requests, light/dark/high-contrast themes, 280/900px widths, long table/code/math overflow, keyboard navigation, and reader scroll preservation passed. A delayed renderer fixture proves cache reuse/eviction, a 100-job queue, stale updates, detached replacement nodes, session replacement, and disposal.
+- `xvfb-run -a npm run test:native -- 1.106.0`: native Extension Host regression checks passed, including 41 encoding cases. The same command with `untrusted` passed the trust guard.
+- `xvfb-run -a npm run test:native-ui -- 1.106.0`: actual webview rendering and existing workflow/reload checks passed with a deterministic Pi fixture.
+- `npm run package`: passed. The inspected `pi.vsix` contains 130 files, the host CJS renderer, browser bundle/CSS, KaTeX fonts, and third-party license texts; development dependencies are excluded. The archive is approximately 2.63 MB.
+- `xvfb-run -a npm run test:native-ui -- 1.106.0 packaged` and `xvfb-run -a npm run test:native-ui -- 1.106.0 alias packaged`: the installed VSIX passed the complete UI walkthrough in disposable normal and symlinked workspaces. Math used fonts from the installed extension resource root; flowchart and sequence SVG retained their labels.
+- Repository Biome check and `git diff --check`: zero errors. Biome still reports 421 existing warnings and 12 informational diagnostics. `npm audit --omit=dev` reports zero findings. Full audit reports two existing development-only advisories in `qs` and `shell-quote`; their versions are unchanged from the base and neither package is in the renderer bundles.
+
+The CSP style permission is deliberately broader than before: generated KaTeX attributes and Mermaid SVG styles require inline styles. Scripts remain nonce-only; eval, external resources, arbitrary message HTML/CSS, and diagram callbacks remain blocked. Synchronous rendering has source/expansion/edge bounds, not hard time preemption. Only flowchart/sequence Mermaid syntax is enabled. The browser bundle is approximately 5.1 MB before VSIX compression. No live provider, remote host, native Windows/macOS UI, browser-only extension host, or screen-reader application was exercised. URI loading uses stable VS Code APIs; host placement, trust contract, RPC, and persisted source formats are unchanged.
+
 ## Deferred usage checks from earlier plans
 
 Per the user's explicit acceptance decision for those earlier plans, later real-world use will cover native Quick Picks/diff editors/Undo, full keyboard navigation and actual theme contrast on minimum/current VS Code, untrusted UI, SSH/container placement, installed Pi versions/provider behavior, and paused Node.js debugger interaction. Unsupported/uncertain queue commands disconnect without replay; unsupported adapters/resources and unverified task inactivity fail closed. These limitations and workflow bounds are documented in the README and Security guide.
