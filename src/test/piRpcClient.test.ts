@@ -95,7 +95,10 @@ test("PiRpcClient correlates responses and streams events", async () => {
     await client.start();
     assert.equal((await client.getState()).sessionId, "fake-session");
     assert.equal(await client.prompt("/handled-command"), "handled");
-    assert.equal(events.some((event) => event.type === "agent_start"), false);
+    assert.equal(
+      events.some((event) => event.type === "agent_start"),
+      false,
+    );
     await client.prompt("hello");
     await waitForEvent(events, "agent_settled");
 
