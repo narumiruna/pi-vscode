@@ -57,8 +57,15 @@ function mathExtension(block: boolean): TokenizerExtension {
       }
       if (end < 0) {
         const text = source.slice(start);
-        // A price must not consume later Markdown punctuation as pending math.
-        if (delimiter === "$" && /^\d[\d,.]*(?:\s|$)/.test(text)) return undefined;
+        // Check the expression prefix, not Markdown punctuation in later prose.
+        if (delimiter === "$") {
+          const amount = /^\d+(?:[.,]\d+)*/.exec(text)?.[0];
+          if (amount) {
+            const remainder = text.slice(amount.length);
+            const startsMath = /^\s+(?:\\+[A-Za-z]+|[_^=+]|[*/-]\s)/.test(remainder);
+            if (!startsMath && /^(?:\s|[)\]}:;!?,.'"]|$)/.test(remainder)) return undefined;
+          }
+        }
         if (
           delimiter.startsWith("\\") ||
           ((delimiter === "$$" || delimiter === "$") && /\\[A-Za-z]+|[_^=+*/]/.test(text))
