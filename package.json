@@ -414,7 +414,7 @@
   "devDependencies": {
     "@changesets/cli": "^3.0.3",
     "@types/node": "^26.6.5",
-    "@types/vscode": "1.106.0",
+    "@types/vscode": "1.140.0",
     "@vscode/test-electron": "3.1.0",
     "@vscode/vsce": "^4.0.0",
     "husky": "^9.1.7",
