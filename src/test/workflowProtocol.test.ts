@@ -39,7 +39,8 @@ process.stdin.on('data', chunk => {
     executablePath: process.execPath,
     executableArgs: [script],
     cwd: directory,
-    requestTimeoutMs: 100,
+    // Includes child-process startup during get_state; allow for suite load.
+    requestTimeoutMs: 1_000,
   });
   client.onEvent((event) => events.push(event));
   try {

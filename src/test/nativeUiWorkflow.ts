@@ -25,7 +25,7 @@ export async function run(): Promise<void> {
     }
   };
   const subscription = vscode.workspace.onDidChangeTextDocument(publish);
-  await vscode.extensions.getExtension("narumi.pi-coding-agent-vscode")?.activate();
+  await vscode.extensions.getExtension("narumi.narumi-pi")?.activate();
   await vscode.commands.executeCommand("picode.openChat");
   await vscode.extensions.getExtension("vscode.typescript-language-features")?.activate();
   // Do not replay the reload command from the previous Extension Host.

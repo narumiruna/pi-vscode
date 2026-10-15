@@ -1,5 +1,5 @@
 ---
-"pi-coding-agent-vscode": patch
+"narumi-pi": patch
 ---
 
 Add Changesets-based versioning and release metadata while preserving all pending release notes:

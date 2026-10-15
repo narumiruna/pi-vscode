@@ -49,7 +49,7 @@ npm install
 just install
 ```
 
-`just install` packages and installs the VS Code extension, then removes the exact legacy global bridge filenames created by older releases. It does not install a Pi extension under `${PI_CODING_AGENT_DIR:-~/.pi/agent}`. The extension ID is `narumi.pi-coding-agent-vscode`.
+`just install` packages and installs the VS Code extension, then removes the exact legacy global bridge filenames created by older releases. It does not install a Pi extension under `${PI_CODING_AGENT_DIR:-~/.pi/agent}`. The extension ID is `narumi.narumi-pi`.
 
 Run **Developer: Reload Window** after installation. Use Sidebar **Open in Terminal** for an automatically bridged terminal Pi session, or use the explicit `PICODE_BRIDGE_EXTENSION` command shown above in a new ordinary integrated terminal.
 
@@ -144,7 +144,7 @@ The bridge provides `vscode_context`, `vscode_code_context`, `vscode_open_file`,
 
 `vscode_code_context` accepts `definition`, `references`, `callers`, `callees`, or `documentSymbols`, a workspace path and optional one-based line/column. It returns metadata only, with zero-based ranges; source text requires a separate read. The tool is not loaded by independent background/worktree agents.
 
-VS Code extensions in the same Extension Host can activate `narumi.pi-coding-agent-vscode` and call its exported `broadcast(event, data)` API. Event names and payloads are validated and bounded.
+VS Code extensions in the same Extension Host can activate `narumi.narumi-pi` and call its exported `broadcast(event, data)` API. Event names and payloads are validated and bounded.
 
 ## Development
 
