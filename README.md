@@ -42,7 +42,7 @@ After installation or an update, run **Developer: Reload Window**. Sidebar sessi
 
 ## Upgrade from the old extension ID
 
-The extension ID changed from `narumi.pi-coding-agent-vscode` to `narumi.narumi-pi`. VS Code treats them as separate extensions. Do not keep both installed. The release installer and `just install` stop if the old ID is installed. Follow these steps before using either installer, installing a VSIX manually, or installing from Marketplace:
+The extension ID changed from `narumi.pi-coding-agent-vscode` to `narumi.narumi-pi`. VS Code treats them as separate extensions. Do not keep both installed. The release installer and `npm run install:extension` stop if the old ID is installed. Follow these steps before using either installer, installing a VSIX manually, or installing from Marketplace:
 
 1. In the old extension, stop active requests and background agents. Export any conversation you need. Review and save worktree results outside extension storage. Record worktree paths and commit or copy any changes you need.
 2. Remove the old extension from the same VS Code profile and extension host where you will install the new one:
@@ -59,14 +59,16 @@ The installers do not copy or delete VS Code state. The old sidebar cache, last-
 
 ## Install from source
 
-Building from source additionally requires Node.js, npm, and [`just`](https://just.systems):
+Building from source additionally requires Node.js and npm:
 
 ```bash
 npm install
-just install
+npm run install:extension
 ```
 
-`just install` packages and installs the VS Code extension, then removes the exact legacy global bridge filenames created by older releases. It does not install a Pi extension under `${PI_CODING_AGENT_DIR:-~/.pi/agent}`. The extension ID is `narumi.narumi-pi`.
+`npm run install:extension` packages and installs the VS Code extension, then removes the exact legacy global bridge filenames created by older releases. It does not install a Pi extension under `${PI_CODING_AGENT_DIR:-~/.pi/agent}`. The extension ID is `narumi.narumi-pi`.
+
+Use `npm run install:vsix` to package and install without the legacy global bridge cleanup. `npm install` only installs project dependencies and does not install the VS Code extension.
 
 Run **Developer: Reload Window** after installation. Use Sidebar **Open in Terminal** for an automatically bridged terminal Pi session, or use the explicit `PICODE_BRIDGE_EXTENSION` command shown above in a new ordinary integrated terminal.
 
@@ -178,8 +180,8 @@ On Linux, `xvfb-run -a npm run test:native-ui -- 1.106.0` exercises the actual a
 
 `npm test` compiles the extension and runs the Node test suite. `npm run package` repeats those checks and creates `pi-coding-agent-vscode.vsix`.
 
-- `just dev` rebuilds and installs the VS Code extension, removes bridge files created by older releases, then opens the current directory in a new VS Code window using the installed extension.
-- `just dev-pi` starts Pi with `resources/picode-bridge.ts` in the current terminal.
+- `npm run dev` rebuilds and installs the VS Code extension, removes bridge files created by older releases, then opens the current directory in a new VS Code window using the installed extension.
+- `npm run dev:pi` starts Pi with `resources/picode-bridge.ts` in the current terminal.
 
 ## Release
 
