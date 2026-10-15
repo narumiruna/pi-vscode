@@ -45,12 +45,22 @@ else
   exit 1
 fi
 
-for required_command in curl code mktemp rm; do
+for required_command in curl code grep mktemp rm; do
   if ! command -v "${required_command}" >/dev/null 2>&1; then
     echo "Error: required command not found: ${required_command}" >&2
     exit 1
   fi
 done
+
+# Stop before download or installation. The old ID has separate VS Code state.
+installed_extensions="$(code --list-extensions)"
+if printf '%s\n' "${installed_extensions}" | grep -Fxiq 'narumi.pi-coding-agent-vscode'; then
+  echo 'Error: the old Pi extension narumi.pi-coding-agent-vscode is installed.' >&2
+  echo 'Save sessions and worktree results before removing it. See README.md: Upgrade from the old extension ID.' >&2
+  echo 'Run: code --uninstall-extension narumi.pi-coding-agent-vscode' >&2
+  echo 'Then run Developer: Reload Window and retry this installer.' >&2
+  exit 1
+fi
 
 temporary_directory="$(mktemp -d "${TMPDIR:-/tmp}/pi-vscode.XXXXXX")"
 vsix_path="${temporary_directory}/${asset}"

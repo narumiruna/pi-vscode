@@ -8,6 +8,7 @@ dev-pi:
 
 # Package and install the VS Code extension.
 install-vsix:
+    sh "{{justfile_directory()}}/scripts/check-legacy-vscode-extension.sh"
     npm run package
     code --install-extension "{{justfile_directory()}}/pi-coding-agent-vscode.vsix" --force
 
