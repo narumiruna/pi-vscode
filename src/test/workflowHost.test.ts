@@ -864,8 +864,9 @@ test("Sessions-layer submission snapshots attachments and holds the request gate
       /Remove attachments/,
     );
     let compactInstructions: string | undefined;
-    runtime.compact = async (instructions?: string) => {
+    runtime.compact = async (instructions?: string, onAccepted?: () => void) => {
       compactInstructions = instructions;
+      onAccepted?.();
     };
     await internal.send("/compact focus on code", 8);
     assert.equal(compactInstructions, "focus on code");
@@ -876,6 +877,110 @@ test("Sessions-layer submission snapshots attachments and holds the request gate
     vscode.restore();
   }
 });
+
+for (const command of ["/handled-command", "/compact"]) {
+  test(`${command} stays accepted when runtime state refresh fails`, async () => {
+    const vscode = installVscodeMock();
+    vscode.window.registerWebviewViewProvider = () => ({ dispose() {} });
+    const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
+    const { registerPiCodeSidebar } = require("../sidebar") as typeof import("../sidebar");
+    let failure = "getState";
+    const runtime = new PiRuntimeManager({
+      workspaceState: {
+        update: async () => {
+          if (failure === "persistence") throw new Error("persistence failed");
+        },
+      },
+      environmentVariableCollection: { clear() {} },
+    } as any);
+    Object.defineProperty(runtime, "currentCwd", { get: () => process.cwd() });
+    const posted: Record<string, unknown>[] = [];
+    let revision = 0;
+    let stops = 0;
+    let rpcCalls = 0;
+    const acceptedBeforeRefresh: number[] = [];
+    const client: any = {
+      isRunning: true,
+      prompt: async () => {
+        rpcCalls += 1;
+        return "handled";
+      },
+      compact: async () => {
+        rpcCalls += 1;
+      },
+      getState: async () => {
+        if (posted.some((message) => message.type === "clearInput" && message.expectedRevision === revision)) {
+          acceptedBeforeRefresh.push(revision);
+        }
+        if (failure === "getState") throw new Error("getState failed");
+        return { sessionFile: "/tmp/accepted-command.jsonl", isStreaming: false };
+      },
+      getMessages: async () => [],
+      getSessionStats: async () => ({}),
+      getAvailableModels: async () => [],
+      getAvailableThinkingLevels: async () => [],
+      getCommands: async () => [],
+      stop: async () => {
+        stops += 1;
+      },
+    };
+    (runtime as any).client = client;
+    (runtime as any).updateState({ connected: true });
+    const context: any = {
+      workspaceState: { get: () => undefined, update: async () => {} },
+      extensionUri: MockUri.file("/extension"),
+      subscriptions: [],
+    };
+    const internal = registerPiCodeSidebar(context, runtime) as any;
+    internal.view = {
+      webview: {
+        postMessage: async (message: Record<string, unknown>) => {
+          posted.push(message);
+          return true;
+        },
+      },
+    };
+    try {
+      for (failure of ["getState", "persistence"]) {
+        revision += 1;
+        posted.length = 0;
+        await internal.handleMessage({ type: "send", text: command, revision });
+        assert.ok(posted.some((message) => message.type === "clearInput" && message.expectedRevision === revision));
+        assert.equal(acceptedBeforeRefresh.at(-1), revision, "accept at the RPC boundary before runtime refresh");
+        assert.equal(
+          posted.some((message) => message.type === "sendRejected"),
+          false,
+        );
+        assert.equal(internal.retryRequest, undefined);
+        assert.equal(runtime.currentState.busy, false);
+        assert.equal(runtime.currentState.connected, true);
+        assert.equal(stops, 0, "a refresh failure must not stop the accepted command's client");
+        assert.equal(rpcCalls, revision, "no automatic replay");
+        assert.ok(
+          posted.some(
+            (message) =>
+              message.type === "notice" && message.level === "warning" && String(message.detailsAvailable) === "true",
+          ),
+        );
+      }
+      client.compact = client.prompt = async () => {
+        throw new Error("RPC failed");
+      };
+      posted.length = 0;
+      await internal.handleMessage({ type: "send", text: command, revision: 3 });
+      assert.ok(posted.some((message) => message.type === "sendRejected"));
+      assert.equal(
+        posted.some((message) => message.type === "clearInput"),
+        false,
+        "RPC failure does not accept the draft",
+      );
+    } finally {
+      for (const disposable of context.subscriptions) disposable.dispose();
+      runtime.dispose();
+      vscode.restore();
+    }
+  });
+}
 
 test("compact commands are accepted before history refresh and history failure does not reject them", async () => {
   const vscode = installVscodeMock();
@@ -892,8 +997,9 @@ test("compact commands are accepted before history refresh and history failure d
     currentCwd: process.cwd(),
     onEvent: subscription,
     onDidChangeState: subscription,
-    compact: async () => {
+    compact: async (_instructions?: string, onAccepted?: () => void) => {
       compactions += 1;
+      onAccepted?.();
     },
     getMessages: async () => {
       if (posted.some((message) => message.type === "clearInput" && message.expectedRevision === revision)) {

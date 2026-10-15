@@ -284,7 +284,8 @@ export class PiRuntimeManager implements vscode.Disposable {
         onAccepted?.();
         if (disposition === "handled") {
           this.promptActive = false;
-          await this.refreshState(true);
+          this.updateState({ busy: false });
+          await this.refreshStateAfterCommand(true, "Slash command");
           return { disposition: "handled" };
         }
         return await settled.promise;
@@ -579,14 +580,15 @@ export class PiRuntimeManager implements vscode.Disposable {
     });
   }
 
-  public async compact(customInstructions?: string): Promise<void> {
+  public async compact(customInstructions?: string, onAccepted?: () => void): Promise<void> {
     return this.owned(async () => {
       if (this.state.busy) throw new Error("Wait for Pi before compacting the session.");
       await this.ensureStarted(this.resource);
       this.updateState({ busy: true });
       try {
         await this.requireClient().compact(customInstructions);
-        await this.refreshState(false);
+        onAccepted?.();
+        await this.refreshStateAfterCommand(false, "Compaction");
       } finally {
         // Compaction statistics do not prove the provider's remaining context usage.
         this.updateState({ busy: false, stats: undefined });
@@ -716,6 +718,17 @@ export class PiRuntimeManager implements vscode.Disposable {
         PICODE_PERMISSION_MODE: configuration.get<string>("agent.confirmToolCalls", "dangerous"),
       },
     };
+  }
+
+  private async refreshStateAfterCommand(includeCatalogs: boolean, command: string): Promise<void> {
+    try {
+      await this.refreshState(includeCatalogs);
+    } catch (error) {
+      this.eventEmitter.fire({
+        type: "runtime_warning",
+        message: `${command} completed, but runtime state refresh failed. Reconnect to refresh state. Do not repeat the command. ${formatError(error)}`,
+      });
+    }
   }
 
   private async refreshState(includeCatalogs: boolean): Promise<void> {
