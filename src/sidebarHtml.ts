@@ -150,7 +150,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .image-placeholder { display: grid; width: 100%; min-height: 72px; place-items: center; padding: 10px; color: var(--vscode-descriptionForeground); text-align: center; overflow-wrap: anywhere; }
     .image-label { display: block; min-width: 0; padding: 5px 7px; overflow: hidden; color: var(--vscode-descriptionForeground); font-size: .78em; text-overflow: ellipsis; white-space: nowrap; }
     #activity { max-height: min(28vh, 240px); overflow-y: auto; padding: 8px 2px 0; border-top: 1px solid var(--pi-border); scrollbar-width: thin; }
-    .proposal, .change, .tool, .background-task { margin: 0 0 6px; border: 1px solid var(--pi-border); border-radius: 7px; }
+    .proposal, .change, .background-task { margin: 0 0 6px; border: 1px solid var(--pi-border); border-radius: 7px; }
     .proposal, .background-task { padding: 9px; }
     .proposal-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .proposal-meta, .background-meta { color: var(--vscode-descriptionForeground); font-size: .85em; }
@@ -159,13 +159,22 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     #tools-group { margin: 4px 0 10px; border-top: 1px solid var(--pi-border); padding-top: 5px; }
     #tools-group > summary { padding: 4px 2px; cursor: pointer; color: var(--vscode-descriptionForeground); font-size: .85em; overflow-wrap: anywhere; }
     #tools-summary { margin-left: 3px; }
-    #tools-group[data-status="running"] > summary { color: var(--pi-accent); }
-    #tools-group[data-status="error"] > summary { color: var(--vscode-errorForeground); }
-    #tools { margin-top: 8px; }
-    .tool summary { padding: 6px 8px; cursor: pointer; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
-    .tool.running summary { color: var(--pi-accent); }
-    .tool.error summary { color: var(--vscode-errorForeground); }
-    .tool pre, .background-output { max-height: 120px; overflow: auto; margin: 0; padding: 8px; border-top: 1px solid var(--pi-border); white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); }
+    #tools-running { color: var(--pi-accent); }
+    #tools-failed, .tool.error > summary, .tool-error { color: var(--vscode-errorForeground); }
+    #tools { margin-top: 3px; min-width: 0; }
+    .tool { min-width: 0; margin: 0; }
+    .tool > summary { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 3px 2px; cursor: pointer; font-size: 12px; line-height: 18px; }
+    .tool > summary::before { content: '▸'; }
+    .tool[open] > summary::before { content: '▾'; }
+    .tool-name { flex-shrink: 0; max-width: 35%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tool-operation { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-descriptionForeground); }
+    .tool-section { margin: 4px 0 8px 12px; min-width: 0; }
+    .tool-section-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12px; }
+    .tool-section button { font-size: 11px; min-height: 22px; padding: 1px 5px; }
+    .tool pre { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.4 var(--vscode-editor-font-family, monospace); }
+    .tool-section > pre { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; overflow: hidden; }
+    .tool-full > summary { cursor: pointer; font-size: 12px; }
+    .background-output { max-height: 120px; overflow: auto; margin: 0; padding: 8px; border-top: 1px solid var(--pi-border); white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); }
     .change { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 8px; }
     .change-label { flex: 1 1 100px; }
     .change-label, .background-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -258,7 +267,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     </section>
     <section id="conversation" aria-label="Pi conversation">
       <section id="messages" aria-live="off"></section>
-      <details id="tools-group" hidden><summary><span id="tools-summary">Tool activity</span></summary><section id="tools" aria-label="Pi tool activity"></section></details>
+      <details id="tools-group" hidden><summary id="tools-group-toggle"><span id="tools-summary">Tool activity</span><span id="tools-running"></span><span id="tools-failed"></span></summary><section id="tools" aria-label="Pi tool activity"></section></details>
     </section>
     <section id="activity" aria-label="Pi workflow activity" hidden>
       <div id="proposals-heading" class="section-heading" hidden><span>Edit proposals</span></div><section id="proposals" aria-label="Pi edit proposals"></section>
@@ -356,9 +365,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let programmaticConversationScrollTop;
     let renderedMessageStructure = '';
     let renderedMessageHtml = [];
-    let renderedToolIds = '';
-    let toolActivityRunning = false;
-    let toolRequestBusy = false;
     let renderedProposals = '';
     let renderedChanges = '';
     let renderedBackground = '';
@@ -721,58 +727,129 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       renderedProposals = signature;
     }
 
+    $('tools-group-toggle').addEventListener('click', () => {
+      const group = $('tools-group');
+      group.toolManual = !group.open;
+    });
+
+    function toolDisclosure(details, automaticOpen) {
+      if (details.toolAutomatic !== undefined && details.open !== details.toolAutomatic) details.toolManual = details.open;
+      const open = details.toolManual === undefined ? automaticOpen : details.toolManual;
+      details.open = open;
+      details.toolAutomatic = open;
+    }
+
+    function createToolSection(label) {
+      const section = document.createElement('section');
+      section.className = 'tool-section';
+      const heading = document.createElement('div');
+      heading.className = 'tool-section-heading';
+      const title = document.createElement('strong');
+      title.textContent = label;
+      const copy = document.createElement('button');
+      copy.type = 'button';
+      copy.className = 'secondary';
+      copy.textContent = 'Copy ' + label;
+      const feedback = document.createElement('span');
+      feedback.setAttribute('role', 'status');
+      copy.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(section.toolText);
+          feedback.textContent = label + ' copied';
+        } catch {
+          feedback.textContent = 'Copy failed. Select and copy the text manually.';
+        }
+      });
+      heading.append(title, copy, feedback);
+      const preview = document.createElement('pre');
+      const full = document.createElement('details');
+      full.className = 'tool-full';
+      const summary = document.createElement('summary');
+      summary.textContent = 'Show all retained ' + label.toLowerCase();
+      const content = document.createElement('pre');
+      full.append(summary, content);
+      section.append(heading, preview, full);
+      return section;
+    }
+
+    function updateToolSection(section, text, empty) {
+      const preview = section.children[1];
+      const full = section.children[2];
+      const short = text.split('\\n').slice(0, 6).join('\\n').slice(0, 600);
+      if (section.toolText !== text || !text) {
+        section.toolText = text;
+        preview.textContent = short || empty;
+        full.hidden = !text;
+        section.children[0].children[2].textContent = '';
+        full.children[1].textContent = text;
+      }
+    }
+
     function renderTools(tools) {
       const group = $('tools-group');
+      const running = tools.filter(tool => tool.status === 'running').length;
+      const failed = tools.filter(tool => tool.status === 'error').length;
       group.hidden = tools.length === 0;
-      const running = tools.filter(tool => tool.status === 'running');
-      const failed = tools.filter(tool => tool.status === 'error');
-      const isRunning = running.length > 0;
-      const requestSettled = toolRequestBusy && !busy;
-      if (!tools.length || requestSettled) group.open = false;
-      else if (isRunning && !toolActivityRunning) group.open = true;
-      toolActivityRunning = isRunning;
-      toolRequestBusy = busy;
-      group.dataset.status = running.length ? 'running' : failed.length ? 'error' : 'success';
-      $('tools-summary').textContent = running.length
-        ? 'Running · ' + running[running.length - 1].name + (running.length > 1 ? ' · ' + running.length + ' active' : '')
-        : tools.length + (tools.length === 1 ? ' tool call' : ' tool calls') + (failed.length ? ' · ' + failed.length + ' failed' : ' · completed');
-      const ids = tools.map(tool => tool.id).join('|');
-      if (ids === renderedToolIds && toolsElement.children.length === tools.length) {
-        for (let index = 0; index < tools.length; index += 1) {
-          const details = toolsElement.children[index];
-          const tool = tools[index];
-          const previousStatus = details.dataset.status;
-          details.className = 'tool ' + tool.status;
-          details.dataset.status = tool.status;
-          if (requestSettled || (previousStatus === 'running' && tool.status !== 'running' && !busy)) details.open = false;
-          details.children[0].textContent = (tool.status === 'running' ? 'Running · ' : tool.status === 'error' ? 'Failed · ' : 'Completed · ') + tool.name;
-          const output = details.children[1];
-          const outputText = tool.output || tool.input;
-          if (output.textContent !== outputText) {
-            const followOutput = output.scrollHeight - output.scrollTop - output.clientHeight <= 16;
-            output.textContent = outputText;
-            if (followOutput) output.scrollTop = output.scrollHeight;
-          }
-        }
+      if (!tools.length) {
+        group.toolManual = undefined;
+        group.open = false;
+        group.toolAutomatic = false;
+        toolsElement.replaceChildren();
         return;
       }
-      // Preserve user disclosure choices when the tool list itself changes.
-      const openTools = new Map(Array.from(toolsElement.children, details => [details.dataset.id, details.open]));
-      toolsElement.replaceChildren();
-      for (const tool of tools) {
-        const details = document.createElement('details');
-        details.className = 'tool ' + tool.status;
-        details.dataset.id = tool.id;
-        details.dataset.status = tool.status;
-        details.open = openTools.get(tool.id) ?? tool.status === 'running';
-        const summary = document.createElement('summary');
-        summary.textContent = (tool.status === 'running' ? 'Running · ' : tool.status === 'error' ? 'Failed · ' : 'Completed · ') + tool.name;
-        const pre = document.createElement('pre');
-        pre.textContent = tool.output || tool.input;
-        details.append(summary, pre);
-        toolsElement.appendChild(details);
+      const retainedIds = new Set(tools.map(tool => tool.id));
+      const existing = new Map(Array.from(toolsElement.children, details => [details.dataset.id, details]));
+      if (existing.size && !tools.some(tool => existing.has(tool.id))) {
+        group.toolManual = undefined;
+        group.toolAutomatic = group.open;
       }
-      renderedToolIds = ids;
+      for (const [id, row] of existing) {
+        if (!retainedIds.has(id)) toolsElement.removeChild(row);
+      }
+      toolDisclosure(group, busy);
+      $('tools-summary').textContent = 'Tool activity · ' + tools.length + (tools.length === 1 ? ' call' : ' calls');
+      $('tools-running').textContent = running ? ' · ' + running + ' running' : '';
+      $('tools-failed').textContent = failed ? ' · ' + failed + ' failed' : '';
+
+      for (const tool of tools) {
+        let details = existing.get(tool.id);
+        if (!details) {
+          details = document.createElement('details');
+          details.dataset.id = tool.id;
+          details.toolAutomatic = false;
+          const summary = document.createElement('summary');
+          const status = document.createElement('span');
+          const name = document.createElement('span');
+          name.className = 'tool-name';
+          const operation = document.createElement('span');
+          operation.className = 'tool-operation';
+          summary.append(status, name, operation);
+          summary.addEventListener('click', () => { details.toolManual = !details.open; });
+          const error = document.createElement('pre');
+          error.className = 'tool-error';
+          details.append(summary, error, createToolSection('Input'), createToolSection('Output'));
+          toolsElement.appendChild(details);
+        }
+        details.className = 'tool ' + tool.status;
+        toolDisclosure(details, busy && (tool.status === 'running' || details.toolAutomatic));
+        const summary = details.children[0];
+        const label = tool.status === 'running' ? 'Running' : tool.status === 'error' ? 'Failed' : 'Succeeded';
+        summary.children[0].textContent = tool.status === 'running' ? '◷' : tool.status === 'error' ? '!' : '✓';
+        summary.children[0].setAttribute('role', 'img');
+        summary.children[0].setAttribute('aria-label', label);
+        summary.children[0].title = label;
+        summary.children[1].textContent = tool.name;
+        summary.children[2].textContent = tool.summary || 'Tool operation';
+        summary.children[2].title = tool.summary || 'Tool operation';
+        const output = tool.output || '';
+        const error = details.children[1];
+        error.hidden = tool.status !== 'error' || !output;
+        error.textContent = tool.status === 'error' ? output.split('\\n').slice(0, 3).join('\\n').slice(0, 400) : '';
+        updateToolSection(details.children[2], tool.input || '', 'No input supplied.');
+        updateToolSection(details.children[3], output, tool.status === 'running' ? 'Waiting for output…' : 'No output returned.');
+      }
+      // The host appends calls in execution order. Retained rows stay attached,
+      // including when the oldest call is removed by the host's 30-call limit.
     }
 
     function renderChanges(changes) {

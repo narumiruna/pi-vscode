@@ -12,7 +12,7 @@ fs.writeFileSync(
   `${JSON.stringify({ type: "session", version: 3, id: sessionId, cwd: process.cwd(), timestamp: new Date().toISOString() })}\n`,
 );
 fs.appendFileSync(path.join(directory, "pids.jsonl"), `${process.pid}\n`);
-let messages = [];
+const messages = [];
 const emit = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
 readline.createInterface({ input: process.stdin }).on("line", (line) => {
   const request = JSON.parse(line);
@@ -43,9 +43,36 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     messages.push(user, assistant);
     emit({ type: "agent_start" });
     emit({ type: "message_end", message: user });
+    const toolsFile = path.join(directory, "tools.json");
+    const calls = fs.existsSync(toolsFile) ? JSON.parse(fs.readFileSync(toolsFile, "utf8")) : [];
+    if (calls.length) fs.unlinkSync(toolsFile);
+    calls.forEach(([toolName, args, result, isError], index) => {
+      const toolCallId = `native-tool-${index}`;
+      emit({ type: "tool_execution_start", toolName, args, toolCallId });
+      emit({ type: "tool_execution_update", toolCallId, partialResult: result });
+      if (index < calls.length - 1) emit({ type: "tool_execution_end", toolCallId, result, isError: !!isError });
+    });
+    if (calls.length) emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: text } });
     emit({ type: "message_end", message: assistant });
-    emit({ type: "agent_end", messages });
-    emit({ type: "agent_settled" });
+    const finish = () => {
+      if (calls.length)
+        emit({
+          type: "tool_execution_end",
+          toolCallId: `native-tool-${calls.length - 1}`,
+          result: calls.at(-1)[2],
+          isError: false,
+        });
+      emit({ type: "agent_end", messages });
+      emit({ type: "agent_settled" });
+    };
+    if (!calls.length) finish();
+    else {
+      const timer = setInterval(() => {
+        if (!fs.existsSync(path.join(directory, "tools-release"))) return;
+        clearInterval(timer);
+        finish();
+      }, 50);
+    }
   }
   if (request.type === "abort") emit({ type: "agent_settled" });
 });

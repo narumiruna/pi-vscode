@@ -31,6 +31,7 @@ import {
   SidebarAttachmentManager,
 } from "./sidebarAttachments";
 import {
+  boundToolText,
   convertPiMessages,
   extractToolText,
   formatError,
@@ -41,6 +42,7 @@ import {
   safeJson,
   shouldPostActionErrorNotice,
   stringValue,
+  toolOperationSummary,
   type WebviewMessage,
 } from "./sidebarHelpers";
 import { getSidebarHtml } from "./sidebarHtml";
@@ -76,6 +78,7 @@ interface ToolActivity {
   readonly name: string;
   readonly status: "running" | "success" | "error";
   readonly input: string;
+  readonly summary: string;
   readonly output?: string;
 }
 
@@ -1359,7 +1362,8 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
         id: stringValue(event.toolCallId) ?? randomUUID(),
         name: toolName,
         status: "running",
-        input: safeJson(event.args, maxToolOutputCharacters),
+        summary: toolOperationSummary(toolName, event.args),
+        input: boundToolText(safeJson(event.args, Number.MAX_SAFE_INTEGER), maxToolOutputCharacters),
       });
       this.status = `Running ${stringValue(event.toolName) ?? "tool"}…`;
     } else if (event.type === "tool_execution_update") {
