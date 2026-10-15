@@ -49,10 +49,16 @@ function mathExtension(block: boolean): TokenizerExtension {
       const close = delimiter === "\\(" ? "\\)" : delimiter === "\\[" ? "\\]" : delimiter;
       const start = opening[0].length;
       let end = source.indexOf(close, start);
-      while (end >= 0 && /(?:^|[^\\])(?:\\\\)*\\$/.test(source.slice(0, end)))
+      while (end >= 0) {
+        let backslashes = 0;
+        for (let index = end - 1; index >= 0 && source[index] === "\\"; index--) backslashes++;
+        if (backslashes % 2 === 0) break;
         end = source.indexOf(close, end + close.length);
+      }
       if (end < 0) {
         const text = source.slice(start);
+        // A price must not consume later Markdown punctuation as pending math.
+        if (delimiter === "$" && /^\d[\d,.]*(?:\s|$)/.test(text)) return undefined;
         if (
           delimiter.startsWith("\\") ||
           ((delimiter === "$$" || delimiter === "$") && /\\[A-Za-z]+|[_^=+*/]/.test(text))
