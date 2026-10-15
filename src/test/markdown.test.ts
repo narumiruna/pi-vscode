@@ -196,6 +196,43 @@ test("unmatched prices preserve later Markdown throughout streaming", () => {
   }
 });
 
+test("pending numeric math keeps its source when clear math syntax follows whitespace", () => {
+  for (const expression of [
+    "2 \\times *x*",
+    "2 \\\\times *x*",
+    "2 \\frac{*x*}{2}",
+    "2 + *x*",
+    "2 = *x*",
+    "2 ^ *x*",
+    "2 _ *x*",
+    "2 * *x*",
+    "2 / *x*",
+    "2 - *x*",
+    "2.5 \\times *x*",
+  ]) {
+    const source = `$${expression}`;
+    assert.equal(render(source), `<p>${source}</p>`, source);
+  }
+  assert.match(render("$2 \\times x$"), /class="katex/);
+});
+
+test("prices with punctuation boundaries retain later Markdown during streaming", () => {
+  for (const price of ["5", "5.99", "1,000.50"]) {
+    for (const punctuation of ["),", ")", "]", "}", ":", ";", "!", "?", ",", ".", "'", '"']) {
+      for (const suffix of ["**cheap**", "*cheap*", "[details](https://example.com)", "`code`", "_cheap_"]) {
+        for (let length = 0; length <= suffix.length; length++) {
+          const tail = suffix.slice(0, length);
+          const plain = `Costs (${price}${punctuation} ${tail}`;
+          const source = plain.replace(`(${price}`, `($${price}`);
+          const expected = render(plain).replace(`(${price}`, `($${price}`);
+          assert.equal(render(source), expected, source);
+        }
+      }
+    }
+  }
+  assert.equal(render("Costs ($5), **cheap**"), "<p>Costs ($5), <strong>cheap</strong></p>");
+});
+
 test("only closed Mermaid fences are marked for diagram rendering", () => {
   const source = "flowchart LR\nA-->B";
   assert.match(render("```mermaid\n" + source + "\n```"), /class="mermaid-source"/);
