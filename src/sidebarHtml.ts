@@ -94,8 +94,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     #app.sessions-layer #sessions { display: grid; min-height: 0; grid-template-rows: auto minmax(0, 1fr); border-bottom: 0; }
     #app.sessions-layer .sessions-title { color: var(--vscode-foreground); font-size: 1em; }
     #app.sessions-layer.sessions-expanded #session-list-content { display: grid; grid-template-rows: minmax(0, 1fr); }
-    .thinking-picker { position: relative; display: inline-flex; flex: 0 0 auto; align-items: center; }
-    #thinking-level { appearance: none; min-height: 30px; border-radius: 8px; padding: 4px 27px 4px 9px; color: var(--vscode-descriptionForeground); }
+    .thinking-picker { position: relative; display: inline-flex; flex: 0 1 auto; min-width: 38px; align-items: center; }
+    #thinking-level { appearance: none; min-width: 0; max-width: 100%; min-height: 30px; border-radius: 8px; padding: 4px 27px 4px 9px; color: var(--vscode-descriptionForeground); }
     .thinking-picker > .icon { position: absolute; right: 9px; width: 12px; height: 12px; color: var(--vscode-descriptionForeground); pointer-events: none; }
     #thinking-level:disabled + .icon { opacity: .5; }
     #thinking-level option { color: var(--vscode-foreground); background: var(--pi-control-background); }

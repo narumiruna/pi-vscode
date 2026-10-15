@@ -404,6 +404,7 @@
     "vscode:prepublish": "npm run compile",
     "watch": "tsc -watch -p ./",
     "test:rich-content": "npm run compile && node scripts/test-rich-content.mjs",
+    "test:thinking-picker": "npm run compile && node scripts/test-thinking-picker.mjs",
     "dev": "npm run install:extension && node scripts/open-dev-window.mjs",
     "dev:pi": "pi -ne -e resources/picode-bridge.ts",
     "install:vsix": "sh scripts/check-legacy-vscode-extension.sh && npm run package && code --install-extension pi.vsix --force",

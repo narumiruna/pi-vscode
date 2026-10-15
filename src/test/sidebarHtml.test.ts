@@ -158,6 +158,12 @@ test("sidebar places model and thinking controls before Send and exposes recover
   assert.doesNotMatch(html, /id="resume-session"/);
 });
 
+test("thinking picker can shrink without overflowing its wrapper", () => {
+  const html = getSidebarHtml(100_000, 5 * 1024 * 1024);
+  assert.match(html, /\.thinking-picker \{[^}]*flex: 0 1 auto;[^}]*min-width: 38px/);
+  assert.match(html, /#thinking-level \{[^}]*min-width: 0;[^}]*max-width: 100%/);
+});
+
 test("sidebar preserves hidden semantics, themed layout, and keyboard accessibility", () => {
   const html = getSidebarHtml(42, 1024);
   const composerPosition = html.indexOf('id="composer"');
