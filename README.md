@@ -40,6 +40,23 @@ To install a specific version, pass it to the downloaded script, for example `sh
 
 After installation or an update, run **Developer: Reload Window**. Sidebar sessions and **More… → Open in Terminal** load the bridge bundled with the active VSIX. A new ordinary integrated terminal inherits the authenticated bridge environment and bridge path, but plain `pi` does not load it automatically; use `pi --extension "$PICODE_BRIDGE_EXTENSION"` in POSIX shells or `pi --extension $env:PICODE_BRIDGE_EXTENSION` in PowerShell when you explicitly want bridge tools there.
 
+## Upgrade from the old extension ID
+
+The extension ID changed from `narumi.pi-coding-agent-vscode` to `narumi.narumi-pi`. VS Code treats them as separate extensions. Do not keep both installed. The release installer and `just install` stop if the old ID is installed. Follow these steps before using either installer, installing a VSIX manually, or installing from Marketplace:
+
+1. In the old extension, stop active requests and background agents. Export any conversation you need. Review and save worktree results outside extension storage. Record worktree paths and commit or copy any changes you need.
+2. Remove the old extension from the same VS Code profile and extension host where you will install the new one:
+
+   ```bash
+   code --uninstall-extension narumi.pi-coding-agent-vscode
+   ```
+
+   For a named profile, use `--profile "<profile>"`. In a Remote SSH, WSL, or container window, remove the old extension from that remote host through the Extensions view.
+3. Run **Developer: Reload Window**. Install the new extension, then reload again.
+4. Open **Pi: Open Sessions** and select a persistent Pi session for the current workspace.
+
+The installers do not copy or delete VS Code state. The old sidebar cache, last-session pointer, and background-task records do not transfer to the new ID. Worktrees under the old extension's global storage do not transfer. Save their results before removal. Pi session files remain separate from VS Code extension state and can be selected from the new extension. Existing `picode.*` settings keep their names.
+
 ## Install from source
 
 Building from source additionally requires Node.js, npm, and [`just`](https://just.systems):
@@ -49,7 +66,7 @@ npm install
 just install
 ```
 
-`just install` packages and installs the VS Code extension, then removes the exact legacy global bridge filenames created by older releases. It does not install a Pi extension under `${PI_CODING_AGENT_DIR:-~/.pi/agent}`. The extension ID is `narumi.pi-coding-agent-vscode`.
+`just install` packages and installs the VS Code extension, then removes the exact legacy global bridge filenames created by older releases. It does not install a Pi extension under `${PI_CODING_AGENT_DIR:-~/.pi/agent}`. The extension ID is `narumi.narumi-pi`.
 
 Run **Developer: Reload Window** after installation. Use Sidebar **Open in Terminal** for an automatically bridged terminal Pi session, or use the explicit `PICODE_BRIDGE_EXTENSION` command shown above in a new ordinary integrated terminal.
 
@@ -144,7 +161,7 @@ The bridge provides `vscode_context`, `vscode_code_context`, `vscode_open_file`,
 
 `vscode_code_context` accepts `definition`, `references`, `callers`, `callees`, or `documentSymbols`, a workspace path and optional one-based line/column. It returns metadata only, with zero-based ranges; source text requires a separate read. The tool is not loaded by independent background/worktree agents.
 
-VS Code extensions in the same Extension Host can activate `narumi.pi-coding-agent-vscode` and call its exported `broadcast(event, data)` API. Event names and payloads are validated and bounded.
+VS Code extensions in the same Extension Host can activate `narumi.narumi-pi` and call its exported `broadcast(event, data)` API. Event names and payloads are validated and bounded.
 
 ## Development
 

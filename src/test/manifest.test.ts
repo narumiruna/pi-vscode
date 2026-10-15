@@ -27,7 +27,7 @@ interface ExtensionManifest {
 const manifest = JSON.parse(readFileSync("package.json", "utf8")) as ExtensionManifest;
 
 test("extension identity stays consistent across packaging, settings, and documentation", () => {
-  assert.equal(manifest.name, "pi-coding-agent-vscode");
+  assert.equal(manifest.name, "narumi-pi");
   assert.equal(manifest.displayName, "Pi");
   assert.equal(manifest.contributes.viewsContainers.secondarySidebar[0].title, "Pi");
   assert.ok(
@@ -46,8 +46,8 @@ test("extension identity stays consistent across packaging, settings, and docume
   const id = `${manifest.publisher}.${manifest.name}`;
   assert.ok(readFileSync("src/editorActions.ts", "utf8").includes(`"@ext:${id}"`));
   assert.ok(readFileSync("README.md", "utf8").includes(`The extension ID is \`${id}\``));
-  assert.ok(manifest.scripts.package.includes(`--out ${manifest.name}.vsix`));
-  assert.ok(readFileSync("justfile", "utf8").includes(`/${manifest.name}.vsix`));
+  assert.ok(manifest.scripts.package.includes("--out pi-coding-agent-vscode.vsix"));
+  assert.ok(readFileSync("justfile", "utf8").includes("/pi-coding-agent-vscode.vsix"));
   assert.ok(manifest.contributes.commands.every((command) => command.command.startsWith("picode.")));
   assert.ok(Object.keys(manifest.contributes.configuration.properties).every((key) => key.startsWith("picode.")));
   for (const path of [
