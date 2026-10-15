@@ -257,7 +257,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     onAccepted?: () => void,
     beforeSubmit?: () => void,
     allowQueue = false,
-  ): Promise<string | undefined> {
+  ): Promise<string | { disposition: "handled" } | undefined> {
     return this.owned(async () => {
       await this.ensureStarted(resource);
       if (resource) await this.assertResourceMatchesActiveWorkspace(resource);
@@ -285,7 +285,7 @@ export class PiRuntimeManager implements vscode.Disposable {
         if (disposition === "handled") {
           this.promptActive = false;
           await this.refreshState(true);
-          return undefined;
+          return { disposition: "handled" };
         }
         return await settled.promise;
       } catch (error) {
