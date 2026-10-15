@@ -253,6 +253,19 @@ test("underscore emphasis directly after prices remains Markdown during streamin
   for (const source of ["$2 _ *x*", "$2 _{*x*}"]) assert.equal(render(source), `<p>${source}</p>`);
 });
 
+test("pending numeric inequalities keep Markdown syntax as escaped source", () => {
+  for (const number of ["2", "2.5", "5!"]) {
+    for (const operator of ["<", ">", "<=", ">=", "<<", ">>"]) {
+      for (const suffix of ["*x*", "**x**", "`x`", "[x](https://example.com)", "_x_"]) {
+        const source = `$${number} ${operator} ${suffix}`;
+        const escaped = source.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+        assert.equal(render(source), `<p>${escaped}</p>`, source);
+      }
+      assert.match(render(`$${number} ${operator} x$`), /class="katex/);
+    }
+  }
+});
+
 test("prices with punctuation boundaries retain later Markdown during streaming", () => {
   for (const price of ["5", "5.99", "1,000.50"]) {
     for (const punctuation of ["),", ")", "]", "}", ":", ";", "!", "?", ",", ".", "'", '"']) {
