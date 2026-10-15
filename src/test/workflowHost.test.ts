@@ -853,7 +853,51 @@ test("Sessions-layer submission snapshots attachments and holds the request gate
     assert.equal(trackerStarts, 2);
     assert.deepEqual(trackerFinishes, ["completed", "completed"]);
     assert.equal(internal.trackCurrentRequestChanges, false);
+    for (const failHistory of [false, true]) {
+      runtime.prompt = async (
+        _request: string,
+        _resource: unknown,
+        _images: unknown,
+        onAccepted?: () => void,
+        beforeSubmit?: () => void,
+      ) => {
+        beforeSubmit?.();
+        onAccepted?.();
+        internal.requestLifecycle.cancel();
+        return { disposition: "handled" };
+      };
+      runtime.getMessages = async () => {
+        assert.equal(internal.requestLifecycle.executionCompleted, true);
+        assert.equal(internal.retryRequest, undefined);
+        assert.equal(internal.trackCurrentRequestChanges, false);
+        if (failHistory) throw new Error("history unavailable after cancellation");
+        return [];
+      };
+      const request = internal.runRequest("/slow-command", [], [], undefined, undefined, undefined, "composer");
+      if (failHistory) {
+        await assert.rejects(request, /history unavailable after cancellation/);
+        assert.equal(internal.historyRecoveryAvailable, true);
+      } else {
+        assert.equal(await request, "");
+        assert.equal(internal.status, "Ready");
+      }
+      assert.equal(internal.requestLifecycle.wasCancelled, true);
+      assert.equal(internal.requestLifecycle.canRetry, false, "a completed command cannot run again through Retry");
+      assert.equal(internal.retryRequest, undefined);
+      assert.equal(internal.requestGate.isPending, false);
+      assert.equal(trackerStarts, failHistory ? 4 : 3);
+      assert.deepEqual(trackerFinishes, Array(trackerStarts).fill("completed"));
+    }
     runtime.getMessages = async () => [];
+    runtime.prompt = async () => {
+      internal.requestLifecycle.cancel();
+      return "cancelled response";
+    };
+    await assert.rejects(
+      internal.runRequest("ordinary cancelled request", [], [], undefined, undefined, undefined, "composer"),
+      /Pi request was cancelled/,
+    );
+    assert.equal(internal.requestLifecycle.canRetry, true, "ordinary cancellation behavior is unchanged");
     runtime.prompt = async () => undefined;
     await assert.rejects(
       internal.runRequest("ordinary request", [], [], undefined, undefined, undefined, "composer"),

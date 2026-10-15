@@ -894,7 +894,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
         origin === "composer" && !onResponse && policy === undefined && !text.startsWith("/"),
       );
       this.foregroundCancellable = false;
-      if (this.requestLifecycle.wasCancelled) {
+      if (this.requestLifecycle.wasCancelled && (response === undefined || typeof response === "string")) {
         throw new Error("Pi request was cancelled.");
       }
       if (response === undefined) {
