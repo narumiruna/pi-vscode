@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, type SpawnSyncReturns } from "node:child_process";
 import { access, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -7,6 +7,63 @@ import path from "node:path";
 const repositoryRoot = path.resolve(__dirname, "..", "..");
 const removalScript = path.join(repositoryRoot, "scripts", "remove-legacy-picode-extension.mjs");
 const releaseInstaller = path.join(repositoryRoot, "scripts", "install.sh");
+const upgradeCheck = path.join(repositoryRoot, "scripts", "check-legacy-vscode-extension.sh");
+
+test.each([releaseInstaller, upgradeCheck])(
+  "upgrade check stops safely before replacing the old ID: %s",
+  async (script) => {
+    const root = await mkdtemp(path.join(tmpdir(), "picode-upgrade-"));
+    const bin = path.join(root, "bin");
+    const mutations = path.join(root, "mutations.log");
+    const env = { ...process.env, PATH: `${bin}:/usr/bin:/bin`, MUTATIONS_LOG: mutations };
+    try {
+      await mkdir(bin);
+      await writeFile(
+        path.join(bin, "code"),
+        `#!/bin/sh\nset -eu\nif [ "$1" = "--list-extensions" ]; then\n  [ "\${LIST_FAIL:-0}" = 0 ] || exit 7\n  printf '%s\\n' "$INSTALLED_EXTENSIONS"\nelse\n  printf '%s\\n' "$*" >> "$MUTATIONS_LOG"\nfi\n`,
+      );
+      await writeFile(path.join(bin, "curl"), '#!/bin/sh\nprintf "download\\n" >> "$MUTATIONS_LOG"\nexit 9\n');
+      await Promise.all([chmod(path.join(bin, "code"), 0o755), chmod(path.join(bin, "curl"), 0o755)]);
+      for (const id of ["narumi.pi-coding-agent-vscode", "NARUMI.PI-CODING-AGENT-VSCODE"]) {
+        assert.throws(
+          () =>
+            execFileSync("sh", [script], {
+              env: { ...env, INSTALLED_EXTENSIONS: `other.extension\n${id}\nnarumi.narumi-pi` },
+              stdio: "pipe",
+            }),
+          (error: unknown) => {
+            assert.ok(error instanceof Error);
+            const failure = error as Error & SpawnSyncReturns<Buffer>;
+            assert.equal(failure.status, 1);
+            assert.match(failure.stderr.toString(), /Save sessions and worktree results/);
+            assert.match(failure.stderr.toString(), /code --uninstall-extension narumi\.pi-coding-agent-vscode/);
+            return true;
+          },
+        );
+        await assert.rejects(access(mutations), { code: "ENOENT" });
+      }
+      assert.throws(
+        () => execFileSync("sh", [script], { env: { ...env, LIST_FAIL: "1" }, stdio: "pipe" }),
+        (error: unknown) => error instanceof Error && (error as Error & SpawnSyncReturns<Buffer>).status === 7,
+      );
+      await assert.rejects(access(mutations), { code: "ENOENT" });
+      execFileSync("sh", [upgradeCheck], {
+        env: {
+          ...env,
+          INSTALLED_EXTENSIONS: "narumi.narumi-pi\nother.pi-coding-agent-vscode\nnarumi.pi-coding-agent-vscode-extra",
+        },
+      });
+      await assert.rejects(access(mutations), { code: "ENOENT" });
+      const recipes = await readFile(path.join(repositoryRoot, "justfile"), "utf8");
+      assert.match(
+        recipes,
+        /install-vsix:\n {4}sh .*check-legacy-vscode-extension\.sh"\n {4}npm run package\n {4}code --install-extension/,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
 
 test("source cleanup removes only legacy bridge paths and does not create Pi configuration", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "picode-cleanup-"));

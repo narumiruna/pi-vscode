@@ -224,4 +224,7 @@ test.each([
       await rm(directory, { recursive: true, force: true });
     }
   },
+  // Each case runs several real Git reviews and revalidates repository state
+  // for every action, preview, and apply. Allow for slower process startup.
+  90_000,
 );
