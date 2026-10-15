@@ -5,7 +5,7 @@ const maxSource = 8000;
 const maxCache = 64;
 const maxCacheCharacters = 2_000_000;
 const pending = new Map<HTMLElement, Job>();
-const cache = new Map<string, { svg: string; id: string } | null>();
+const cache = new Map<string, { svg: string } | null>();
 let cacheCharacters = 0;
 let sequence = 0;
 let running = false;
@@ -71,7 +71,7 @@ function cleanSvg(svg: string): string {
   container.append(fragment);
   return container.innerHTML;
 }
-function store(key: string, value: { svg: string; id: string } | null): void {
+function store(key: string, value: { svg: string } | null): void {
   const cost = key.length + (value?.svg.length ?? 0);
   if (cost > maxCacheCharacters) return;
   while (cache.size >= maxCache || cacheCharacters + cost > maxCacheCharacters) {
@@ -83,10 +83,59 @@ function store(key: string, value: { svg: string; id: string } | null): void {
   cache.set(key, value);
   cacheCharacters += cost;
 }
+function namespaceSvg(container: HTMLElement, prefix: string): void {
+  const ids = new Map<string, string>();
+  for (const element of container.querySelectorAll("[id]")) {
+    const replacement = `${prefix}-${ids.size}`;
+    ids.set(element.id, replacement);
+    element.id = replacement;
+  }
+  const fragmentUrls = (value: string): string =>
+    value.replace(/url\(\s*(["']?)#([^\s"')]+)\1\s*\)/gi, (original, quote: string, id: string) => {
+      const replacement = ids.get(id);
+      return replacement ? `url(${quote}#${replacement}${quote})` : original;
+    });
+  const rewriteRules = (rules: CSSRuleList): void => {
+    for (const rule of rules) {
+      if (rule instanceof CSSStyleRule) {
+        rule.selectorText = rule.selectorText.replace(/#[\w-]+/g, (selector) => {
+          const replacement = ids.get(selector.slice(1));
+          return replacement ? `#${replacement}` : selector;
+        });
+        for (const property of rule.style) {
+          const value = rule.style.getPropertyValue(property);
+          const rewritten = fragmentUrls(value);
+          if (value !== rewritten)
+            rule.style.setProperty(property, rewritten, rule.style.getPropertyPriority(property));
+        }
+      }
+      if ("cssRules" in rule) rewriteRules((rule as CSSGroupingRule).cssRules);
+    }
+  };
+  for (const element of container.querySelectorAll("*")) {
+    for (const attribute of [...element.attributes]) {
+      if (attribute.localName === "href" && attribute.value.startsWith("#")) {
+        const replacement = ids.get(attribute.value.slice(1));
+        if (replacement) attribute.value = `#${replacement}`;
+      } else if (attribute.name === "aria-labelledby" || attribute.name === "aria-describedby") {
+        attribute.value = attribute.value
+          .split(/\s+/)
+          .map((id) => ids.get(id) ?? id)
+          .join(" ");
+      } else if (attribute.name !== "id") attribute.value = fragmentUrls(attribute.value);
+    }
+    if (element.tagName.toLowerCase() === "style") {
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(element.textContent ?? "");
+      rewriteRules(sheet.cssRules);
+      element.textContent = [...sheet.cssRules].map((rule) => rule.cssText).join("\n");
+    }
+  }
+}
 function current(job: Job): boolean {
   return !disposed && job.element.isConnected && job.element.dataset.diagramKey === job.key;
 }
-function display(job: Job, value: { svg: string; id: string } | null): void {
+function display(job: Job, value: { svg: string } | null): void {
   if (!current(job)) return;
   const old = job.element.querySelector(".mermaid-preview");
   old?.remove();
@@ -99,7 +148,8 @@ function display(job: Job, value: { svg: string; id: string } | null): void {
   preview.setAttribute("role", "img");
   preview.setAttribute("aria-label", "Mermaid diagram; source follows");
   const unique = `piDiagram${++sequence}`;
-  preview.innerHTML = value.svg.replaceAll(value.id, unique);
+  preview.innerHTML = value.svg;
+  namespaceSvg(preview, unique);
   job.element.prepend(preview);
   job.resize();
 }
@@ -118,11 +168,11 @@ async function drain(): Promise<void> {
         continue;
       }
       const id = `piDiagram${++sequence}`;
-      let value: { svg: string; id: string } | null = null;
+      let value: { svg: string } | null = null;
       try {
         const result = await mermaid.render(id, job.source);
         const svg = cleanSvg(result.svg);
-        if (svg.includes("<svg")) value = { svg, id };
+        if (svg.includes("<svg")) value = { svg };
       } catch {
         /* Keep the source on parser, layout or sanitizer failure. */
       }

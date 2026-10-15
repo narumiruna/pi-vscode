@@ -93,13 +93,11 @@ try {
   await send(`| Long |\n| --- |\n| ${longCell} |\n\n\`\`\`unknown\n${longCell}\n\`\`\`\n\n$$${"x+".repeat(150)}y$$`);
   await page.setViewportSize({ width: 280, height: 800 });
   for (const selector of [".content table", ".content pre", ".content .katex-display"]) {
-    const geometry = await page
-      .locator(selector)
-      .evaluate((element) => ({
-        client: element.clientWidth,
-        scroll: element.scrollWidth,
-        overflow: getComputedStyle(element).overflowX,
-      }));
+    const geometry = await page.locator(selector).evaluate((element) => ({
+      client: element.clientWidth,
+      scroll: element.scrollWidth,
+      overflow: getComputedStyle(element).overflowX,
+    }));
     assert.equal(geometry.overflow, "auto");
     assert.ok(geometry.client <= 280);
     assert.ok(geometry.scroll > geometry.client, `${selector} must retain horizontally scrollable content`);
@@ -182,7 +180,7 @@ try {
         setup(build) {
           build.onResolve({ filter: /^mermaid$/ }, () => ({ path: "mermaid", namespace: "test" }));
           build.onLoad({ filter: /.*/, namespace: "test" }, () => ({
-            contents: `export default { initialize(){}, render(id, source){ window.renderCount=(window.renderCount||0)+1; return new Promise(resolve=>{ window.finishDiagram=()=>resolve({svg:'<svg xmlns="http://www.w3.org/2000/svg" id="'+id+'"><style>#'+id+'{color:red}</style><text>'+source.replaceAll('&','&amp;').replaceAll('<','&lt;')+'</text><image href="https://bad.invalid/a"/><set onbegin="window.attacked=true"/></svg>'}); if(window.autoFinish) queueMicrotask(window.finishDiagram); }); } };`,
+            contents: `export default { initialize(){}, render(id, source){ window.renderCount=(window.renderCount||0)+1; return new Promise(resolve=>{ window.finishDiagram=()=>resolve({svg:'<svg xmlns="http://www.w3.org/2000/svg" id="'+id+'" aria-labelledby="'+id+'-title" aria-describedby="'+id+'-desc"><style>#'+id+'{color:red;--label:"piDiagram1";filter:url(#'+id+'-paint)} @media all { #'+id+' text {fill:rgb(1,2,3)} }</style><title id="'+id+'-title">piDiagram1 title</title><desc id="'+id+'-desc">piDiagram10 description</desc><defs><marker id="'+id+'-arrow"><path d="M0 0L1 1"/></marker><filter id="'+id+'-paint"/><linearGradient id="'+id+'-fill"/><linearGradient href="#'+id+'-fill"/></defs><path marker-end="url(#'+id+'-arrow)" style="filter:url(#'+id+'-paint)"/><use href="#'+id+'-arrow"/><text>'+source.replaceAll('&','&amp;').replaceAll('<','&lt;')+'</text><image href="https://bad.invalid/a"/><set onbegin="window.attacked=true"/></svg>'}); if(window.autoFinish) queueMicrotask(window.finishDiagram); }); } };`,
           }));
         },
       },
@@ -191,7 +189,7 @@ try {
   const race = await browser.newPage();
   await race.setContent('<div class="content"></div>');
   await race.addScriptTag({ content: stub.outputFiles[0].text });
-  const diagram = renderSafeMarkdown("```mermaid\nflowchart LR\nA-->B\n```");
+  const diagram = renderSafeMarkdown("```mermaid\nflowchart LR\nA[piDiagram1 piDiagram10]-->B\n```");
   await race.evaluate(
     (value) => window.piRichContent.setContent(document.querySelector(".content"), value, () => {}),
     diagram,
@@ -210,6 +208,64 @@ try {
   assert.equal(await race.locator(".mermaid-preview").count(), 1);
   assert.equal(await race.evaluate(() => window.renderCount), 1, "unchanged diagrams use bounded cache");
   assert.equal(await race.locator("image, set, [onbegin]").count(), 0);
+  const assertSvgReferences = async () => {
+    const evidence = await race.locator(".mermaid-preview svg").evaluateAll((svgs) =>
+      svgs.map((svg) => {
+        const ids = new Set([...svg.querySelectorAll("[id]")].map((element) => element.id));
+        ids.add(svg.id);
+        const references = [];
+        for (const element of [svg, ...svg.querySelectorAll("*")])
+          for (const attribute of element.attributes) {
+            if (attribute.localName === "href") references.push(attribute.value.slice(1));
+            if (attribute.name === "aria-labelledby" || attribute.name === "aria-describedby")
+              references.push(...attribute.value.split(/\s+/));
+            for (const match of attribute.value.matchAll(/url\(["']?#([^"')]+)["']?\)/g)) references.push(match[1]);
+          }
+        return {
+          ids: [...ids],
+          references,
+          valid: references.every((id) => ids.has(id)),
+          text: svg.querySelector("text").textContent,
+          title: svg.querySelector("title").textContent,
+          description: svg.querySelector("desc").textContent,
+          color: getComputedStyle(svg.querySelector("text")).fill,
+          label: getComputedStyle(svg).getPropertyValue("--label"),
+          filter: getComputedStyle(svg).filter,
+        };
+      }),
+    );
+    for (const svg of evidence) {
+      assert.equal(svg.text, "flowchart LR\nA[piDiagram1 piDiagram10]-->B");
+      assert.equal(svg.title, "piDiagram1 title");
+      assert.equal(svg.description, "piDiagram10 description");
+      assert.equal(svg.color, "rgb(1, 2, 3)", "nested CSS selectors must target the renamed SVG");
+      assert.equal(svg.label.trim(), '"piDiagram1"', "CSS string values must not change");
+      assert.ok(svg.valid);
+      assert.ok(
+        svg.references.length >= 5,
+        `marker, inline style, href and ARIA references are retained: ${JSON.stringify(svg)}`,
+      );
+      assert.ok(
+        svg.ids.some((id) => svg.filter.includes(id)),
+        "CSS URL references must target the renamed filter",
+      );
+    }
+    const ids = evidence.flatMap((svg) => svg.ids);
+    assert.equal(new Set(ids).size, ids.length, "cached copies must have distinct IDs");
+  };
+  await assertSvgReferences();
+  await race.evaluate((value) => {
+    const extra = document.createElement("div");
+    extra.className = "content";
+    document.body.append(extra);
+    window.piRichContent.setContent(extra, value, () => {});
+  }, diagram);
+  await race.locator(".mermaid-preview svg").nth(1).waitFor();
+  await assertSvgReferences();
+  await race
+    .locator(".content")
+    .nth(1)
+    .evaluate((element) => element.remove());
   await race.evaluate((value) => {
     const replacement = document.createElement("div");
     replacement.className = "content";

@@ -138,12 +138,8 @@ parser.use({
   },
 });
 
-const cache = new Map<string, string>();
-let cachedCharacters = 0;
 export function renderSafeMarkdown(markdown: string): string {
   if (!markdown.trim()) return "";
-  const cached = cache.get(markdown);
-  if (cached !== undefined) return cached;
   mathCount = 0;
   let html: string;
   try {
@@ -151,16 +147,36 @@ export function renderSafeMarkdown(markdown: string): string {
   } catch {
     html = `<pre>${escapeHtml(markdown)}</pre>`;
   }
-  const cost = markdown.length + html.length;
-  if (cost <= 2_000_000) {
-    while (cache.size >= 64 || cachedCharacters + cost > 2_000_000) {
-      const oldest = cache.keys().next().value;
-      if (oldest === undefined) break;
-      cachedCharacters -= oldest.length + (cache.get(oldest)?.length ?? 0);
-      cache.delete(oldest);
-    }
-    cache.set(markdown, html);
-    cachedCharacters += cost;
-  }
   return html;
+}
+
+export class MarkdownRenderer {
+  private readonly cache = new Map<string, string>();
+  private cachedCharacters = 0;
+
+  public constructor(private readonly parse: (markdown: string) => string = renderSafeMarkdown) {}
+
+  public renderBatch(messages: readonly string[]): string[] {
+    // Capture hits before any miss can evict a later message in this transcript.
+    const available = new Map(this.cache);
+    return messages.map((markdown) => {
+      let html = available.get(markdown);
+      if (html === undefined) {
+        html = this.parse(markdown);
+        available.set(markdown, html);
+      }
+      const cost = markdown.length + html.length;
+      if (!this.cache.has(markdown) && cost <= 2_000_000) {
+        while (this.cache.size >= 64 || this.cachedCharacters + cost > 2_000_000) {
+          const oldest = this.cache.keys().next().value;
+          if (oldest === undefined) break;
+          this.cachedCharacters -= oldest.length + (this.cache.get(oldest)?.length ?? 0);
+          this.cache.delete(oldest);
+        }
+        this.cache.set(markdown, html);
+        this.cachedCharacters += cost;
+      }
+      return html;
+    });
+  }
 }

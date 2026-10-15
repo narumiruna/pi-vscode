@@ -19,7 +19,7 @@ import {
 } from "./conversationController";
 import { EditProposalStore } from "./editProposals";
 import { ImageAssetCache, ImageAssetDeliveryTracker } from "./imageAssets";
-import { renderSafeMarkdown } from "./markdown";
+import { MarkdownRenderer } from "./markdown";
 import { acquireOperation } from "./operationLocks";
 import type { PiRpcEvent, PiRpcImage } from "./piRpcClient";
 import { deleteConversationWithTrashFallback, type PiRuntimeManager, runtimeSessionIdentityChanged } from "./piRuntime";
@@ -106,6 +106,7 @@ export function registerPiCodeSidebar(
 
 class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable, PiConversationController {
   private readonly disposables: vscode.Disposable[] = [];
+  private readonly markdownRenderer = new MarkdownRenderer();
   private view: vscode.WebviewView | undefined;
   private messages: SidebarMessage[];
   private tools: ToolActivity[] = [];
@@ -1573,10 +1574,12 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     const requestBusy = this.isForegroundRequestActive();
     const estimate = this.attachments.estimate;
     const attachmentSummaries = this.attachments.summaries;
-    const messages = sidebarMessagesForWebview(
+    const visibleMessages = sidebarMessagesForWebview(
       this.messages,
       (assetId) => this.imageAssets.has(assetId) || this.imageAssetDelivery.has(assetId),
-    ).map((message) => ({ ...message, html: renderSafeMarkdown(message.content) }));
+    );
+    const html = this.markdownRenderer.renderBatch(visibleMessages.map((message) => message.content));
+    const messages = visibleMessages.map((message, index) => ({ ...message, html: html[index] }));
     this.postMessage({
       type: "state",
       messages,

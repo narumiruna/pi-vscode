@@ -1,7 +1,51 @@
 import assert from "node:assert/strict";
-import { renderSafeMarkdown, safeMarkdownUrl } from "../markdown";
+import { MarkdownRenderer, renderSafeMarkdown, safeMarkdownUrl } from "../markdown";
 
 const render = renderSafeMarkdown;
+
+test("batch cache retains useful hits across 100-message scans and streaming updates", () => {
+  let parses = 0;
+  const renderer = new MarkdownRenderer((markdown) => {
+    parses++;
+    return render(markdown);
+  });
+  const messages = Array.from({ length: 100 }, (_, index) => `Message ${index}: $x^2$ and \`code\``);
+  const first = renderer.renderBatch(messages);
+  assert.equal(parses, 100);
+  assert.deepEqual(renderer.renderBatch(messages), first);
+  assert.equal(parses, 136, "the second scan must reuse all 64 hits before eviction");
+  for (let update = 0; update < 5; update++) {
+    messages[99] = `Streaming update ${update}: $x^2$`;
+    const before: number = parses;
+    const html = renderer.renderBatch(messages);
+    assert.ok(parses - before <= 37, "64-entry cache keeps at least 63 stable hits when the last message changes");
+    assert.deepEqual(html, messages.map(render));
+  }
+});
+
+test("batch cache reuses duplicate sources and obeys its character limit", () => {
+  let parses = 0;
+  const renderer = new MarkdownRenderer((markdown) => {
+    parses++;
+    return markdown + "x".repeat(650_000);
+  });
+  renderer.renderBatch(["A", "B", "C", "D"]);
+  assert.equal(parses, 4);
+  renderer.renderBatch(["A", "B", "C", "D"]);
+  assert.equal(parses, 5, "three hits survive a scan that exceeds the character budget");
+  const before = parses;
+  renderer.renderBatch(["duplicate", "duplicate"]);
+  assert.equal(parses - before, 1);
+  const oversized = new MarkdownRenderer((markdown) => {
+    parses++;
+    return markdown + "x".repeat(2_000_001);
+  });
+  const beforeOversized = parses;
+  oversized.renderBatch(["large"]);
+  oversized.renderBatch(["large"]);
+  assert.equal(parses - beforeOversized, 2, "oversized output is not retained");
+});
+
 test("Markdown supports headings, nested lists, tasks, tables, quotes, links and strikethrough", () => {
   const html = render(
     "# Result\n\n- **Changed** parser\n  - Added `validate()`\n- [x] Done\n\n> Quote\n\n| A | B |\n| - | - |\n| x | y |\n\n~~old~~ *new* [docs](https://example.com)",

@@ -240,6 +240,14 @@ Verified on Linux:
 
 The CSP style permission is deliberately broader than before: generated KaTeX attributes and Mermaid SVG styles require inline styles. Scripts remain nonce-only; eval, external resources, arbitrary message HTML/CSS, and diagram callbacks remain blocked. Synchronous rendering has source/expansion/edge bounds, not hard time preemption. Only flowchart/sequence Mermaid syntax is enabled. The browser bundle is approximately 5.1 MB before VSIX compression. No live provider, remote host, native Windows/macOS UI, browser-only extension host, or screen-reader application was exercised. URI loading uses stable VS Code APIs; host placement, trust contract, RPC, and persisted source formats are unchanged.
 
+### PR #50 review follow-up
+
+The original 100-message cache reproduction parsed all 100 messages again on its second scan. The provider now uses `MarkdownRenderer.renderBatch()` to read existing hits before inserting misses. The same-size second scan needs 36 parser calls; changed streaming tails need at most 37. The 64-entry and 2,000,000-character retention limits remain unchanged. Tests also cover duplicate sources, oversized results, and character-limit eviction.
+
+SVG copies now update IDs, CSS selectors, and local URL/ARIA references through DOM and CSS APIs. Text nodes, titles, descriptions, and CSS string values remain unchanged. The real fixture keeps `piDiagram1` and `piDiagram10` in visible labels. Browser tests check first/cached copies, distinct IDs, markers, hrefs, inline styles, nested rules, CSS URLs, and ARIA references.
+
+`npm run package` passes **357 tests / 43 files** and creates a valid 130-file VSIX. `npm run test:rich-content` and `xvfb-run -a npm run test:native-ui -- 1.106.0 packaged` pass with the added cases. Full Biome, diff checks, and production audit pass with the same existing warnings. Host placement, minimum VS Code version, source storage, RPC, trust, and CSP are unchanged. See [the PR #50 review ledger](reviews/pr-50-review.md) for both findings, reproductions, outcomes, and validation limits.
+
 ## Deferred usage checks from earlier plans
 
 Per the user's explicit acceptance decision for those earlier plans, later real-world use will cover native Quick Picks/diff editors/Undo, full keyboard navigation and actual theme contrast on minimum/current VS Code, untrusted UI, SSH/container placement, installed Pi versions/provider behavior, and paused Node.js debugger interaction. Unsupported/uncertain queue commands disconnect without replay; unsupported adapters/resources and unverified task inactivity fail closed. These limitations and workflow bounds are documented in the README and Security guide.

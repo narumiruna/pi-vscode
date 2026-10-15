@@ -29,7 +29,7 @@ export const richFixture = [
   "",
   "```mermaid",
   "flowchart LR",
-  "A[Input] --> B[Output]",
+  "A[Input piDiagram1 piDiagram10] --> B[Output]",
   "```",
   "",
   "```mermaid",
@@ -49,6 +49,7 @@ export async function assertRichContent(frame) {
   assert.equal(await frame.locator('.content math annotation[encoding="application/x-tex"]').count(), 4);
   const labels = await frame.locator(".mermaid-preview").allTextContents();
   assert.match(labels[0], /Input/);
+  assert.match(labels[0], /piDiagram1piDiagram10/);
   assert.match(labels[0], /Output/);
   assert.match(labels[1], /Alice/);
   assert.match(labels[1], /Bob/);
