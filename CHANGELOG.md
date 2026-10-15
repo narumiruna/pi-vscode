@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0
+
+### Minor Changes
+
+- 04ca99b: Render Markdown tables and task lists, highlighted code, LaTeX math, and bounded Mermaid flowcharts and sequence diagrams in the session panel using bundled offline assets and safe source fallback.
+- af34e2f: Add slash-command suggestions to the chat composer. Run extension commands, prompt templates, skills, and `/compact` without prompt wrappers.
+  
+  Treat handled commands as successful requests without an assistant response. Disable Retry after completion, finish change tracking, and keep history recovery separate from command execution.
+
 ## 0.1.0
 
 ### Minor Changes
