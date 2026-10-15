@@ -257,20 +257,80 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
   return mergeKnownImageLabels(availableMessages, options.knownMessages ?? []);
 }
 
-export function extractToolText(value: unknown, maxCharacters: number): string {
-  if (!isRecord(value)) return safeJson(value, maxCharacters).slice(-maxCharacters);
-  const content = Array.isArray(value.content)
-    ? value.content
-        .filter((part) => isRecord(part) && part.type === "text" && typeof part.text === "string")
-        .map((part) => String(part.text))
-        .join("\n")
-    : safeJson(value, maxCharacters);
-  return content.slice(-maxCharacters);
+// Pi tool results use content/text blocks. Unknown and mixed payloads stay JSON.
+export function extractToolText(value: unknown, maxCharacters: number, toolName?: string): string {
+  let text: string;
+  if (typeof value === "string") text = value;
+  else if (
+    isRecord(value) &&
+    Array.isArray(value.content) &&
+    value.content.every((part) => isRecord(part) && part.type === "text" && typeof part.text === "string")
+  )
+    text = value.content
+      .map((part) => {
+        if (toolName !== "codemode") return part.text;
+        // Codemode can print a serialized tool-result envelope. Decode exactly one known layer.
+        try {
+          const wrapped: unknown = JSON.parse(part.text);
+          if (
+            isRecord(wrapped) &&
+            Array.isArray(wrapped.content) &&
+            wrapped.content.every((item) => isRecord(item) && item.type === "text" && typeof item.text === "string")
+          )
+            return wrapped.content.map((item) => item.text).join("\n");
+          // tools.bash returns this structured value to codemode.
+          if (
+            isRecord(wrapped) &&
+            typeof wrapped.output === "string" &&
+            typeof wrapped.exit_code === "number" &&
+            typeof wrapped.wall_time_seconds === "number" &&
+            typeof wrapped.truncated === "boolean"
+          ) {
+            return (
+              wrapped.output + (wrapped.truncated ? "\n[Tool result truncated; only retained text is available]" : "")
+            );
+          }
+        } catch {
+          // Ordinary output, including literal backslashes, is not serialized content.
+        }
+        return part.text;
+      })
+      .join("\n");
+  else text = safeJson(value, Number.MAX_SAFE_INTEGER);
+  if (
+    isRecord(value) &&
+    isRecord(value.details) &&
+    isRecord(value.details.truncation) &&
+    value.details.truncation.truncated === true
+  )
+    text += "\n[Tool result truncated; only retained text is available]";
+  if (text.length <= maxCharacters) return text;
+  const marker = "[Truncated; only retained text is available]\n".slice(0, maxCharacters);
+  const retainedCharacters = maxCharacters - marker.length;
+  return marker + (retainedCharacters > 0 ? text.slice(-retainedCharacters) : "");
+}
+
+export function boundToolText(text: string, maxCharacters: number): string {
+  const marker = "\n[Truncated; only retained text is available]";
+  return text.length <= maxCharacters
+    ? text
+    : text.slice(0, Math.max(0, maxCharacters - marker.length)) + marker.slice(0, maxCharacters);
+}
+
+export function toolOperationSummary(name: string, args: unknown): string {
+  const field = ["read", "edit", "write"].includes(name) ? "path" : name === "bash" ? "command" : undefined;
+  const value = field && isRecord(args) && typeof args[field] === "string" ? (args[field] as string) : "";
+  const summary =
+    value
+      .replace(/[\p{Cc}\u202a-\u202e\u2066-\u2069]/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim() || "Tool operation";
+  return summary.length > 240 ? summary.slice(0, 239) + "…" : summary;
 }
 
 export function safeJson(value: unknown, maxCharacters: number): string {
   try {
-    return JSON.stringify(value, undefined, 2).slice(0, maxCharacters);
+    return (JSON.stringify(value, undefined, 2) ?? String(value)).slice(0, maxCharacters);
   } catch {
     return String(value).slice(0, maxCharacters);
   }

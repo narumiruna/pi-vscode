@@ -7,7 +7,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { downloadAndUnzipVSCode } from "@vscode/test-electron";
 import { chromium } from "playwright-core";
+import toolFixture from "./fixtures/tool-activity.cjs";
 import { assertRichContent, richFixture } from "./rich-content-fixture.mjs";
+import { assertToolActivity } from "./tool-activity-fixture.mjs";
 
 // Actual Quick Picks, modals, Problems, code actions and webview clicks; only Pi is simulated.
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -312,6 +314,7 @@ try {
     "Problems captured-document navigation",
   );
   await respond(richFixture);
+  await writeFile(path.join(directory, "tools.json"), JSON.stringify(toolFixture.calls));
   await problem.click();
   await invoke("command", { command: "problems.action.showQuickFixes" });
   await page.getByRole("menuitem", { name: "Ask Pi About Finding", exact: true }).waitFor();
@@ -321,6 +324,16 @@ try {
     async () => (await (await frame()).locator("body").innerText()).includes("Native fixture explanation."),
     "Ask response in Sidebar",
   );
+  const toolEvidence = await assertToolActivity(
+    await frame(),
+    page,
+    invoke,
+    async () => {
+      await writeFile(path.join(directory, "tools-release"), "settle");
+    },
+    evidenceLabel,
+  );
+  console.log("PI_NATIVE_TOOL_ACTIVITY", JSON.stringify(toolEvidence));
   const richEvidence = await assertRichContent(await frame());
   console.log("PI_NATIVE_RICH_CONTENT", JSON.stringify({ packaged, ...richEvidence }));
   // Restore the captured document through the legacy-independent findings command.

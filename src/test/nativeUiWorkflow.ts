@@ -68,6 +68,11 @@ export async function run(): Promise<void> {
             )?.length;
             break;
           }
+          case "theme":
+            await vscode.workspace
+              .getConfiguration("workbench")
+              .update("colorTheme", request.theme, vscode.ConfigurationTarget.Global);
+            break;
           case "diagnostics":
             publish();
             break;
