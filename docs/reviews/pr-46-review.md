@@ -57,4 +57,32 @@ Source: https://github.com/narumiruna/pi-vscode/pull/46#discussion_r4285152774
 - `/tmp/pi-pr46-r23.vsix`: packaging passes. Inspection finds 65 files and both fix markers in `out/sidebar.js`. Source, tests, docs and `node_modules` are excluded. The existing ignored `pi.vsix` is unchanged.
 - Native UI, remote host and live-provider behavior were not tested.
 
+## Review update at `c3aadb3`
+
+The checkout, commits, description, instructions and checks are unchanged. The next review adds R4 and R5. All REST pages and GraphQL thread/comment pages were read. R1–R3 remain addressed and their threads are verified resolved.
+
+### R4: Preserve handled success when runtime refresh fails
+
+Source: https://github.com/narumiruna/pi-vscode/pull/46#discussion_r4285228696
+
+- Initial outcome: Actionable and not yet addressed.
+- Severity: P2. A completed command can become retryable and run twice.
+- Evidence: `prompt` calls `onAccepted`, then awaits `refreshState(true)` before returning the handled result. `getState` or `workspaceState.update` can reject. The outer catch then stops the client and throws, so the Sidebar never receives successful completion.
+- Scope: the PR adds the handled result and this fallible completion path. R1 did not cover runtime refresh failures.
+- Outcome: Already addressed by this update. Runtime refresh is best-effort after a handled result. A refresh error emits a separate runtime warning and does not stop the client or turn command success into a retryable failure. The runtime busy flag is cleared before refresh.
+- Validation: the regression fails against `c3aadb3`. The real runtime and Sidebar integration passes with both `getState` and workspace-state persistence failures. It verifies composer acceptance before refresh, no rejection, no Retry, no replay, no client stop, and idle state. An RPC failure still rejects the draft.
+
+### R5: Accept compaction at the RPC boundary
+
+Source: https://github.com/narumiruna/pi-vscode/pull/46#discussion_r4285228705
+
+- Initial outcome: Actionable and not yet addressed.
+- Severity: P2. A completed compaction can leave a command ready for repeat submission and another provider request.
+- Evidence: runtime `compact` awaits `refreshState(false)` after the RPC. The Sidebar acceptance callback runs only after that runtime method returns. A runtime refresh error therefore bypasses acceptance and sends `sendRejected`.
+- Scope: the PR exposes compaction through the composer. R2 covered only the later history refresh.
+- Outcome: Already addressed by this update. Runtime compaction now calls an acceptance callback immediately after the RPC succeeds. The Sidebar passes its composer callback to that boundary. The later runtime refresh is best-effort and emits a separate warning on failure.
+- Validation: the regression fails against `c3aadb3`. The real runtime and Sidebar integration passes with both `getState` and workspace-state persistence failures. It verifies acceptance before refresh, no rejection or replay, idle state, and a separate warning. An RPC failure still retains the draft.
+
+Validation for R4 and R5: `npm test` passes 352 tests across 43 files before merging the latest base branch. Native UI and live-provider behavior were not tested.
+
 No deferred items or missing decisions.
