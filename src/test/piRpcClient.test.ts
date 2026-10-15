@@ -94,6 +94,8 @@ test("PiRpcClient correlates responses and streams events", async () => {
 
     await client.start();
     assert.equal((await client.getState()).sessionId, "fake-session");
+    assert.equal(await client.prompt("/handled-command"), "handled");
+    assert.equal(events.some((event) => event.type === "agent_start"), false);
     await client.prompt("hello");
     await waitForEvent(events, "agent_settled");
 
@@ -220,6 +222,10 @@ process.stdin.on("data", chunk => {
       success: true,
       data,
     }) + "\n");
+    if (request.type === "prompt" && request.message === "/handled-command") {
+      respond({ disposition: "handled" });
+      continue;
+    }
     if (request.type === "get_state") {
       respond({ sessionId: "fake-session", sessionFile: "/tmp/fake.jsonl", model: { provider: "fake", id: "model" } });
     } else if (request.type === "get_messages") {
