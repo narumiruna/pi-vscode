@@ -258,7 +258,7 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
 }
 
 // Pi tool results use content/text blocks. Unknown and mixed payloads stay JSON.
-export function extractToolText(value: unknown, maxCharacters: number): string {
+export function extractToolText(value: unknown, maxCharacters: number, toolName?: string): string {
   let text: string;
   if (typeof value === "string") text = value;
   else if (
@@ -268,6 +268,7 @@ export function extractToolText(value: unknown, maxCharacters: number): string {
   )
     text = value.content
       .map((part) => {
+        if (toolName !== "codemode") return part.text;
         // Codemode can print a serialized tool-result envelope. Decode exactly one known layer.
         try {
           const wrapped: unknown = JSON.parse(part.text);
@@ -303,7 +304,10 @@ export function extractToolText(value: unknown, maxCharacters: number): string {
     value.details.truncation.truncated === true
   )
     text += "\n[Tool result truncated; only retained text is available]";
-  return boundToolText(text, maxCharacters);
+  if (text.length <= maxCharacters) return text;
+  const marker = "[Truncated; only retained text is available]\n".slice(0, maxCharacters);
+  const retainedCharacters = maxCharacters - marker.length;
+  return marker + (retainedCharacters > 0 ? text.slice(-retainedCharacters) : "");
 }
 
 export function boundToolText(text: string, maxCharacters: number): string {

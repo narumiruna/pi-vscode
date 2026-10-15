@@ -1368,15 +1368,17 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       this.status = `Running ${stringValue(event.toolName) ?? "tool"}…`;
     } else if (event.type === "tool_execution_update") {
       const id = stringValue(event.toolCallId);
-      if (id) {
-        this.updateTool(id, { output: extractToolText(event.partialResult, maxToolOutputCharacters) });
+      const tool = this.tools.find((activity) => activity.id === id);
+      if (tool) {
+        this.updateTool(tool.id, { output: extractToolText(event.partialResult, maxToolOutputCharacters, tool.name) });
       }
     } else if (event.type === "tool_execution_end") {
       const id = stringValue(event.toolCallId);
-      if (id) {
-        this.updateTool(id, {
+      const tool = this.tools.find((activity) => activity.id === id);
+      if (tool) {
+        this.updateTool(tool.id, {
           status: event.isError ? "error" : "success",
-          output: extractToolText(event.result, maxToolOutputCharacters),
+          output: extractToolText(event.result, maxToolOutputCharacters, tool.name),
         });
       }
     } else if (event.type === "compaction_start") {
