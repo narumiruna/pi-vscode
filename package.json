@@ -411,7 +411,7 @@
     "test:native-ui": "npm run compile && node scripts/test-native-ui.mjs",
     "package": "npm run test && vsce package --out pi.vsix",
     "changeset": "changeset",
-    "changeset:version": "changeset version",
+    "changeset:version": "changeset version && npm version $(node -p \"require('./package.json').version\") --no-git-tag-version --allow-same-version",
     "changeset:publish": "changeset publish",
     "prepare": "husky"
   },
