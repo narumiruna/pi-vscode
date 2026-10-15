@@ -216,6 +216,43 @@ test("pending numeric math keeps its source when clear math syntax follows white
   assert.match(render("$2 \\times x$"), /class="katex/);
 });
 
+test("pending factorial formulas keep their source before clear math continuations", () => {
+  for (const expression of [
+    "5! + *x*",
+    "5!+ *x*",
+    "5!! + *x*",
+    "5! = *x*",
+    "5! ^ *x*",
+    "5! _ *x*",
+    "5! * *x*",
+    "5! / *x*",
+    "5! - *x*",
+    "5! \\times *x*",
+    "5!\\times *x*",
+  ]) {
+    const source = `$${expression}`;
+    assert.equal(render(source), `<p>${source}</p>`, source);
+  }
+  for (const source of ["$5! + x$", "$5!! + x$", "$5! \\times x$"]) assert.match(render(source), /class="katex/);
+});
+
+test("underscore emphasis directly after prices remains Markdown during streaming", () => {
+  for (const price of ["5", "5.99", "1,000.50"]) {
+    for (const punctuation of ["", "!", "!!"]) {
+      for (const suffix of ["_cheap_", "__cheap__", "*cheap*", "**cheap**"]) {
+        for (let length = 0; length <= suffix.length; length++) {
+          const tail = suffix.slice(0, length);
+          const plain = `Only ${price}${punctuation} ${tail}`;
+          const source = plain.replace(`Only ${price}`, `Only $${price}`);
+          const expected = render(plain).replace(`Only ${price}`, `Only $${price}`);
+          assert.equal(render(source), expected, source);
+        }
+      }
+    }
+  }
+  for (const source of ["$2 _ *x*", "$2 _{*x*}"]) assert.equal(render(source), `<p>${source}</p>`);
+});
+
 test("prices with punctuation boundaries retain later Markdown during streaming", () => {
   for (const price of ["5", "5.99", "1,000.50"]) {
     for (const punctuation of ["),", ")", "]", "}", ":", ";", "!", "?", ",", ".", "'", '"']) {

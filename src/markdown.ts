@@ -62,7 +62,7 @@ function mathExtension(block: boolean): TokenizerExtension {
           const amount = /^\d+(?:[.,]\d+)*/.exec(text)?.[0];
           if (amount) {
             const remainder = text.slice(amount.length);
-            const startsMath = /^\s+(?:\\+[A-Za-z]+|[_^=+]|[*/-]\s)/.test(remainder);
+            const startsMath = /^(?:!+\s*|\s+)(?:\\+[A-Za-z]+|[=+^]|_(?:\s|\{)|[*/-]\s)/.test(remainder);
             if (!startsMath && /^(?:\s|[)\]}:;!?,.'"]|$)/.test(remainder)) return undefined;
           }
         }

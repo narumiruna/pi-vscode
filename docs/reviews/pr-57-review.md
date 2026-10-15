@@ -51,4 +51,42 @@ The parser now reads the numeric amount and checks only the following expression
 - The four repository-wide Biome errors recorded in `docs/reviews/pr-50-review.md`, C2, remain deferred to a separate lint cleanup PR. The evidence for unchanged files is reused. No issue or extra PR was created.
 - Native UI, remote hosts, Windows/macOS, live providers, and screen-reader applications were not rerun. No Marketplace release was run.
 
-The fix uses the existing open PR branch. Both review threads must receive evidence replies and be resolved after the push. Their published replies and the final API check record completion.
+The fix was pushed as `ccd47a1`. Both original review threads received evidence replies and were resolved through the GitHub API. A fresh query confirmed both resolved states. The hosted `Compile and test` check passed.
+
+## Follow-up review of `ccd47a1`
+
+The branch, repository, PR state, description, commits, feedback, checks, and instructions were checked again. The head and prior diff are unchanged. All REST feedback lists were paginated. GraphQL reports no further thread or comment pages. There are two new findings. Prior R1 and R2 remain already addressed; their replies and resolved states are unchanged. The earlier full-diff review, validation, and out-of-scope lint outcome remain evidence for unchanged material.
+
+### R3: Preserve pending factorial formulas
+
+Source: https://github.com/narumiruna/pi-vscode/pull/57#discussion_r4285914380
+Thread: `PRRT_kwDOUAKqMc6s4SIJ`.
+
+- Initial outcome: Actionable and not yet addressed.
+- Severity: P2. A pending formula can show Markdown formatting instead of its source.
+- Evidence: the built `ccd47a1` parser renders `$5! + *x*` as `<p>$5! + <em>x</em></p>`. The completed `$5! + x$` renders with KaTeX. The new currency boundary returns before examining a math operator after the factorial.
+- Scope: PR #57 adds the punctuation boundary. Preserving incomplete formulas is part of its goal.
+- Required fix: check for a clear math continuation after factorial punctuation. Keep ordinary price exclamations as currency.
+
+### R4: Preserve underscore emphasis directly after currency
+
+Source: https://github.com/narumiruna/pi-vscode/pull/57#discussion_r4285914398
+Thread: `PRRT_kwDOUAKqMc6s4SIV`.
+
+- Initial outcome: Actionable and not yet addressed.
+- Severity: P2. Ordinary emphasis after a price is displayed literally.
+- Evidence: the built `ccd47a1` parser renders `Only $5 _cheap_` and `Only $5 __cheap__` with literal underscore markers. The expression-prefix test treats every leading underscore as math.
+- Scope: PR #57 adds this prefix test. Markdown after currency must remain available to Marked.
+- Required fix: require a clear math continuation after an underscore, instead of treating underscore emphasis as math.
+
+### New validation and publication
+
+- R3 outcome: Already addressed by the validated changes in this review. The expression-prefix check now permits factorial punctuation before a clear math continuation. It does not search later prose for math signals. Tests cover single and repeated factorials, operators, TeX commands, and completed KaTeX formulas.
+- R4 outcome: Already addressed by the validated changes in this review. An underscore must have whitespace or a braced continuation to identify pending numeric math. Tests compare every streaming prefix of underscore and asterisk emphasis, including strong text, directly after integer, decimal, and grouped prices. Cases with one or two price exclamation marks also retain Markdown. Spaced and braced math subscripts still remain source.
+- `npm run package`: 366 tests across 44 files passed. VSIX creation passed with 130 files. ZIP validation passed, and the packaged parser contains the new prefix check.
+- `npm run test:rich-content`: the browser suite passed, including rendering, CSP, math, diagrams, cache eviction, queue bounds, stale results, and disposal.
+- Focused Biome check on both changed TypeScript files passed with the same six informational diagnostics. `git diff --check` passed.
+- The existing patch Changeset covers these corrections. No dependency, manifest, host, trust, CSP, RPC, or storage change is needed. Unchanged repository-wide lint debt remains deferred to a separate cleanup PR. No such issue or PR was created.
+- Native UI, remote hosts, Windows/macOS, live providers, and screen-reader applications were not rerun. No Marketplace release was run.
+
+The fix uses the existing open PR branch. The review replies record the published commit. Both new threads must be resolved after the push and checked again through the API.
