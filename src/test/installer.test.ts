@@ -54,16 +54,44 @@ test.each([releaseInstaller, upgradeCheck])(
         },
       });
       await assert.rejects(access(mutations), { code: "ENOENT" });
-      const recipes = await readFile(path.join(repositoryRoot, "justfile"), "utf8");
-      assert.match(
-        recipes,
-        /install-vsix:\n {4}sh .*check-legacy-vscode-extension\.sh"\n {4}npm run package\n {4}code --install-extension/,
+      const manifest = JSON.parse(await readFile(path.join(repositoryRoot, "package.json"), "utf8"));
+      assert.equal(
+        manifest.scripts["install:vsix"],
+        "sh scripts/check-legacy-vscode-extension.sh && npm run package && code --install-extension pi-coding-agent-vscode.vsix --force",
       );
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   },
 );
+
+test("development launcher opens INIT_CWD or the current directory without shell expansion", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "picode-dev-launch-"));
+  const bin = path.join(root, "bin");
+  const workspace = path.join(root, "workspace & $HOME 'quoted'");
+  const log = path.join(root, "code.log");
+  try {
+    await mkdir(bin);
+    await mkdir(workspace);
+    await writeFile(path.join(bin, "code"), '#!/bin/sh\npwd > "$CODE_LOG"\nprintf "%s\\n" "$@" >> "$CODE_LOG"\n');
+    await chmod(path.join(bin, "code"), 0o755);
+    const launcher = path.join(repositoryRoot, "scripts", "open-dev-window.mjs");
+    const env = { ...process.env, PATH: `${bin}:/usr/bin:/bin`, CODE_LOG: log };
+    for (const initCwd of [workspace, ""]) {
+      execFileSync(process.execPath, [launcher], {
+        cwd: root,
+        env: { ...env, INIT_CWD: initCwd },
+      });
+      assert.equal(await readFile(log, "utf8"), `${initCwd || root}\n--new-window\n.\n`);
+    }
+    const source = await readFile(launcher, "utf8");
+    assert.ok(source.includes('execSync("code --new-window .",'));
+    assert.ok(source.includes("cwd: process.env.INIT_CWD || process.cwd()"));
+    assert.doesNotMatch(source, /\$\{INIT_CWD/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("source cleanup removes only legacy bridge paths and does not create Pi configuration", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "picode-cleanup-"));
