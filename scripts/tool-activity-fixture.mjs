@@ -46,6 +46,19 @@ export async function assertToolActivity(frame, page, invoke, release, label) {
   assert.equal(await full.evaluate((node) => node.open), true);
   assert.match(await full.locator("pre").innerText(), /Truncated; only retained text is available/);
   assert.ok((await full.locator("pre").innerText()).length <= 8000);
+  assert.ok((await full.locator("pre").innerText()).endsWith("FINAL: retained command summary"));
+  const readOutput = rows.nth(0).locator(".tool-section").nth(1).locator(":scope > pre");
+  assert.equal(await readOutput.textContent(), JSON.stringify({ content: [{ type: "text", text: "file contents" }] }));
+  const literalBashOutput = JSON.stringify({
+    output: "literal command result",
+    exit_code: 0,
+    wall_time_seconds: 1,
+    truncated: false,
+  });
+  assert.equal(
+    await rows.nth(10).locator(".tool-section").nth(1).locator(":scope > pre").textContent(),
+    literalBashOutput,
+  );
   assert.match(await bash.locator(".tool-section").first().innerText(), /Input/);
   assert.match(await bash.locator(".tool-section").first().locator(":scope > pre").innerText(), /npm test/);
   await rows.nth(3).evaluate((node) => {
@@ -119,6 +132,10 @@ export async function assertToolActivity(frame, page, invoke, release, label) {
   assert.equal(await bash.evaluate((node) => node.open), true);
   assert.equal(await full.evaluate((node) => node.open), true);
   assert.match(await frame.locator("#tools-failed").innerText(), /1 failed/);
+  assert.equal(
+    await rows.nth(10).locator(".tool-section").nth(1).locator(":scope > pre").textContent(),
+    literalBashOutput,
+  );
 
   // Output now uses the conversation scroll surface, not nested vertical scrollbars.
   const conversation = frame.locator("#conversation");
