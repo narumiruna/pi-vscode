@@ -909,10 +909,10 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       await this.syncMessagesFromPi();
       await this.refreshRecentSessions(false);
       synchronizingHistory = false;
-      await onResponse?.(response);
+      if (typeof response === "string") await onResponse?.(response);
       this.status = "Ready";
       this.postState();
-      return response;
+      return typeof response === "string" ? response : "";
     } catch (error) {
       if (this.currentRequestSideEffects.mayHaveSideEffects) {
         this.requestLifecycle.completeExecution();

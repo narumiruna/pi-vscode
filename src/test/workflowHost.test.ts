@@ -181,9 +181,14 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
     const ordinaryPrompt = client.prompt;
     client.prompt = async () => "handled";
     let commandAccepted = false;
-    assert.equal(await runtime.prompt('/extension-command', undefined, undefined, () => { commandAccepted = true; }), undefined);
+    assert.deepEqual(
+      await runtime.prompt("/extension-command", undefined, undefined, () => {
+        commandAccepted = true;
+      }),
+      { disposition: "handled" },
+    );
     assert.equal(commandAccepted, true);
-    assert.equal(runtime.currentState.busy, false, 'a handled command does not wait for agent_settled');
+    assert.equal(runtime.currentState.busy, false, "a handled command does not wait for agent_settled");
     client.prompt = ordinaryPrompt;
     const feature = runtime.prompt("preview callback request");
     await tick();
@@ -763,17 +768,79 @@ test("Sessions-layer submission snapshots attachments and holds the request gate
     assert.equal(consumed, true);
     assert.ok(posted.some((message) => message.type === "clearInput" && message.expectedRevision === 7));
 
-    await internal.runRequest('/codex-compact now', [], [], undefined, undefined, undefined, 'composer');
-    assert.equal(prompts.at(-1)?.request, '/codex-compact now', 'composer commands reach Pi without prompt wrappers');
+    await internal.runRequest("/codex-compact now", [], [], undefined, undefined, undefined, "composer");
+    assert.equal(prompts.at(-1)?.request, "/codex-compact now", "composer commands reach Pi without prompt wrappers");
+    const ordinaryPrompt = runtime.prompt;
+    runtime.prompt = async (_request: string, _resource: unknown, _images: unknown, onAccepted?: () => void) => {
+      onAccepted?.();
+      return { disposition: "handled" };
+    };
+    let commandAccepted = false;
+    let responseCallbackCalled = false;
+    assert.equal(
+      await internal.runRequest(
+        "/extension-command",
+        [],
+        [],
+        undefined,
+        undefined,
+        undefined,
+        "composer",
+        () => {
+          responseCallbackCalled = true;
+        },
+        () => {
+          commandAccepted = true;
+        },
+      ),
+      "",
+    );
+    assert.equal(commandAccepted, true);
+    assert.equal(responseCallbackCalled, false, "handled commands have no assistant response");
+    assert.equal(internal.status, "Ready");
+    assert.equal(internal.retryRequest, undefined);
+    assert.equal(internal.requestLifecycle.canRetry, false);
+    assert.equal(internal.requestGate.isPending, false);
+    assert.equal(
+      posted.some((message) => message.type === "notice" && message.level === "error"),
+      false,
+    );
+    runtime.getMessages = async () => {
+      throw new Error("history unavailable");
+    };
     await assert.rejects(
-      internal.runRequest('/skill:review', [{ label: 'file', content: 'context' }], [], undefined, undefined, undefined, 'composer'),
+      internal.runRequest("/extension-command", [], [], undefined, undefined, undefined, "composer"),
+      /history unavailable/,
+    );
+    assert.equal(internal.retryRequest, undefined, "history refresh failure must not permit command replay");
+    assert.equal(internal.requestLifecycle.canRetry, false);
+    runtime.getMessages = async () => [];
+    runtime.prompt = async () => undefined;
+    await assert.rejects(
+      internal.runRequest("ordinary request", [], [], undefined, undefined, undefined, "composer"),
+      /without an assistant response/,
+    );
+    assert.ok(internal.retryRequest, "ordinary missing responses still permit Retry");
+    runtime.prompt = ordinaryPrompt;
+    await assert.rejects(
+      internal.runRequest(
+        "/skill:review",
+        [{ label: "file", content: "context" }],
+        [],
+        undefined,
+        undefined,
+        undefined,
+        "composer",
+      ),
       /Remove attachments/,
     );
     let compactInstructions: string | undefined;
-    runtime.compact = async (instructions?: string) => { compactInstructions = instructions; };
-    await internal.send('/compact focus on code', 8);
-    assert.equal(compactInstructions, 'focus on code');
-    assert.ok(posted.some((message) => message.type === 'clearInput' && message.expectedRevision === 8));
+    runtime.compact = async (instructions?: string) => {
+      compactInstructions = instructions;
+    };
+    await internal.send("/compact focus on code", 8);
+    assert.equal(compactInstructions, "focus on code");
+    assert.ok(posted.some((message) => message.type === "clearInput" && message.expectedRevision === 8));
   } finally {
     completeSessionSwitch?.();
     for (const disposable of context.subscriptions) disposable.dispose();
