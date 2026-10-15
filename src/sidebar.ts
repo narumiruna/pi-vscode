@@ -1152,8 +1152,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     }
     this.status = "Compacting context…";
     this.postState();
-    await this.runtime.compact(customInstructions);
-    onAccepted?.();
+    await this.runtime.compact(customInstructions, onAccepted);
     try {
       await this.syncMessagesFromPi();
       this.historyRecoveryAvailable = false;
