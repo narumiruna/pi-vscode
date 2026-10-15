@@ -280,8 +280,13 @@ export class PiRuntimeManager implements vscode.Disposable {
         pendingQueue: emptyPendingQueue(),
       });
       try {
-        await client.prompt(message, images);
+        const disposition = await client.prompt(message, images);
         onAccepted?.();
+        if (disposition === "handled") {
+          this.promptActive = false;
+          await this.refreshState(true);
+          return undefined;
+        }
         return await settled.promise;
       } catch (error) {
         this.promptActive = false;

@@ -178,6 +178,13 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
     await assert.rejects(runtime.compact(), /session operation/);
     completeSwitch!();
     await switching;
+    const ordinaryPrompt = client.prompt;
+    client.prompt = async () => "handled";
+    let commandAccepted = false;
+    assert.equal(await runtime.prompt('/extension-command', undefined, undefined, () => { commandAccepted = true; }), undefined);
+    assert.equal(commandAccepted, true);
+    assert.equal(runtime.currentState.busy, false, 'a handled command does not wait for agent_settled');
+    client.prompt = ordinaryPrompt;
     const feature = runtime.prompt("preview callback request");
     await tick();
     await assert.rejects(runtime.queueInstruction("steer", "unsafe continuation"), /ordinary composer/);
@@ -755,6 +762,18 @@ test("Sessions-layer submission snapshots attachments and holds the request gate
     assert.equal(prompts[0]!.resource, resource);
     assert.equal(consumed, true);
     assert.ok(posted.some((message) => message.type === "clearInput" && message.expectedRevision === 7));
+
+    await internal.runRequest('/codex-compact now', [], [], undefined, undefined, undefined, 'composer');
+    assert.equal(prompts.at(-1)?.request, '/codex-compact now', 'composer commands reach Pi without prompt wrappers');
+    await assert.rejects(
+      internal.runRequest('/skill:review', [{ label: 'file', content: 'context' }], [], undefined, undefined, undefined, 'composer'),
+      /Remove attachments/,
+    );
+    let compactInstructions: string | undefined;
+    runtime.compact = async (instructions?: string) => { compactInstructions = instructions; };
+    await internal.send('/compact focus on code', 8);
+    assert.equal(compactInstructions, 'focus on code');
+    assert.ok(posted.some((message) => message.type === 'clearInput' && message.expectedRevision === 8));
   } finally {
     completeSessionSwitch?.();
     for (const disposable of context.subscriptions) disposable.dispose();

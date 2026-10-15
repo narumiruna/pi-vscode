@@ -686,8 +686,12 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   }
 
   private async sendInNewSession(rawText: string, revision: number): Promise<void> {
+    if (await this.sendCompactCommand(rawText, revision)) return;
     const submission = this.attachments.captureSubmission();
     const text = resolveSidebarSubmissionText(rawText, submission);
+    if (text.startsWith("/") && (submission.textContexts.length || submission.images.length)) {
+      throw new Error("Remove attachments before running a slash command.");
+    }
     if (!text) {
       this.postMessage({ type: "sendRejected" });
       return;
@@ -734,7 +738,18 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     }
   }
 
+  private async sendCompactCommand(rawText: string, revision: number): Promise<boolean> {
+    const match = /^\/compact(?:\s+([\s\S]*))?$/.exec(rawText.trim());
+    if (!match) return false;
+    if (this.attachments.summaries.length) throw new Error("Remove attachments before running a slash command.");
+    if (this.isForegroundRequestActive()) throw new Error("Wait for Pi before running a slash command.");
+    await this.compact(match[1]?.trim());
+    this.postMessage({ type: "clearInput", expectedText: rawText, expectedRevision: revision });
+    return true;
+  }
+
   private async send(rawText: string, revision: number): Promise<void> {
+    if (await this.sendCompactCommand(rawText, revision)) return;
     const submission = this.attachments.captureSubmission();
     const text = resolveSidebarSubmissionText(rawText, submission);
     if (!text) {
@@ -779,6 +794,10 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     requestGateAlreadyHeld = false,
   ): Promise<string> {
     const text = request.trim();
+    const slashCommand = (origin === "composer" || origin === "retry") && text.startsWith("/");
+    if (slashCommand && (contexts.length || images.length)) {
+      throw new Error("Remove attachments before running a slash command.");
+    }
     if (!text) {
       throw new Error("Enter a message for Pi.");
     }
@@ -859,7 +878,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       this.postState();
 
       const response = await this.runtime.prompt(
-        buildAgentPrompt(text, contexts, instructions, policy),
+        slashCommand ? text : buildAgentPrompt(text, contexts, instructions, policy),
         resource,
         images,
         behavior.clearComposerOnAccepted ? onAccepted : undefined,
@@ -1121,14 +1140,14 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     this.postState();
   }
 
-  private async compact(): Promise<void> {
+  private async compact(customInstructions?: string): Promise<void> {
     if (this.isForegroundRequestActive()) {
       this.postNotice("Cancel or wait for the active request before compacting the session.", "warning");
       return;
     }
     this.status = "Compacting context…";
     this.postState();
-    await this.runtime.compact();
+    await this.runtime.compact(customInstructions);
     await this.syncMessagesFromPi();
     this.status = "Context compacted";
     this.postState();
