@@ -74,7 +74,7 @@ jobs:
       - name: Verify the VSIX
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          VSIX_PATH: pi-coding-agent-vscode.vsix
+          VSIX_PATH: pi.vsix
         shell: bash
         run: |
           set -euo pipefail
@@ -148,7 +148,7 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
           VERSION: ${{ steps.version.outputs.version }}
           RELEASE_SHA: ${{ steps.commit.outputs.sha }}
-          VSIX_PATH: pi-coding-agent-vscode.vsix
+          VSIX_PATH: pi.vsix
         shell: bash
         run: |
           set -euo pipefail
