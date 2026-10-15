@@ -3,7 +3,7 @@
 set -eu
 
 repository="narumiruna/pi-vscode"
-asset="pi-coding-agent-vscode.vsix"
+asset="pi.vsix"
 
 if [ "$#" -gt 1 ]; then
   echo "Error: expected at most one version argument." >&2
