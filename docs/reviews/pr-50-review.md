@@ -51,4 +51,15 @@ Validation:
 - The complete fix diff was checked for correctness, security, lifecycle, compatibility, regressions, and scope. No dependency, manifest, RPC, persistence, trust, or CSP change was needed.
 - Remote hosts, Windows/macOS native UI, live providers, and screen-reader applications were not rerun. No release or package publication was performed.
 
-No item is deferred. No missing decision or external blocker remains. Replies and platform thread resolution follow publication of the validated commit.
+Commit `99f83cd` was pushed to PR #50. Both review comments received replies with evidence. Both threads were resolved through the GitHub API. A fresh query confirmed `isResolved: true` for each thread. No review question remains open.
+
+## C1: Node.js 22 CI encoding failure
+
+Source: https://github.com/narumiruna/pi-vscode/actions/runs/38769025755/job/116539672304
+
+- Outcome: Valid but out of scope — deferred.
+- Severity: P2 test portability failure. No active outage or unsafe diagnostic acceptance is shown.
+- Evidence: the new CI workflow on main uses Node.js 22. The merge test reports 358 passed tests and one failure in `diagnostic capture verifies VS Code encoding iso885916`. The 10 Markdown tests, including both new cache tests, pass. Local Node.js 22.23.3 reproduces the same failure: `new TextDecoder("iso-8859-16", { fatal: true })` throws `ERR_ENCODING_NOT_SUPPORTED`. The focused encoding file has 93 passes and one failure on that runtime.
+- Scope: `src/diagnosticEncoding.ts`, `src/test/diagnosticCapture.test.ts`, and `src/test/diagnosticEncodingFixtures.ts` are unchanged between the original PR base `c38453b`, this branch, and the latest fetched main `88b2c83`. The workflow was added separately in merged PR #53. This panel PR does not add, expose through its feature, or worsen the codec assumption. Production still rejects unsupported codecs safely.
+- Recommendation: use a separate encoding-test portability PR. It must test the unsupported-codec path on runtimes without this decoder while retaining positive coverage where the decoder exists. No issue or separate PR was created.
+- PR status: local Node.js 26 validation passes, but the hosted check is red. The pull request cannot claim a green CI result. This is not a blocker to publishing or verifying the two panel fixes; it remains a merge check failure outside this review scope.
