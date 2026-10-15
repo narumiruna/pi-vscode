@@ -46,8 +46,8 @@ test("extension identity stays consistent across packaging, settings, and docume
   const id = `${manifest.publisher}.${manifest.name}`;
   assert.ok(readFileSync("src/editorActions.ts", "utf8").includes(`"@ext:${id}"`));
   assert.ok(readFileSync("README.md", "utf8").includes(`The extension ID is \`${id}\``));
-  assert.ok(manifest.scripts.package.includes("--out pi-coding-agent-vscode.vsix"));
-  assert.ok(manifest.scripts["install:vsix"].includes("code --install-extension pi-coding-agent-vscode.vsix --force"));
+  assert.ok(manifest.scripts.package.includes("--out pi.vsix"));
+  assert.ok(manifest.scripts["install:vsix"].includes("code --install-extension pi.vsix --force"));
   assert.ok(manifest.contributes.commands.every((command) => command.command.startsWith("picode.")));
   assert.ok(Object.keys(manifest.contributes.configuration.properties).every((key) => key.startsWith("picode.")));
   for (const path of [

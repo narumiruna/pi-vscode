@@ -57,7 +57,7 @@ test.each([releaseInstaller, upgradeCheck])(
       const manifest = JSON.parse(await readFile(path.join(repositoryRoot, "package.json"), "utf8"));
       assert.equal(
         manifest.scripts["install:vsix"],
-        "sh scripts/check-legacy-vscode-extension.sh && npm run package && code --install-extension pi-coding-agent-vscode.vsix --force",
+        "sh scripts/check-legacy-vscode-extension.sh && npm run package && code --install-extension pi.vsix --force",
       );
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -152,7 +152,7 @@ test("release installer installs only the VSIX and safely removes exact legacy b
 
     execFileSync("sh", [releaseInstaller, "0.0.2"], { env });
     await assert.rejects(access(agentDirectory), { code: "ENOENT" });
-    assert.match(await readFile(codeLog, "utf8"), /--install-extension .*pi-coding-agent-vscode\.vsix --force/);
+    assert.match(await readFile(codeLog, "utf8"), /--install-extension .*pi\.vsix --force/);
 
     await mkdir(extensionsDirectory, { recursive: true });
     await Promise.all([

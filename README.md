@@ -34,7 +34,7 @@ sh install-pi-vscode.sh &&
 rm install-pi-vscode.sh
 ```
 
-Review [`scripts/install.sh`](scripts/install.sh) before running it if your environment does not allow downloaded scripts to execute directly. The command stops if the download fails. The installer downloads the latest `pi-coding-agent-vscode.vsix`, installs it with `code --install-extension`, and removes the exact legacy global bridge filenames created by older releases. Extension activation performs the same exact cleanup for standard VSIX or Marketplace upgrades before starting Pi, so an old global copy cannot load beside the bundled bridge. New installations do not create files under `~/.pi/agent`.
+Review [`scripts/install.sh`](scripts/install.sh) before running it if your environment does not allow downloaded scripts to execute directly. The command stops if the download fails. The installer downloads the latest `pi.vsix`, installs it with `code --install-extension`, and removes the exact legacy global bridge filenames created by older releases. Extension activation performs the same exact cleanup for standard VSIX or Marketplace upgrades before starting Pi, so an old global copy cannot load beside the bundled bridge. New installations do not create files under `~/.pi/agent`.
 
 To install a specific version, pass it to the downloaded script, for example `sh install-pi-vscode.sh 0.0.2`.
 
@@ -178,7 +178,7 @@ npm run package
 
 On Linux, `xvfb-run -a npm run test:native-ui -- 1.106.0` exercises the actual attachment picker, review confirmations, Problems actions, Sidebar proposals, multi-file Apply/Undo and window reload. Use `stable` for current VS Code; append `alias` to exercise a workspace opened through a directory symlink. Playwright connects only to the disposable VS Code profile's loopback debugging endpoint; a deterministic Pi RPC fixture replaces provider requests. No live model, user profile or workspace is used.
 
-`npm test` compiles the extension and runs the Node test suite. `npm run package` repeats those checks and creates `pi-coding-agent-vscode.vsix`.
+`npm test` compiles the extension and runs the Node test suite. `npm run package` repeats those checks and creates `pi.vsix`.
 
 - `npm run dev` rebuilds and installs the VS Code extension, removes bridge files created by older releases, then opens the current directory in a new VS Code window using the installed extension.
 - `npm run dev:pi` starts Pi with `resources/picode-bridge.ts` in the current terminal.
@@ -189,7 +189,7 @@ On Linux, `xvfb-run -a npm run test:native-ui -- 1.106.0` exercises the actual a
 2. For each release-worthy pull request, run `npm run changeset` and commit the generated `.changeset/*.md` file.
 3. After merging pending changesets into `main`, run the [Release workflow](.github/workflows/release.yml) from the Actions tab.
 
-The workflow applies all pending changesets to determine the next version, updates `CHANGELOG.md`, `package.json`, and `package-lock.json`, runs the tests, packages and verifies the VSIX, and creates a release commit that removes the consumed changesets through GitHub's GraphQL API. It then creates a `v<version>` GitHub release with `pi-coding-agent-vscode.vsix` attached. `PAT_TOKEN` authenticates both the release commit and GitHub release.
+The workflow applies all pending changesets to determine the next version, updates `CHANGELOG.md`, `package.json`, and `package-lock.json`, runs the tests, packages and verifies the VSIX, and creates a release commit that removes the consumed changesets through GitHub's GraphQL API. It then creates a `v<version>` GitHub release with `pi.vsix` attached. `PAT_TOKEN` authenticates both the release commit and GitHub release.
 
 ## License
 
