@@ -230,7 +230,7 @@ test("pending numeric division keeps source without whitespace after the operato
 
 test("compact per-unit prices leave later Markdown available during streaming", () => {
   for (const price of ["5", "5.99", "1,000.50"]) {
-    for (const unit of ["month", "year", "kg", "hour"]) {
+    for (const unit of ["month", "year", "kg", "hour", "h", "s", "m", "g"]) {
       for (const suffix of ["**flexible**", "*flexible*", "`code`", "[details](https://example.com)", "_flexible_"]) {
         for (let length = 0; length <= suffix.length; length++) {
           const plain = `Price is ${price} /${unit} and ${suffix.slice(0, length)}`;
@@ -244,6 +244,34 @@ test("compact per-unit prices leave later Markdown available during streaming", 
     const source = `$2 /${operand} + *y*`;
     assert.equal(render(source), `<p>${source}</p>`, source);
     assert.match(render(`$2 /${operand} + y$`), /class="katex/);
+  }
+});
+
+test("compact word divisors retain source before clear math continuations", () => {
+  for (const number of ["2", "2.5", "5!", "5!!"]) {
+    for (const operand of ["x", "velocity"]) {
+      for (const operator of ["+", "=", "^", "<", ">", "\\times", "*", "/", "-"]) {
+        for (const suffix of ["[y](mailto:x@y)", "`y`", "*y*", "**y**", "_y_"]) {
+          const source = `$${number} /${operand} ${operator} ${suffix}`;
+          const escaped = source.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+          assert.equal(render(source), `<p>${escaped}</p>`, source);
+        }
+        assert.match(render(`$${number} /${operand} ${operator} y$`), /class="katex/);
+      }
+    }
+  }
+});
+
+test("leading-decimal inequalities keep pending source", () => {
+  for (const number of [".5", "-.5", "+.5"]) {
+    for (const operator of ["<", ">", "<=", ">=", "<<", ">>"]) {
+      for (const suffix of ["[x](mailto:x@y)", "`x`", "*x*", "**x**", "_x_"]) {
+        const source = `$${number} ${operator} ${suffix}`;
+        const escaped = source.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+        assert.equal(render(source), `<p>${escaped}</p>`, source);
+      }
+      assert.match(render(`$${number} ${operator} x$`), /class="katex/);
+    }
   }
 });
 
