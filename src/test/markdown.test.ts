@@ -216,6 +216,95 @@ test("pending numeric math keeps its source when clear math syntax follows white
   assert.match(render("$2 \\times x$"), /class="katex/);
 });
 
+test("pending numeric division keeps source without whitespace after the operator", () => {
+  for (const number of ["2", "2.5", "5!", "5!!"]) {
+    for (const operand of ["x", "2", "(x+1)", "\\frac{1}{2}"]) {
+      for (const suffix of ["*y*", "**y**", "`y`", "[y](https://example.com)", "_y_"]) {
+        const source = `$${number} /${operand} + ${suffix}`;
+        assert.equal(render(source), `<p>${source}</p>`, source);
+      }
+      assert.match(render(`$${number} /${operand} + y$`), /class="katex/);
+    }
+  }
+});
+
+test("compact per-unit prices leave later Markdown available during streaming", () => {
+  for (const price of ["5", "5.99", "1,000.50"]) {
+    for (const unit of ["month", "year", "kg", "hour", "h", "s", "m", "g"]) {
+      for (const suffix of ["**flexible**", "*flexible*", "`code`", "[details](https://example.com)", "_flexible_"]) {
+        for (let length = 0; length <= suffix.length; length++) {
+          const plain = `Price is ${price} /${unit} and ${suffix.slice(0, length)}`;
+          const expected = render(plain).replace(`Price is ${price}`, `Price is $${price}`);
+          assert.equal(render(plain.replace(`Price is ${price}`, `Price is $${price}`)), expected, plain);
+        }
+      }
+    }
+  }
+  for (const operand of ["x", "velocity", "2", "(x+1)", "\\frac{1}{2}"]) {
+    const source = `$2 /${operand} + *y*`;
+    assert.equal(render(source), `<p>${source}</p>`, source);
+    assert.match(render(`$2 /${operand} + y$`), /class="katex/);
+  }
+});
+
+test("compact word divisors retain source before clear math continuations", () => {
+  for (const number of ["2", "2.5", "5!", "5!!"]) {
+    for (const operand of ["x", "velocity"]) {
+      for (const operator of ["+", "=", "^", "<", ">", "\\times", "*", "/", "-"]) {
+        for (const suffix of ["[y](mailto:x@y)", "`y`", "*y*", "**y**", "_y_"]) {
+          const source = `$${number} /${operand} ${operator} ${suffix}`;
+          const escaped = source.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+          assert.equal(render(source), `<p>${escaped}</p>`, source);
+        }
+        assert.match(render(`$${number} /${operand} ${operator} y$`), /class="katex/);
+      }
+    }
+  }
+});
+
+test("leading-decimal inequalities keep pending source", () => {
+  for (const number of [".5", "-.5", "+.5"]) {
+    for (const operator of ["<", ">", "<=", ">=", "<<", ">>"]) {
+      for (const suffix of ["[x](mailto:x@y)", "`x`", "*x*", "**x**", "_x_"]) {
+        const source = `$${number} ${operator} ${suffix}`;
+        const escaped = source.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+        assert.equal(render(source), `<p>${escaped}</p>`, source);
+      }
+      assert.match(render(`$${number} ${operator} x$`), /class="katex/);
+    }
+  }
+});
+
+test("signed numeric inequalities keep pending source", () => {
+  for (const number of ["-2", "+2", "-2.5", "+2.5", "-5!"]) {
+    for (const operator of ["<", ">", "<=", ">=", "<<", ">>"]) {
+      for (const suffix of ["[x](mailto:x@y)", "`x`", "*x*", "**x**", "_x_"]) {
+        const source = `$${number} ${operator} ${suffix}`;
+        const escaped = source.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+        assert.equal(render(source), `<p>${escaped}</p>`, source);
+      }
+      assert.match(render(`$${number} ${operator} x$`), /class="katex/);
+    }
+  }
+});
+
+test("shell redirection after unmatched variables leaves later Markdown available", () => {
+  for (const variable of ["VALUE", "PATH", "HOME", "USER1"]) {
+    for (const operator of [">", "<", ">>", "<<"]) {
+      for (const suffix of ["`output`", "`output` and `input`", "plain output"]) {
+        const plain = `echo ${variable} ${operator} ${suffix}`;
+        const source = plain.replace(variable, `$${variable}`);
+        const expected = render(plain).replace(variable, `$${variable}`);
+        assert.equal(render(source), expected, source);
+      }
+    }
+  }
+  for (const source of ["$$x > `y`", "\\(x < `y`", "\\[x > `y`"]) {
+    const escaped = source.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+    assert.ok(render(source).includes(escaped), source);
+  }
+});
+
 test("pending factorial formulas keep their source before clear math continuations", () => {
   for (const expression of [
     "5! + *x*",
