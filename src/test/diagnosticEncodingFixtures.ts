@@ -30,7 +30,8 @@ export const diagnosticEncodingFixtures = [
   { encoding: "windows1255", hex: "e00a", text: "א\n" },
   { encoding: "iso88598", hex: "e00a", text: "א\n" },
   { encoding: "iso885910", hex: "af0a", text: "Ŋ\n" },
-  { encoding: "iso885916", hex: "aa0a", text: "Ș\n" },
+  // Available in newer Node/ICU builds, but not in the Node 22 CI runtime.
+  { encoding: "iso885916", canonicalEncoding: "iso-8859-16", hex: "aa0a", text: "Ș\n" },
   { encoding: "windows1254", hex: "fe0a", text: "ş\n" },
   { encoding: "iso88599", hex: "fe0a", text: "ş\n" },
   { encoding: "windows1258", hex: "c30a", text: "Ă\n" },
