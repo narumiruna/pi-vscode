@@ -830,7 +830,7 @@ test("sidebar displays and changes the current thinking level", () => {
   assert.equal(picker.disabled, false);
   assert.deepEqual(
     picker.children.map((option) => option.textContent),
-    ["Thinking: Off", "Thinking: Low", "Thinking: High"],
+    ["Off", "Low", "High"],
   );
 
   picker.value = "low";
@@ -849,6 +849,32 @@ test("sidebar displays and changes the current thinking level", () => {
   });
   assert.equal(picker.value, "off");
   assert.equal(picker.disabled, true);
+});
+
+test("thinking level labels stay compact for all levels and unavailable state", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({
+    type: "state",
+    runtime: {
+      busy: false,
+      connected: true,
+      thinkingLevel: "xhigh",
+      availableThinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh"],
+    },
+  });
+
+  const picker = sidebar.element("thinking-level");
+  assert.deepEqual(
+    picker.children.map((option) => option.textContent),
+    ["Off", "Minimal", "Low", "Medium", "High", "X-high"],
+  );
+  assert.equal(picker.value, "xhigh");
+  assert.equal(picker.title, "Pi thinking level: X-high");
+
+  sidebar.receive({ type: "state", runtime: { busy: false, connected: true } });
+  assert.deepEqual(picker.children.map((option) => option.textContent), ["—"]);
+  assert.equal(picker.disabled, true);
+  assert.equal(picker.title, "Pi thinking level unavailable");
 });
 
 test("transcript image assets render without HTML injection and preview restores focus after close or Escape", () => {

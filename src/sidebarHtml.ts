@@ -94,7 +94,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     #app.sessions-layer #sessions { display: grid; min-height: 0; grid-template-rows: auto minmax(0, 1fr); border-bottom: 0; }
     #app.sessions-layer .sessions-title { color: var(--vscode-foreground); font-size: 1em; }
     #app.sessions-layer.sessions-expanded #session-list-content { display: grid; grid-template-rows: minmax(0, 1fr); }
-    #thinking-level { min-width: 0; max-width: 104px; color: var(--vscode-foreground); background: var(--vscode-input-background); border-color: var(--vscode-input-border, var(--pi-border)); }
+    .thinking-picker { position: relative; display: inline-flex; flex: 0 0 auto; align-items: center; }
+    #thinking-level { appearance: none; min-height: 30px; border-radius: 8px; padding: 4px 27px 4px 9px; color: var(--vscode-descriptionForeground); }
+    .thinking-picker > .icon { position: absolute; right: 9px; width: 12px; height: 12px; color: var(--vscode-descriptionForeground); pointer-events: none; }
+    #thinking-level:disabled + .icon { opacity: .5; }
+    #thinking-level option { color: var(--vscode-foreground); background: var(--pi-control-background); }
     #model-picker { min-width: 0; max-width: 132px; justify-content: flex-start; color: var(--vscode-descriptionForeground); }
     #model-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #model-picker .icon { width: 12px; height: 12px; }
@@ -224,7 +228,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     body.vscode-high-contrast .welcome-action, body.vscode-high-contrast-light .welcome-action,
     body.vscode-high-contrast .attachment-image, body.vscode-high-contrast-light .attachment-image { border-color: var(--vscode-contrastBorder); }
     body.vscode-high-contrast .composer-box:focus-within, body.vscode-high-contrast-light .composer-box:focus-within { border-color: var(--vscode-focusBorder); }
-    @media (max-width: 340px) { #app { padding: 0 8px 8px; } .sessions-actions { gap: 0; } #session { display: none; } .composer-actions { gap: 4px; padding-left: 6px; padding-right: 6px; } #add-context span { display: none; } #model-picker { max-width: 88px; } #thinking-level { max-width: 84px; } .empty { padding-left: 2px; padding-right: 2px; } .empty h2 { font-size: 1.5em; } button.welcome-action { gap: 9px; padding: 10px; } }
+    @media (max-width: 340px) { #app { padding: 0 8px 8px; } .sessions-actions { gap: 0; } #session { display: none; } .composer-actions { gap: 4px; padding-left: 6px; padding-right: 6px; } #add-context span { display: none; } #model-picker { max-width: 88px; } .empty { padding-left: 2px; padding-right: 2px; } .empty h2 { font-size: 1.5em; } button.welcome-action { gap: 9px; padding: 10px; } }
     @media (max-height: 500px) { .empty { padding-top: 8px; padding-bottom: 16px; } .welcome-mark { display: none; } .empty-actions { margin-top: 16px; } }
     @media (prefers-reduced-motion: no-preference) { button { transition: background-color .12s ease, border-color .12s ease, transform .08s ease; } .composer-box { transition: border-color .12s ease, box-shadow .12s ease; } }
   </style>
@@ -279,7 +283,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           <button id="cancel" class="secondary" type="button" aria-label="Cancel Pi response" hidden>${icon("stop")}<span>Stop</span></button>
           <button id="model-picker" class="secondary" type="button" aria-label="Change Pi model"><span id="model-label">Choose model…</span>${icon("chevron")}</button>
           <label for="thinking-level" class="sr-only">Pi thinking level</label>
-          <select id="thinking-level" aria-label="Pi thinking level" title="Pi thinking level"><option value="">Thinking: —</option></select>
+          <span class="thinking-picker"><select id="thinking-level" aria-label="Pi thinking level" title="Pi thinking level"><option value="">—</option></select>${icon("chevron")}</span>
           <button id="send" type="button" aria-label="Send message" title="Send message" disabled>${icon("send")}</button>
         </div>
       </div>
@@ -971,13 +975,13 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         if (levels.length === 0) {
           const option = document.createElement('option');
           option.value = '';
-          option.textContent = 'Thinking: —';
+          option.textContent = '—';
           thinkingLevel.appendChild(option);
         } else {
           for (const level of levels) {
             const option = document.createElement('option');
             option.value = level;
-            option.textContent = 'Thinking: ' + formatThinkingLevel(level);
+            option.textContent = formatThinkingLevel(level);
             thinkingLevel.appendChild(option);
           }
         }
