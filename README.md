@@ -187,10 +187,13 @@ On Linux, `xvfb-run -a npm run test:native-ui -- 1.106.0` exercises the actual a
 ## Release
 
 1. Add a repository Actions secret named `PAT_TOKEN`. Use a fine-grained personal access token with **Contents: Read and write** access to this repository.
-2. For each release-worthy pull request, run `npm run changeset` and commit the generated `.changeset/*.md` file.
-3. After merging pending changesets into `main`, run the [Release workflow](.github/workflows/release.yml) from the Actions tab.
+2. Add a repository Actions secret named `VSCE_PAT`. Use an Azure Personal Access Token with **Marketplace (Manage)** scope and access to publisher `narumi`.
+3. For each release-worthy pull request, run `npm run changeset` and commit the generated `.changeset/*.md` file.
+4. After merging pending changesets into `main`, run the [Publish workflow](.github/workflows/publish.yml) from the Actions tab.
 
-The workflow applies all pending changesets to determine the next version, updates `CHANGELOG.md`, `package.json`, and `package-lock.json`, runs the tests, packages and verifies the VSIX, and creates a release commit that removes the consumed changesets through GitHub's GraphQL API. It then creates a `v<version>` GitHub release with `pi.vsix` attached. `PAT_TOKEN` authenticates both the release commit and GitHub release.
+The workflow applies all pending changesets to determine the next version, updates `CHANGELOG.md`, `package.json`, and `package-lock.json`, runs the tests, packages and verifies the VSIX, and creates a release commit that removes the consumed changesets through GitHub's GraphQL API. The `release` job then creates a `v<version>` GitHub release with `pi.vsix` attached. `PAT_TOKEN` authenticates both the release commit and GitHub release. The `publish` job runs after `release` succeeds and uses `VSCE_PAT` to publish the same verified VSIX artifact to Visual Studio Marketplace without rebuilding it.
+
+If Marketplace publication fails, the GitHub release remains available. Use **Re-run failed jobs** on the same workflow run to retry `publish` without repeating version updates or release creation. The VSIX artifact must still be available in that run.
 
 ## License
 
