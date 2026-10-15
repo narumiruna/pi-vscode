@@ -771,9 +771,30 @@ test("Sessions-layer submission snapshots attachments and holds the request gate
     await internal.runRequest("/codex-compact now", [], [], undefined, undefined, undefined, "composer");
     assert.equal(prompts.at(-1)?.request, "/codex-compact now", "composer commands reach Pi without prompt wrappers");
     const ordinaryPrompt = runtime.prompt;
-    runtime.prompt = async (_request: string, _resource: unknown, _images: unknown, onAccepted?: () => void) => {
+    let trackerStarts = 0;
+    const trackerFinishes: string[] = [];
+    internal.changeTracker.startRequest = () => {
+      trackerStarts += 1;
+    };
+    internal.changeTracker.finishRequest = (status = "completed") => {
+      trackerFinishes.push(status);
+      return [];
+    };
+    runtime.prompt = async (
+      _request: string,
+      _resource: unknown,
+      _images: unknown,
+      onAccepted?: () => void,
+      beforeSubmit?: () => void,
+    ) => {
+      beforeSubmit?.();
       onAccepted?.();
       return { disposition: "handled" };
+    };
+    runtime.getMessages = async () => {
+      assert.equal(internal.trackCurrentRequestChanges, false, "finish tracking before history refresh");
+      assert.deepEqual(trackerFinishes, ["completed"]);
+      return [];
     };
     let commandAccepted = false;
     let responseCallbackCalled = false;
@@ -801,6 +822,11 @@ test("Sessions-layer submission snapshots attachments and holds the request gate
     assert.equal(internal.retryRequest, undefined);
     assert.equal(internal.requestLifecycle.canRetry, false);
     assert.equal(internal.requestGate.isPending, false);
+    assert.equal(trackerStarts, 1);
+    assert.deepEqual(trackerFinishes, ["completed"]);
+    assert.equal(internal.trackCurrentRequestChanges, false);
+    internal.handleRuntimeEvent({ type: "process_exit" });
+    assert.deepEqual(trackerFinishes, ["completed"], "a later exit cannot change a completed command checkpoint");
     assert.equal(
       posted.some((message) => message.type === "notice" && message.level === "error"),
       false,
@@ -814,6 +840,9 @@ test("Sessions-layer submission snapshots attachments and holds the request gate
     );
     assert.equal(internal.retryRequest, undefined, "history refresh failure must not permit command replay");
     assert.equal(internal.requestLifecycle.canRetry, false);
+    assert.equal(trackerStarts, 2);
+    assert.deepEqual(trackerFinishes, ["completed", "completed"]);
+    assert.equal(internal.trackCurrentRequestChanges, false);
     runtime.getMessages = async () => [];
     runtime.prompt = async () => undefined;
     await assert.rejects(
@@ -843,6 +872,97 @@ test("Sessions-layer submission snapshots attachments and holds the request gate
     assert.ok(posted.some((message) => message.type === "clearInput" && message.expectedRevision === 8));
   } finally {
     completeSessionSwitch?.();
+    for (const disposable of context.subscriptions) disposable.dispose();
+    vscode.restore();
+  }
+});
+
+test("compact commands are accepted before history refresh and history failure does not reject them", async () => {
+  const vscode = installVscodeMock();
+  vscode.window.registerWebviewViewProvider = () => ({ dispose() {} });
+  const { registerPiCodeSidebar } = require("../sidebar") as typeof import("../sidebar");
+  const subscription = () => ({ dispose() {} });
+  const posted: Record<string, unknown>[] = [];
+  let compactions = 0;
+  let revision = 0;
+  let failHistory = true;
+  const acceptedBeforeHistory: number[] = [];
+  const runtime: any = {
+    currentState: { connected: true },
+    currentCwd: process.cwd(),
+    onEvent: subscription,
+    onDidChangeState: subscription,
+    compact: async () => {
+      compactions += 1;
+    },
+    getMessages: async () => {
+      if (posted.some((message) => message.type === "clearInput" && message.expectedRevision === revision)) {
+        acceptedBeforeHistory.push(revision);
+      }
+      if (failHistory) throw new Error("history unavailable");
+      return [];
+    },
+  };
+  const context: any = {
+    workspaceState: { get: () => undefined, update: async () => {} },
+    extensionUri: MockUri.file("/extension"),
+    subscriptions: [],
+  };
+  const internal = registerPiCodeSidebar(context, runtime) as any;
+  internal.view = {
+    webview: {
+      postMessage: async (message: Record<string, unknown>) => {
+        posted.push(message);
+        return true;
+      },
+    },
+  };
+  try {
+    for (const type of ["send", "sendNewSession"]) {
+      revision += 1;
+      posted.length = 0;
+      await internal.handleMessage({ type, text: "/compact focus", revision });
+      assert.equal(compactions, revision);
+      assert.equal(acceptedBeforeHistory.at(-1), revision, "clear the accepted revision before reading history");
+      assert.ok(
+        posted.some(
+          (message) =>
+            message.type === "clearInput" &&
+            message.expectedText === "/compact focus" &&
+            message.expectedRevision === revision,
+        ),
+      );
+      assert.equal(
+        posted.some((message) => message.type === "sendRejected"),
+        false,
+      );
+      assert.equal(internal.historyRecoveryAvailable, true);
+      assert.equal(internal.status, "Context compacted · History refresh failed");
+      assert.ok(
+        posted.some(
+          (message) =>
+            message.type === "notice" &&
+            message.level === "warning" &&
+            String(message.message).includes("Refresh history"),
+        ),
+      );
+    }
+    failHistory = false;
+    await internal.refreshHistory();
+    assert.equal(compactions, 2, "history recovery does not repeat compaction");
+    assert.equal(internal.historyRecoveryAvailable, false);
+    runtime.compact = async () => {
+      throw new Error("compaction failed");
+    };
+    posted.length = 0;
+    await internal.handleMessage({ type: "send", text: "/compact", revision: 3 });
+    assert.ok(posted.some((message) => message.type === "sendRejected"));
+    assert.equal(
+      posted.some((message) => message.type === "clearInput"),
+      false,
+      "a failed compaction retains the composer draft",
+    );
+  } finally {
     for (const disposable of context.subscriptions) disposable.dispose();
     vscode.restore();
   }
