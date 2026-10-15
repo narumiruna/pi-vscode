@@ -142,6 +142,60 @@ test("money, shell variables, escapes, code, invalid and pending math keep reada
   assert.equal((many.match(/class="katex"/g) ?? []).length, 50);
   assert.match(many, /\$x\^2\$/);
 });
+test("math closers use only the adjacent backslash run for escape parity", () => {
+  for (const [opening, closing] of [
+    ["$", "$"],
+    ["$$", "$$"],
+    ["\\(", "\\)"],
+    ["\\[", "\\]"],
+  ]) {
+    for (let count = 0; count <= 4; count++) {
+      const source = `${opening}x^2${"\\".repeat(count)}${closing}`;
+      const html = render(source);
+      if (count % 2 === 0) assert.match(html, /class="katex/, source);
+      else {
+        assert.doesNotMatch(html, /class="katex/, source);
+        assert.ok(html.includes(source), source);
+      }
+    }
+    const expression = `x^2\\${closing} + y`;
+    const source = opening + expression + closing;
+    const html = render(source);
+    assert.ok(
+      html.includes(source) || html.includes(`<annotation encoding="application/x-tex">${expression}</annotation>`),
+      "an escaped candidate must not close the formula early",
+    );
+  }
+});
+
+test("a bounded message with many escaped math closers does not rescan its prefixes", () => {
+  const source = `$${"\\$".repeat(49_999)}`;
+  const start = performance.now();
+  const html = render(source);
+  const elapsed = performance.now() - start;
+  assert.equal(html, `<p>${"$".repeat(50_000)}</p>`);
+  // The original prefix scan takes several seconds. Allow ample time for CI.
+  assert.ok(elapsed < 1000, `99,999 characters took ${elapsed} ms`);
+});
+
+test("unmatched prices preserve later Markdown throughout streaming", () => {
+  for (const price of ["5", "5.99", "1,000.50"]) {
+    for (const suffix of ["*cheap*", "**cheap**", "[details](https://example.com)", "~~old~~", "`code`", "_cheap_"]) {
+      const prefix = `Price is $${price} and `;
+      for (let length = 0; length <= suffix.length; length++) {
+        const tail = suffix.slice(0, length);
+        const expected = render(`Price is ${price} and ${tail}`).replace(`Price is ${price}`, `Price is $${price}`);
+        assert.equal(render(prefix + tail), expected);
+      }
+    }
+  }
+  for (const source of ["$2+2$", "$2^3$", "$2^3", "$x^2"]) {
+    const html = render(source);
+    if (source.endsWith("$")) assert.match(html, /class="katex/);
+    else assert.ok(html.includes(source), "pending math must remain source");
+  }
+});
+
 test("only closed Mermaid fences are marked for diagram rendering", () => {
   const source = "flowchart LR\nA-->B";
   assert.match(render("```mermaid\n" + source + "\n```"), /class="mermaid-source"/);
