@@ -83,6 +83,12 @@ Source: https://github.com/narumiruna/pi-vscode/pull/46#discussion_r4285228705
 - Outcome: Already addressed by this update. Runtime compaction now calls an acceptance callback immediately after the RPC succeeds. The Sidebar passes its composer callback to that boundary. The later runtime refresh is best-effort and emits a separate warning on failure.
 - Validation: the regression fails against `c3aadb3`. The real runtime and Sidebar integration passes with both `getState` and workspace-state persistence failures. It verifies acceptance before refresh, no rejection or replay, idle state, and a separate warning. An RPC failure still retains the draft.
 
-Validation for R4 and R5: `npm test` passes 352 tests across 43 files before merging the latest base branch. Native UI and live-provider behavior were not tested.
+Validation for R4 and R5: `npm test` passes 352 tests across 43 files before and after merging the latest base branch. Native UI and live-provider behavior were not tested.
+
+## Base merge
+
+Merged `origin/main` at `24f4170`. PR #48 had already brought the earlier completion fixes and a separate handled-state-refresh guard to main. The merge keeps its added state-refresh regression, feature changeset and publishing workflow. The shared best-effort runtime refresh helper preserves that guard without duplicate code. The RPC-boundary compaction acceptance and integration tests remain intact.
+
+Resolved conflicts in `src/piRuntime.ts`, `src/sidebar.ts` and `src/test/workflowHost.test.ts`. Full tests pass: 352 tests across 43 files. Focused Biome has zero errors, 48 warnings and two infos. Diff checks pass. `/tmp/pi-pr46-merged.vsix` packages successfully with 65 files. No native UI or live-provider test was run.
 
 No deferred items or missing decisions.

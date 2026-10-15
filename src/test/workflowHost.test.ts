@@ -189,6 +189,16 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
     );
     assert.equal(commandAccepted, true);
     assert.equal(runtime.currentState.busy, false, "a handled command does not wait for agent_settled");
+    const ordinaryRefresh = internal.refreshState;
+    internal.refreshState = async () => {
+      throw new Error("state unavailable");
+    };
+    try {
+      assert.deepEqual(await runtime.prompt("/extension-command"), { disposition: "handled" });
+      assert.equal(runtime.currentState.busy, false, "state refresh failure cannot undo command completion");
+    } finally {
+      internal.refreshState = ordinaryRefresh;
+    }
     client.prompt = ordinaryPrompt;
     const feature = runtime.prompt("preview callback request");
     await tick();
