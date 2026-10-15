@@ -4,6 +4,24 @@ import { imageAssetId } from "../imageAssets";
 import { getSidebarHtml } from "../sidebarHtml";
 import { installVscodeMock } from "./vscodeMock";
 
+test("rich assets preserve nonce-only scripts, offline resource restrictions and source fallback", () => {
+  const html = getSidebarHtml(1000, 1024, {
+    source: "https://vscode-resource.example",
+    script: "https://vscode-resource.example/rich-content.js",
+    style: "https://vscode-resource.example/rich-content.css",
+  });
+  const policy = /Content-Security-Policy" content="([^"]+)"/.exec(html)?.[1] ?? "";
+  assert.match(policy, /default-src 'none'/);
+  assert.match(policy, /script-src 'nonce-[^']+'/);
+  assert.doesNotMatch(policy, /unsafe-eval|script-src[^;]*unsafe-inline|connect-src|frame-src/);
+  assert.match(policy, /style-src https:\/\/vscode-resource\.example 'unsafe-inline'/);
+  assert.match(policy, /font-src https:\/\/vscode-resource\.example/);
+  assert.match(policy, /img-src data:/);
+  assert.match(html, /<script nonce="[^"]+" src="https:\/\/vscode-resource\.example\/rich-content\.js"><\/script>/);
+  assert.match(html, /piRichContent\.setContent/);
+  assert.match(html, /else content\.innerHTML = html/);
+});
+
 test("follow-up shortcut selection uses the webview client OS", () => {
   const windows = createSidebarScriptHarness("Win32");
   assert.equal(windows.run("useCtrlQForFollowUp"), true);
@@ -134,7 +152,7 @@ test("sidebar places model and thinking controls before Send and exposes recover
   assert.match(html, /messages\.filter\(message => message\.role !== 'assistant' \|\| Boolean\(message\.html\)\)/);
   assert.match(html, /for \(let index = 0; index < visibleMessages\.length; index \+= 1\)/);
   assert.match(html, /structure === renderedMessageStructure/);
-  assert.match(html, /content\.innerHTML = html\[index\]/);
+  assert.match(html, /setMessageContent\(content, html\[index\]\)/);
   assert.match(html, /#add-context span \{ display: none; \}/);
   assert.match(html, /\.composer-actions \{[^}]*flex-wrap: nowrap/);
   assert.doesNotMatch(html, /id="resume-session"/);
@@ -266,86 +284,111 @@ test("sidebar generated script parses with static icons and keeps nonce-only CSP
 // Descendant searches fail deterministically instead of relying on timing limits.
 test("slash suggestions filter command names by substring and complete without submitting", () => {
   const sidebar = createSidebarScriptHarness();
-  const input = sidebar.element('input');
-  const menu = sidebar.element('slash-commands');
-  sidebar.receive({ type: 'state', runtime: { connected: true, busy: false, commands: [
-    { name: 'codex-compact', description: 'Compact with Codex' },
-    { name: 'skill:review', description: 'Review code' },
-    { name: 'compact', description: 'Duplicate' },
-    { name: '<unsafe>', description: '<img src=x>' },
-  ] } });
+  const input = sidebar.element("input");
+  const menu = sidebar.element("slash-commands");
+  sidebar.receive({
+    type: "state",
+    runtime: {
+      connected: true,
+      busy: false,
+      commands: [
+        { name: "codex-compact", description: "Compact with Codex" },
+        { name: "skill:review", description: "Review code" },
+        { name: "compact", description: "Duplicate" },
+        { name: "<unsafe>", description: "<img src=x>" },
+      ],
+    },
+  });
   const type = (text: string) => {
     input.value = text;
-    input.listeners.get('input')!();
+    input.listeners.get("input")!();
   };
-  type('/');
+  type("/");
   assert.equal(menu.hidden, false);
-  assert.equal(menu.children.length, 4, 'the catalog deduplicates names');
-  assert.equal(menu.children[3]?.children[1]?.textContent, '<img src=x>', 'descriptions are text, not HTML');
-  type('/COM');
-  assert.deepEqual(menu.children.map(row => row.children[0]?.textContent), ['/compact', '/codex-compact']);
+  assert.equal(menu.children.length, 4, "the catalog deduplicates names");
+  assert.equal(menu.children[3]?.children[1]?.textContent, "<img src=x>", "descriptions are text, not HTML");
+  type("/COM");
+  assert.deepEqual(
+    menu.children.map((row) => row.children[0]?.textContent),
+    ["/compact", "/codex-compact"],
+  );
   const key = (key: string, extra = {}) => {
     let prevented = false;
-    input.listeners.get('keydown')!({ key, preventDefault: () => { prevented = true; }, ...extra });
+    input.listeners.get("keydown")!({
+      key,
+      preventDefault: () => {
+        prevented = true;
+      },
+      ...extra,
+    });
     return prevented;
   };
-  assert.equal(key('ArrowDown'), true);
-  assert.equal((menu.children[1] as any)['aria-selected'], 'true');
+  assert.equal(key("ArrowDown"), true);
+  assert.equal((menu.children[1] as any)["aria-selected"], "true");
   const count = sidebar.posted.length;
-  assert.equal(key('Enter'), true);
-  assert.equal(input.value, '/codex-compact ');
-  assert.equal(sidebar.posted.length, count, 'Enter completes before submission');
+  assert.equal(key("Enter"), true);
+  assert.equal(input.value, "/codex-compact ");
+  assert.equal(sidebar.posted.length, count, "Enter completes before submission");
   assert.equal(menu.hidden, true);
-  type('/com');
-  assert.equal(key('ArrowUp'), true, 'selection wraps');
-  assert.equal(key('Tab'), true);
-  assert.equal(input.value, '/codex-compact ');
-  type('/skill:');
-  menu.children[0]!.listeners.get('click')!();
-  assert.equal(input.value, '/skill:review ');
+  type("/com");
+  assert.equal(key("ArrowUp"), true, "selection wraps");
+  assert.equal(key("Tab"), true);
+  assert.equal(input.value, "/codex-compact ");
+  type("/skill:");
+  menu.children[0]!.listeners.get("click")!();
+  assert.equal(input.value, "/skill:review ");
   assert.equal(menu.hidden, true);
 });
 
 test("slash suggestions dismiss safely and preserve ordinary editor keys", () => {
   const sidebar = createSidebarScriptHarness();
-  const input = sidebar.element('input');
-  const menu = sidebar.element('slash-commands');
-  const state = (busy = false) => sidebar.receive({ type: 'state', runtime: { connected: true, busy } });
+  const input = sidebar.element("input");
+  const menu = sidebar.element("slash-commands");
+  const state = (busy = false) => sidebar.receive({ type: "state", runtime: { connected: true, busy } });
   state();
-  const type = (text: string) => { input.value = text; input.listeners.get('input')!(); };
-  type('/com');
+  const type = (text: string) => {
+    input.value = text;
+    input.listeners.get("input")!();
+  };
+  type("/com");
   let prevented = false;
   const press = (key: string, extra = {}) => {
     prevented = false;
-    input.listeners.get('keydown')!({ key, preventDefault: () => { prevented = true; }, ...extra });
+    input.listeners.get("keydown")!({
+      key,
+      preventDefault: () => {
+        prevented = true;
+      },
+      ...extra,
+    });
   };
-  press('Enter', { isComposing: true });
+  press("Enter", { isComposing: true });
   assert.equal(prevented, false);
-  assert.equal(input.value, '/com');
-  press('Enter', { shiftKey: true });
+  assert.equal(input.value, "/com");
+  press("Enter", { shiftKey: true });
   assert.equal(prevented, false);
-  press('Escape');
+  press("Escape");
   assert.equal(prevented, true);
   assert.equal(menu.hidden, true);
   state();
-  assert.equal(menu.hidden, true, 'stream updates do not reopen dismissed suggestions');
-  type('/co');
+  assert.equal(menu.hidden, true, "stream updates do not reopen dismissed suggestions");
+  type("/co");
   assert.equal(menu.hidden, false);
-  input.listeners.get('blur')!();
+  input.listeners.get("blur")!();
   assert.equal(menu.hidden, true);
   state();
-  assert.equal(menu.hidden, true, 'state updates do not reopen suggestions after focus leaves the input');
-  for (const text of ['/missing', '/compact instructions', 'explain /com', '/com\n']) {
+  assert.equal(menu.hidden, true, "state updates do not reopen suggestions after focus leaves the input");
+  for (const text of ["/missing", "/compact instructions", "explain /com", "/com\n"]) {
     type(text);
     assert.equal(menu.hidden, true, text);
   }
-  type('/');
+  type("/");
   state(true);
-  assert.equal(menu.hidden, true, 'commands cannot be queued while busy');
+  assert.equal(menu.hidden, true, "commands cannot be queued while busy");
   state();
-  sidebar.run('input.selectionStart = 1; input.selectionEnd = 2');
-  type('/com');
-  assert.equal(menu.hidden, true, 'selection and an interior caret do not open suggestions');
+  sidebar.run("input.selectionStart = 1; input.selectionEnd = 2");
+  type("/com");
+  assert.equal(menu.hidden, true, "selection and an interior caret do not open suggestions");
 });
 
 class SidebarTestElement {
@@ -438,7 +481,7 @@ function createSidebarScriptHarness(clientPlatform = "Linux x86_64", userAgent =
   let receive: ((event: { data: unknown }) => void) | undefined;
   const posted: any[] = [];
   const context = createContext({
-    document: { getElementById: element, createElement: () => new SidebarTestElement() },
+    document: { getElementById: element, createElement: () => new SidebarTestElement(), addEventListener: () => {} },
     window: {
       addEventListener: (type: string, listener: typeof receive) => {
         if (type === "message") receive = listener;

@@ -21,11 +21,21 @@ function icon(name: keyof typeof iconPaths): string {
   return `<svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${iconPaths[name]}</svg>`;
 }
 
-export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number): string {
+interface RichContentAssets {
+  readonly source: string;
+  readonly script: string;
+  readonly style: string;
+}
+
+export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number, assets?: RichContentAssets): string {
   const nonce = randomBytes(16).toString("base64url");
-  const csp = ["default-src 'none'", `style-src 'nonce-${nonce}'`, `script-src 'nonce-${nonce}'`, "img-src data:"].join(
-    "; ",
-  );
+  const csp = [
+    "default-src 'none'",
+    assets ? `style-src ${assets.source} 'unsafe-inline'` : `style-src 'nonce-${nonce}'`,
+    `script-src 'nonce-${nonce}'`,
+    assets ? `font-src ${assets.source}` : "font-src 'none'",
+    "img-src data:",
+  ].join("; ");
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -33,6 +43,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="${csp}">
+  ${assets ? `<link rel="stylesheet" href="${assets.style}">` : ""}
   <style nonce="${nonce}">
     :root { color-scheme: light dark; }
     body { --pi-border: var(--vscode-sideBar-border, var(--vscode-widget-border, transparent)); --pi-accent: var(--vscode-textLink-foreground); --pi-control-background: var(--vscode-dropdown-background, var(--vscode-input-background)); --pi-control-border: var(--vscode-dropdown-border, var(--vscode-input-border, var(--pi-border))); --pi-composer-background: var(--vscode-editorWidget-background, var(--vscode-input-background)); }
@@ -281,6 +292,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     <div class="preview-header"><span id="preview-label"></span><button id="preview-close" class="secondary" type="button" aria-label="Close image preview">Close</button></div>
     <img id="preview-image" alt="">
   </dialog>
+  ${assets ? `<script nonce="${nonce}" src="${assets.script}"></script>` : ""}
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const $ = id => document.getElementById(id);
@@ -435,6 +447,16 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       }
     }
 
+    function setMessageContent(content, html) {
+      if (window.piRichContent) window.piRichContent.setContent(content, html, () => {
+        if (conversationPinnedToBottom) scrollConversationToBottom();
+      });
+      else content.innerHTML = html;
+    }
+    document.addEventListener('pi-rich-resize', () => {
+      if (conversationPinnedToBottom) scrollConversationToBottom();
+    });
+
     function renderMessages(messages) {
       const followConversation = conversationPinnedToBottom;
       const visibleMessages = messages.filter(message => message.role !== 'assistant' || Boolean(message.html));
@@ -447,7 +469,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         for (let index = 0; index < html.length; index += 1) {
           if (html[index] === renderedMessageHtml[index]) continue;
           const content = messagesElement.children[index]?.children[1];
-          if (content) content.innerHTML = html[index];
+          if (content) setMessageContent(content, html[index]);
         }
         renderedMessageHtml = html;
         return visibleMessages.length > 0 && followConversation;
@@ -489,7 +511,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           role.textContent = message.role === 'user' ? 'You' : 'Pi';
           const content = document.createElement('div');
           content.className = 'content';
-          content.innerHTML = html[index];
+          setMessageContent(content, html[index]);
           wrapper.append(role, content);
           messagesElement.appendChild(wrapper);
           const attachments = Array.isArray(message.attachments) ? message.attachments : [];

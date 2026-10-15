@@ -7,12 +7,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { downloadAndUnzipVSCode } from "@vscode/test-electron";
 import { chromium } from "playwright-core";
+import { assertRichContent, richFixture } from "./rich-content-fixture.mjs";
 
 // Actual Quick Picks, modals, Problems, code actions and webview clicks; only Pi is simulated.
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const version = process.argv[2] ?? "1.106.0";
 const workspaceAlias = process.argv[3] === "alias";
-const evidenceLabel = `${version}${workspaceAlias ? "-alias" : ""}`;
+const packaged = process.argv.includes("packaged");
+const evidenceLabel = `${version}${workspaceAlias ? "-alias" : ""}${packaged ? "-packaged" : ""}`;
 if (process.platform !== "linux") throw new Error("The native UI runner currently supports Linux only.");
 const directory = await mkdtemp(path.join(tmpdir(), "pi-native-ui-"));
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -133,6 +135,26 @@ try {
     version,
     cachePath: path.join(tmpdir(), "pi-vscode-native-cache"),
   });
+  if (packaged) {
+    execFileSync(
+      path.join(path.dirname(executable), "bin", "code"),
+      [
+        "--no-sandbox",
+        "--user-data-dir",
+        userData,
+        "--extensions-dir",
+        path.join(directory, "extensions"),
+        "--install-extension",
+        path.join(repository, "pi.vsix"),
+        "--force",
+      ],
+      {
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined, DONT_PROMPT_WSL_INSTALL: "1" },
+        stdio: "pipe",
+        timeout: 60_000,
+      },
+    );
+  }
   child = spawn(
     executable,
     [
@@ -149,7 +171,7 @@ try {
       path.join(directory, "shared"),
       "--extensions-dir",
       path.join(directory, "extensions"),
-      `--extensionDevelopmentPath=${repository}`,
+      ...(packaged ? [] : [`--extensionDevelopmentPath=${repository}`]),
       `--extensionDevelopmentPath=${helper}`,
       `--remote-debugging-port=${port}`,
       "--remote-debugging-address=127.0.0.1",
@@ -289,7 +311,7 @@ try {
     async () => /^picode-review:/.test((await invoke("state")).active ?? ""),
     "Problems captured-document navigation",
   );
-  await respond("Native fixture explanation.");
+  await respond(richFixture);
   await problem.click();
   await invoke("command", { command: "problems.action.showQuickFixes" });
   await page.getByRole("menuitem", { name: "Ask Pi About Finding", exact: true }).waitFor();
@@ -299,6 +321,8 @@ try {
     async () => (await (await frame()).locator("body").innerText()).includes("Native fixture explanation."),
     "Ask response in Sidebar",
   );
+  const richEvidence = await assertRichContent(await frame());
+  console.log("PI_NATIVE_RICH_CONTENT", JSON.stringify({ packaged, ...richEvidence }));
   // Restore the captured document through the legacy-independent findings command.
   const navigation = await invoke("command", { command: "picode.showReviewFindings" }, false);
   await pick("Native workingTree finding");
@@ -403,6 +427,8 @@ try {
       version: ready.version,
       platform: process.platform,
       workspaceAlias,
+      packaged,
+      richContent: "Markdown, math fonts, flowchart and sequence SVG passed",
       semanticAttachmentPicker: "passed",
       fourReviewScopes: "passed",
       nativeProblemsAndAskFix: "passed",
