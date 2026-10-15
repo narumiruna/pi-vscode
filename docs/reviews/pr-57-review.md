@@ -89,4 +89,31 @@ Thread: `PRRT_kwDOUAKqMc6s4SIV`.
 - The existing patch Changeset covers these corrections. No dependency, manifest, host, trust, CSP, RPC, or storage change is needed. Unchanged repository-wide lint debt remains deferred to a separate cleanup PR. No such issue or PR was created.
 - Native UI, remote hosts, Windows/macOS, live providers, and screen-reader applications were not rerun. No Marketplace release was run.
 
-The fix uses the existing open PR branch. The review replies record the published commit. Both new threads must be resolved after the push and checked again through the API.
+The fix was pushed as `1ff4744`. Both new threads received evidence replies and were resolved through the GitHub API. A fresh query confirmed all four resolved states. The hosted `Compile and test` check passed.
+
+## Follow-up review of `1ff4744`
+
+The current branch still identifies open PR #57 in the same repository. The head, commits, prior diff, relevant instructions, and checks are unchanged. All current reviews, inline comments, conversation comments, and review threads were fetched. REST lists were paginated. GraphQL reports no further thread or comment pages. There is one new finding. R1 through R4 remain already addressed; their published replies and resolved states are unchanged. Prior evidence and the deferred lint outcome are reused for unchanged material.
+
+### R5: Preserve pending numeric inequalities
+
+Source: https://github.com/narumiruna/pi-vscode/pull/57#discussion_r4286037165
+Thread: `PRRT_kwDOUAKqMc6s4ksV`.
+
+- Initial outcome: Actionable and not yet addressed.
+- Severity: P2. Markdown can change the visible source of an incomplete formula.
+- Evidence: built `1ff4744` renders `$2 < *x*` as `<p>$2 &lt; <em>x</em></p>`. The greater-than case behaves the same way. Both completed formulas render with KaTeX. Inline code after either inequality also becomes a code element instead of remaining source. The prefix operator set and pending-math signal set both omit `<` and `>`.
+- Scope: PR #57 adds the numeric currency return. Its goal includes preserving incomplete math. This is a missing operator case in that return, not a separate renderer enhancement.
+- Required fix: recognize inequality operators in the expression prefix and pending-math signals. Keep HTML escaping and ordinary price formatting unchanged.
+
+### Inequality validation and publication
+
+- R5 outcome: Already addressed by the validated changes in this review. Both operator sets now recognize `<` and `>`. A recognized inequality retains pending source even when no other math signal is present, such as before inline-code markers. HTML escaping remains in place.
+- The new test covers six inequality forms, integer and decimal numbers, factorials, five Markdown suffixes, and complete KaTeX formulas. The prior currency, emphasis, factorial, escape-parity, bounded-input, and security tests still pass.
+- `npm run package`: 367 tests across 44 files passed. VSIX creation passed with 130 files. ZIP validation passed, and the packaged parser contains the inequality prefix check.
+- `npm run test:rich-content`: browser rendering, CSP, math, diagrams, caches, queue bounds, stale results, and disposal passed.
+- Focused Biome check on both changed TypeScript files and `git diff --check` passed.
+- The existing patch Changeset covers this correction. No dependency, manifest, host, trust, CSP, RPC, or storage change is needed. Existing repository-wide lint debt remains deferred to a separate cleanup PR. No issue or extra PR was created for it.
+- Native UI, remote hosts, Windows/macOS, live providers, and screen-reader applications were not rerun. No Marketplace release was run.
+
+The fix uses the existing open PR branch. The review reply records the published commit. Resolve R5 after the push, then verify its state through the API.
