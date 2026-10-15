@@ -107,6 +107,7 @@ Automatic inline completions are disabled by default. Enable `picode.inlineCompl
 | **Attachment inspection** | Choose **View attachments** in the composer to inspect the exact snapshot, redact or edit it, refresh it explicitly, or pin it for later requests. |
 | **Failed-test repair** | Run **Pi: Repair Failed Test (Preview)**, approve a command or provide an existing UTF-8 log, inspect the evidence, then preview and apply the repair. |
 | **Request checkpoints** | Choose **More… → Request Checkpoints** to inspect coverage, preview a restore, and revert covered changes. Checkpoints are memory-only file recovery, not a Git or conversation rewind. |
+| **Slash commands** | Type `/` in the composer to list Pi extension commands, prompt templates, skills, and `/compact`. Type `/com` to find command names that contain `com`. Use Up/Down to select, Enter or Tab to complete, then Enter to run. Click to complete or press Escape to close. `/compact` accepts optional instructions and acts on the current session. Remove attachments before running commands. TUI-only commands are not listed. |
 | **In-flight instructions** | While a request is running, press Enter to send **Next** after the current tool finishes. Use Alt+Enter on macOS and Linux, or Ctrl+Q on Windows (including remote WSL sessions), to send **After this** when Pi finishes responding. Pending text stays visible under these labels, then moves into the transcript as soon as Pi starts that user message. |
 | **Debug questions** | Pause a Node.js debugger and run **Pi: Ask Debug Context**. Approve capture, choose local variables, inspect or redact the snapshot, and ask a read-only question. |
 
@@ -186,10 +187,13 @@ On Linux, `xvfb-run -a npm run test:native-ui -- 1.106.0` exercises the actual a
 ## Release
 
 1. Add a repository Actions secret named `PAT_TOKEN`. Use a fine-grained personal access token with **Contents: Read and write** access to this repository.
-2. For each release-worthy pull request, run `npm run changeset` and commit the generated `.changeset/*.md` file.
-3. After merging pending changesets into `main`, run the [Release workflow](.github/workflows/release.yml) from the Actions tab.
+2. Add a repository Actions secret named `VSCE_PAT`. Use an Azure Personal Access Token with **Marketplace (Manage)** scope and access to publisher `narumi`.
+3. For each release-worthy pull request, run `npm run changeset` and commit the generated `.changeset/*.md` file.
+4. After merging pending changesets into `main`, run the [Publish workflow](.github/workflows/publish.yml) from the Actions tab.
 
-The workflow applies all pending changesets to determine the next version, updates `CHANGELOG.md`, `package.json`, and `package-lock.json`, runs the tests, packages and verifies the VSIX, and creates a release commit that removes the consumed changesets through GitHub's GraphQL API. It then creates a `v<version>` GitHub release with `pi.vsix` attached. `PAT_TOKEN` authenticates both the release commit and GitHub release.
+The workflow applies all pending changesets to determine the next version, updates `CHANGELOG.md`, `package.json`, and `package-lock.json`, runs the tests, packages and verifies the VSIX, and creates a release commit that removes the consumed changesets through GitHub's GraphQL API. The `release` job then creates a `v<version>` GitHub release with `pi.vsix` attached. `PAT_TOKEN` authenticates both the release commit and GitHub release. The `publish` job runs after `release` succeeds and uses `VSCE_PAT` to publish the same verified VSIX artifact to Visual Studio Marketplace without rebuilding it.
+
+If Marketplace publication fails, the GitHub release remains available. Use **Re-run failed jobs** on the same workflow run to retry `publish` without repeating version updates or release creation. The VSIX artifact must still be available in that run.
 
 ## License
 

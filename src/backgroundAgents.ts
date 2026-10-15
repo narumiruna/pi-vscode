@@ -161,9 +161,9 @@ export class BackgroundAgentManager implements vscode.Disposable {
           await client.setSessionName(title);
         },
         // Pi RPC resolves prompt commands after acceptance; task events continue asynchronously.
-        () => {
+        async () => {
           if (this.active.get(id)?.cancelRequested) throw new Error("Background task cancelled before submission.");
-          return client.prompt(buildAgentPrompt(request, contexts), images);
+          await client.prompt(buildAgentPrompt(request, contexts), images);
         },
       );
       if (this.tasks.get(id)?.status === "starting") this.patchTask(id, { status: "running" });
