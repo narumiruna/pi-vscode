@@ -127,6 +127,6 @@ test("development launchers target the intended extension mode", () => {
     assert.deepEqual(host.args, ["--extensionDevelopmentPath=${workspaceFolder}"]);
   }
 
-  assert.equal(manifest.scripts.dev, 'npm run install:extension && code --new-window "${INIT_CWD:-.}"');
+  assert.equal(manifest.scripts.dev, "npm run install:extension && node scripts/open-dev-window.mjs");
   assert.equal(manifest.scripts["dev:pi"], "pi -ne -e resources/picode-bridge.ts");
 });

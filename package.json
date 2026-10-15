@@ -402,7 +402,7 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "dev": "npm run install:extension && code --new-window \"${INIT_CWD:-.}\"",
+    "dev": "npm run install:extension && node scripts/open-dev-window.mjs",
     "dev:pi": "pi -ne -e resources/picode-bridge.ts",
     "install:vsix": "sh scripts/check-legacy-vscode-extension.sh && npm run package && code --install-extension pi-coding-agent-vscode.vsix --force",
     "install:extension": "npm run install:vsix && node scripts/remove-legacy-picode-extension.mjs",

@@ -59,7 +59,7 @@ The installers do not copy or delete VS Code state. The old sidebar cache, last-
 
 ## Install from source
 
-Building from source additionally requires Node.js and npm:
+Building from source additionally requires Node.js, npm, and a POSIX shell available as `sh`. On Windows, install Git for Windows and add its `sh` command to `PATH`.
 
 ```bash
 npm install
