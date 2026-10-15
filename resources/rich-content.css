@@ -1,0 +1,78 @@
+.content {
+  min-width: 0;
+}
+.content pre,
+.content .katex-display,
+.content .mermaid-preview {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.content table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  overflow-wrap: normal;
+}
+.content th,
+.content td {
+  border: 1px solid var(--vscode-panel-border);
+  padding: 4px 8px;
+}
+.content blockquote {
+  margin-left: 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--vscode-textBlockQuote-border);
+}
+.content a {
+  color: var(--vscode-textLink-foreground);
+}
+.content a:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+}
+.content .katex {
+  font-size: 1.1em;
+}
+.content .katex-display {
+  margin: 0.6em 0;
+  padding: 4px 0;
+}
+.content .mermaid-source {
+  margin: 0.6em 0;
+}
+.content .mermaid-preview {
+  padding: 8px 0;
+}
+.content .mermaid-preview svg {
+  max-width: 100%;
+  height: auto;
+}
+.content .hljs-keyword,
+.content .hljs-selector-tag,
+.content .hljs-literal {
+  color: var(--vscode-symbolIcon-keywordForeground, #569cd6);
+}
+.content .hljs-string,
+.content .hljs-attr {
+  color: var(--vscode-symbolIcon-stringForeground, #ce9178);
+}
+.content .hljs-number,
+.content .hljs-built_in {
+  color: var(--vscode-symbolIcon-numberForeground, #b5cea8);
+}
+.content .hljs-comment {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+.content .hljs-title,
+.content .hljs-tag {
+  color: var(--vscode-symbolIcon-functionForeground, #dcdcaa);
+}
+body.vscode-high-contrast .content :is(table, th, td, blockquote),
+body.vscode-high-contrast-light .content :is(table, th, td, blockquote) {
+  border-color: var(--vscode-contrastBorder);
+}
+body.vscode-high-contrast .mermaid-preview,
+body.vscode-high-contrast-light .mermaid-preview {
+  outline: 1px solid var(--vscode-contrastBorder);
+}

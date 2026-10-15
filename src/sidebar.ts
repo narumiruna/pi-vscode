@@ -180,9 +180,14 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     this.imageAssetDelivery.reset();
     webviewView.webview.options = {
       enableScripts: true,
-      localResourceRoots: [],
+      localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, "out", "rich-content")],
     };
-    webviewView.webview.html = getSidebarHtml(maxInputCharacters, maxImageBytes);
+    const assets = vscode.Uri.joinPath(this.context.extensionUri, "out", "rich-content");
+    webviewView.webview.html = getSidebarHtml(maxInputCharacters, maxImageBytes, {
+      source: webviewView.webview.cspSource,
+      script: webviewView.webview.asWebviewUri(vscode.Uri.joinPath(assets, "rich-content.js")).toString(),
+      style: webviewView.webview.asWebviewUri(vscode.Uri.joinPath(assets, "rich-content.css")).toString(),
+    });
 
     const messageListener = webviewView.webview.onDidReceiveMessage((message) => {
       void this.handleMessage(message);
