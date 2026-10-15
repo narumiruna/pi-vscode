@@ -743,8 +743,9 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     if (!match) return false;
     if (this.attachments.summaries.length) throw new Error("Remove attachments before running a slash command.");
     if (this.isForegroundRequestActive()) throw new Error("Wait for Pi before running a slash command.");
-    await this.compact(match[1]?.trim());
-    this.postMessage({ type: "clearInput", expectedText: rawText, expectedRevision: revision });
+    await this.compact(match[1]?.trim(), () => {
+      this.postMessage({ type: "clearInput", expectedText: rawText, expectedRevision: revision });
+    });
     return true;
   }
 
@@ -905,14 +906,18 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       responseCaptured = true;
       this.requestLifecycle.completeExecution();
       this.retryRequest = undefined;
+      if (typeof response !== "string" && this.trackCurrentRequestChanges) {
+        this.changes = this.changeTracker.finishRequest("completed");
+        this.trackCurrentRequestChanges = false;
+      }
       synchronizingHistory = true;
       await this.syncMessagesFromPi();
       await this.refreshRecentSessions(false);
       synchronizingHistory = false;
-      await onResponse?.(response);
+      if (typeof response === "string") await onResponse?.(response);
       this.status = "Ready";
       this.postState();
-      return response;
+      return typeof response === "string" ? response : "";
     } catch (error) {
       if (this.currentRequestSideEffects.mayHaveSideEffects) {
         this.requestLifecycle.completeExecution();
@@ -1140,7 +1145,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     this.postState();
   }
 
-  private async compact(customInstructions?: string): Promise<void> {
+  private async compact(customInstructions?: string, onAccepted?: () => void): Promise<void> {
     if (this.isForegroundRequestActive()) {
       this.postNotice("Cancel or wait for the active request before compacting the session.", "warning");
       return;
@@ -1148,8 +1153,23 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     this.status = "Compacting context…";
     this.postState();
     await this.runtime.compact(customInstructions);
-    await this.syncMessagesFromPi();
-    this.status = "Context compacted";
+    onAccepted?.();
+    try {
+      await this.syncMessagesFromPi();
+      this.historyRecoveryAvailable = false;
+      this.status = "Context compacted";
+    } catch (error) {
+      const failure = historySyncFailureState(this.runtime.currentState.connected);
+      this.historyRecoveryAvailable = failure.historyRecoveryAvailable;
+      this.status = "Context compacted · History refresh failed";
+      this.postNotice(
+        failure.historyRecoveryAvailable
+          ? "Context was compacted, but history refresh failed. Use Refresh history. Do not repeat compaction."
+          : "Context was compacted, but Pi disconnected before history refresh. Reconnect. Do not repeat compaction.",
+        "warning",
+        formatError(error),
+      );
+    }
     this.postState();
   }
 
