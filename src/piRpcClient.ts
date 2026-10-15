@@ -243,8 +243,9 @@ export class PiRpcClient {
     };
   }
 
-  public async prompt(message: string, images?: readonly PiRpcImage[]): Promise<void> {
-    await this.command("prompt", { message, images });
+  public async prompt(message: string, images?: readonly PiRpcImage[]): Promise<string | undefined> {
+    const data = await this.commandData("prompt", { message, images });
+    return typeof data.disposition === "string" ? data.disposition : undefined;
   }
 
   public async steer(message: string, images?: readonly PiRpcImage[]): Promise<void> {

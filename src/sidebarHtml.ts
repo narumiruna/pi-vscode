@@ -170,7 +170,12 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     button.attachment-remove { position: absolute; top: 5px; right: 5px; width: 21px; min-height: 21px; padding: 0; border: 1px solid rgba(255, 255, 255, .35); border-radius: 50%; color: #fff; background: rgba(0, 0, 0, .66); font-size: 15px; line-height: 1; }
     button.attachment-remove:hover:not(:disabled) { background: rgba(0, 0, 0, .86); }
     button.composer-image:focus-visible, button.attachment-remove:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--vscode-focusBorder); }
-    #composer { min-width: 0; padding-top: 12px; }
+    #composer { position: relative; min-width: 0; padding-top: 12px; }
+    #slash-commands { position: absolute; bottom: calc(100% - 6px); left: 0; right: 0; z-index: 10; max-height: min(260px, 40vh); overflow-y: auto; padding: 4px; border: 1px solid var(--vscode-editorSuggestWidget-border, var(--pi-border)); border-radius: 8px; color: var(--vscode-editorSuggestWidget-foreground, var(--vscode-foreground)); background: var(--vscode-editorSuggestWidget-background, var(--vscode-editor-background)); box-shadow: 0 4px 16px var(--vscode-widget-shadow); }
+    #slash-commands button { display: flex; width: 100%; justify-content: flex-start; gap: 12px; border: 0; padding: 6px 8px; text-align: left; color: inherit; background: transparent; }
+    #slash-commands button[aria-selected="true"] { color: var(--vscode-editorSuggestWidget-selectedForeground, var(--vscode-list-activeSelectionForeground)); background: var(--vscode-editorSuggestWidget-selectedBackground, var(--vscode-list-activeSelectionBackground)); }
+    .slash-name { flex: 0 0 auto; font-family: var(--vscode-editor-font-family); }
+    .slash-description { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .75; }
     .composer-box { position: relative; overflow: hidden; background: var(--pi-composer-background); border: 1px solid var(--vscode-input-border, var(--pi-border)); border-radius: 14px; box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, .2)); }
     .composer-box:focus-within { border-color: var(--vscode-focusBorder); box-shadow: 0 6px 20px var(--vscode-widget-shadow, rgba(0, 0, 0, .24)); }
     textarea { display: block; width: 100%; height: 42px; min-height: 42px; max-height: min(220px, 28vh); resize: none; padding: 11px 13px 7px; color: var(--vscode-input-foreground); background: transparent; border: 0; border-radius: 14px 14px 6px 6px; font: inherit; line-height: 1.5; scrollbar-width: thin; }
@@ -246,12 +251,13 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       <div id="background-heading" class="section-heading" hidden><span>Background agents</span></div><section id="background" aria-label="Background Pi agents"></section>
     </section>
     <section id="composer" aria-label="Message composer">
+      <div id="slash-commands" role="listbox" aria-label="Slash commands" hidden></div>
       <div class="composer-box">
         <div id="attachments" aria-label="Attachments for the next message" hidden></div>
         <div id="attachment-estimate" class="proposal-meta"></div>
         <div id="pending-queue" role="list" aria-label="Pending Pi messages" hidden></div>
         <label for="input" class="sr-only">Message Pi</label>
-        <textarea id="input" rows="1" maxlength="${maxInputCharacters}" placeholder="Ask Pi anything…" aria-describedby="composer-hint"></textarea>
+        <textarea id="input" rows="1" maxlength="${maxInputCharacters}" placeholder="Ask Pi anything…" aria-describedby="composer-hint" aria-autocomplete="list" aria-controls="slash-commands" aria-expanded="false"></textarea>
         <div id="queue-status" class="proposal-meta" role="status"></div>
         <div class="proposal-actions">
           <button id="recover-queue" class="secondary" type="button" hidden>Restore drafts</button>
@@ -291,6 +297,12 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     const backgroundElement = $('background');
     const attachmentsElement = $('attachments');
     const input = $('input');
+    const slashMenu = $('slash-commands');
+    let slashCommands = [];
+    let slashMatches = [];
+    let slashIndex = 0;
+    let slashDismissed = false;
+    let slashFocused = false;
     const sendButton = $('send');
     const cancelButton = $('cancel');
     const notice = $('notice');
@@ -857,6 +869,54 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       renderedAttachments = signature;
     }
 
+    function closeSlashCommands() {
+      slashMenu.hidden = true;
+      input.setAttribute('aria-expanded', 'false');
+      input.removeAttribute('aria-activedescendant');
+    }
+
+    function renderSlashCommands() {
+      const query = /^\\/([^\\s]*)$/.exec(input.value);
+      const caret = input.selectionStart;
+      if (!query || !slashFocused || slashDismissed || input.disabled || submissionPending || !connected || busy
+          || (typeof caret === 'number' && (caret !== input.value.length || input.selectionEnd !== caret))) {
+        closeSlashCommands();
+        return;
+      }
+      slashMatches = slashCommands.filter(command => command.name.toLowerCase().includes(query[1].toLowerCase()));
+      slashIndex = Math.min(slashIndex, Math.max(0, slashMatches.length - 1));
+      slashMenu.replaceChildren();
+      if (!slashMatches.length) { closeSlashCommands(); return; }
+      slashMatches.forEach((command, index) => {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.id = 'slash-command-' + index;
+        row.tabIndex = -1;
+        row.setAttribute('role', 'option');
+        row.setAttribute('aria-selected', String(index === slashIndex));
+        const name = document.createElement('span');
+        name.className = 'slash-name';
+        name.textContent = '/' + command.name;
+        const description = document.createElement('span');
+        description.className = 'slash-description';
+        description.textContent = command.description || '';
+        row.append(name, description);
+        row.addEventListener('mousedown', event => event.preventDefault());
+        row.addEventListener('click', () => completeSlashCommand(index));
+        slashMenu.appendChild(row);
+      });
+      slashMenu.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
+      input.setAttribute('aria-activedescendant', 'slash-command-' + slashIndex);
+    }
+
+    function completeSlashCommand(index) {
+      const command = slashMatches[index];
+      if (!command) return;
+      setComposerInput('/' + command.name + ' ');
+      closeSlashCommands();
+    }
+
     function resizeInput() {
       input.style.height = '0px';
       input.style.height = input.scrollHeight + 'px';
@@ -864,6 +924,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
 
     function setComposerInput(text) {
       input.value = text;
+      slashDismissed = false;
+      closeSlashCommands();
       resizeInput();
       composerRevision += 1;
       updateSendState();
@@ -1089,9 +1151,17 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
                   ? 'Wait for Pi to finish before sending'
                   : 'Enter to send · Shift+Enter for a new line';
       updateRuntimeStatus();
+      renderSlashCommands();
     }
 
     function render(state) {
+      const catalog = [{ name: 'compact', description: 'Manually compact the session context' }, ...(state.runtime.commands || [])];
+      const names = new Set();
+      slashCommands = catalog.filter(command => {
+        if (!command || typeof command.name !== 'string' || !/^[^\\s/]+$/.test(command.name) || names.has(command.name)) return false;
+        names.add(command.name);
+        return true;
+      });
       busy = Boolean(state.runtime.busy);
       cancellable = Boolean(state.runtime.cancellable);
       queueable = Boolean(state.runtime.queueable) && busy;
@@ -1307,7 +1377,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     $('more').addEventListener('click', () => vscode.postMessage({ type: 'showMoreActions', text: input.value, revision: composerRevision }));
     $('source-control').addEventListener('click', () => vscode.postMessage({ type: 'openSourceControl' }));
     thinkingLevel.addEventListener('change', () => { if (!updatingControls) vscode.postMessage({ type: 'setThinking', level: thinkingLevel.value }); });
-    input.addEventListener('input', () => { composerRevision += 1; resizeInput(); updateSendState(); });
+    input.addEventListener('input', () => { composerRevision += 1; slashFocused = true; slashDismissed = false; slashIndex = 0; resizeInput(); updateSendState(); });
+    input.addEventListener('click', renderSlashCommands);
+    input.addEventListener('keyup', event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') renderSlashCommands(); });
+    input.addEventListener('blur', () => { slashFocused = false; closeSlashCommands(); });
+    input.addEventListener('focus', () => { slashFocused = true; renderSlashCommands(); });
     window.addEventListener('resize', resizeInput);
     conversationElement.addEventListener('scroll', event => {
       const atBottom = conversationElement.scrollHeight - conversationElement.scrollTop - conversationElement.clientHeight <= 16;
@@ -1322,6 +1396,21 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     input.addEventListener('paste', attachPastedImages);
     input.addEventListener('keydown', event => {
       if (event.isComposing) return;
+      if (!slashMenu.hidden && slashMatches.length && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          event.preventDefault();
+          slashIndex = (slashIndex + (event.key === 'ArrowDown' ? 1 : -1) + slashMatches.length) % slashMatches.length;
+          renderSlashCommands();
+          slashMenu.children[slashIndex]?.scrollIntoView?.({ block: 'nearest' });
+          return;
+        }
+        if (event.key === 'Enter' || event.key === 'Tab') {
+          event.preventDefault(); completeSlashCommand(slashIndex); return;
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault(); slashDismissed = true; closeSlashCommands(); return;
+        }
+      }
       const followUpShortcut = useCtrlQForFollowUp
         ? event.key.toLowerCase() === 'q' && event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey
         : event.key === 'Enter' && event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;

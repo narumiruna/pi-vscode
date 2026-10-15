@@ -264,6 +264,90 @@ test("sidebar generated script parses with static icons and keeps nonce-only CSP
 
 // Only the DOM operations needed to execute the generated script are modeled.
 // Descendant searches fail deterministically instead of relying on timing limits.
+test("slash suggestions filter command names by substring and complete without submitting", () => {
+  const sidebar = createSidebarScriptHarness();
+  const input = sidebar.element('input');
+  const menu = sidebar.element('slash-commands');
+  sidebar.receive({ type: 'state', runtime: { connected: true, busy: false, commands: [
+    { name: 'codex-compact', description: 'Compact with Codex' },
+    { name: 'skill:review', description: 'Review code' },
+    { name: 'compact', description: 'Duplicate' },
+    { name: '<unsafe>', description: '<img src=x>' },
+  ] } });
+  const type = (text: string) => {
+    input.value = text;
+    input.listeners.get('input')!();
+  };
+  type('/');
+  assert.equal(menu.hidden, false);
+  assert.equal(menu.children.length, 4, 'the catalog deduplicates names');
+  assert.equal(menu.children[3]?.children[1]?.textContent, '<img src=x>', 'descriptions are text, not HTML');
+  type('/COM');
+  assert.deepEqual(menu.children.map(row => row.children[0]?.textContent), ['/compact', '/codex-compact']);
+  const key = (key: string, extra = {}) => {
+    let prevented = false;
+    input.listeners.get('keydown')!({ key, preventDefault: () => { prevented = true; }, ...extra });
+    return prevented;
+  };
+  assert.equal(key('ArrowDown'), true);
+  assert.equal((menu.children[1] as any)['aria-selected'], 'true');
+  const count = sidebar.posted.length;
+  assert.equal(key('Enter'), true);
+  assert.equal(input.value, '/codex-compact ');
+  assert.equal(sidebar.posted.length, count, 'Enter completes before submission');
+  assert.equal(menu.hidden, true);
+  type('/com');
+  assert.equal(key('ArrowUp'), true, 'selection wraps');
+  assert.equal(key('Tab'), true);
+  assert.equal(input.value, '/codex-compact ');
+  type('/skill:');
+  menu.children[0]!.listeners.get('click')!();
+  assert.equal(input.value, '/skill:review ');
+  assert.equal(menu.hidden, true);
+});
+
+test("slash suggestions dismiss safely and preserve ordinary editor keys", () => {
+  const sidebar = createSidebarScriptHarness();
+  const input = sidebar.element('input');
+  const menu = sidebar.element('slash-commands');
+  const state = (busy = false) => sidebar.receive({ type: 'state', runtime: { connected: true, busy } });
+  state();
+  const type = (text: string) => { input.value = text; input.listeners.get('input')!(); };
+  type('/com');
+  let prevented = false;
+  const press = (key: string, extra = {}) => {
+    prevented = false;
+    input.listeners.get('keydown')!({ key, preventDefault: () => { prevented = true; }, ...extra });
+  };
+  press('Enter', { isComposing: true });
+  assert.equal(prevented, false);
+  assert.equal(input.value, '/com');
+  press('Enter', { shiftKey: true });
+  assert.equal(prevented, false);
+  press('Escape');
+  assert.equal(prevented, true);
+  assert.equal(menu.hidden, true);
+  state();
+  assert.equal(menu.hidden, true, 'stream updates do not reopen dismissed suggestions');
+  type('/co');
+  assert.equal(menu.hidden, false);
+  input.listeners.get('blur')!();
+  assert.equal(menu.hidden, true);
+  state();
+  assert.equal(menu.hidden, true, 'state updates do not reopen suggestions after focus leaves the input');
+  for (const text of ['/missing', '/compact instructions', 'explain /com', '/com\n']) {
+    type(text);
+    assert.equal(menu.hidden, true, text);
+  }
+  type('/');
+  state(true);
+  assert.equal(menu.hidden, true, 'commands cannot be queued while busy');
+  state();
+  sidebar.run('input.selectionStart = 1; input.selectionEnd = 2');
+  type('/com');
+  assert.equal(menu.hidden, true, 'selection and an interior caret do not open suggestions');
+});
+
 class SidebarTestElement {
   children: SidebarTestElement[] = [];
   dataset: Record<string, string> = {};
