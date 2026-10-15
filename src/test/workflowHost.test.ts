@@ -181,9 +181,24 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
     const ordinaryPrompt = client.prompt;
     client.prompt = async () => "handled";
     let commandAccepted = false;
-    assert.equal(await runtime.prompt('/extension-command', undefined, undefined, () => { commandAccepted = true; }), undefined);
+    assert.deepEqual(
+      await runtime.prompt("/extension-command", undefined, undefined, () => {
+        commandAccepted = true;
+      }),
+      { disposition: "handled" },
+    );
     assert.equal(commandAccepted, true);
-    assert.equal(runtime.currentState.busy, false, 'a handled command does not wait for agent_settled');
+    assert.equal(runtime.currentState.busy, false, "a handled command does not wait for agent_settled");
+    const ordinaryRefresh = internal.refreshState;
+    internal.refreshState = async () => {
+      throw new Error("state unavailable");
+    };
+    try {
+      assert.deepEqual(await runtime.prompt("/extension-command"), { disposition: "handled" });
+      assert.equal(runtime.currentState.busy, false, "state refresh failure cannot undo command completion");
+    } finally {
+      internal.refreshState = ordinaryRefresh;
+    }
     client.prompt = ordinaryPrompt;
     const feature = runtime.prompt("preview callback request");
     await tick();
@@ -763,19 +778,201 @@ test("Sessions-layer submission snapshots attachments and holds the request gate
     assert.equal(consumed, true);
     assert.ok(posted.some((message) => message.type === "clearInput" && message.expectedRevision === 7));
 
-    await internal.runRequest('/codex-compact now', [], [], undefined, undefined, undefined, 'composer');
-    assert.equal(prompts.at(-1)?.request, '/codex-compact now', 'composer commands reach Pi without prompt wrappers');
+    await internal.runRequest("/codex-compact now", [], [], undefined, undefined, undefined, "composer");
+    assert.equal(prompts.at(-1)?.request, "/codex-compact now", "composer commands reach Pi without prompt wrappers");
+    const ordinaryPrompt = runtime.prompt;
+    let trackerStarts = 0;
+    const trackerFinishes: string[] = [];
+    internal.changeTracker.startRequest = () => {
+      trackerStarts += 1;
+    };
+    internal.changeTracker.finishRequest = (status = "completed") => {
+      trackerFinishes.push(status);
+      return [];
+    };
+    runtime.prompt = async (
+      _request: string,
+      _resource: unknown,
+      _images: unknown,
+      onAccepted?: () => void,
+      beforeSubmit?: () => void,
+    ) => {
+      beforeSubmit?.();
+      onAccepted?.();
+      return { disposition: "handled" };
+    };
+    runtime.getMessages = async () => {
+      assert.equal(internal.trackCurrentRequestChanges, false, "finish tracking before history refresh");
+      assert.deepEqual(trackerFinishes, ["completed"]);
+      return [];
+    };
+    let commandAccepted = false;
+    let responseCallbackCalled = false;
+    assert.equal(
+      await internal.runRequest(
+        "/extension-command",
+        [],
+        [],
+        undefined,
+        undefined,
+        undefined,
+        "composer",
+        () => {
+          responseCallbackCalled = true;
+        },
+        () => {
+          commandAccepted = true;
+        },
+      ),
+      "",
+    );
+    assert.equal(commandAccepted, true);
+    assert.equal(responseCallbackCalled, false, "handled commands have no assistant response");
+    assert.equal(internal.status, "Ready");
+    assert.equal(internal.retryRequest, undefined);
+    assert.equal(internal.requestLifecycle.canRetry, false);
+    assert.equal(internal.requestGate.isPending, false);
+    assert.equal(trackerStarts, 1);
+    assert.deepEqual(trackerFinishes, ["completed"]);
+    assert.equal(internal.trackCurrentRequestChanges, false);
+    internal.handleRuntimeEvent({ type: "process_exit" });
+    assert.deepEqual(trackerFinishes, ["completed"], "a later exit cannot change a completed command checkpoint");
+    assert.equal(
+      posted.some((message) => message.type === "notice" && message.level === "error"),
+      false,
+    );
+    runtime.getMessages = async () => {
+      throw new Error("history unavailable");
+    };
     await assert.rejects(
-      internal.runRequest('/skill:review', [{ label: 'file', content: 'context' }], [], undefined, undefined, undefined, 'composer'),
+      internal.runRequest("/extension-command", [], [], undefined, undefined, undefined, "composer"),
+      /history unavailable/,
+    );
+    assert.equal(internal.retryRequest, undefined, "history refresh failure must not permit command replay");
+    assert.equal(internal.requestLifecycle.canRetry, false);
+    assert.equal(trackerStarts, 2);
+    assert.deepEqual(trackerFinishes, ["completed", "completed"]);
+    assert.equal(internal.trackCurrentRequestChanges, false);
+    runtime.getMessages = async () => [];
+    runtime.prompt = async () => undefined;
+    await assert.rejects(
+      internal.runRequest("ordinary request", [], [], undefined, undefined, undefined, "composer"),
+      /without an assistant response/,
+    );
+    assert.ok(internal.retryRequest, "ordinary missing responses still permit Retry");
+    runtime.prompt = ordinaryPrompt;
+    await assert.rejects(
+      internal.runRequest(
+        "/skill:review",
+        [{ label: "file", content: "context" }],
+        [],
+        undefined,
+        undefined,
+        undefined,
+        "composer",
+      ),
       /Remove attachments/,
     );
     let compactInstructions: string | undefined;
-    runtime.compact = async (instructions?: string) => { compactInstructions = instructions; };
-    await internal.send('/compact focus on code', 8);
-    assert.equal(compactInstructions, 'focus on code');
-    assert.ok(posted.some((message) => message.type === 'clearInput' && message.expectedRevision === 8));
+    runtime.compact = async (instructions?: string) => {
+      compactInstructions = instructions;
+    };
+    await internal.send("/compact focus on code", 8);
+    assert.equal(compactInstructions, "focus on code");
+    assert.ok(posted.some((message) => message.type === "clearInput" && message.expectedRevision === 8));
   } finally {
     completeSessionSwitch?.();
+    for (const disposable of context.subscriptions) disposable.dispose();
+    vscode.restore();
+  }
+});
+
+test("compact commands are accepted before history refresh and history failure does not reject them", async () => {
+  const vscode = installVscodeMock();
+  vscode.window.registerWebviewViewProvider = () => ({ dispose() {} });
+  const { registerPiCodeSidebar } = require("../sidebar") as typeof import("../sidebar");
+  const subscription = () => ({ dispose() {} });
+  const posted: Record<string, unknown>[] = [];
+  let compactions = 0;
+  let revision = 0;
+  let failHistory = true;
+  const acceptedBeforeHistory: number[] = [];
+  const runtime: any = {
+    currentState: { connected: true },
+    currentCwd: process.cwd(),
+    onEvent: subscription,
+    onDidChangeState: subscription,
+    compact: async () => {
+      compactions += 1;
+    },
+    getMessages: async () => {
+      if (posted.some((message) => message.type === "clearInput" && message.expectedRevision === revision)) {
+        acceptedBeforeHistory.push(revision);
+      }
+      if (failHistory) throw new Error("history unavailable");
+      return [];
+    },
+  };
+  const context: any = {
+    workspaceState: { get: () => undefined, update: async () => {} },
+    extensionUri: MockUri.file("/extension"),
+    subscriptions: [],
+  };
+  const internal = registerPiCodeSidebar(context, runtime) as any;
+  internal.view = {
+    webview: {
+      postMessage: async (message: Record<string, unknown>) => {
+        posted.push(message);
+        return true;
+      },
+    },
+  };
+  try {
+    for (const type of ["send", "sendNewSession"]) {
+      revision += 1;
+      posted.length = 0;
+      await internal.handleMessage({ type, text: "/compact focus", revision });
+      assert.equal(compactions, revision);
+      assert.equal(acceptedBeforeHistory.at(-1), revision, "clear the accepted revision before reading history");
+      assert.ok(
+        posted.some(
+          (message) =>
+            message.type === "clearInput" &&
+            message.expectedText === "/compact focus" &&
+            message.expectedRevision === revision,
+        ),
+      );
+      assert.equal(
+        posted.some((message) => message.type === "sendRejected"),
+        false,
+      );
+      assert.equal(internal.historyRecoveryAvailable, true);
+      assert.equal(internal.status, "Context compacted · History refresh failed");
+      assert.ok(
+        posted.some(
+          (message) =>
+            message.type === "notice" &&
+            message.level === "warning" &&
+            String(message.message).includes("Refresh history"),
+        ),
+      );
+    }
+    failHistory = false;
+    await internal.refreshHistory();
+    assert.equal(compactions, 2, "history recovery does not repeat compaction");
+    assert.equal(internal.historyRecoveryAvailable, false);
+    runtime.compact = async () => {
+      throw new Error("compaction failed");
+    };
+    posted.length = 0;
+    await internal.handleMessage({ type: "send", text: "/compact", revision: 3 });
+    assert.ok(posted.some((message) => message.type === "sendRejected"));
+    assert.equal(
+      posted.some((message) => message.type === "clearInput"),
+      false,
+      "a failed compaction retains the composer draft",
+    );
+  } finally {
     for (const disposable of context.subscriptions) disposable.dispose();
     vscode.restore();
   }
