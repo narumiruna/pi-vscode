@@ -257,7 +257,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     onAccepted?: () => void,
     beforeSubmit?: () => void,
     allowQueue = false,
-  ): Promise<string | undefined> {
+  ): Promise<string | { disposition: "handled" } | undefined> {
     return this.owned(async () => {
       await this.ensureStarted(resource);
       if (resource) await this.assertResourceMatchesActiveWorkspace(resource);
@@ -284,8 +284,14 @@ export class PiRuntimeManager implements vscode.Disposable {
         onAccepted?.();
         if (disposition === "handled") {
           this.promptActive = false;
-          await this.refreshState(true);
-          return undefined;
+          this.updateState({ busy: false });
+          await this.refreshState(true).catch((error) => {
+            this.eventEmitter.fire({
+              type: "runtime_warning",
+              message: `Pi handled the command, but state refresh failed. Do not repeat the command. ${formatError(error)}`,
+            });
+          });
+          return { disposition: "handled" };
         }
         return await settled.promise;
       } catch (error) {
