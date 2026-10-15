@@ -332,7 +332,7 @@ async function reportError(error: unknown): Promise<void> {
   }
   const action = await vscode.window.showErrorMessage(message, "Open Pi Settings");
   if (action === "Open Pi Settings") {
-    await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:narumi.pi-coding-agent-vscode");
+    await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:narumi.narumi-pi");
   }
 }
 
