@@ -49,13 +49,26 @@ function mathExtension(block: boolean): TokenizerExtension {
       const close = delimiter === "\\(" ? "\\)" : delimiter === "\\[" ? "\\]" : delimiter;
       const start = opening[0].length;
       let end = source.indexOf(close, start);
-      while (end >= 0 && /(?:^|[^\\])(?:\\\\)*\\$/.test(source.slice(0, end)))
+      while (end >= 0) {
+        let backslashes = 0;
+        for (let index = end - 1; index >= 0 && source[index] === "\\"; index--) backslashes++;
+        if (backslashes % 2 === 0) break;
         end = source.indexOf(close, end + close.length);
+      }
       if (end < 0) {
         const text = source.slice(start);
+        // Check the expression prefix, not Markdown punctuation in later prose.
+        if (delimiter === "$") {
+          const amount = /^\d+(?:[.,]\d+)*/.exec(text)?.[0];
+          if (amount) {
+            const remainder = text.slice(amount.length);
+            const startsMath = /^(?:!+\s*|\s+)(?:\\+[A-Za-z]+|[=+^<>]|_(?:\s|\{)|[*/-]\s)/.test(remainder);
+            if (!startsMath && /^(?:\s|[)\]}:;!?,.'"]|$)/.test(remainder)) return undefined;
+          }
+        }
         if (
           delimiter.startsWith("\\") ||
-          ((delimiter === "$$" || delimiter === "$") && /\\[A-Za-z]+|[_^=+*/]/.test(text))
+          ((delimiter === "$$" || delimiter === "$") && /\\[A-Za-z]+|[_^=+*/<>]/.test(text))
         ) {
           return { type: block ? "mathBlock" : "mathInline", raw: source, text, pending: true };
         }
