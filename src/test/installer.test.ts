@@ -54,10 +54,10 @@ test.each([releaseInstaller, upgradeCheck])(
         },
       });
       await assert.rejects(access(mutations), { code: "ENOENT" });
-      const recipes = await readFile(path.join(repositoryRoot, "justfile"), "utf8");
-      assert.match(
-        recipes,
-        /install-vsix:\n {4}sh .*check-legacy-vscode-extension\.sh"\n {4}npm run package\n {4}code --install-extension/,
+      const manifest = JSON.parse(await readFile(path.join(repositoryRoot, "package.json"), "utf8"));
+      assert.equal(
+        manifest.scripts["install:vsix"],
+        "sh scripts/check-legacy-vscode-extension.sh && npm run package && code --install-extension pi-coding-agent-vscode.vsix --force",
       );
     } finally {
       await rm(root, { recursive: true, force: true });

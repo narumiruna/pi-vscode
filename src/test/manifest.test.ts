@@ -47,7 +47,7 @@ test("extension identity stays consistent across packaging, settings, and docume
   assert.ok(readFileSync("src/editorActions.ts", "utf8").includes(`"@ext:${id}"`));
   assert.ok(readFileSync("README.md", "utf8").includes(`The extension ID is \`${id}\``));
   assert.ok(manifest.scripts.package.includes("--out pi-coding-agent-vscode.vsix"));
-  assert.ok(readFileSync("justfile", "utf8").includes("/pi-coding-agent-vscode.vsix"));
+  assert.ok(manifest.scripts["install:vsix"].includes("code --install-extension pi-coding-agent-vscode.vsix --force"));
   assert.ok(manifest.contributes.commands.every((command) => command.command.startsWith("picode.")));
   assert.ok(Object.keys(manifest.contributes.configuration.properties).every((key) => key.startsWith("picode.")));
   for (const path of [
@@ -60,9 +60,12 @@ test("extension identity stays consistent across packaging, settings, and docume
     assert.equal(existsSync(path), true, `missing Pi asset: ${path}`);
   }
   assert.equal(existsSync("scripts/install-picode-extension.mjs"), false);
-  const recipes = readFileSync("justfile", "utf8");
-  assert.ok(recipes.includes("scripts/remove-legacy-picode-extension.mjs"));
-  assert.equal(recipes.includes("install-picode-extension"), false);
+  assert.equal(existsSync("justfile"), false);
+  assert.equal(manifest.scripts.install, undefined, "npm install must not install the extension");
+  assert.equal(
+    manifest.scripts["install:extension"],
+    "npm run install:vsix && node scripts/remove-legacy-picode-extension.mjs",
+  );
 });
 
 test("workflow commands are contributed, registered, documented and keep minimum stable workspace-host compatibility", () => {
@@ -124,11 +127,6 @@ test("development launchers target the intended extension mode", () => {
     assert.deepEqual(host.args, ["--extensionDevelopmentPath=${workspaceFolder}"]);
   }
 
-  const recipes = readFileSync("justfile", "utf8");
-  const dev = /^dev: install\n((?:[ \t].*\n)+)/m.exec(recipes)?.[1];
-  assert.ok(dev, "missing just dev recipe with install dependency");
-  const launchLine = dev.split("\n").find((line) => line.trimStart().startsWith("code "));
-  assert.ok(launchLine, "just dev must launch VS Code");
-  assert.ok(launchLine.includes('--new-window "{{invocation_directory()}}"'));
-  assert.equal(launchLine.includes("--extensionDevelopmentPath"), false);
+  assert.equal(manifest.scripts.dev, 'npm run install:extension && code --new-window "${INIT_CWD:-.}"');
+  assert.equal(manifest.scripts["dev:pi"], "pi -ne -e resources/picode-bridge.ts");
 });
