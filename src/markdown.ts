@@ -62,9 +62,9 @@ function mathExtension(block: boolean): TokenizerExtension {
           const amount = /^\d+(?:[.,]\d+)*/.exec(text)?.[0];
           if (amount) {
             const remainder = text.slice(amount.length);
-            // Compact unit words need more evidence than a slash alone.
+            // Alphabetic divisors need a math continuation to distinguish price units.
             const startsMath =
-              /^(?:!+\s*|\s+)(?:\\+[A-Za-z]+|[=+^<>]|\/(?=\s|\d|\\|\(|[A-Za-z](?![A-Za-z])|[A-Za-z]+\s*[=+^<>])|_(?:\s|\{)|[*-]\s)/.test(
+              /^(?:!+\s*|\s+)(?:\\+[A-Za-z]+|[=+^<>]|\/(?=\s|\d|\\|\(|[A-Za-z]+\s*(?:\\+[A-Za-z]+|[=+^<>]|_(?:\s|\{)|[*/-]\s))|_(?:\s|\{)|[*-]\s)/.test(
                 remainder,
               );
             if (!startsMath && /^(?:\s|[)\]}:;!?,.'"]|$)/.test(remainder)) return undefined;
@@ -75,7 +75,7 @@ function mathExtension(block: boolean): TokenizerExtension {
           ((delimiter === "$$" || delimiter === "$") &&
             (/\\[A-Za-z]+|[_^=+*/]/.test(text) ||
               // Bare inequalities need a numeric prefix or an explicit display delimiter.
-              ((delimiter === "$$" || /^[+-]?\d/.test(text)) && /[<>]/.test(text))))
+              ((delimiter === "$$" || /^[+-]?(?:\d|\.\d)/.test(text)) && /[<>]/.test(text))))
         ) {
           return { type: block ? "mathBlock" : "mathInline", raw: source, text, pending: true };
         }
