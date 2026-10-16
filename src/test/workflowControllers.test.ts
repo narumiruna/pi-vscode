@@ -119,7 +119,7 @@ test("snapshot confirmation preserves cancellation, redaction reinspection and f
 });
 
 test("staged command confirmation, immutable finding navigation, stale rejection and trust/virtual guards", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "picode-review-controller-"));
+  const root = await mkdtemp(path.join(tmpdir(), "pi-review-controller-"));
   const fixture = ui(root);
   const git = (...args: string[]) => execFileSync("git", args, { cwd: root, env: gitEnvironment() });
   try {
@@ -144,7 +144,7 @@ test("staged command confirmation, immutable finding navigation, stale rejection
       },
       addEditProposal: () => "unused",
     });
-    const command = vscode.registrations.get("picode.reviewStagedChanges")!;
+    const command = vscode.registrations.get("pi.reviewStagedChanges")!;
     vscode.window.showWarningMessage = async () => undefined;
     await command();
     assert.equal(requests.length, 0);
@@ -158,7 +158,7 @@ test("staged command confirmation, immutable finding navigation, stale rejection
       diffs.push(args);
     };
     vscode.window.showQuickPick = async (items: any[]) => items[0];
-    await vscode.registrations.get("picode.showStagedFindings")!();
+    await vscode.registrations.get("pi.showStagedFindings")!();
     assert.equal(diffs[0][0], "vscode.diff");
     assert.notEqual(diffs[0][1].scheme, "file");
     assert.notEqual(diffs[0][2].scheme, "file");
@@ -184,7 +184,7 @@ test("staged command confirmation, immutable finding navigation, stale rejection
 
 for (const workspaceKind of ["root", "subfolder"])
   test(`staged ${workspaceKind} review preserves runtime scope and highlights complete finding lines`, async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "picode-staged-scope-"));
+    const root = await mkdtemp(path.join(tmpdir(), "pi-staged-scope-"));
     const nested = path.join(root, "nested");
     await mkdir(nested);
     const fixture = ui(workspaceKind === "root" ? root : nested);
@@ -231,8 +231,8 @@ for (const workspaceKind of ["root", "subfolder"])
       for (const side of ["before", "after"])
         for (const startLine of [1, 2]) {
           finding = { path: "a.ts", side, startLine, endLine: 2 };
-          await vscode.registrations.get("picode.reviewStagedChanges")!();
-          await vscode.registrations.get("picode.showStagedFindings")!();
+          await vscode.registrations.get("pi.reviewStagedChanges")!();
+          await vscode.registrations.get("pi.showStagedFindings")!();
           assert.deepEqual(fixture.errors, []);
           assert.equal(selection.startLine, startLine - 1);
           assert.equal(selection.startCharacter, 0);
@@ -240,11 +240,11 @@ for (const workspaceKind of ["root", "subfolder"])
           assert.equal(selection.endCharacter, side === "before" ? 4 : 7);
         }
       fixture.runtime.currentCwd = workspaceKind === "root" ? nested : root;
-      await vscode.registrations.get("picode.showStagedFindings")!();
+      await vscode.registrations.get("pi.showStagedFindings")!();
       assert.match(fixture.errors.pop() ?? "", /target does not match/);
       fixture.runtime.currentCwd = fixture.folder.uri.fsPath;
       fixture.runtime.currentState.sessionId = "changed";
-      await vscode.registrations.get("picode.showStagedFindings")!();
+      await vscode.registrations.get("pi.showStagedFindings")!();
       assert.match(fixture.errors.pop() ?? "", /session changed/);
     } finally {
       fixture.dispose();
@@ -253,7 +253,7 @@ for (const workspaceKind of ["root", "subfolder"])
   });
 
 test.each([false, true])("failed-test repair previews and reruns (workspace alias: %s)", async (alias) => {
-  const directory = await mkdtemp(path.join(tmpdir(), "picode-repair-controller-"));
+  const directory = await mkdtemp(path.join(tmpdir(), "pi-repair-controller-"));
   const root = path.join(directory, "workspace");
   await mkdir(root);
   const workspace = alias ? path.join(directory, "alias") : root;
@@ -326,7 +326,7 @@ test.each([false, true])("failed-test repair previews and reruns (workspace alia
         assert.equal(snapshot.repository, workspace);
         assert.deepEqual(snapshot.command, command);
         assert.equal(snapshot.exitCode, 1);
-        return "<<<PICODE_REPLACEMENT_START>>>\nmodule.exports = 42;\n\n<<<PICODE_REPLACEMENT_END>>>";
+        return "<<<PI_VSCODE_REPLACEMENT_START>>>\nmodule.exports = 42;\n\n<<<PI_VSCODE_REPLACEMENT_END>>>";
       },
       addEditProposal: (input) => {
         void (async () => {
@@ -340,7 +340,7 @@ test.each([false, true])("failed-test repair previews and reruns (workspace alia
         return "fixture-proposal";
       },
     });
-    await vscode.registrations.get("picode.repairFailedTest")!();
+    await vscode.registrations.get("pi.repairFailedTest")!();
     assert.deepEqual(fixture.errors, []);
     assert.ok(requests > 0, fixture.inspected.join("\n"));
     assert.equal(await readFile(path.join(root, "runs"), "utf8"), "2");
@@ -350,7 +350,7 @@ test.each([false, true])("failed-test repair previews and reruns (workspace alia
     assert.deepEqual(approvals, ["Run Test Command", "Send Snapshot", "Save and Rerun", "Run Test Command"]);
     // Denial at process approval must not start any new process or model request.
     vscode.window.showWarningMessage = async () => undefined;
-    await vscode.registrations.get("picode.repairFailedTest")!();
+    await vscode.registrations.get("pi.repairFailedTest")!();
     assert.equal(await readFile(path.join(root, "runs"), "utf8"), "2");
     assert.equal(requests, 1);
   } finally {
@@ -361,7 +361,7 @@ test.each([false, true])("failed-test repair previews and reruns (workspace alia
 });
 
 test("test repair rejects a retargeted workspace alias even when source bytes match", async () => {
-  const directory = await mkdtemp(path.join(tmpdir(), "picode-repair-alias-"));
+  const directory = await mkdtemp(path.join(tmpdir(), "pi-repair-alias-"));
   const root = path.join(directory, "workspace");
   const outside = path.join(directory, "outside");
   const workspace = path.join(directory, "alias");
@@ -393,14 +393,14 @@ test("test repair rejects a retargeted workspace alias even when source bytes ma
   registerTestRepair(fixture.context, fixture.runtime, {
     sendRequest: async () => {
       requests++;
-      return `<<<PICODE_REPLACEMENT_START>>>\n${text}\n<<<PICODE_REPLACEMENT_END>>>`;
+      return `<<<PI_VSCODE_REPLACEMENT_START>>>\n${text}\n<<<PI_VSCODE_REPLACEMENT_END>>>`;
     },
     addEditProposal: () => assert.fail("A retargeted workspace must not propose edits"),
   });
   try {
     await writeFile(source, text);
     await writeFile(path.join(outside, "source.cjs"), text);
-    await vscode.registrations.get("picode.repairFailedTest")!();
+    await vscode.registrations.get("pi.repairFailedTest")!();
     assert.equal(requests, 0);
     assert.deepEqual(fixture.inspected, []);
     assert.match(fixture.errors[0] ?? "", /workspace root changed/);
@@ -413,7 +413,7 @@ test("test repair rejects a retargeted workspace alias even when source bytes ma
 });
 
 test("test repair rejects dirty sources and buffer/disk changes around observed runs", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "picode-repair-source-"));
+  const root = await mkdtemp(path.join(tmpdir(), "pi-repair-source-"));
   const fixture = ui(root);
   const source = path.join(root, "source.cjs");
   const runs = path.join(root, "runs");
@@ -473,7 +473,7 @@ test("test repair rejects dirty sources and buffer/disk changes around observed 
       dirty = scenario === "dirty";
       await writeFile(source, text);
       await rm(runs, { force: true });
-      await vscode.registrations.get("picode.repairFailedTest")!();
+      await vscode.registrations.get("pi.repairFailedTest")!();
       assert.match(fixture.errors.pop() ?? "", /Source|source/);
       assert.equal(requests, 0, scenario);
       if (["dirty", "approval-edit"].includes(scenario)) await assert.rejects(readFile(runs), { code: "ENOENT" });
@@ -486,7 +486,7 @@ test("test repair rejects dirty sources and buffer/disk changes around observed 
 });
 
 test("supplied failure log files preserve multiline evidence and reject missing, binary or oversized input", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "picode-repair-log-"));
+  const root = await mkdtemp(path.join(tmpdir(), "pi-repair-log-"));
   const fixture = ui(root);
   const source = path.join(root, "source.cjs");
   const log = path.join(root, "failure.log");
@@ -517,14 +517,14 @@ test("supplied failure log files preserve multiline evidence and reject missing,
       assert.equal(snapshot.output, output);
       assert.equal(snapshot.status, "supplied-log");
       assert.equal(snapshot.exitCode, null);
-      return `<<<PICODE_REPLACEMENT_START>>>\n${text}\n<<<PICODE_REPLACEMENT_END>>>`;
+      return `<<<PI_VSCODE_REPLACEMENT_START>>>\n${text}\n<<<PI_VSCODE_REPLACEMENT_END>>>`;
     },
     addEditProposal: () => assert.fail("unchanged response must not propose edits"),
   });
   try {
     await writeFile(source, text);
     await writeFile(log, output);
-    const command = vscode.registrations.get("picode.repairFailedTest")!;
+    const command = vscode.registrations.get("pi.repairFailedTest")!;
     await command();
     assert.equal(requests, 1);
     assert.deepEqual(fixture.errors, []);
@@ -548,7 +548,7 @@ test("supplied failure log files preserve multiline evidence and reject missing,
 });
 
 test("debug capture cancellation, unsupported adapters and resume during inspection never submit to Pi", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "picode-debug-controller-"));
+  const root = await mkdtemp(path.join(tmpdir(), "pi-debug-controller-"));
   const fixture = ui(root);
   let factory: any;
   vscode.DebugStackFrame = class {
@@ -592,7 +592,7 @@ test("debug capture cancellation, unsupported adapters and resume during inspect
     addEditProposal: () => "unused",
   });
   const events = factory.createDebugAdapterTracker(session);
-  const command = vscode.registrations.get("picode.askDebugContext")!;
+  const command = vscode.registrations.get("pi.askDebugContext")!;
   try {
     events.onDidSendMessage({ type: "event", event: "stopped" });
     vscode.window.showWarningMessage = async () => undefined;

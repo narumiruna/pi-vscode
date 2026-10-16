@@ -314,9 +314,9 @@ test.each([false, true])("authenticated semantic bridge (workspace alias: %s)", 
     const bridge = new VscodeBridgeServer();
     const env = await bridge.start();
     vscode.commands.executeCommand = async () => [{ uri, range: range() }];
-    const request = (params: unknown, token = env.PICODE_BRIDGE_TOKEN) =>
+    const request = (params: unknown, token = env.PI_VSCODE_BRIDGE_TOKEN) =>
       new Promise<any>((resolve, reject) => {
-        const socket = net.createConnection({ host: "127.0.0.1", port: Number(env.PICODE_BRIDGE_PORT) });
+        const socket = net.createConnection({ host: "127.0.0.1", port: Number(env.PI_VSCODE_BRIDGE_PORT) });
         let output = "";
         socket.on("connect", () =>
           socket.write(JSON.stringify({ id: "test", token, method: "codeContext", params }) + "\n"),

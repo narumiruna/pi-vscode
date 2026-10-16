@@ -3,9 +3,11 @@
 This matrix maps the capabilities advertised by the four requested reference extensions to the Pi workflow implemented in this repository.
 Vendor-owned hosted services cannot be reproduced by a local extension, so those rows name the external dependency and the available Pi-local alternative.
 
+The current identifier contract uses `pi.*` settings and commands, Pi/pi internal names and bundled assets, and `PI_VSCODE_*` bridge variables and prompt markers. Old identifiers and cached state are not migrated. Persistent Pi session files and exact legacy global bridge cleanup paths are unchanged.
+
 | Reference capability | Pi workflow | Status / evidence |
 | --- | --- | --- |
-| Git change review | Confirm immutable staged, unstaged, working-tree, or merge-base-to-HEAD snapshots; navigate findings in Problems | `gitSnapshots.ts`, `gitReview.ts`, `reviewFindings.ts`; real Git fixtures and host/controller tests. Existing staged commands remain compatible; hosted PR APIs excluded. |
+| Git change review | Confirm immutable staged, unstaged, working-tree, or merge-base-to-HEAD snapshots; navigate findings in Problems | `gitSnapshots.ts`, `gitReview.ts`, `reviewFindings.ts`; real Git fixtures and host/controller tests. Staged commands use the current `pi.*` identifiers; hosted PR APIs excluded. |
 | Semantic code context | Attach provider-backed definitions, references, callers, callees and symbols; query metadata through `vscode_code_context` | `semanticContext.ts`, `sidebarAttachments.ts`, `vscodeBridge.ts`; bounded, trusted, same-workspace results, cancellation and authenticated bridge tests. No repository index or embeddings. |
 | Workspace diagnostic repair | Select errors/warnings, inspect full file snapshots, preview selected hunks across files, Apply once | `workspaceDiagnostics.ts`, `workspaceDiagnosticsController.ts`, `editProposalController.ts`; strict parsing, stale/writable checks, native multi-file edit and Undo evidence. Diagnostic disappearance is not test evidence. |
 | Selective application | Choose deterministic hunks, preview the combined selection, Apply once | `editHunks.ts`, `editProposals.ts`, `editProposalController.ts`; selected-preview/one-workspace-edit and stale-version tests. No automatic rebase. |

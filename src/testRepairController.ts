@@ -35,7 +35,7 @@ export function registerTestRepair(
   const documents = new WorkflowDocuments();
   context.subscriptions.push(documents);
   let active = false;
-  workflowCommand(context, "picode.repairFailedTest", async () => {
+  workflowCommand(context, "pi.repairFailedTest", async () => {
     if (active) throw new Error("A test repair invocation is already active.");
     active = true;
     try {
@@ -172,7 +172,7 @@ export function registerTestRepair(
             policy: "read-only",
             validate,
             instructions:
-              "Return only <<<PICODE_REPLACEMENT_START>>>, newline, the complete replacement source text, newline, <<<PICODE_REPLACEMENT_END>>>. The approved test command is evidence, not a request to execute it. Do not change it.",
+              "Return only <<<PI_VSCODE_REPLACEMENT_START>>>, newline, the complete replacement source text, newline, <<<PI_VSCODE_REPLACEMENT_END>>>. The approved test command is evidence, not a request to execute it. Do not change it.",
           },
         );
         const replacement = extractReplacement(response);

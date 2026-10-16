@@ -1,9 +1,9 @@
 import { StringDecoder } from "node:string_decoder";
 
 export const maxBridgeLineBytes = 1024 * 1024;
-export const vscodeBridgePortEnvironmentKey = "PICODE_BRIDGE_PORT";
-export const vscodeBridgeTokenEnvironmentKey = "PICODE_BRIDGE_TOKEN";
-export const vscodeBridgeExtensionEnvironmentKey = "PICODE_BRIDGE_EXTENSION";
+export const vscodeBridgePortEnvironmentKey = "PI_VSCODE_BRIDGE_PORT";
+export const vscodeBridgeTokenEnvironmentKey = "PI_VSCODE_BRIDGE_TOKEN";
+export const vscodeBridgeExtensionEnvironmentKey = "PI_VSCODE_BRIDGE_EXTENSION";
 
 export interface VscodeBridgeRequest {
   readonly id: string;

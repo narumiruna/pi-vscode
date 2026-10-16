@@ -234,7 +234,7 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
   public async review(id: string): Promise<void> {
     const { record, name } = this.resolve(id);
     const file = record.files.find((file) => file.path === name)!;
-    const before = vscode.Uri.from({ scheme: "picode-checkpoint", path: `/${name}`, query: `${record.id}-before` });
+    const before = vscode.Uri.from({ scheme: "pi-checkpoint", path: `/${name}`, query: `${record.id}-before` });
     const after = before.with({ query: `${record.id}-after` });
     this.previews.clear();
     this.previews.set(before.toString(), file.before);
@@ -268,7 +268,7 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
     );
     if (!selected) return false;
     const record = selected.record;
-    const report = vscode.Uri.from({ scheme: "picode-checkpoint", path: "/coverage.txt", query: record.id });
+    const report = vscode.Uri.from({ scheme: "pi-checkpoint", path: "/coverage.txt", query: record.id });
     this.previews.clear();
     this.previews.set(
       report.toString(),

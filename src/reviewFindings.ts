@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import type { GitFinding, GitReviewResult } from "./gitReview";
 import { type GitReviewSnapshot, scopeLabel } from "./gitSnapshots";
 
-const scheme = "picode-review";
+const scheme = "pi-review";
 const maxReviews = 8;
 export interface ReviewRecord {
   readonly id: string;

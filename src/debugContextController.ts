@@ -38,7 +38,7 @@ export function registerDebugContext(
     }),
     vscode.debug.onDidTerminateDebugSession((session) => tracker.remove(session.id)),
   );
-  workflowCommand(context, "picode.askDebugContext", async () => {
+  workflowCommand(context, "pi.askDebugContext", async () => {
     requireTrustedFile();
     const selectedFrame = vscode.debug.activeStackItem;
     if (!(selectedFrame instanceof vscode.DebugStackFrame))

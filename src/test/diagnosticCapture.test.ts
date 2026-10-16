@@ -134,7 +134,7 @@ async function setup(alias: boolean) {
     hooks,
     fileOpens: () => fileOpens,
     run: async () => {
-      await vscode.registrations.get("picode.fixWorkspaceDiagnostics")!();
+      await vscode.registrations.get("pi.fixWorkspaceDiagnostics")!();
     },
   };
 }
@@ -261,38 +261,36 @@ test.each([
   }),
 );
 
-test.each(diagnosticEncodingFixtures)(
-  "diagnostic capture verifies VS Code encoding $encoding",
-  async (sample) =>
-    fixture(async (state) => {
-      const { encoding, hex, text } = sample;
-      let decoderAvailable = true;
-      if ("canonicalEncoding" in sample) {
-        try {
-          new TextDecoder(sample.canonicalEncoding, { fatal: true });
-        } catch (error) {
-          assert.ok(error instanceof RangeError);
-          decoderAvailable = false;
-        }
+test.each(diagnosticEncodingFixtures)("diagnostic capture verifies VS Code encoding $encoding", async (sample) =>
+  fixture(async (state) => {
+    const { encoding, hex, text } = sample;
+    let decoderAvailable = true;
+    if ("canonicalEncoding" in sample) {
+      try {
+        new TextDecoder(sample.canonicalEncoding, { fatal: true });
+      } catch (error) {
+        assert.ok(error instanceof RangeError);
+        decoderAvailable = false;
       }
-      await writeFile(state.file, Buffer.from(hex, "hex"));
-      vscode.workspace.getConfiguration = () => ({ get: () => encoding });
-      state.hooks.duringStat = async () => {
-        state.document.text = text;
-      };
-      await state.run();
-      if (!decoderAvailable) {
-        assert.deepEqual(state.errors, [
-          "Cannot verify diagnostic file encoding. Save as UTF-8 or set files.encoding and retry.",
-        ]);
-        assert.deepEqual(state.sent, []);
-        assert.deepEqual(state.inspected, []);
-        return;
-      }
-      assert.deepEqual(state.errors, []);
-      assert.equal(state.sent.length, 1);
-      assert.equal(JSON.parse(state.sent[0]!).files[0].content, text);
-    }),
+    }
+    await writeFile(state.file, Buffer.from(hex, "hex"));
+    vscode.workspace.getConfiguration = () => ({ get: () => encoding });
+    state.hooks.duringStat = async () => {
+      state.document.text = text;
+    };
+    await state.run();
+    if (!decoderAvailable) {
+      assert.deepEqual(state.errors, [
+        "Cannot verify diagnostic file encoding. Save as UTF-8 or set files.encoding and retry.",
+      ]);
+      assert.deepEqual(state.sent, []);
+      assert.deepEqual(state.inspected, []);
+      return;
+    }
+    assert.deepEqual(state.errors, []);
+    assert.equal(state.sent.length, 1);
+    assert.equal(JSON.parse(state.sent[0]!).files[0].content, text);
+  }),
 );
 
 test.each(diagnosticEncodingAgreementFixtures)(

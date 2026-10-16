@@ -35,7 +35,7 @@ export function registerWorkspaceDiagnostics(
       observations.clear();
     },
   });
-  workflowCommand(context, "picode.fixWorkspaceDiagnostics", async () => {
+  workflowCommand(context, "pi.fixWorkspaceDiagnostics", async () => {
     const release = gate.acquire();
     try {
       const folder = await pickWorkspace();

@@ -5,7 +5,7 @@ import path from "node:path";
 import { PiRpcClient, type PiRpcEvent, parseRpcQueue, StrictJsonLineDecoder } from "../piRpcClient";
 
 test("RPC queue fixtures preserve duplicates, ack before delivery, clear-before-abort and unsupported/ambiguous responses", async () => {
-  const directory = await mkdtemp(path.join(tmpdir(), "picode-queue-"));
+  const directory = await mkdtemp(path.join(tmpdir(), "pi-queue-"));
   const script = path.join(directory, "queue.cjs");
   await writeFile(
     script,
@@ -103,7 +103,7 @@ test("RPC framing bounds complete, partial and EOF lines before dispatch", () =>
 });
 
 test("forced RPC shutdown emits settlement-breaking process exit once even when SIGTERM is ignored", async () => {
-  const directory = await mkdtemp(path.join(tmpdir(), "picode-rpc-forced-stop-"));
+  const directory = await mkdtemp(path.join(tmpdir(), "pi-rpc-forced-stop-"));
   const script = path.join(directory, "fixture.cjs");
   await writeFile(
     script,

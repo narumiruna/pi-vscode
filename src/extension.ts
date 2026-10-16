@@ -6,7 +6,7 @@ import { registerGitReview } from "./gitReviewController";
 import { registerInlineCompletions } from "./inlineCompletion";
 import { removeLegacyGlobalBridgeExtensions } from "./legacyBridge";
 import { PiRuntimeManager } from "./piRuntime";
-import { registerPiCodeSidebar } from "./sidebar";
+import { registerPiSidebar } from "./sidebar";
 import { registerTestRepair } from "./testRepairController";
 import { abortAllPiInvocations } from "./vscodePi";
 import { registerWorkspaceDiagnostics } from "./workspaceDiagnosticsController";
@@ -24,7 +24,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<PiVsco
   const runtime = new PiRuntimeManager(context);
   context.subscriptions.push(runtime);
   await runtime.initializeBridge();
-  const conversation = registerPiCodeSidebar(context, runtime);
+  const conversation = registerPiSidebar(context, runtime);
   registerPiChat(context);
   registerEditorActions(context, conversation);
   registerGitReview(context, runtime, conversation);

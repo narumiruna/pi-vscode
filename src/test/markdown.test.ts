@@ -73,7 +73,7 @@ test("raw HTML, scripts, external images and unsafe links cannot become active m
   assert.match(html, /&lt;script&gt;/);
   for (const url of [
     "javascript:alert(1)",
-    "command:picode.openChat",
+    "command:pi.openChat",
     "file:///tmp/a",
     "//example.com",
     "https://example.com\nfoo",

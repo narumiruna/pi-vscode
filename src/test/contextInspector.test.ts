@@ -68,7 +68,7 @@ test("submission snapshots bind descriptors to accepted items while rejection, c
   assert.equal(queued?.text, "Please analyze the attached images and context.");
   assert.match(
     queued?.message ?? "",
-    /PICODE_CONTEXT_START: file\.ts[\s\S]*const value = 1;[\s\S]*PICODE_REQUEST_START[\s\S]*Please analyze the attached images and context/,
+    /PI_VSCODE_CONTEXT_START: file\.ts[\s\S]*const value = 1;[\s\S]*PI_VSCODE_REQUEST_START[\s\S]*Please analyze the attached images and context/,
   );
   assert.throws(
     () => resolveSidebarQueueSubmission("/skill:test", { textContexts: [], images: [] }),

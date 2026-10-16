@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 import * as vscode from "vscode";
-import { picodeConfiguration } from "./configuration";
+import { piConfiguration } from "./configuration";
 import { ConversationResponseCapture, ExclusiveOperationGate } from "./conversationController";
 import {
   PiRpcClient,
@@ -21,7 +21,7 @@ import {
 } from "./vscodeBridgeProtocol";
 import { readPiInvocationOptions } from "./vscodePi";
 
-const sessionPathKey = "picode.rpc.sessionPath.v1";
+const sessionPathKey = "pi.rpc.sessionPath.v1";
 const maxQueueRecoveryBytes = 30 * 1024 * 1024;
 const maxPendingQueueDisplayCharacters = 1_000;
 
@@ -193,7 +193,7 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   private get bridgeExtensionPath(): string {
-    return path.join(this.context.extensionUri.fsPath, "resources", "picode-bridge.ts");
+    return path.join(this.context.extensionUri.fsPath, "resources", "pi-bridge.ts");
   }
 
   private async bridgeEnvironment(): Promise<NodeJS.ProcessEnv> {
@@ -699,7 +699,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     bridgeEnvironment: NodeJS.ProcessEnv,
   ): PiRpcClientOptions {
     const invocation = readPiInvocationOptions(this.resource);
-    const configuration = picodeConfiguration();
+    const configuration = piConfiguration();
     return {
       executablePath: invocation.executablePath,
       cwd: invocation.cwd,
@@ -708,14 +708,14 @@ export class PiRuntimeManager implements vscode.Disposable {
       thinkingLevel: invocation.thinkingLevel,
       extensions: [
         this.bridgeExtensionPath,
-        path.join(this.context.extensionUri.fsPath, "resources", "picode-permission-gate.ts"),
-        path.join(this.context.extensionUri.fsPath, "resources", "picode-read-only-gate.ts"),
+        path.join(this.context.extensionUri.fsPath, "resources", "pi-permission-gate.ts"),
+        path.join(this.context.extensionUri.fsPath, "resources", "pi-read-only-gate.ts"),
       ],
       sessionPath,
       approveProjectResources: configuration.get<boolean>("approveProjectResources", false),
       env: {
         ...bridgeEnvironment,
-        PICODE_PERMISSION_MODE: configuration.get<string>("agent.confirmToolCalls", "dangerous"),
+        PI_VSCODE_PERMISSION_MODE: configuration.get<string>("agent.confirmToolCalls", "dangerous"),
       },
     };
   }

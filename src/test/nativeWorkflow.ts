@@ -17,10 +17,10 @@ import { verifyDiagnosticEncodings } from "./nativeDiagnosticEncoding";
 export async function run(): Promise<void> {
   const root = vscode.workspace.workspaceFolders?.[0]?.uri;
   assert.ok(root, "Smoke fixture workspace is required");
-  if (process.env.PICODE_NATIVE_EXPECT_TRUST !== undefined)
+  if (process.env.PI_VSCODE_NATIVE_EXPECT_TRUST !== undefined)
     assert.equal(
       String(vscode.workspace.isTrusted),
-      process.env.PICODE_NATIVE_EXPECT_TRUST,
+      process.env.PI_VSCODE_NATIVE_EXPECT_TRUST,
       "Native trust state must match the requested test launch",
     );
   const uri = vscode.Uri.joinPath(root, "source.ts");
@@ -165,7 +165,7 @@ export async function run(): Promise<void> {
 }
 
 async function evidence(value: unknown): Promise<void> {
-  const destination = process.env.PICODE_NATIVE_EVIDENCE;
+  const destination = process.env.PI_VSCODE_NATIVE_EVIDENCE;
   if (destination && path.isAbsolute(destination)) await writeFile(destination, JSON.stringify(value, undefined, 2));
   console.log("PI_NATIVE_EVIDENCE", JSON.stringify(value));
 }
