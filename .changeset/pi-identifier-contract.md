@@ -1,5 +1,5 @@
 ---
-"narumi-pi": major
+"narumi-pi": minor
 ---
 
 BREAKING: Rename settings, commands, views, storage keys, and virtual document schemes from `picode` to `pi`. Remove the `piCodingAgent` settings fallback. Rename bridge and permission environment variables and prompt markers to `PI_VSCODE_*`, and rename bundled Pi resources.
