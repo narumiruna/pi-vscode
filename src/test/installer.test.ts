@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, type SpawnSyncReturns } from "node:child_process";
-import { access, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -82,7 +82,9 @@ test("development launcher opens INIT_CWD or the current directory without shell
         cwd: root,
         env: { ...env, INIT_CWD: initCwd },
       });
-      assert.equal(await readFile(log, "utf8"), `${initCwd || root}\n--new-window\n.\n`);
+      // The child process resolves directory symlinks, including /var on macOS.
+      const expectedCwd = await realpath(initCwd || root);
+      assert.equal(await readFile(log, "utf8"), `${expectedCwd}\n--new-window\n.\n`);
     }
     const source = await readFile(launcher, "utf8");
     assert.ok(source.includes('execSync("code --new-window .",'));
