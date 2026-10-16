@@ -1,6 +1,8 @@
 # Pi for VS Code
 
-Use your existing [Pi](https://pi.dev) setup directly in VS Code. Pi adds a persistent sidebar, the native `@pi` chat participant, editor-aware context, and review-first editing workflows.
+Use your existing [Pi](https://pi.dev) providers, models, and tools in VS Code. Work in a persistent sidebar or native `@pi` chat, attach editor context, and preview proposed edits before applying them.
+
+[Install](#install) · [Get started](#get-started) · [Workflows](#focused-workflows) · [Settings](#settings) · [Security](#security-and-limits) · [Development](#development)
 
 ## Highlights
 
@@ -13,16 +15,6 @@ Use your existing [Pi](https://pi.dev) setup directly in VS Code. Pi adds a pers
 - **VS Code integration** — Fix diagnostics, rewrite selections, generate tests, request inline completions, and predict the next edit.
 
 See the [feature matrix](docs/FEATURE_MATRIX.md) for the complete capability map.
-
-## Panel content
-
-The session panel supports Markdown headings, nested lists, task lists, tables, quotes, links, emphasis, and strikethrough. Code highlighting covers Bash, CSS, JavaScript, JSON, Python, TypeScript, and HTML/XML, including their registered aliases. Other languages stay plain text.
-
-Math uses KaTeX with `$…$`, `$$…$$`, `\(...\)`, and `\[...\]`. This is math rendering, not full TeX document support. Currency text such as `$5 and $10`, shell-variable expressions such as `$PATH:$HOME`, and code are not treated as math. Invalid or incomplete formulas remain readable source. Each message can render up to 50 formulas of 4,000 characters each, with at most 200 macro expansions and a 10em KaTeX size limit.
-
-Complete `mermaid` code fences can render flowcharts (`flowchart` or `graph`) and sequence diagrams. Source stays visible below the diagram. Other diagram types, invalid diagrams, configuration directives, custom CSS, HTML labels, images, links, and callbacks stay source-only. Diagrams are limited to 8,000 characters and 120 lines; flowcharts also have a 100-edge limit. At most 100 diagrams can wait for rendering. Oversized or failed content does not prevent the rest of the response from displaying.
-
-Links permit only HTTP, HTTPS, and email targets. Raw HTML and Markdown images are not enabled; use image attachments instead. Tables, code, and display math scroll horizontally when necessary. Native `@pi` chat and Pi HTML exports retain their own renderers.
 
 ## Requirements
 
@@ -37,7 +29,9 @@ pi --version
 
 ## Install
 
-Ensure the VS Code `code` command is available, then install the latest release:
+If you have `narumi.pi-coding-agent-vscode` installed, follow [Upgrade from the old extension ID](#upgrade-from-the-old-extension-id) first.
+
+Ensure that `curl`, a POSIX shell, and the VS Code `code` command are available. Then install the latest release:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/narumiruna/pi-vscode/main/scripts/install.sh -o install-pi-vscode.sh &&
@@ -45,43 +39,13 @@ sh install-pi-vscode.sh &&
 rm install-pi-vscode.sh
 ```
 
-Review [`scripts/install.sh`](scripts/install.sh) before running it if your environment does not allow downloaded scripts to execute directly. The command stops if the download fails. The installer downloads the latest `pi.vsix`, installs it with `code --install-extension`, and removes the exact legacy global bridge filenames created by older releases. Extension activation performs the same exact cleanup for standard VSIX or Marketplace upgrades before starting Pi, so an old global copy cannot load beside the bundled bridge. New installations do not create files under `~/.pi/agent`.
+Review [`scripts/install.sh`](scripts/install.sh) before running downloaded code. The command stops if the download fails. The installer downloads `pi.vsix`, installs it with `code --install-extension`, and removes only the legacy global bridge files created by older releases. Extension activation performs the same cleanup for direct VSIX and Marketplace upgrades before starting Pi. New installations do not create files under `~/.pi/agent`.
+
+For manual installation, download `pi.vsix` from [GitHub Releases](https://github.com/narumiruna/pi-vscode/releases) and use **Extensions: Install from VSIX…**.
 
 To install a specific version, pass it to the downloaded script, for example `sh install-pi-vscode.sh 0.0.2`.
 
-After installation or an update, run **Developer: Reload Window**. Sidebar sessions and **More… → Open in Terminal** load the bridge bundled with the active VSIX. A new ordinary integrated terminal inherits the authenticated bridge environment and bridge path, but plain `pi` does not load it automatically; use `pi --extension "$PICODE_BRIDGE_EXTENSION"` in POSIX shells or `pi --extension $env:PICODE_BRIDGE_EXTENSION` in PowerShell when you explicitly want bridge tools there.
-
-## Upgrade from the old extension ID
-
-The extension ID changed from `narumi.pi-coding-agent-vscode` to `narumi.narumi-pi`. VS Code treats them as separate extensions. Do not keep both installed. The release installer and `npm run install:extension` stop if the old ID is installed. Follow these steps before using either installer, installing a VSIX manually, or installing from Marketplace:
-
-1. In the old extension, stop active requests and background agents. Export any conversation you need. Review and save worktree results outside extension storage. Record worktree paths and commit or copy any changes you need.
-2. Remove the old extension from the same VS Code profile and extension host where you will install the new one:
-
-   ```bash
-   code --uninstall-extension narumi.pi-coding-agent-vscode
-   ```
-
-   For a named profile, use `--profile "<profile>"`. In a Remote SSH, WSL, or container window, remove the old extension from that remote host through the Extensions view.
-3. Run **Developer: Reload Window**. Install the new extension, then reload again.
-4. Open **Pi: Open Sessions** and select a persistent Pi session for the current workspace.
-
-The installers do not copy or delete VS Code state. The old sidebar cache, last-session pointer, and background-task records do not transfer to the new ID. Worktrees under the old extension's global storage do not transfer. Save their results before removal. Pi session files remain separate from VS Code extension state and can be selected from the new extension. Existing `picode.*` settings keep their names.
-
-## Install from source
-
-Building from source additionally requires Node.js, npm, and a POSIX shell available as `sh`. On Windows, install Git for Windows and add its `sh` command to `PATH`.
-
-```bash
-npm install
-npm run install:extension
-```
-
-`npm run install:extension` packages and installs the VS Code extension, then removes the exact legacy global bridge filenames created by older releases. It does not install a Pi extension under `${PI_CODING_AGENT_DIR:-~/.pi/agent}`. The extension ID is `narumi.narumi-pi`.
-
-Use `npm run install:vsix` to package and install without the legacy global bridge cleanup. `npm install` only installs project dependencies and does not install the VS Code extension.
-
-Run **Developer: Reload Window** after installation. Use Sidebar **Open in Terminal** for an automatically bridged terminal Pi session, or use the explicit `PICODE_BRIDGE_EXTENSION` command shown above in a new ordinary integrated terminal.
+After installation or an update, run **Developer: Reload Window**. Sidebar sessions and **More… → Open in Terminal** load the bundled bridge automatically. See [Extension bridge](#extension-bridge) to use its tools in an ordinary integrated terminal.
 
 ## Get started
 
@@ -104,6 +68,23 @@ Use `@pi` in VS Code's native Chat view when you prefer the native participant w
 
 Automatic inline completions are disabled by default. Enable `picode.inlineCompletions.enabled` to request them after a typing pause.
 
+## Upgrade from the old extension ID
+
+The extension ID changed from `narumi.pi-coding-agent-vscode` to `narumi.narumi-pi`. VS Code treats them as separate extensions. Do not keep both installed. The release installer and `npm run install:extension` stop if the old ID is installed. Follow these steps before using either installer, installing a VSIX manually, or installing from Marketplace:
+
+1. In the old extension, stop active requests and background agents. Export any conversation you need. Review and save worktree results outside extension storage. Record worktree paths and commit or copy any changes you need.
+2. Remove the old extension from the same VS Code profile and extension host where you will install the new one:
+
+   ```bash
+   code --uninstall-extension narumi.pi-coding-agent-vscode
+   ```
+
+   For a named profile, use `--profile "<profile>"`. In a Remote SSH, WSL, or container window, remove the old extension from that remote host through the Extensions view.
+3. Run **Developer: Reload Window**. Install the new extension, then reload again.
+4. Open **Pi: Open Sessions** and select a persistent Pi session for the current workspace.
+
+The installers do not copy or delete VS Code state. The old sidebar cache, last-session pointer, and background-task records do not transfer to the new ID. Worktrees under the old extension's global storage do not transfer. Save their results before removal. Pi session files remain separate from VS Code extension state and can be selected from the new extension. Existing `picode.*` settings keep their names.
+
 ## Focused workflows
 
 | Workflow | How it works |
@@ -123,6 +104,16 @@ Automatic inline completions are disabled by default. Enable `picode.inlineCompl
 | **Debug questions** | Pause a Node.js debugger and run **Pi: Ask Debug Context**. Approve capture, choose local variables, inspect or redact the snapshot, and ask a read-only question. |
 
 Process-launching and mutation workflows require a trusted, file-backed workspace. A Pi session's working directory must match the active workspace. Open an isolated worktree in its own VS Code window before resuming its session.
+
+## Panel content
+
+The session panel supports Markdown headings, nested lists, task lists, tables, quotes, links, emphasis, and strikethrough. Code highlighting covers Bash, CSS, JavaScript, JSON, Python, TypeScript, and HTML/XML, including their registered aliases. Other languages stay plain text.
+
+Math uses KaTeX with `$…$`, `$$…$$`, `\(...\)`, and `\[...\]`. This is math rendering, not full TeX document support. Currency text such as `$5 and $10`, shell-variable expressions such as `$PATH:$HOME`, and code are not treated as math. Invalid or incomplete formulas remain readable source. Each message can render up to 50 formulas of 4,000 characters each, with at most 200 macro expansions and a 10em KaTeX size limit.
+
+Complete `mermaid` code fences can render flowcharts (`flowchart` or `graph`) and sequence diagrams. Source stays visible below the diagram. Other diagram types, invalid diagrams, configuration directives, custom CSS, HTML labels, images, links, and callbacks stay source-only. Diagrams are limited to 8,000 characters and 120 lines; flowcharts also have a 100-edge limit. At most 100 diagrams can wait for rendering. Oversized or failed content does not prevent the rest of the response from displaying.
+
+Links permit only HTTP, HTTPS, and email targets. Raw HTML and Markdown images are not enabled; use image attachments instead. Tables, code, and display math scroll horizontally when necessary. Native `@pi` chat and Pi HTML exports retain their own renderers.
 
 ## Settings
 
@@ -158,7 +149,7 @@ Key operational limits:
 - In-flight instructions are limited to 10 messages and 50,000 characters. **Next** and **After this** messages can include captured text attachments and up to 5 images; slash commands cannot be queued. Pending transcript presentation is memory-only, public pending previews are capped at 1,000 characters per message, and pending/recovered attachment snapshots are memory-only and capped at 30 MiB.
 - Debug capture supports paused `node` and `pwa-node` js-debug sessions only; it does not evaluate expressions or mutate debugger state.
 
-Read [Security and Privacy](docs/SECURITY.md) for trust boundaries and safeguards, and [Workflow Validation](docs/WORKFLOW_VALIDATION.md) for tested and deferred behavior.
+Read [Security and Privacy](docs/SECURITY.md) for trust boundaries and safeguards. [Workflow Validation](docs/WORKFLOW_VALIDATION.md) records historical validation evidence and deferred checks; it is not the source for current commands.
 
 ## Extension bridge
 
@@ -166,36 +157,93 @@ The Pi bridge extension bundled in the VSIX and the VS Code extension communicat
 
 ```mermaid
 flowchart LR
-    V[VS Code extension] -->|authenticated events| P[Standalone Pi extension]
+    V[VS Code extension] -->|authenticated events| P[Bundled Pi bridge extension]
     P -->|bounded requests| V
     P <-->|pi.events| E[Other Pi extensions]
 ```
 
-The bridge provides `vscode_context`, `vscode_code_context`, `vscode_open_file`, and `vscode_notify` for Sidebar sessions and **Open in Terminal** handoffs. For an ordinary integrated terminal, load the process-local bridge explicitly with the `PICODE_BRIDGE_EXTENSION` environment variable as shown above. Other Pi extensions can use `pi.events` to send an allowlisted `vscode:request` and receive a correlated `vscode:response` or `vscode:event`.
+The bridge provides `vscode_context`, `vscode_code_context`, `vscode_open_file`, and `vscode_notify` for sidebar sessions and **Open in Terminal** handoffs.
+
+A new ordinary integrated terminal inherits the authenticated bridge environment and bridge path, but plain `pi` does not load the bridge. Load it explicitly when you need these tools:
+
+```bash
+pi --extension "$PICODE_BRIDGE_EXTENSION"
+```
+
+In PowerShell, use `pi --extension $env:PICODE_BRIDGE_EXTENSION`.
+
+Other Pi extensions can use `pi.events` to send an allowlisted `vscode:request` and receive a correlated `vscode:response` or `vscode:event`.
 
 `vscode_code_context` accepts `definition`, `references`, `callers`, `callees`, or `documentSymbols`, a workspace path and optional one-based line/column. It returns metadata only, with zero-based ranges; source text requires a separate read. The tool is not loaded by independent background/worktree agents.
 
 VS Code extensions in the same Extension Host can activate `narumi.narumi-pi` and call its exported `broadcast(event, data)` API. Event names and payloads are validated and bounded.
 
-## Development
+## Install from source
+
+Building from source requires Node.js 22.19 or newer, npm, and a POSIX shell available as `sh`. On Windows, install Git for Windows and add its `sh` command to `PATH`.
 
 ```bash
-npm install
-npm test
-npm run test:rich-content
-npm exec --yes --package=@biomejs/biome@2.5.13 -- biome check src resources
-npm run package
+npm ci
+npm run install:extension
 ```
 
-`npm run test:native -- 1.106.0` runs isolated, noninteractive native Extension Host assertions (on headless Linux, prefix with `xvfb-run -a`). Use `stable` for the current stable build and append `untrusted` for Restricted Mode. The runner downloads a test build to the system temporary cache, creates disposable profiles/workspaces, and never invokes a model. See [Workflow Validation](docs/WORKFLOW_VALIDATION.md) for coverage and remaining manual checks.
+`npm run install:extension` packages and installs the VS Code extension, then removes the exact legacy global bridge filenames created by older releases. It does not install a Pi extension under `${PI_CODING_AGENT_DIR:-~/.pi/agent}`. The extension ID is `narumi.narumi-pi`.
 
-On Linux, `xvfb-run -a npm run test:native-ui -- 1.106.0` exercises the actual attachment picker, review confirmations, Problems actions, Sidebar proposals, multi-file Apply/Undo and window reload. Use `stable` for current VS Code; append `alias` to exercise a workspace opened through a directory symlink. Playwright connects only to the disposable VS Code profile's loopback debugging endpoint; a deterministic Pi RPC fixture replaces provider requests. No live model, user profile or workspace is used.
+Use `npm run install:vsix` to package and install without the legacy global bridge cleanup. `npm ci` installs the locked project dependencies; it does not install the VS Code extension.
 
-Development requires Node.js 22.19 or newer. `npm run compile` also builds the host Markdown bundle and browser JS/CSS/fonts. Run it again after changing renderer sources or styles when using the TypeScript-only `watch` command. `npm run test:rich-content` uses a local headless Playwright Chromium installation (`npm exec -- playwright-core install chromium`) to test the actual sidebar document, CSP, rendering, themes, overflow, and asynchronous lifecycle without a model. Append `packaged` to `npm run test:native-ui -- 1.106.0` to install and test the local `pi.vsix` in a disposable profile.
+Run **Developer: Reload Window** after installation. Use **More… → Open in Terminal** for an automatically bridged Pi session. For an ordinary integrated terminal, see [Extension bridge](#extension-bridge).
 
-`npm test` compiles the extension and runs the Node test suite. `npm run package` repeats those checks and creates `pi.vsix`.
+## Development
 
-- `npm run dev` rebuilds and installs the VS Code extension, removes bridge files created by older releases, then opens the current directory in a new VS Code window using the installed extension.
+Use Node.js 22.19 or newer and install the locked dependencies:
+
+```bash
+npm ci
+npm test
+npm exec --yes --package=@biomejs/biome@2.5.13 -- biome check src resources
+```
+
+### Build and package
+
+| Command | Purpose |
+| --- | --- |
+| `npm run compile` | Check host and browser TypeScript; build bundled renderer JS, CSS, and fonts. |
+| `npm run watch` | Watch host TypeScript only. Rerun `compile` after renderer or style changes. |
+| `npm test` | Compile, then run the Vitest suite without a live model. |
+| `npm run package` | Run the full test suite and create or overwrite `pi.vsix`. |
+
+### Browser checks
+
+Install local Playwright Chromium before running browser checks:
+
+```bash
+npm exec -- playwright-core install chromium
+npm run test:rich-content
+npm run test:thinking-picker
+```
+
+The rich-content check tests the sidebar document, CSP, rendering, themes, overflow, and asynchronous lifecycle. Run it after renderer changes. Run the thinking-picker check after thinking-picker changes. Neither uses a live model.
+
+### Native VS Code checks
+
+| Command | Purpose |
+| --- | --- |
+| `npm run test:native -- 1.106.0` | Isolated Extension Host assertions against the minimum supported VS Code version. |
+| `xvfb-run -a npm run test:native-ui -- 1.106.0` | Linux UI checks for attachments, review confirmations, Problems actions, proposals, multi-file Apply/Undo, and reload. |
+
+On headless Linux, also prefix `test:native` with `xvfb-run -a`. Replace `1.106.0` with `stable` to check the current VS Code release.
+
+1. Append `untrusted` to the `test:native` command for Restricted Mode.
+2. Append `alias` to the `test:native-ui` command to test a workspace opened through a directory symlink.
+3. Append `packaged` to the `test:native-ui` command to install and test the local `pi.vsix`.
+
+Native checks download a VS Code test build into the system temporary cache and use disposable profiles and workspaces. UI checks use a deterministic Pi RPC fixture; Playwright connects only to the disposable profile's loopback debugging endpoint. These checks do not use a live model, your VS Code profile, or your workspace.
+
+### Local installation and debugging
+
+These commands run local processes or change the installed extension; they are not isolated checks:
+
+- `npm run dev` rebuilds and installs the extension, removes legacy bridge files, then opens the current directory in a new VS Code window.
 - `npm run dev:pi` starts Pi with `resources/picode-bridge.ts` in the current terminal.
 
 ## Release
