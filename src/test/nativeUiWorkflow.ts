@@ -5,7 +5,7 @@ import path from "node:path";
 import * as vscode from "vscode";
 
 export async function run(): Promise<void> {
-  const directory = process.env.PICODE_UI_FIXTURE;
+  const directory = process.env.PI_VSCODE_UI_FIXTURE;
   assert.ok(directory);
   const root = vscode.workspace.workspaceFolders?.[0]?.uri;
   assert.ok(root);
@@ -26,7 +26,7 @@ export async function run(): Promise<void> {
   };
   const subscription = vscode.workspace.onDidChangeTextDocument(publish);
   await vscode.extensions.getExtension("narumi.narumi-pi")?.activate();
-  await vscode.commands.executeCommand("picode.openChat");
+  await vscode.commands.executeCommand("pi.openChat");
   await vscode.extensions.getExtension("vscode.typescript-language-features")?.activate();
   // Do not replay the reload command from the previous Extension Host.
   let lastId = await readFile(path.join(directory, "request.json"), "utf8")
@@ -84,7 +84,7 @@ export async function run(): Promise<void> {
               .getDiagnostics()
               .find(
                 ([uri, items]) =>
-                  uri.scheme === "picode-review" && items.some((item) => item.message === "Native workingTree finding"),
+                  uri.scheme === "pi-review" && items.some((item) => item.message === "Native workingTree finding"),
               );
             assert.ok(finding);
             await vscode.workspace.openTextDocument(finding[0]);
@@ -99,16 +99,16 @@ export async function run(): Promise<void> {
               actions?.filter(
                 (action): action is vscode.CodeAction =>
                   typeof action.command === "object" &&
-                  ["picode.askReviewFinding", "picode.fixReviewFinding"].includes(action.command.command),
+                  ["pi.askReviewFinding", "pi.fixReviewFinding"].includes(action.command.command),
               ) ?? [];
             assert.deepEqual(
               findingActions.map((action) => action.command?.command),
-              ["picode.askReviewFinding"],
+              ["pi.askReviewFinding"],
             );
             const args = findingActions[0]?.command?.arguments;
             assert.ok(args);
             await assert.rejects(
-              Promise.resolve(vscode.commands.executeCommand("picode.fixReviewFinding", ...args)),
+              Promise.resolve(vscode.commands.executeCommand("pi.fixReviewFinding", ...args)),
               /no longer matches/,
             );
             break;
@@ -119,7 +119,7 @@ export async function run(): Promise<void> {
               active: vscode.window.activeTextEditor?.document.uri.toString(),
               findings: vscode.languages
                 .getDiagnostics()
-                .filter(([uri, items]) => uri.scheme === "picode-review" && items.length > 0)
+                .filter(([uri, items]) => uri.scheme === "pi-review" && items.length > 0)
                 .map(([uri, items]) => ({ uri: uri.toString(), messages: items.map((item) => item.message) })),
               tabs: vscode.window.tabGroups.all.flatMap((group) =>
                 group.tabs.map((tab) => ({ label: tab.label, diff: tab.input instanceof vscode.TabInputTextDiff })),

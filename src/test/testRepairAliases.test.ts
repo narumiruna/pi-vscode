@@ -159,7 +159,7 @@ test.each([
     sendRequest: async (_request, _contexts, options) => {
       requests++;
       assert.equal(options?.policy, "read-only");
-      return `<<<PICODE_REPLACEMENT_START>>>\n${replacement}\n<<<PICODE_REPLACEMENT_END>>>`;
+      return `<<<PI_VSCODE_REPLACEMENT_START>>>\n${replacement}\n<<<PI_VSCODE_REPLACEMENT_END>>>`;
     },
     addEditProposal: (input) => {
       const id = store.add(input);
@@ -172,7 +172,7 @@ test.each([
     await writeFile(source, original);
     await writeFile(foreignSource, foreign);
     await writeFile(log, "AssertionError: expected 42\n");
-    const command: () => Promise<void> = vscode.registrations.get("picode.repairFailedTest");
+    const command: () => Promise<void> = vscode.registrations.get("pi.repairFailedTest");
     assert.equal(typeof command, "function");
     invocation = command();
     const id = await Promise.race([

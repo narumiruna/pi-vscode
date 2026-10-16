@@ -41,7 +41,7 @@ test("Pi history conversion preserves observed text-plus-image user content and 
           content: [
             {
               type: "text",
-              text: "<<<PICODE_CONTEXT_START: src/feature.ts:1-3>>>\ncode\n<<<PICODE_CONTEXT_END>>>\n<<<PICODE_REQUEST_START>>>\nWhat changed?\n<<<PICODE_REQUEST_END>>>",
+              text: "<<<PI_VSCODE_CONTEXT_START: src/feature.ts:1-3>>>\ncode\n<<<PI_VSCODE_CONTEXT_END>>>\n<<<PI_VSCODE_REQUEST_START>>>\nWhat changed?\n<<<PI_VSCODE_REQUEST_END>>>",
             },
             { type: "image", mimeType: "image/gif", data },
           ],
@@ -238,7 +238,7 @@ test("history conversion bounds the retained suffix before decoding image payloa
     );
     assert.deepEqual(
       converted.map((message) => message.id),
-      ["picode-user-2-4", "picode-user-3-6"],
+      ["pi-user-2-4", "pi-user-3-6"],
       "non-transcript entries do not reduce the retained count or change original indices",
     );
     assert.equal(cache.size, 2);

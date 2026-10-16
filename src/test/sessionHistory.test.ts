@@ -9,7 +9,7 @@ function session(entries: readonly Record<string, unknown>[]): string {
 }
 
 test("recent Pi sessions are workspace-scoped, newest-first, and use names before prompts", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "picode-session-history-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-session-history-"));
   const workspace = path.join(root, "workspace");
   const otherWorkspace = path.join(root, "other");
   const sessions = path.join(root, "sessions");
@@ -31,7 +31,7 @@ test("recent Pi sessions are workspace-scoped, newest-first, and use names befor
             content: [
               {
                 type: "text",
-                text: "<<<PICODE_CONTEXT_START: src/sidebar.ts>>>\nconst context = true;\n<<<PICODE_CONTEXT_END>>>\n<<<PICODE_REQUEST_START>>>\nFix the sidebar\n<<<PICODE_REQUEST_END>>>",
+                text: "<<<PI_VSCODE_CONTEXT_START: src/sidebar.ts>>>\nconst context = true;\n<<<PI_VSCODE_CONTEXT_END>>>\n<<<PI_VSCODE_REQUEST_START>>>\nFix the sidebar\n<<<PI_VSCODE_REQUEST_END>>>",
               },
             ],
           },
@@ -75,7 +75,7 @@ test("recent Pi sessions are workspace-scoped, newest-first, and use names befor
 });
 
 test("recent Pi sessions rank every directory entry before capping metadata reads", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "picode-session-order-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-session-order-"));
   const workspace = path.join(root, "workspace");
   const sessions = path.join(root, "sessions");
   await Promise.all([mkdir(workspace), mkdir(sessions)]);
@@ -105,7 +105,7 @@ test("recent Pi sessions rank every directory entry before capping metadata read
 });
 
 test("recent Pi sessions validate workspace headers before limiting candidates", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "picode-session-workspace-cap-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-session-workspace-cap-"));
   const workspace = path.join(root, "workspace");
   const otherWorkspace = path.join(root, "other");
   const sessions = path.join(root, "sessions");
@@ -142,7 +142,7 @@ test("recent Pi sessions validate workspace headers before limiting candidates",
 });
 
 test("recent Pi sessions bound inspections of empty candidates", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "picode-session-empty-cap-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-session-empty-cap-"));
   const workspace = path.join(root, "workspace");
   const sessions = path.join(root, "sessions");
   await Promise.all([mkdir(workspace), mkdir(sessions)]);
@@ -170,7 +170,7 @@ test("recent Pi sessions bound inspections of empty candidates", async () => {
 });
 
 test("recent Pi sessions recover a bounded prompt before a large image and skip invalid files", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "picode-session-bounds-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-session-bounds-"));
   const workspace = path.join(root, "workspace");
   const sessions = path.join(root, "sessions");
   await Promise.all([mkdir(workspace), mkdir(sessions)]);
@@ -204,7 +204,7 @@ test("recent Pi sessions recover a bounded prompt before a large image and skip 
 });
 
 test("recent Pi sessions find the latest name between oversized records", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "picode-session-name-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-session-name-"));
   const workspace = path.join(root, "workspace");
   const sessions = path.join(root, "sessions");
   await Promise.all([mkdir(workspace), mkdir(sessions)]);

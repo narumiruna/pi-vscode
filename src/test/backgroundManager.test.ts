@@ -19,7 +19,7 @@ test("background manager restores legacy/interrupted tasks safely, previews canc
   vscode.window.withProgress = async (_options: unknown, run: any) =>
     run({}, { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) });
   const { BackgroundAgentManager } = require("../backgroundAgents") as typeof import("../backgroundAgents");
-  const root = await realpath(await mkdtemp(path.join(tmpdir(), "picode-background-manager-")));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "pi-background-manager-")));
   const repository = path.join(root, "repo");
   const storage = path.join(root, "storage");
   const worktree = path.join(storage, "worktrees", "cancelled");
@@ -80,7 +80,7 @@ test("background manager restores legacy/interrupted tasks safely, previews canc
       assert.equal(buildRpcArguments(launchOptions).includes("--tools"), false);
       assert.deepEqual(
         launchOptions.extensions.map((value: string) => path.basename(value)),
-        ["picode-permission-gate.ts"],
+        ["pi-permission-gate.ts"],
       );
       assert.equal(launchOptions.env[vscodeBridgePortEnvironmentKey], undefined);
       assert.equal(launchOptions.env[vscodeBridgeTokenEnvironmentKey], undefined);

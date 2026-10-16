@@ -29,49 +29,49 @@ interface DiagnosticCommandTarget {
 
 export function registerEditorActions(context: vscode.ExtensionContext, conversation: PiConversationController): void {
   const previews = registerEditPreviewProvider(context);
-  const selectionActionKind = vscode.CodeActionKind.RefactorRewrite.append("picode");
+  const selectionActionKind = vscode.CodeActionKind.RefactorRewrite.append("pi");
   context.subscriptions.push(
-    vscode.languages.registerCodeActionsProvider("*", new PiCodeQuickFixProvider(), {
+    vscode.languages.registerCodeActionsProvider("*", new PiQuickFixProvider(), {
       providedCodeActionKinds: [vscode.CodeActionKind.QuickFix],
     }),
-    vscode.languages.registerCodeActionsProvider("*", new PiCodeSelectionCodeActionProvider(selectionActionKind), {
+    vscode.languages.registerCodeActionsProvider("*", new PiSelectionCodeActionProvider(selectionActionKind), {
       providedCodeActionKinds: [selectionActionKind],
     }),
-    vscode.commands.registerCommand("picode.askSelection", () => askSelection(conversation)),
-    vscode.commands.registerCommand("picode.modifySelection", () => inlineEdit(previews, conversation)),
-    vscode.commands.registerCommand("picode.inlineEdit", () => inlineEdit(previews, conversation)),
-    vscode.commands.registerCommand("picode.quickFix", (target?: unknown) => quickFix(previews, conversation, target)),
-    vscode.commands.registerCommand("picode.explainSelection", () =>
+    vscode.commands.registerCommand("pi.askSelection", () => askSelection(conversation)),
+    vscode.commands.registerCommand("pi.modifySelection", () => inlineEdit(previews, conversation)),
+    vscode.commands.registerCommand("pi.inlineEdit", () => inlineEdit(previews, conversation)),
+    vscode.commands.registerCommand("pi.quickFix", (target?: unknown) => quickFix(previews, conversation, target)),
+    vscode.commands.registerCommand("pi.explainSelection", () =>
       answerPreset(conversation, "Explain this code, including its behavior and assumptions."),
     ),
-    vscode.commands.registerCommand("picode.reviewSelection", () =>
+    vscode.commands.registerCommand("pi.reviewSelection", () =>
       answerPreset(
         conversation,
         "Review this code for correctness, security, maintainability, performance, and missing tests. Prioritize actionable findings.",
       ),
     ),
-    vscode.commands.registerCommand("picode.fixSelection", () =>
+    vscode.commands.registerCommand("pi.fixSelection", () =>
       previewPreset(
         previews,
         conversation,
         "Fix bugs and diagnostics in this code while preserving intended behavior.",
       ),
     ),
-    vscode.commands.registerCommand("picode.documentSelection", () =>
+    vscode.commands.registerCommand("pi.documentSelection", () =>
       previewPreset(
         previews,
         conversation,
         "Add or improve idiomatic documentation for this code without changing its behavior.",
       ),
     ),
-    vscode.commands.registerCommand("picode.generateTests", () =>
+    vscode.commands.registerCommand("pi.generateTests", () =>
       previewPreset(
         previews,
         conversation,
         "Keep the selected code and append comprehensive idiomatic tests that cover normal behavior and important edge cases.",
       ),
     ),
-    vscode.commands.registerCommand("picode.suggestNextEdit", () => suggestNextEdit(previews, conversation)),
+    vscode.commands.registerCommand("pi.suggestNextEdit", () => suggestNextEdit(previews, conversation)),
   );
 }
 
@@ -252,7 +252,7 @@ async function previewEdit(
         "Rewrite only the selected code according to the user's request.",
         "The replacement must fit in the same location and preserve surrounding behavior unless requested otherwise.",
         "Do not modify files and do not explain the result.",
-        "Return exactly <<<PICODE_REPLACEMENT_START>>>, a newline, the replacement text, another newline, and <<<PICODE_REPLACEMENT_END>>>.",
+        "Return exactly <<<PI_VSCODE_REPLACEMENT_START>>>, a newline, the replacement text, another newline, and <<<PI_VSCODE_REPLACEMENT_END>>>.",
         "Do not use Markdown code fences.",
       ].join(" "),
       resource: snapshot.document.uri,
@@ -336,7 +336,7 @@ async function reportError(error: unknown): Promise<void> {
   }
 }
 
-class PiCodeSelectionCodeActionProvider implements vscode.CodeActionProvider {
+class PiSelectionCodeActionProvider implements vscode.CodeActionProvider {
   public constructor(private readonly kind: vscode.CodeActionKind) {}
 
   public async provideCodeActions(
@@ -351,7 +351,7 @@ class PiCodeSelectionCodeActionProvider implements vscode.CodeActionProvider {
 
     const ask = new vscode.CodeAction("Ask Pi", this.kind);
     ask.command = {
-      command: "picode.askSelection",
+      command: "pi.askSelection",
       title: ask.title,
     };
 
@@ -361,14 +361,14 @@ class PiCodeSelectionCodeActionProvider implements vscode.CodeActionProvider {
 
     const modify = new vscode.CodeAction("Modify with Pi", this.kind);
     modify.command = {
-      command: "picode.modifySelection",
+      command: "pi.modifySelection",
       title: modify.title,
     };
     return [ask, modify];
   }
 }
 
-class PiCodeQuickFixProvider implements vscode.CodeActionProvider {
+class PiQuickFixProvider implements vscode.CodeActionProvider {
   public async provideCodeActions(
     document: vscode.TextDocument,
     _range: vscode.Range | vscode.Selection,
@@ -384,7 +384,7 @@ class PiCodeQuickFixProvider implements vscode.CodeActionProvider {
       );
       action.diagnostics = [diagnostic];
       action.command = {
-        command: "picode.quickFix",
+        command: "pi.quickFix",
         title: "Quick Fix with Pi",
         arguments: [{ uri: document.uri, diagnostic } satisfies DiagnosticCommandTarget],
       };

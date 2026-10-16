@@ -17,7 +17,7 @@ import {
   type TaskOrigin,
   validTaskOrigin,
 } from "./backgroundResults";
-import { picodeConfiguration } from "./configuration";
+import { piConfiguration } from "./configuration";
 import { gitEnvironment, gitIdentity, gitRevision } from "./gitSnapshots";
 import { acquireOperation } from "./operationLocks";
 import { PiRpcClient, type PiRpcEvent, type PiRpcImage } from "./piRpcClient";
@@ -30,7 +30,7 @@ import {
 import { readPiInvocationOptions } from "./vscodePi";
 import { cancellable, isDirtyFile, requireTrustedFile, WorkflowDocuments } from "./workflowUi";
 
-const storageKey = "picode.backgroundTasks.v1";
+const storageKey = "pi.backgroundTasks.v1";
 const maxTasks = 20;
 const maxOutputCharacters = 20_000;
 
@@ -127,7 +127,7 @@ export class BackgroundAgentManager implements vscode.Disposable {
     }
 
     const invocation = readPiInvocationOptions(vscode.Uri.file(taskCwd));
-    const configuration = picodeConfiguration();
+    const configuration = piConfiguration();
     const client = new PiRpcClient({
       executablePath: invocation.executablePath,
       cwd: taskCwd,
@@ -135,10 +135,10 @@ export class BackgroundAgentManager implements vscode.Disposable {
       model: invocation.model,
       thinkingLevel: invocation.thinkingLevel,
       appendSystemPrompt: "This is an independent background task. Work only in the provided working directory.",
-      extensions: [path.join(this.context.extensionUri.fsPath, "resources", "picode-permission-gate.ts")],
+      extensions: [path.join(this.context.extensionUri.fsPath, "resources", "pi-permission-gate.ts")],
       approveProjectResources: configuration.get<boolean>("approveProjectResources", false),
       env: {
-        PICODE_PERMISSION_MODE: configuration.get<string>("agent.confirmToolCalls", "dangerous"),
+        PI_VSCODE_PERMISSION_MODE: configuration.get<string>("agent.confirmToolCalls", "dangerous"),
       },
       unsetEnv: [vscodeBridgePortEnvironmentKey, vscodeBridgeTokenEnvironmentKey, vscodeBridgeExtensionEnvironmentKey],
     });

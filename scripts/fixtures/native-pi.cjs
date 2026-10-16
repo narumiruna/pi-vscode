@@ -3,7 +3,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const readline = require("node:readline");
-const directory = process.env.PICODE_UI_FIXTURE;
+const directory = process.env.PI_VSCODE_UI_FIXTURE;
 if (!directory) throw new Error("An isolated native UI fixture is required");
 const sessionFile = path.join(directory, "session.jsonl");
 const sessionId = "native-ui-session";

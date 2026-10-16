@@ -10,7 +10,7 @@ test("defaultPiAgentDirectory prefers the explicit Pi configuration directory", 
 });
 
 test("activation cleanup removes exact legacy bridge files without creating configuration", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "picode-activation-cleanup-"));
+  const root = await mkdtemp(path.join(tmpdir(), "pi-activation-cleanup-"));
   const missingAgentDirectory = path.join(root, "missing-agent");
   const agentDirectory = path.join(root, "agent");
   const extensionsDirectory = path.join(agentDirectory, "extensions");
@@ -40,7 +40,7 @@ test("activation cleanup removes exact legacy bridge files without creating conf
 });
 
 test("activation cleanup refuses to recursively delete a directory at a legacy file path", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "picode-activation-directory-"));
+  const root = await mkdtemp(path.join(tmpdir(), "pi-activation-directory-"));
   const legacyDirectory = path.join(root, "extensions", "picode.ts");
   try {
     await mkdir(legacyDirectory, { recursive: true });

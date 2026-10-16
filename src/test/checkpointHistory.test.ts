@@ -67,7 +67,7 @@ test("rejected checkpoint candidates leave room for later fitting files", () => 
 test("semantic lookup preserves attributable request-start checkpoints; dirty, external and shell changes are not restorable", () => {
   const vscode = installVscodeMock();
   const { WorkspaceChangeTracker } = require("../changeTracker") as typeof import("../changeTracker");
-  const root = mkdtempSync(path.join(tmpdir(), "picode-checkpoint-"));
+  const root = mkdtempSync(path.join(tmpdir(), "pi-checkpoint-"));
   const file = path.join(root, "file");
   const tracker = new WorkspaceChangeTracker();
   try {

@@ -143,7 +143,7 @@ test.each([false, true])("batch diagnostic repair (workspace alias: %s)", async 
   try {
     await writeFile(a.uri.fsPath, "different disk bytes\n");
     await writeFile(b.uri.fsPath, "different disk bytes\n");
-    const command = vscode.registrations.get("picode.fixWorkspaceDiagnostics")!;
+    const command = vscode.registrations.get("pi.fixWorkspaceDiagnostics")!;
     await command();
     selection = "empty";
     await command();

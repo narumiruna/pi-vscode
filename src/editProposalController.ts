@@ -29,7 +29,7 @@ export interface MultiFileEditSnapshot {
 }
 
 export class EditPreviewProvider implements vscode.TextDocumentContentProvider, vscode.Disposable {
-  public readonly scheme = `picode-edit-preview-${randomId()}`;
+  public readonly scheme = `pi-edit-preview-${randomId()}`;
   private readonly contents = new Map<string, string>();
   private readonly emitter = new vscode.EventEmitter<vscode.Uri>();
   public readonly onDidChange = this.emitter.event;
