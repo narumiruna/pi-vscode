@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0
+
+### Minor Changes
+
+- f681af5: BREAKING: Rename settings, commands, views, storage keys, and virtual document schemes from `picode` to `pi`. Remove the `piCodingAgent` settings fallback. Rename bridge and permission environment variables and prompt markers to `PI_VSCODE_*`, and rename bundled Pi resources.
+  
+  Update settings, custom keybindings, and bridge consumers, then reload VS Code and create a new integrated terminal. Cached extension state does not migrate; persistent Pi session files are unchanged. Old transcript markers remain plain text. Exact legacy global bridge cleanup paths remain supported. The package name and extension ID are unchanged.
+
+### Patch Changes
+
+- a22d44d: Avoid repeated prefix scans for escaped math delimiters. Keep Markdown formatting after unmatched currency amounts.
+- 9e31170: Keep the compact thinking picker and Send button inside narrow sidebar composers.
+
 ## 0.2.0
 
 ### Minor Changes
