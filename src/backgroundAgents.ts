@@ -7,7 +7,6 @@ import {
   backgroundTaskIdsToEvict,
   countOccupiedBackgroundTaskSlots,
   isBackgroundTaskActive,
-  launchBackgroundExecution,
 } from "./backgroundAgentLifecycle";
 import {
   type BackgroundResult,
@@ -154,18 +153,12 @@ export class BackgroundAgentManager implements vscode.Disposable {
     this.active.set(id, { client, subscription, cancelRequested: false, releaseOperation });
 
     try {
-      await launchBackgroundExecution(
-        async () => {
-          await client.start();
-          this.patchTask(id, { processId: client.processId });
-          await client.setSessionName(title);
-        },
-        // Pi RPC resolves prompt commands after acceptance; task events continue asynchronously.
-        async () => {
-          if (this.active.get(id)?.cancelRequested) throw new Error("Background task cancelled before submission.");
-          await client.prompt(buildAgentPrompt(request, contexts), images);
-        },
-      );
+      await client.start();
+      this.patchTask(id, { processId: client.processId });
+      await client.setSessionName(title);
+      if (this.active.get(id)?.cancelRequested) throw new Error("Background task cancelled before submission.");
+      // Pi RPC resolves prompt commands after acceptance; task events continue asynchronously.
+      await client.prompt(buildAgentPrompt(request, contexts), images);
       if (this.tasks.get(id)?.status === "starting") this.patchTask(id, { status: "running" });
     } catch (error) {
       this.failTask(id, error);

@@ -1,11 +1,3 @@
-export async function launchBackgroundExecution(
-  initialize: () => Promise<void>,
-  acceptPrompt: () => Promise<void>,
-): Promise<void> {
-  await initialize();
-  await acceptPrompt();
-}
-
 export function isBackgroundTaskActive(status: string | undefined): boolean {
   return status === "starting" || status === "running";
 }

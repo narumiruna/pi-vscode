@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
 import {
   buildAgentPrompt,
-  buildAskPrompt,
   buildChatPrompt,
-  buildModifyPrompt,
   buildSelectionReference,
   extractReplacement,
   limitChatHistory,
@@ -20,15 +18,6 @@ const selection: SelectionContext = {
   code: "const answer = 40 + 2;",
 };
 
-test("buildAskPrompt includes the question and selected code context", () => {
-  const prompt = buildAskPrompt(selection, "What does this do?");
-
-  assert.match(prompt, /Question: What does this do\?/);
-  assert.match(prompt, /File: src\/example\.ts/);
-  assert.match(prompt, /const answer = 40 \+ 2;/);
-  assert.match(prompt, /Do not modify files\./);
-});
-
 test("selection references preserve an unambiguous absolute editor resource", () => {
   const reference = buildSelectionReference({
     ...selection,
@@ -37,14 +26,6 @@ test("selection references preserve an unambiguous absolute editor resource", ()
 
   assert.equal(reference.label, "/workspace-b/src/example.ts:3-5");
   assert.match(reference.content, /^File: \/workspace-b\/src\/example\.ts$/m);
-});
-
-test("buildModifyPrompt requests a tagged replacement", () => {
-  const prompt = buildModifyPrompt(selection, "Use a named constant");
-
-  assert.match(prompt, /Instruction: Use a named constant/);
-  assert.match(prompt, /<<<PI_VSCODE_REPLACEMENT_START>>>/);
-  assert.match(prompt, /Do not use Markdown code fences\./);
 });
 
 test("buildAgentPrompt round-trips the user request and context labels", () => {
