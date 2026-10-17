@@ -53,6 +53,16 @@ KaTeX uses `trust: false`, strict errors, 4,000 source characters per formula, 5
 Diagram work is serialized, with at most 100 queued blocks. Host Markdown and browser diagram caches each retain at most 64 entries and 2,000,000 source/output characters. Detached nodes, changed content/theme keys, and disposed views cannot receive late results. Page disposal clears browser pending work and its diagram cache; an already-running Mermaid operation can finish but cannot insert its result. Source/edge/expansion limits bound work; there is no hard preemption of synchronous renderer computation. Generated HTML and SVG do not replace Markdown in RPC or stored history. All renderer assets and third-party license texts ship in the VSIX; no CDN is used.
 User, model, tool, attachment, and persisted text cannot inject raw scripts or HTML. The modal image preview uses a native button trigger, supports Escape/close, clears its image source, and returns focus to the trigger.
 
+## Settings Page
+
+The Pi Settings editor writes only the existing allowlisted `pi.*` properties through VS Code configuration APIs with an explicit User or Workspace target. It does not edit Pi files, read credentials, discover models, start or restart Pi, or change current session RPC state. Existing extension activation still initializes the bridge and performs legacy bridge cleanup. Launch settings affect later process creation, not running foreground or background agents.
+
+Host validation checks message size, request ID, key, target, revision, value type, enum, integer bounds, and edit limits. Page edits permit 4,096 characters per string, 100 list items, and 16 KiB of serialized list text; messages are capped at 32 KiB. Configuration reads keep their existing behavior. Project-resource edits and resets require workspace trust. Current Restricted Mode activation support is unchanged.
+
+Each save is bound to its submitted scope. Revision checks and configuration snapshots reject known stale writes, including changes detected before their configuration event arrives. These checks are not atomic against other windows or external configuration writers. Conflicting drafts require an explicit row reload. Reset removes only the selected target override. Small drafts are kept in webview state while hidden, not in Pi settings or extension global/workspace storage; closing the panel discards them.
+
+Settings scripts and styles are bundled under `out/settings`, which is the panel's only local resource root. The page uses `default-src 'none'`, nonce-only external scripts, local stylesheet resources, and no inline-style exception. It enables no network connections, images, fonts, frames, or objects. Configuration values enter the DOM through input values and `textContent`, not HTML. The native Settings action runs one fixed host-owned command/filter, never a browser-supplied command ID. Panel disposal removes its listeners and prevents late posts; a configuration write already accepted by VS Code can finish after the panel closes.
+
 ## Data Bounds
 
 Text attachments are limited per item and in aggregate.

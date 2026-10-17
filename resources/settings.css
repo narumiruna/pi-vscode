@@ -1,0 +1,170 @@
+:root {
+  color-scheme: light dark;
+}
+body {
+  margin: 0 auto;
+  padding: 32px;
+  max-width: 1100px;
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+  font-family: var(--vscode-font-family, sans-serif);
+  font-size: var(--vscode-font-size, 13px);
+}
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+h1 {
+  font-size: 24px;
+  font-weight: 500;
+}
+h2 {
+  margin-top: 0;
+  font-size: 21px;
+  font-weight: 500;
+}
+p {
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.scope {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 12px;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: 32px;
+  margin-top: 28px;
+}
+nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-self: start;
+}
+main {
+  min-width: 0;
+}
+.setting {
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 16px;
+  min-width: 0;
+}
+.setting label {
+  font-weight: 600;
+}
+.setting p {
+  color: var(--vscode-descriptionForeground);
+  margin: 8px 0 12px;
+}
+input:not([type="checkbox"]),
+textarea,
+select {
+  box-sizing: border-box;
+  max-width: 100%;
+  width: 100%;
+  padding: 7px 9px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--vscode-widget-border));
+  border-radius: 4px;
+  font: inherit;
+}
+textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--vscode-checkbox-background);
+}
+.scope select {
+  width: auto;
+}
+button {
+  cursor: pointer;
+  border: 1px solid var(--vscode-contrastBorder, transparent);
+  border-radius: 4px;
+  padding: 7px 12px;
+  font: inherit;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+button:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+button.secondary {
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+}
+nav button {
+  text-align: left;
+  background: transparent;
+  color: var(--vscode-foreground);
+  border: 1px solid transparent;
+}
+nav button[aria-pressed="true"] {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+  border-color: var(--vscode-contrastActiveBorder, transparent);
+}
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+:focus-visible {
+  outline: 2px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.meta {
+  font-size: 12px;
+}
+.setting .row-status {
+  min-height: 1.5em;
+  margin-bottom: 0;
+}
+.setting .conflict {
+  color: var(--vscode-errorForeground);
+}
+@media (max-width: 650px) {
+  body {
+    padding: 16px;
+  }
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+  nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .setting {
+    padding: 14px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto;
+    animation: none;
+    transition: none;
+  }
+}

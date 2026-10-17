@@ -121,6 +121,16 @@ Links permit only HTTP, HTTPS, and email targets. Raw HTML and Markdown images a
 
 ## Settings
 
+Run **Pi: Open Settings** or select the gear in the Pi view title to open a dedicated settings tab. Use **General**, **Permissions**, and **Editor** to edit the existing extension settings. Opening or saving this page does not start Pi or send a model request.
+
+Choose **User** or **Workspace** before editing. Text, number, and list fields have a **Save** button; checkboxes and selects save on change. Lists use one item per line; empty lines are omitted. **Reset** removes only the selected scope's override. Inherited and effective values remain visible. A newer external edit keeps your draft but requires **Reload row** before saving. Small drafts survive hiding the tab; closing it discards them. The page warns if drafts exceed the 32 KiB recovery limit.
+
+Executable, provider, model, thinking, tool confirmation, and project-resource settings are used when a Pi process starts. Running foreground and background sessions are unchanged. Reconnect does not restart a running process. The model and thinking controls in chat change the current session separately; resumed sessions can restore their own model. Completion settings affect later requests, subject to in-flight work and cached results. Sensitive-name settings affect later warning checks.
+
+**Open in VS Code Settings** provides the native editor for advanced scope handling. This page supports User and Workspace only, not folder or language overrides. In remote windows, use native Settings to distinguish local-user and remote-user values; the custom page does not expose separate controls for those layers. The extension's existing Restricted Mode and virtual-workspace limits are unchanged.
+
+Page edits allow up to 4,096 characters per string, 100 list items, and 16 KiB of serialized list text. Existing configuration reads are not restricted by these page edit limits.
+
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `pi.executablePath` | `pi` | Pi executable name or absolute path. |
@@ -211,7 +221,7 @@ npm exec --yes --package=@biomejs/biome@2.5.13 -- biome check src resources
 
 | Command | Purpose |
 | --- | --- |
-| `npm run compile` | Check host and browser TypeScript; build bundled renderer JS, CSS, and fonts. |
+| `npm run compile` | Check host and browser TypeScript; build bundled renderer and settings assets. |
 | `npm run watch` | Watch host TypeScript only. Rerun `compile` after renderer or style changes. |
 | `npm test` | Compile, then run the Vitest suite without a live model. |
 | `npm run package` | Run the full test suite and create or overwrite `pi.vsix`. |
@@ -224,9 +234,10 @@ Install local Playwright Chromium before running browser checks:
 npm exec -- playwright-core install chromium
 npm run test:rich-content
 npm run test:thinking-picker
+npm run test:settings
 ```
 
-The rich-content check tests the sidebar document, CSP, rendering, themes, overflow, and asynchronous lifecycle. Run it after renderer changes. Run the thinking-picker check after thinking-picker changes. Neither uses a live model.
+The rich-content check tests the sidebar document, CSP, rendering, themes, overflow, and asynchronous lifecycle. Run it after renderer changes. Run the thinking-picker check after thinking-picker changes. The settings check tests controls, scopes, reset, external-change conflicts, draft recovery, keyboard navigation, themes, layout, and CSP using the bundled assets. None of these checks uses a live model.
 
 ### Native VS Code checks
 
