@@ -27,6 +27,7 @@ test("runtime notices use bounded known causes and never interpolate diagnostics
     assert.match(summary, expected);
     assert.ok(summary.length < 160);
     assert.doesNotMatch(summary, /safe to|can continue|retry now/i);
+    if (code === "cleanup-unverified") assert.doesNotMatch(summary, /stopped responding/);
   }
 });
 

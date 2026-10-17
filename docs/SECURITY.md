@@ -2,7 +2,9 @@
 
 ## Process Boundaries
 
-The extension starts the configured Pi executable with `shell: false`.
+The extension starts Pi with `shell: false`. On Windows, native `.exe` files run directly. Only the complete standard npm Node shim template without extra shebang arguments or environment assignments is recognized; its Node executable and script run directly without evaluating batch text. Other batch wrappers fail closed. Executable and Node lookup use the final normalized child environment and working directory, not an inherited parent PATH fallback.
+Windows environment keys are merged and removed without case sensitivity. Missing or empty PATH disables bare-name search; empty PATH entries do not implicitly search the workspace. Explicit relative executable paths and relative PATH entries use the child working directory.
+Both clients share bounded process cleanup. POSIX clients own a detached process group; Windows clients own the direct runtime rather than `cmd.exe`. Windows descendant cleanup is not verified, including after a confirmed root exit, and RPC termination reports an explicit warning. Cancellation and other one-shot failures include cleanup uncertainty in their error details. Open inherited pipes and failed termination reach a bounded cleanup-unverified outcome rather than hanging. Runtime settlement releases waiters and operation locks on disconnect; it does not establish that escaped or Windows descendant work stopped. Queue drafts remain uncertain and checkpoint recovery remains conservative. Verify remaining work before another operation that can conflict.
 Prompts, source code, terminal text, and image payloads are written to Pi over stdin rather than process arguments.
 Pi provider authentication remains in Pi's credential store or provider environment variables.
 The VS Code bridge listens on a random loopback TCP port in the same extension-host environment.

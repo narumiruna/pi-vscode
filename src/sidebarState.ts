@@ -29,7 +29,7 @@ export function runtimeNoticeSummary(event: { type: string; warningCode?: unknow
     case "deleted-cleanup":
       return "The conversation was deleted, but cleanup or restart failed. View diagnostic for details.";
     case "cleanup-unverified":
-      return "Pi stopped responding to termination. Check for remaining processes; cleanup is unverified.";
+      return "Pi cleanup is unverified. Check for remaining processes before starting conflicting work.";
     case "queue-delivered":
       return "Pi received the queued message but its acknowledgement failed. Check history; do not resend.";
     case "queue-uncertain":

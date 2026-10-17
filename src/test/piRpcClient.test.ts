@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 import {
   buildPiProcessEnvironment,
   buildRpcArguments,
@@ -9,6 +12,7 @@ import {
   type PiRpcEvent,
   StrictJsonLineDecoder,
 } from "../piRpcClient";
+import { alive, fixturePid, launchFixture, waitUntil } from "./piLaunchFixtures";
 
 test("StrictJsonLineDecoder uses LF framing and preserves Unicode separators", () => {
   const lines: string[] = [];
@@ -172,6 +176,264 @@ test("PiRpcClient rejects pending commands when the process exits", async () => 
     await assert.rejects(client.prompt("crash"), /exited with code 7/);
     await client.stop();
   });
+});
+
+test("RPC launches the resolved runtime, preserves arguments, and stops it exactly once", async () => {
+  const f = await launchFixture();
+  const parent = await launchFixture();
+  const parentPath = process.env.PATH;
+  process.env.PATH = parent.bin;
+  const executablePath = process.platform === "win32" ? "pi" : f.executable;
+  const client = new PiRpcClient({
+    executablePath,
+    cwd: f.root,
+    env: { ...f.env, path: f.bin },
+    model: "%TEMP% & | 漢字",
+    appendSystemPrompt: 'a "quote"\nC:\\dir\\',
+    extensions: ["%PI_REVIEW_VALUE%"],
+    sessionPath: "a b.jsonl",
+    requestTimeoutMs: 1_000,
+  });
+  const events: PiRpcEvent[] = [];
+  client.onEvent((event) => events.push(event));
+  try {
+    await client.start();
+    const state = await client.getState();
+    assert.equal(client.processId, state.pid);
+    assert.equal(state.script, f.script);
+    const args = state.args as string[];
+    assert.equal(args[args.indexOf("--model") + 1], "%TEMP% & | 漢字");
+    assert.equal(args[args.indexOf("--append-system-prompt") + 1], 'a "quote"\nC:\\dir\\');
+    assert.equal(args[args.indexOf("--extension") + 1], "%PI_REVIEW_VALUE%");
+    await Promise.all([client.stop(), client.stop(), client.stop()]);
+    await waitUntil(() => !alive(state.pid as number));
+    assert.equal(events.filter((event) => event.type === "process_exit").length, 1);
+    assert.equal(
+      events.some((event) => event.type === "runtime_warning"),
+      process.platform === "win32",
+    );
+  } finally {
+    await client.stop();
+    if (parentPath === undefined) delete process.env.PATH;
+    else process.env.PATH = parentPath;
+    await f.cleanup();
+    await parent.cleanup();
+  }
+});
+
+test("RPC ignores late events from a replaced child generation", async () => {
+  const requests: { id: string; type: string }[] = [];
+  const makeChild = () => {
+    const child = Object.assign(new EventEmitter(), {
+      pid: undefined,
+      exitCode: null,
+      signalCode: null,
+      stdin: new PassThrough(),
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      kill: () => false,
+      unref: () => {},
+    });
+    child.stdin.on("data", (chunk: Buffer) => {
+      const request = JSON.parse(chunk.toString());
+      if (request.type === "get_state") {
+        child.stdout.write(
+          `${JSON.stringify({ type: "response", id: request.id, command: request.type, success: true, data: {} })}\n`,
+        );
+      } else requests.push(request);
+    });
+    return child;
+  };
+  const first = makeChild();
+  const second = makeChild();
+  const spawn = vi
+    .spyOn(require("node:child_process"), "spawn")
+    .mockReturnValueOnce(first as unknown as ChildProcessWithoutNullStreams)
+    .mockReturnValueOnce(second as unknown as ChildProcessWithoutNullStreams);
+  const client = new PiRpcClient({ executablePath: process.execPath, cwd: process.cwd() });
+  try {
+    await client.start();
+    first.emit("close");
+    await client.stop();
+    await client.start();
+    const pending = client.prompt("pending");
+    let error: unknown;
+    void pending.catch((failure) => {
+      error = failure;
+    });
+    first.emit("exit", 7, null);
+    first.emit("error", new Error("late error"));
+    first.stdout.emit("data", Buffer.from('{"type":"queue_update","steering":null}\n'));
+    first.stderr.emit("data", Buffer.from("stale diagnostics"));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(error, undefined);
+    assert.equal(client.diagnostics, "");
+    assert.equal(client.isRunning, true);
+    const request = requests[0];
+    assert.ok(request);
+    second.stdout.write(
+      `${JSON.stringify({ type: "response", id: request.id, command: request.type, success: true, data: {} })}\n`,
+    );
+    await pending;
+  } finally {
+    second.emit("close");
+    await client.stop();
+    spawn.mockRestore();
+  }
+});
+
+test("RPC preserves unexpected-exit classification when a rejected caller stops during cleanup", async () => {
+  const f = await launchFixture();
+  const client = new PiRpcClient({ executablePath: f.executable, cwd: f.root, env: f.env, model: "early-exit" });
+  const events: PiRpcEvent[] = [];
+  client.onEvent((event) => events.push(event));
+  try {
+    await client.start();
+    await assert.rejects(client.prompt("wait-for-exit"), /exited/);
+    await client.stop();
+    const exits = events.filter((event) => event.type === "process_exit");
+    assert.equal(exits.length, 1);
+    assert.equal(exits[0]?.expected, false);
+  } finally {
+    await client.stop();
+    await f.cleanup();
+  }
+});
+
+test("RPC rejects reentrant restart until stop settles, then can restart", async () => {
+  const f = await launchFixture();
+  const client = new PiRpcClient({ executablePath: f.executable, cwd: f.root, env: f.env });
+  let restart: Promise<void> | undefined;
+  const subscription = client.onEvent((event) => {
+    if (event.type === "process_exit") {
+      restart = client.start();
+      void restart.catch(() => {});
+    }
+  });
+  try {
+    await client.start();
+    await client.stop();
+    assert.ok(restart);
+    await assert.rejects(restart, /stopping/);
+    subscription.dispose();
+    await client.start();
+    await client.stop();
+  } finally {
+    subscription.dispose();
+    await client.stop();
+    await f.cleanup();
+  }
+});
+
+test("RPC explicit relative paths use child cwd; PATH removal never restores parent lookup", async () => {
+  const f = await launchFixture();
+  const client = new PiRpcClient({
+    executablePath: `.${path.sep}${path.relative(f.root, f.executable)}`,
+    cwd: f.root,
+    env: f.env,
+  });
+  try {
+    await client.start();
+    assert.equal((await client.getState()).pid, client.processId);
+    await client.stop();
+    if (process.platform === "win32") {
+      for (const env of [{ Path: f.bin }, { PATH: "" }]) {
+        const missing = new PiRpcClient({
+          executablePath: "pi",
+          cwd: f.root,
+          env,
+          unsetEnv: ["path"],
+          requestTimeoutMs: 100,
+        });
+        await assert.rejects(missing.start(), /not found/);
+        assert.equal(missing.processId, undefined);
+        await missing.stop();
+      }
+    }
+  } finally {
+    await client.stop();
+    await f.cleanup();
+  }
+});
+
+for (const failure of ["timeout", "oversized", "bad-queue"]) {
+  test(`RPC cleans up after ${failure}`, async () => {
+    const f = await launchFixture();
+    const client = new PiRpcClient({
+      executablePath: f.executable,
+      cwd: f.root,
+      env: f.env,
+      model: failure,
+      requestTimeoutMs: failure === "timeout" ? 1_000 : 5_000,
+    });
+    const events: PiRpcEvent[] = [];
+    client.onEvent((event) => events.push(event));
+    try {
+      if (failure === "timeout") await assert.rejects(client.start(), /Timed out/);
+      else {
+        await client.start();
+        await assert.rejects(client.prompt(failure), /larger|queue|stopped/);
+      }
+      await client.stop();
+      const pid = await fixturePid(f.pidFile);
+      await waitUntil(() => !alive(pid));
+      assert.equal(events.filter((event) => event.type === "process_exit").length, 1);
+    } finally {
+      await client.stop();
+      await f.cleanup();
+    }
+  });
+}
+
+test("RPC inherited descendant pipes have bounded cleanup and explicit Windows uncertainty", async () => {
+  const f = await launchFixture();
+  const client = new PiRpcClient({ executablePath: f.executable, cwd: f.root, env: f.env, model: "descendant" });
+  const events: PiRpcEvent[] = [];
+  client.onEvent((event) => events.push(event));
+  try {
+    await client.start();
+    const pid = await fixturePid(f.pidFile);
+    const descendant = await fixturePid(f.descendantFile);
+    assert.equal(alive(descendant), true);
+    const started = Date.now();
+    await client.stop();
+    assert.ok(Date.now() - started < 3_500);
+    await waitUntil(() => !alive(pid));
+    if (process.platform === "win32") {
+      // The OS can stop this descendant, but that is not a general tree-ownership guarantee.
+      assert.ok(
+        events.some(
+          (event) =>
+            event.type === "runtime_warning" &&
+            event.warningCode === "cleanup-unverified" &&
+            /could not be verified/.test(String(event.message)),
+        ),
+      );
+    }
+    assert.equal(events.filter((event) => event.type === "process_exit").length, 1);
+  } finally {
+    await client.stop();
+    await f.cleanup();
+  }
+});
+
+test("RPC spawn failures do not emit a duplicate exit or leave pending requests", async () => {
+  const f = await launchFixture();
+  const client = new PiRpcClient({
+    executablePath: f.executable,
+    cwd: path.join(f.root, "missing"),
+    requestTimeoutMs: 200,
+  });
+  const events: PiRpcEvent[] = [];
+  client.onEvent((event) => events.push(event));
+  try {
+    await assert.rejects(client.start(), /Could not start/);
+    await client.stop();
+    assert.equal(events.filter((event) => event.type === "process_exit").length, 1);
+  } finally {
+    await client.stop();
+    await f.cleanup();
+  }
 });
 
 async function withFakePi(
