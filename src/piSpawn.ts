@@ -18,9 +18,7 @@ export function quoteWindowsCommandArgument(value: string): string {
   if (!value) {
     return '""';
   }
-  const escaped = value
-    .replace(/(\\+)(?="|$)/g, "$1$1")
-    .replace(/"/g, '""');
+  const escaped = value.replace(/(\\+)(?="|$)/g, "$1$1").replace(/"/g, '""');
   return `"${escaped}"`;
 }
 

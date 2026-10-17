@@ -13,6 +13,8 @@ fs.writeFileSync(
 );
 fs.appendFileSync(path.join(directory, "pids.jsonl"), `${process.pid}\n`);
 const messages = [];
+let queue = { steering: [], followUp: [] };
+let heldTimer;
 const emit = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
 readline.createInterface({ input: process.stdin }).on("line", (line) => {
   const request = JSON.parse(line);
@@ -25,15 +27,29 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       model: { id: "fixture", provider: "fixture", name: "Native UI fixture" },
     };
   if (request.type === "get_messages") data = { messages };
+  if (request.type === "get_session_stats") data = { contextUsage: { percent: 12 } };
   if (request.type === "get_available_models") data = { models: [] };
   if (request.type === "get_available_thinking_levels") data = { levels: [] };
   if (request.type === "get_commands") data = { commands: [] };
-  if (request.type === "get_queue") data = { steering: [], followUp: [] };
+  if (request.type === "steer" || request.type === "follow_up") {
+    queue[request.type === "steer" ? "steering" : "followUp"].push(request.message);
+    fs.appendFileSync(path.join(directory, "queued.jsonl"), `${JSON.stringify(request)}\n`);
+    emit({ type: "queue_update", ...queue });
+  }
+  if (request.type === "clear_queue") {
+    data = queue;
+    queue = { steering: [], followUp: [] };
+    emit({ type: "queue_update", ...queue });
+  }
+  if (request.type === "get_queue") data = queue;
   emit({ type: "response", id: request.id, command: request.type, success: true, data });
   if (request.type === "prompt") {
     fs.appendFileSync(path.join(directory, "prompts.jsonl"), `${JSON.stringify(request)}\n`);
     const text = fs.readFileSync(path.join(directory, "response.txt"), "utf8");
-    const user = { role: "user", content: [{ type: "text", text: request.message }], timestamp: Date.now() };
+    const imageFile = path.join(directory, "interface-images.json");
+    const images = fs.existsSync(imageFile) ? JSON.parse(fs.readFileSync(imageFile, "utf8")) : [];
+    if (images.length) fs.unlinkSync(imageFile);
+    const user = { role: "user", content: [{ type: "text", text: request.message }, ...images], timestamp: Date.now() };
     const assistant = {
       role: "assistant",
       content: [{ type: "text", text }],
@@ -65,7 +81,13 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       emit({ type: "agent_end", messages });
       emit({ type: "agent_settled" });
     };
-    if (!calls.length) finish();
+    if (fs.existsSync(path.join(directory, "interface-hold"))) {
+      heldTimer = setInterval(() => {
+        if (fs.existsSync(path.join(directory, "interface-hold"))) return;
+        clearInterval(heldTimer);
+        finish();
+      }, 50);
+    } else if (!calls.length) finish();
     else {
       const timer = setInterval(() => {
         if (!fs.existsSync(path.join(directory, "tools-release"))) return;
@@ -74,5 +96,8 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       }, 50);
     }
   }
-  if (request.type === "abort") emit({ type: "agent_settled" });
+  if (request.type === "abort") {
+    clearInterval(heldTimer);
+    emit({ type: "agent_settled" });
+  }
 });

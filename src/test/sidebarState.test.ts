@@ -4,10 +4,31 @@ import {
   limitSidebarMessages,
   persistableSidebarMessages,
   restoreSidebarMessages,
+  runtimeNoticeSummary,
   type SidebarMessage,
   shortTranscriptLabel,
   sidebarMessagesForWebview,
 } from "../sidebarState";
+
+test("runtime notices use bounded known causes and never interpolate diagnostics", () => {
+  const unknown = runtimeNoticeSummary({ type: "runtime_warning", warningCode: "/secret/path <script>" });
+  assert.match(unknown, /View diagnostic/);
+  assert.doesNotMatch(unknown, /secret|script/);
+  assert.match(runtimeNoticeSummary({ type: "protocol_error" }), /invalid response.*View diagnostic/);
+  for (const [code, expected] of [
+    ["session-replaced", /new session was started/],
+    ["state-refresh", /Reconnect.*do not repeat/],
+    ["deleted-cleanup", /deleted.*View diagnostic/],
+    ["cleanup-unverified", /cleanup is unverified/],
+    ["queue-delivered", /do not resend/],
+    ["queue-uncertain", /Check history.*nothing is replayed automatically/],
+  ] as const) {
+    const summary = runtimeNoticeSummary({ type: "runtime_warning", warningCode: code });
+    assert.match(summary, expected);
+    assert.ok(summary.length < 160);
+    assert.doesNotMatch(summary, /safe to|can continue|retry now/i);
+  }
+});
 
 const messages: SidebarMessage[] = [
   { id: "1", role: "user", content: "oldest" },

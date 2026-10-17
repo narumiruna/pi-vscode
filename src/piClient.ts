@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { planPiSpawn, type PiSpawnPlan } from "./piSpawn";
+import { type PiSpawnPlan, planPiSpawn } from "./piSpawn";
 
 const maxOutputBytes = 5 * 1024 * 1024;
 

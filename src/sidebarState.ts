@@ -17,6 +17,28 @@ export function historySyncFailureState(connected: boolean): HistorySyncFailureS
     : { status: "Disconnected · Reconnect available", historyRecoveryAvailable: false };
 }
 
+/** Primary notices contain only fixed text, never raw runtime diagnostics or paths. */
+export function runtimeNoticeSummary(event: { type: string; warningCode?: unknown }): string {
+  if (event.type === "protocol_error")
+    return "Pi sent an invalid response. View diagnostic before taking further action.";
+  switch (event.warningCode) {
+    case "session-replaced":
+      return "The previous session could not be restored. A new session was started; check Sessions for earlier work.";
+    case "state-refresh":
+      return "The command completed, but state could not refresh. Reconnect to refresh; do not repeat the command.";
+    case "deleted-cleanup":
+      return "The conversation was deleted, but cleanup or restart failed. View diagnostic for details.";
+    case "cleanup-unverified":
+      return "Pi stopped responding to termination. Check for remaining processes; cleanup is unverified.";
+    case "queue-delivered":
+      return "Pi received the queued message but its acknowledgement failed. Check history; do not resend.";
+    case "queue-uncertain":
+      return "Queued delivery is uncertain. Check history and Restore drafts before resending; nothing is replayed automatically.";
+    default:
+      return "Pi reported a runtime warning. View diagnostic before taking further action.";
+  }
+}
+
 export interface TranscriptContextAttachment {
   readonly type: "context";
   readonly label: string;

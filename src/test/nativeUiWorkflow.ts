@@ -81,6 +81,11 @@ export async function run(): Promise<void> {
               .getConfiguration("workbench")
               .update("colorTheme", request.theme, vscode.ConfigurationTarget.Global);
             break;
+          case "zoom":
+            await vscode.workspace
+              .getConfiguration("window")
+              .update("zoomLevel", request.level, vscode.ConfigurationTarget.Global);
+            break;
           case "diagnostics":
             publish();
             break;

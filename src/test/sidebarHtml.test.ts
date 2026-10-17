@@ -29,7 +29,7 @@ test("follow-up shortcut selection uses the webview client OS", () => {
   windows.run("busy = true; queueable = true; updateSendState()");
   assert.equal(
     windows.element("composer-hint").textContent,
-    "Enter to send next · Ctrl+Q to send after this · Shift+Enter for a new line",
+    "Next: after the current tool · After this: after the response · Enter / Ctrl+Q · Shift+Enter for a new line",
   );
 
   const linux = createSidebarScriptHarness("Linux x86_64");
@@ -38,7 +38,7 @@ test("follow-up shortcut selection uses the webview client OS", () => {
   linux.run("busy = true; queueable = true; updateSendState()");
   assert.equal(
     linux.element("composer-hint").textContent,
-    "Enter to send next · Alt+Enter to send after this · Shift+Enter for a new line",
+    "Next: after the current tool · After this: after the response · Enter / Alt+Enter · Shift+Enter for a new line",
   );
 
   const reducedPlatform = createSidebarScriptHarness("", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
@@ -90,7 +90,7 @@ test("sidebar composer forwards pasted clipboard images with client-side bounds"
   assert.match(html, /current model does not support image attachments/i);
 });
 
-test("sidebar places model and thinking controls before Send and exposes recovery without queue buttons", () => {
+test("sidebar places model and thinking controls before submission and exposes recovery", () => {
   const html = getSidebarHtml(100_000, 5 * 1024 * 1024);
 
   assert.match(
@@ -154,7 +154,7 @@ test("sidebar places model and thinking controls before Send and exposes recover
   assert.match(html, /structure === renderedMessageStructure/);
   assert.match(html, /setMessageContent\(content, html\[index\]\)/);
   assert.match(html, /#add-context span \{ display: none; \}/);
-  assert.match(html, /\.composer-actions \{[^}]*flex-wrap: nowrap/);
+  assert.match(html, /\.composer-actions \{[^}]*flex-wrap: wrap/);
   assert.doesNotMatch(html, /id="resume-session"/);
 });
 
@@ -174,7 +174,7 @@ test("sidebar preserves hidden semantics, themed layout, and keyboard accessibil
     composerPosition < noticePosition && noticePosition < runtimePosition,
     "runtime status belongs below the composer and notices",
   );
-  assert.match(html, /grid-template-rows: auto minmax\(0, 1fr\) auto auto auto auto/);
+  assert.match(html, /grid-template-rows: auto minmax\(0, 1fr\) auto minmax\(0, auto\) auto auto/);
   assert.match(html, /#runtime \{[^}]*border-top: 1px solid var\(--pi-border\)/);
   assert.match(html, /\[hidden\] \{ display: none !important; \}/);
   assert.match(html, /id="activity" aria-label="Pi workflow activity" hidden/);
@@ -201,7 +201,7 @@ test("sidebar preserves hidden semantics, themed layout, and keyboard accessibil
   assert.match(html, /<label for="input" class="sr-only">Message Pi<\/label>/);
   assert.match(html, /<textarea[^>]*maxlength="42"[^>]*aria-describedby="composer-hint"/);
   assert.match(html, /id="send"[^>]*aria-label="Send message"[^>]*disabled/);
-  assert.match(html, /sendButton\.hidden = cancellable/);
+  assert.match(html, /sendButton\.hidden = busy && !canQueue/);
   assert.match(html, /cancelButton\.hidden = !cancellable/);
   assert.match(html, /if \(event\.isComposing\) return/);
   assert.match(html, /input\.scrollHeight/);
@@ -217,7 +217,7 @@ test("transcript images, context chips, compact composer, and in-flow tools use 
     conversation < messages && messages < tools && tools < activity,
     "request tools follow the active response inside the conversation scroller",
   );
-  assert.match(html, /grid-template-columns: repeat\(auto-fit, minmax\(min\(124px, 100%\), 1fr\)\)/);
+  assert.match(html, /grid-template-columns: repeat\(auto-fit, minmax\(min\(124px, 100%\), 180px\)\)/);
   assert.match(html, /imageGrid\.className = 'transcript-images'/);
   assert.match(html, /card\.className = 'attachment-image'/);
   assert.match(html, /renderComposerImage\(preview, attachment\)/);
@@ -244,7 +244,7 @@ test("responsive transcript constraints and VS Code theme tokens cover 280, 400,
     assert.ok(width >= 280);
     assert.match(html, /min-width: 0/);
     assert.match(html, /max-width: 100%/);
-    assert.match(html, /minmax\(min\(124px, 100%\), 1fr\)/);
+    assert.match(html, /minmax\(min\(124px, 100%\), 180px\)/);
   }
   for (const token of [
     "--vscode-sideBar-background",
@@ -489,6 +489,79 @@ test("tool retention removes only expired rows and a replaced request clears gro
   assert.equal(sidebar.element("tools-group").open, true);
 });
 
+test("visible queue actions use the keyboard submission path and block duplicate or unsupported sends", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "showSessionDetail" });
+  const state = (runtime: Record<string, unknown> = {}) =>
+    sidebar.receive({
+      type: "state",
+      imageSupported: true,
+      runtime: { connected: true, busy: true, queueable: true, cancellable: true, ...runtime },
+      attachments: [{ id: "context", label: "file.ts", image: false }],
+    });
+  for (const [id, kind] of [
+    ["send", "steer"],
+    ["after-this", "followUp"],
+  ]) {
+    state();
+    sidebar.receive({ type: "setInput", text: "Continue with context" });
+    const button = sidebar.element(id);
+    assert.equal(button.hidden, false);
+    assert.equal(button.disabled, false);
+    assert.equal(sidebar.element("input").placeholder, "Write a follow-up…");
+    const before = sidebar.posted.length;
+    button.listeners.get("click")!();
+    assert.equal(sidebar.posted.length, before + 1);
+    assert.equal(sidebar.posted.at(-1).type, "queueInstruction");
+    assert.equal(sidebar.posted.at(-1).kind, kind);
+    assert.equal(sidebar.posted.at(-1).text, "Continue with context");
+    button.listeners.get("click")!();
+    assert.equal(sidebar.posted.length, before + 1, "pending acceptance blocks a second click");
+    sidebar.receive({ type: "sendRejected" });
+  }
+  sidebar.receive({ type: "setInput", text: "/compact" });
+  assert.equal(sidebar.element("send").disabled, true);
+  assert.equal(sidebar.element("after-this").disabled, true);
+  let count = sidebar.posted.length;
+  sidebar.element("after-this").listeners.get("click")!();
+  assert.equal(sidebar.posted.length, count);
+  assert.match(sidebar.element("notice").textContent, /Slash commands cannot be queued/);
+  sidebar.receive({ type: "setInput", text: "Continue" });
+  state({ pendingQueue: { steering: Array.from({ length: 10 }, () => ({ text: "Pending" })), followUp: [] } });
+  assert.equal(sidebar.element("send").disabled, true);
+  count = sidebar.posted.length;
+  sidebar.element("send").listeners.get("click")!();
+  assert.equal(sidebar.posted.length, count);
+  assert.match(sidebar.element("notice").textContent, /queue is full/);
+  state({ queueable: false });
+  assert.equal(sidebar.element("after-this").hidden, true);
+  assert.equal(sidebar.element("send").hidden, true);
+  assert.equal(sidebar.element("cancel").hidden, false);
+  state({ connected: false });
+  assert.equal(sidebar.element("after-this").disabled, true);
+  const before = sidebar.posted.length;
+  sidebar.element("after-this").listeners.get("click")!();
+  assert.equal(sidebar.posted.length, before);
+});
+
+test("model identity and session details expose full runtime values without persistent footer IDs", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({
+    type: "state",
+    runtime: {
+      busy: false,
+      connected: true,
+      sessionId: "full-session-identifier",
+      model: { name: "Runtime display name", provider: "provider", id: "full-model-id" },
+    },
+  });
+  assert.equal(sidebar.element("session").value, "full-session-identifier");
+  assert.equal(sidebar.element("session-details").hidden, false);
+  assert.equal(sidebar.element("model-picker").title, "provider/full-model-id");
+  assert.equal((sidebar.element("model-picker") as any)["aria-label"], "Pi model: Runtime display name");
+  assert.match(sidebar.element("settings-description").textContent, /unavailable for this model/);
+});
+
 class SidebarTestElement {
   children: SidebarTestElement[] = [];
   dataset: Record<string, string> = {};
@@ -652,23 +725,18 @@ test("attachment summary shows counts and estimates without a separate view butt
   const image = { id: "image", label: "image.png", image: true, assetId: "asset" };
   const context = { id: "context", label: "file.ts", image: false };
   state([image]);
-  assert.equal(
-    sidebar.element("attachment-estimate").textContent,
-    "1 attachment · 0 characters · about 0 text tokens (estimated) · image tokens not included",
-  );
+  assert.equal(sidebar.element("attachment-estimate").textContent, "1 image");
+  assert.match(sidebar.element("attachment-estimate").title, /image tokens not included/);
+  sidebar.receive({ type: "setInput", text: "This prompt must not change the attachment count" });
+  assert.equal(sidebar.element("attachment-estimate").textContent, "1 image");
+  sidebar.receive({ type: "setInput", text: "" });
   sidebar.element("add-context").listeners.get("click")!();
   assert.equal(sidebar.posted.at(-1).type, "pickContext");
 
   state([image, context], 120, 30);
-  assert.equal(
-    sidebar.element("attachment-estimate").textContent,
-    "2 attachments · 120 characters · about 30 text tokens (estimated) · image tokens not included",
-  );
+  assert.equal(sidebar.element("attachment-estimate").textContent, "1 image · 120 attachment text characters");
   state([context], 120, 30);
-  assert.equal(
-    sidebar.element("attachment-estimate").textContent,
-    "1 attachment · 120 characters · about 30 text tokens (estimated)",
-  );
+  assert.equal(sidebar.element("attachment-estimate").textContent, "120 attachment text characters");
   assert.equal(sidebar.element("send").title, "Send attachments");
   state([]);
   assert.equal(sidebar.element("attachment-estimate").textContent, "");
@@ -978,7 +1046,7 @@ test("thinking level labels stay compact for all levels and unavailable state", 
     ["—"],
   );
   assert.equal(picker.disabled, true);
-  assert.equal(picker.title, "Pi thinking level unavailable");
+  assert.equal(picker.title, "Pi thinking level unavailable for this model.");
 });
 
 test("transcript image assets render without HTML injection and preview restores focus after close or Escape", () => {
