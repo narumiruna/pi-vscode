@@ -1,7 +1,11 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
+import { PiProcessOwner } from "./piProcess";
+import { buildPiProcessEnvironment, planPiSpawn } from "./piSpawn";
+
+export { buildPiProcessEnvironment } from "./piSpawn";
+
 import type * as vscode from "vscode";
-import { type PiSpawnPlan, planPiSpawn } from "./piSpawn";
 
 const maxDiagnosticBytes = 1024 * 1024;
 const maxJsonLineBytes = 5 * 1024 * 1024;
@@ -112,6 +116,8 @@ export class PiRpcClient {
   private stderr = "";
   private stopping = false;
   private stopPromise: Promise<void> | undefined;
+  private owner: PiProcessOwner | undefined;
+  private exitExpected: boolean | undefined;
 
   public constructor(private readonly options: PiRpcClientOptions) {}
 
@@ -128,26 +134,31 @@ export class PiRpcClient {
   }
 
   public async start(): Promise<void> {
-    if (this.process) {
-      throw new Error("Pi RPC client is already started.");
+    if (this.process || this.stopPromise) {
+      throw new Error("Pi RPC client is already started or stopping.");
     }
 
     this.stopping = false;
+    this.exitExpected = undefined;
     this.stderr = "";
     const rpcArguments = [...(this.options.executableArgs ?? []), ...buildRpcArguments(this.options)];
-    const plan: PiSpawnPlan = planPiSpawn(this.options.executablePath, rpcArguments);
+    const env = buildPiProcessEnvironment(process.env, this.options.env, this.options.unsetEnv);
+    const plan = planPiSpawn(this.options.executablePath, rpcArguments, { cwd: this.options.cwd, env });
     const child = spawn(plan.command, plan.args, {
       cwd: this.options.cwd,
-      env: buildPiProcessEnvironment(process.env, this.options.env, this.options.unsetEnv),
-      shell: plan.shell,
+      env,
+      shell: false,
       detached: process.platform !== "win32",
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
     this.process = child;
+    const owner = new PiProcessOwner(child);
+    this.owner = owner;
 
     const lineDecoder = new StrictJsonLineDecoder((line) => this.handleLine(line));
     child.stdout.on("data", (chunk: Buffer) => {
+      if (this.process !== child) return;
       try {
         lineDecoder.push(chunk);
       } catch (error) {
@@ -155,6 +166,7 @@ export class PiRpcClient {
       }
     });
     child.stdout.on("end", () => {
+      if (this.process !== child) return;
       try {
         lineDecoder.end();
       } catch (error) {
@@ -162,25 +174,26 @@ export class PiRpcClient {
       }
     });
     child.stderr.on("data", (chunk: Buffer) => {
+      if (this.process !== child) return;
       this.stderr = appendBounded(this.stderr, chunk.toString("utf8"), maxDiagnosticBytes);
     });
     child.stdin.on("error", (error) => {
+      if (this.process !== child) return;
       this.failProcess(new Error(`Pi RPC stdin failed: ${error.message}`));
     });
     child.once("error", (error) => {
+      if (this.process !== child) return;
       this.failProcess(new Error(`Could not start Pi RPC using '${this.options.executablePath}': ${error.message}`));
     });
     child.once("exit", (code, signal) => {
-      killOwnedProcess(child, "SIGKILL");
-      if (this.process !== child) {
-        return;
-      }
-      this.process = undefined;
-      const error = new Error(
-        `Pi RPC exited${code === null ? ` with signal ${signal ?? "unknown"}` : ` with code ${code}`}.${formatDiagnostics(this.stderr)}`,
+      if (this.process !== child) return;
+      this.exitExpected = this.stopping;
+      this.rejectPending(
+        new Error(
+          `Pi RPC exited${code === null ? ` with signal ${signal ?? "unknown"}` : ` with code ${code}`}.${formatDiagnostics(this.stderr)}`,
+        ),
       );
-      this.rejectPending(error);
-      this.emit({ type: "process_exit", code, signal, expected: this.stopping });
+      void owner.stop().then((cleanup) => this.finishChild(child, cleanup.warning));
     });
 
     try {
@@ -206,36 +219,21 @@ export class PiRpcClient {
   private async stopChild(child: ChildProcessWithoutNullStreams): Promise<void> {
     this.stopping = true;
     this.rejectPending(new Error("Pi RPC client stopped."));
-    if (child.pid) {
-      killOwnedProcess(child, "SIGTERM");
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(() => {
-          killOwnedProcess(child, "SIGKILL");
-          resolve();
-        }, 1_000);
-        child.once("exit", () => {
-          clearTimeout(timer);
-          resolve();
-        });
-      });
-    }
-    if (child.pid && child.exitCode === null && child.signalCode === null) {
-      this.emit({
-        type: "runtime_warning",
-        warningCode: "cleanup-unverified",
-        message: "Pi termination deadline reached; descendant cleanup could not be verified.",
-      });
-    }
-    if (this.process === child) {
-      this.process = undefined;
-      // SIGKILL may not have produced an exit event yet. Always release runtime
-      // settlement waiters; do not lose the event by clearing process first.
-      this.emit({ type: "process_exit", code: child.exitCode, signal: child.signalCode, expected: true });
-    }
-    child.stdin.destroy();
-    child.stdout.destroy();
-    child.stderr.destroy();
-    child.unref();
+    const cleanup = await this.owner?.stop();
+    this.finishChild(child, cleanup?.warning);
+  }
+
+  private finishChild(child: ChildProcessWithoutNullStreams, warning?: string): void {
+    if (this.process !== child) return;
+    if (warning) this.emit({ type: "runtime_warning", warningCode: "cleanup-unverified", message: warning });
+    this.process = undefined;
+    this.owner = undefined;
+    this.emit({
+      type: "process_exit",
+      code: child.exitCode,
+      signal: child.signalCode,
+      expected: this.exitExpected ?? this.stopping,
+    });
   }
 
   public onEvent(listener: (event: PiRpcEvent) => void): vscode.Disposable {
@@ -456,18 +454,6 @@ export class PiRpcClient {
   }
 }
 
-export function buildPiProcessEnvironment(
-  base: NodeJS.ProcessEnv,
-  overrides?: NodeJS.ProcessEnv,
-  unset?: readonly string[],
-): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = { ...base, ...overrides, NO_COLOR: "1" };
-  for (const key of unset ?? []) {
-    delete environment[key];
-  }
-  return environment;
-}
-
 export function buildRpcArguments(options: PiRpcClientOptions): string[] {
   const args = ["--mode", "rpc"];
   if (options.provider) {
@@ -490,15 +476,6 @@ export function buildRpcArguments(options: PiRpcClientOptions): string[] {
   }
   args.push(options.approveProjectResources ? "--approve" : "--no-approve");
   return args;
-}
-
-function killOwnedProcess(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals): void {
-  try {
-    if (process.platform !== "win32" && child.pid) process.kill(-child.pid, signal);
-    else child.kill(signal);
-  } catch {
-    /* The owned process group already exited. */
-  }
 }
 
 function appendBounded(current: string, next: string, maxBytes: number): string {

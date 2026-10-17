@@ -955,6 +955,7 @@ for (const command of ["/handled-command", "/compact"]) {
     const acceptedBeforeRefresh: number[] = [];
     const client: any = {
       isRunning: true,
+      onEvent: () => ({ dispose() {} }),
       prompt: async () => {
         rpcCalls += 1;
         return "handled";

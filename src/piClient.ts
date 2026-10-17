@@ -1,5 +1,6 @@
-import { spawn } from "node:child_process";
-import { type PiSpawnPlan, planPiSpawn } from "./piSpawn";
+import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { PiProcessOwner } from "./piProcess";
+import { buildPiProcessEnvironment, planPiSpawn } from "./piSpawn";
 
 const maxOutputBytes = 5 * 1024 * 1024;
 
@@ -43,14 +44,29 @@ export function invokePi(prompt: string, options: PiInvocationOptions, signal?: 
       return;
     }
 
-    const plan: PiSpawnPlan = planPiSpawn(options.executablePath, buildPiArguments(options));
-    const child = spawn(plan.command, plan.args, {
-      cwd: options.cwd,
-      env: { ...process.env, NO_COLOR: "1" },
-      shell: plan.shell,
-      windowsHide: true,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    const env = buildPiProcessEnvironment(process.env);
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      const plan = planPiSpawn(options.executablePath, buildPiArguments(options), { cwd: options.cwd, env });
+      child = spawn(plan.command, plan.args, {
+        cwd: options.cwd,
+        env,
+        shell: false,
+        detached: process.platform !== "win32",
+        windowsHide: true,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    } catch (error) {
+      reject(
+        new PiInvocationError(
+          "Could not plan or start Pi.",
+          "launch",
+          error instanceof Error ? error.message : String(error),
+        ),
+      );
+      return;
+    }
+    const owner = new PiProcessOwner(child);
 
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
@@ -68,8 +84,11 @@ export function invokePi(prompt: string, options: PiInvocationOptions, signal?: 
       }
       settled = true;
       cleanup();
-      child.kill();
-      reject(error);
+      void owner.stop().then((result) => {
+        reject(
+          new PiInvocationError(error.message, error.kind, [error.details, result.warning].filter(Boolean).join(" ")),
+        );
+      });
     };
 
     const abort = (): void => {
@@ -77,12 +96,14 @@ export function invokePi(prompt: string, options: PiInvocationOptions, signal?: 
     };
 
     signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
 
     child.once("error", (error) => {
       fail(new PiInvocationError(`Could not start Pi using '${options.executablePath}'.`, "launch", error.message));
     });
 
     child.stdout.on("data", (chunk: Buffer) => {
+      if (settled) return;
       outputBytes += chunk.length;
       if (outputBytes > maxOutputBytes) {
         fail(new PiInvocationError("Pi produced more than 5 MiB of output.", "output"));
@@ -101,30 +122,40 @@ export function invokePi(prompt: string, options: PiInvocationOptions, signal?: 
       errorBytes += capturedChunk.length;
     });
 
-    child.once("close", (code, closeSignal) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      cleanup();
+    child.once("exit", (code, closeSignal) => {
+      void owner.stop().then((cleanupResult) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (!cleanupResult.pipesClosed) {
+          reject(new PiInvocationError("Pi output pipes did not close.", "output", cleanupResult.warning));
+          return;
+        }
 
-      const result = Buffer.concat(stdout).toString("utf8");
-      const errorOutput = Buffer.concat(stderr).toString("utf8").trim();
-      if (code !== 0) {
-        reject(
-          new PiInvocationError(
-            `Pi exited with ${code === null ? `signal ${closeSignal ?? "unknown"}` : `code ${code}`}.`,
-            "exit",
-            errorOutput,
-          ),
-        );
-        return;
-      }
-      if (result.trim().length === 0) {
-        reject(new PiInvocationError("Pi returned an empty response.", "output", errorOutput));
-        return;
-      }
-      resolve(result);
+        const result = Buffer.concat(stdout).toString("utf8");
+        const errorOutput = Buffer.concat(stderr).toString("utf8").trim();
+        if (code !== 0) {
+          reject(
+            new PiInvocationError(
+              `Pi exited with ${code === null ? `signal ${closeSignal ?? "unknown"}` : `code ${code}`}.`,
+              "exit",
+              [errorOutput, cleanupResult.warning].filter(Boolean).join(" "),
+            ),
+          );
+          return;
+        }
+        if (result.trim().length === 0) {
+          reject(
+            new PiInvocationError(
+              "Pi returned an empty response.",
+              "output",
+              [errorOutput, cleanupResult.warning].filter(Boolean).join(" "),
+            ),
+          );
+          return;
+        }
+        resolve(result);
+      });
     });
 
     child.stdin.once("error", (error) => {

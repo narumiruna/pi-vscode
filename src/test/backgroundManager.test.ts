@@ -60,11 +60,16 @@ test("background manager restores legacy/interrupted tasks safely, previews canc
 
     const clientPrototype = PiRpcClient.prototype as any;
     const originalStart = clientPrototype.start;
+    const originalStop = clientPrototype.stop;
     const originalPrompt = clientPrototype.prompt;
     const originalSetSessionName = clientPrototype.setSessionName;
     let launchOptions: any;
     clientPrototype.start = async function () {
       launchOptions = this.options;
+    };
+    clientPrototype.stop = async function () {
+      assert.equal(hasOperation(repository), true, "the operation lock covers cleanup");
+      this.emit({ type: "runtime_warning", message: "Descendant cleanup could not be verified." });
     };
     clientPrototype.prompt = async () => {};
     clientPrototype.setSessionName = async () => {};
@@ -91,8 +96,14 @@ test("background manager restores legacy/interrupted tasks safely, previews canc
         vscodeBridgeExtensionEnvironmentKey,
       ]);
       await launchManager.cancel(launched);
+      assert.match(
+        launchManager.states.find((task) => task.id === launched)?.output ?? "",
+        /Descendant cleanup could not be verified/,
+      );
+      assert.equal(hasOperation(repository), false);
     } finally {
       clientPrototype.start = originalStart;
+      clientPrototype.stop = originalStop;
       clientPrototype.prompt = originalPrompt;
       clientPrototype.setSessionName = originalSetSessionName;
     }

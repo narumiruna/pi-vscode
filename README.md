@@ -27,6 +27,14 @@ Confirm that Pi is available in the environment where VS Code runs the extension
 pi --version
 ```
 
+### Windows process launches
+
+Windows supports native `.exe` files and the standard npm `cmd-shim` Node template without custom shebang arguments or environment assignments. The extension resolves that template to its JavaScript entry point and starts `node.exe` directly, without a command shell. Node must be beside the shim or in the child PATH; the VS Code executable is not used as Node. Custom `.cmd`/`.bat` wrappers are rejected with a launch error. Use a native executable or reinstall Pi with npm when a wrapper is unsupported. This restriction does not change an explicit terminal handoff.
+
+Executable lookup uses the final child environment. Windows environment keys are case-insensitive; PATH overrides and removals apply before lookup. Bare names search nonempty PATH entries in directory order, preferring `.exe`, then `.cmd`, then `.bat` in each directory. Quoted PATH directories are supported; relative entries use the child working directory. Missing or empty PATH does not search the parent PATH, system directories, or the workspace implicitly. Explicit directory-qualified paths use the workspace launch directory. Drive-relative paths such as `C:pi.cmd` and rooted paths without a drive are rejected, including in PATH entries. Quoted empty PATH entries are ignored.
+
+Stopping or cancelling targets the actual runtime, not a shell. Cleanup has bounded exit and pipe deadlines. Windows reports that descendant cleanup is unverified; a root-process exit is not proof that every tool or detached descendant stopped. Foreground cleanup warnings remain available through session deletion and failed startup cleanup. Check remaining work before starting conflicting operations.
+
 ## Install
 
 If you have `narumi.pi-coding-agent-vscode` installed, follow [Upgrade from the old extension ID](#upgrade-from-the-old-extension-id) first.
@@ -135,7 +143,7 @@ Page edits allow up to 4,096 characters per string, 100 list items, and 16 KiB o
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `pi.executablePath` | `pi` | Pi executable name or absolute path. |
+| `pi.executablePath` | `pi` | Pi executable name, absolute path, or directory-qualified path relative to the workspace launch directory. |
 | `pi.provider` | Empty | Optional provider override; empty uses Pi settings. |
 | `pi.model` | Empty | Optional model override; empty uses Pi settings. |
 | `pi.thinkingLevel` | `default` | Optional thinking-level override. |

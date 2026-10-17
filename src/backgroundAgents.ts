@@ -371,6 +371,9 @@ export class BackgroundAgentManager implements vscode.Disposable {
         const task = this.requireTask(id);
         this.patchTask(id, { output: (task.output + update.delta).slice(-maxOutputCharacters) });
       }
+    } else if (event.type === "runtime_warning" && typeof event.message === "string") {
+      const task = this.requireTask(id);
+      this.patchTask(id, { output: `${task.output}\nRuntime warning: ${event.message}`.slice(-maxOutputCharacters) });
     } else if (event.type === "tool_execution_start") {
       this.patchTask(id, { tool: typeof event.toolName === "string" ? event.toolName : "tool" });
     } else if (event.type === "tool_execution_end") {
@@ -449,10 +452,11 @@ export class BackgroundAgentManager implements vscode.Disposable {
       return;
     }
     this.active.delete(id);
-    active.subscription.dispose();
     try {
       await active.client.stop();
     } finally {
+      // Keep cleanup warnings observable until stop has settled.
+      active.subscription.dispose();
       active.releaseOperation();
     }
   }

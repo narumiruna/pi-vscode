@@ -394,7 +394,7 @@
         "pi.executablePath": {
           "type": "string",
           "default": "pi",
-          "description": "Path or command used to start the Pi CLI."
+          "description": "Pi executable name, absolute path, or directory-qualified path relative to the workspace launch directory. Windows supports native .exe files and standard npm Node shims, not custom batch wrappers."
         },
         "pi.provider": {
           "type": "string",
