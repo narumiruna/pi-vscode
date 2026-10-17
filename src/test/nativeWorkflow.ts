@@ -13,6 +13,7 @@ import { queryCodeContext } from "../semanticContext";
 import { VscodeBridgeServer } from "../vscodeBridge";
 import { vscodeBridgePortEnvironmentKey, vscodeBridgeTokenEnvironmentKey } from "../vscodeBridgeProtocol";
 import { verifyDiagnosticEncodings } from "./nativeDiagnosticEncoding";
+import { verifyNativeSettings } from "./nativeSettings";
 
 export async function run(): Promise<void> {
   const root = vscode.workspace.workspaceFolders?.[0]?.uri;
@@ -30,6 +31,7 @@ export async function run(): Promise<void> {
     await evidence({ version: vscode.version, trusted: false, trustGuard: "passed" });
     return;
   }
+  await verifyNativeSettings();
   await vscode.extensions.getExtension("vscode.typescript-language-features")?.activate();
   await vscode.window.showTextDocument(source);
   let definitions: CodeContextResult | undefined;
@@ -151,6 +153,7 @@ export async function run(): Promise<void> {
   await evidence({
     version: vscode.version,
     trusted: true,
+    settingsCommandLifecycleAndScopes: "passed",
     semanticProviders: "passed",
     bridgeCodeContext: "passed",
     cancellation: "passed",

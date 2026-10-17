@@ -237,6 +237,74 @@ try {
   let pi = await frame();
   await until(async () => (await pi.locator("body").innerText()).includes("Ready"), "Pi runtime ready");
   const initial = await invoke("state");
+  // Settings uses the real Extension Host configuration API and packaged webview.
+  const settingsFrame = () =>
+    until(async () => {
+      for (const candidate of page.frames()) {
+        try {
+          if (await candidate.locator("#native-settings").count()) return candidate;
+        } catch (error) {
+          if (!candidate.isDetached()) throw error;
+        }
+      }
+    }, "Settings webview");
+  const pidsBeforeSettings = await readFile(path.join(directory, "pids.jsonl"), "utf8");
+  const promptsBeforeSettings = await readFile(path.join(directory, "prompts.jsonl"), "utf8").catch(() => "");
+  const gear = page
+    .locator(
+      '[aria-label="Open Settings"], [aria-label="Pi: Open Settings"], [title="Open Settings"], [title="Pi: Open Settings"]',
+    )
+    .first();
+  await gear.click();
+  let settings = await settingsFrame();
+  await settings.locator('section[data-key="model"] input').waitFor();
+  await invoke("command", { command: "pi.openSettings" });
+  assert.equal((await invoke("settingsState")).tabs, 1);
+  const settingsRow = () => settings.locator('section[data-key="model"]');
+  await settingsRow().locator("input").fill("native-user-model");
+  await settingsRow().getByRole("button", { name: "Save", exact: true }).click();
+  await until(
+    async () => (await invoke("settingsState")).model.globalValue === "native-user-model",
+    "User setting saved",
+  );
+  await until(async () => (await settingsRow().innerText()).includes("Saved"), "User save acknowledged");
+  await settings.locator("#target").selectOption("workspace");
+  await settingsRow().locator("input").fill("native-workspace-model");
+  await settingsRow().getByRole("button", { name: "Save", exact: true }).click();
+  await until(
+    async () => (await invoke("settingsState")).model.workspaceValue === "native-workspace-model",
+    "Workspace setting saved",
+  );
+  await until(async () => (await settingsRow().innerText()).includes("Saved"), "Workspace save acknowledged");
+  await settingsRow().getByRole("button", { name: "Reset", exact: true }).click();
+  await until(async () => (await invoke("settingsState")).model.workspaceValue === undefined, "Workspace reset");
+  await settings.locator("#target").selectOption("user");
+  await settingsRow().getByRole("button", { name: "Reset", exact: true }).click();
+  await until(async () => (await invoke("settingsState")).model.globalValue === undefined, "User reset");
+  await page.screenshot({ path: path.join(tmpdir(), `pi-settings-native-${evidenceLabel}.png`) });
+  await settingsRow().locator("input").fill("hidden-draft");
+  await invoke("source");
+  await delay(400);
+  await invoke("command", { command: "pi.openSettings" });
+  settings = await settingsFrame();
+  await until(
+    async () => (await settingsRow().locator("input").inputValue()) === "hidden-draft",
+    "Draft survives hide/reveal",
+  );
+  assert.equal((await invoke("settingsState")).tabs, 1);
+  assert.equal(
+    await readFile(path.join(directory, "pids.jsonl"), "utf8"),
+    pidsBeforeSettings,
+    "Settings must not start or restart Pi",
+  );
+  assert.equal(
+    await readFile(path.join(directory, "prompts.jsonl"), "utf8").catch(() => ""),
+    promptsBeforeSettings,
+    "Settings must not send prompts",
+  );
+  await invoke("command", { command: "workbench.action.closeActiveEditor" });
+  await invoke("source");
+  console.log("PI_NATIVE_UI settings gear, singleton, scopes, reset, drafts and no Pi side effects passed");
   for (const label of ["Definition", "References", "Callers", "Callees", "Document Symbols"]) {
     await invoke("source");
     pi = await frame();
@@ -442,6 +510,7 @@ try {
       workspaceAlias,
       packaged,
       richContent: "Markdown, math fonts, flowchart and sequence SVG passed",
+      settingsPanel: "gear, singleton, User/Workspace writes, reset, hide/reveal drafts, no Pi side effects passed",
       semanticAttachmentPicker: "passed",
       fourReviewScopes: "passed",
       nativeProblemsAndAskFix: "passed",

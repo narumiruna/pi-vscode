@@ -2,6 +2,18 @@ import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { build } from "esbuild";
 
+await mkdir("out/settings", { recursive: true });
+await build({
+  entryPoints: ["src/webview/settings.mts"],
+  outfile: "out/settings/settings.js",
+  bundle: true,
+  platform: "browser",
+  format: "iife",
+  target: "chrome138",
+  minify: true,
+});
+await cp("resources/settings.css", "out/settings/settings.css");
+
 const output = "out/rich-content";
 await mkdir(output, { recursive: true });
 await build({

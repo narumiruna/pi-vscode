@@ -56,6 +56,14 @@ export async function run(): Promise<void> {
           case "command":
             result = await vscode.commands.executeCommand(request.command);
             break;
+          case "settingsState":
+            result = {
+              model: vscode.workspace.getConfiguration("pi").inspect("model"),
+              tabs: vscode.window.tabGroups.all
+                .flatMap((group) => group.tabs)
+                .filter((tab) => tab.label === "Pi Settings").length,
+            };
+            break;
           case "source": {
             const editor = await vscode.window.showTextDocument(source);
             editor.selection = new vscode.Selection(0, 17, 0, 17);

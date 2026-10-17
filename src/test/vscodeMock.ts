@@ -7,6 +7,9 @@ export class MockUri {
     public readonly path: string,
     public readonly query = "",
   ) {}
+  public static joinPath(base: MockUri, ...segments: string[]): MockUri {
+    return new MockUri(base.scheme, path.posix.join(base.path, ...segments));
+  }
   public static file(file: string): MockUri {
     return new MockUri("file", path.resolve(file));
   }
@@ -33,8 +36,21 @@ export function installVscodeMock(): any {
   const original = Module._load;
   const disposable = () => ({ dispose() {} });
   const registrations = new Map<string, (...args: any[]) => any>();
+  const configurationEvents = new NodeEmitter();
+  const workspaceEvents = new NodeEmitter();
+  const panels: any[] = [];
+  const listen = (events: NodeEmitter, name: string, listener: (...args: any[]) => void) => {
+    events.on(name, listener);
+    return { dispose: () => events.off(name, listener) };
+  };
   const mock: any = {
     Uri: MockUri,
+    ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
+    ViewColumn: { Active: -1 },
+    env: {},
+    panels,
+    configurationEvents,
+    workspaceEvents,
     Range: class {
       public start: { line: number; character: number };
       public end: { line: number; character: number };
@@ -107,16 +123,55 @@ export function installVscodeMock(): any {
     },
     workspace: {
       isTrusted: true,
+      onDidChangeConfiguration: (listener: (...args: any[]) => void) => listen(configurationEvents, "change", listener),
+      onDidChangeWorkspaceFolders: (listener: (...args: any[]) => void) => listen(workspaceEvents, "folders", listener),
+      onDidGrantWorkspaceTrust: (listener: (...args: any[]) => void) => listen(workspaceEvents, "trust", listener),
       textDocuments: [],
       workspaceFolders: [],
       registerTextDocumentContentProvider: disposable,
       getConfiguration: () => ({
         get: (_key: string, fallback: unknown) => fallback,
         inspect: (key: string) => ({ key }),
+        update: async () => {},
       }),
       getWorkspaceFolder: () => undefined,
     },
     window: {
+      createWebviewPanel: (viewType: string, title: string, column: unknown, options: unknown) => {
+        const events = new NodeEmitter();
+        const panel = {
+          viewType,
+          title,
+          column,
+          options,
+          reveals: 0,
+          disposed: false,
+          webview: {
+            html: "",
+            cspSource: "https://mock.invalid",
+            messages: [] as any[],
+            asWebviewUri: (uri: MockUri) => uri,
+            postMessage: async (message: unknown) => {
+              panel.webview.messages.push(message);
+              return true;
+            },
+            onDidReceiveMessage: (listener: (...args: any[]) => void) => listen(events, "message", listener),
+          },
+          receive: (message: unknown) => events.emit("message", message),
+          reveal: () => {
+            panel.reveals++;
+          },
+          onDidDispose: (listener: (...args: any[]) => void) => listen(events, "dispose", listener),
+          dispose: () => {
+            if (!panel.disposed) {
+              panel.disposed = true;
+              events.emit("dispose");
+            }
+          },
+        };
+        panels.push(panel);
+        return panel;
+      },
       showWarningMessage: async () => undefined,
       showErrorMessage: async () => undefined,
       showInformationMessage: async () => undefined,
