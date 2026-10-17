@@ -683,16 +683,19 @@ export class PiRuntimeManager implements vscode.Disposable {
     const options = this.buildClientOptions(sessionPath, bridgeEnvironment);
     const client = new PiRpcClient(options);
     this.clientSubscription?.dispose();
-    this.clientSubscription = client.onEvent((event) => this.handleEvent(event));
+    const subscription = client.onEvent((event) => this.handleEvent(event));
+    this.clientSubscription = subscription;
     this.client = client;
     try {
       await client.start();
       await this.refreshState(true);
     } catch (error) {
-      this.clientSubscription.dispose();
-      this.clientSubscription = undefined;
-      this.client = undefined;
-      await client.stop();
+      subscription.dispose();
+      if (this.client === client) {
+        this.clientSubscription = undefined;
+        this.client = undefined;
+      }
+      await this.stopDetachedClient(client);
       throw error;
     }
   }
@@ -1067,14 +1070,27 @@ export class PiRuntimeManager implements vscode.Disposable {
     return this.client;
   }
 
+  private async stopDetachedClient(client: PiRpcClient | undefined): Promise<void> {
+    if (!client) return;
+    // The old session is detached. Forward cleanup warnings, not late state events.
+    const subscription = client.onEvent((event) => {
+      if (event.type === "runtime_warning" && event.warningCode === "cleanup-unverified") {
+        this.eventEmitter.fire(event);
+      }
+    });
+    try {
+      await client.stop();
+    } finally {
+      subscription.dispose();
+    }
+  }
+
   private async stopClient(): Promise<void> {
     const client = this.client;
     this.clientSubscription?.dispose();
     this.clientSubscription = undefined;
     this.client = undefined;
-    if (client) {
-      await client.stop();
-    }
+    await this.stopDetachedClient(client);
     this.resetQueueTracking();
     this.updateState({
       connected: false,

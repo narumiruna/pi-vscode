@@ -55,4 +55,4 @@ jobs:
       - name: Compile
         run: npm run compile
       - name: Verify argument transport, resolution, and process cleanup
-        run: npm exec -- vitest run out/test/piSpawn.test.js out/test/piClient.test.js out/test/piRpcClient.test.js out/test/piProcess.test.js
+        run: npm exec -- vitest run out/test/piSpawn.test.js out/test/piClient.test.js out/test/piRpcClient.test.js out/test/piProcess.test.js out/test/piRuntimeCleanup.test.js out/test/piRuntimeDeletion.test.js
