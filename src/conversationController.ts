@@ -1,4 +1,5 @@
 import type * as vscode from "vscode";
+import { piMessageContentText } from "./piMessages";
 import type { AgentRequestPolicy, ChatReferenceContext } from "./prompts";
 
 export interface ConversationRequestOptions {
@@ -131,16 +132,7 @@ function assistantMessageText(message: unknown): string | undefined {
   if (!isRecord(message) || message.role !== "assistant") {
     return undefined;
   }
-  if (typeof message.content === "string") {
-    return message.content;
-  }
-  if (!Array.isArray(message.content)) {
-    return "";
-  }
-  return message.content
-    .filter((part) => isRecord(part) && part.type === "text" && typeof part.text === "string")
-    .map((part) => String(part.text))
-    .join("\n");
+  return piMessageContentText(message.content);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

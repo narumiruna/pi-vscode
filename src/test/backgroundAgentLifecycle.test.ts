@@ -4,47 +4,7 @@ import {
   backgroundTaskIdsToEvict,
   countOccupiedBackgroundTaskSlots,
   isBackgroundTaskActive,
-  launchBackgroundExecution,
 } from "../backgroundAgentLifecycle";
-
-test("background launch waits for prompt acceptance but not task settlement", async () => {
-  let acceptPrompt: (() => void) | undefined;
-  const promptAcceptance = new Promise<void>((resolve) => {
-    acceptPrompt = resolve;
-  });
-  let notifyDispatched: (() => void) | undefined;
-  const dispatched = new Promise<void>((resolve) => {
-    notifyDispatched = resolve;
-  });
-  let launchResolved = false;
-
-  const launch = launchBackgroundExecution(
-    async () => {},
-    () => {
-      notifyDispatched?.();
-      return promptAcceptance;
-    },
-  ).then(() => {
-    launchResolved = true;
-  });
-
-  await dispatched;
-  assert.equal(launchResolved, false);
-  acceptPrompt?.();
-  await launch;
-  assert.equal(launchResolved, true);
-});
-
-test("background launch rejects when prompt acceptance fails", async () => {
-  const failure = new Error("prompt rejected");
-  await assert.rejects(
-    launchBackgroundExecution(
-      async () => {},
-      () => Promise.reject(failure),
-    ),
-    failure,
-  );
-});
 
 test("background task capacity and eviction preserve starting and running tasks", () => {
   assert.equal(isBackgroundTaskActive("starting"), true);

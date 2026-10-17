@@ -67,6 +67,24 @@ test("assistant capture follows request events across compaction without history
   assert.equal(new ConversationResponseCapture().response, undefined);
 });
 
+test("assistant capture distinguishes ignored messages from empty assistant content", () => {
+  const capture = new ConversationResponseCapture();
+  for (const event of [
+    null,
+    { type: "message_update", message: { role: "assistant", content: "not final" } },
+    { type: "message_end", message: null },
+    { type: "message_end", message: { role: "user", content: "request" } },
+  ]) {
+    capture.accept(event);
+    assert.equal(capture.response, undefined);
+  }
+  capture.accept({ type: "message_end", message: { role: "assistant", content: "previous" } });
+  capture.accept({ type: "message_end", message: { role: "assistant", content: null } });
+  assert.equal(capture.response, "");
+  capture.accept({ type: "message_end", message: { role: "user", content: "ignored" } });
+  assert.equal(capture.response, "");
+});
+
 test("request lifecycle preserves cancellation until the next request and records completion", () => {
   const lifecycle = new ConversationRequestLifecycle();
 

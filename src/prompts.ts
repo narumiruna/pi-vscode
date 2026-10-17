@@ -34,45 +34,6 @@ export function buildSelectionReference(context: SelectionContext): ChatReferenc
   };
 }
 
-function describeSelection(context: SelectionContext): string {
-  return [
-    `File: ${context.file}`,
-    `Language: ${context.languageId}`,
-    `Lines: ${context.startLine}-${context.endLine}`,
-    "",
-    "<<<PI_VSCODE_SELECTED_CODE_START>>>",
-    context.code,
-    "<<<PI_VSCODE_SELECTED_CODE_END>>>",
-  ].join("\n");
-}
-
-export function buildAskPrompt(context: SelectionContext, question: string): string {
-  return [
-    "Answer the user's question about the selected code.",
-    "Be concrete and concise.",
-    "Use Markdown when it improves readability.",
-    "Do not modify files.",
-    "",
-    `Question: ${question}`,
-    "",
-    describeSelection(context),
-  ].join("\n");
-}
-
-export function buildModifyPrompt(context: SelectionContext, instruction: string): string {
-  return [
-    "Rewrite only the selected code according to the user's instruction.",
-    "The replacement must fit in the same location and preserve surrounding behavior unless requested otherwise.",
-    "Do not modify files and do not explain the result.",
-    `Return exactly ${replacementStart}, then a newline, the replacement text, another newline, and ${replacementEnd}.`,
-    "Do not use Markdown code fences.",
-    "",
-    `Instruction: ${instruction}`,
-    "",
-    describeSelection(context),
-  ].join("\n");
-}
-
 export function limitChatHistory(
   history: readonly ChatHistoryEntry[],
   maxCharacters: number,

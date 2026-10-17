@@ -2,6 +2,7 @@ import path from "node:path";
 import * as vscode from "vscode";
 import { isSupportedImageMimeType } from "./attachmentUtils";
 import { type ImageAssetCache, unavailableImageAssetId } from "./imageAssets";
+import { piMessageContentText } from "./piMessages";
 import { extractReplacement, parseAgentPrompt } from "./prompts";
 import {
   contextTranscriptAttachment,
@@ -10,6 +11,7 @@ import {
   restoreSidebarMessages,
   type SidebarMessage,
   shortTranscriptLabel,
+  sidebarMessagesForWebview,
   type TranscriptAttachment,
   type TranscriptImageAttachment,
 } from "./sidebarState";
@@ -212,7 +214,7 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
 
   const messages: SidebarMessage[] = [];
   for (const { index, value } of retainedEntries) {
-    const text = extractMessageText(value.content);
+    const text = piMessageContentText(value.content);
     if (value.role === "user") {
       const imageAttachments = imageAttachmentsByIndex.get(index) ?? [];
       if (!text && imageAttachments.length === 0) continue;
@@ -237,23 +239,7 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
       });
     }
   }
-  const availableMessages = messages.map((message) => ({
-    ...message,
-    ...(message.attachments
-      ? {
-          attachments: message.attachments.map((attachment) =>
-            attachment.type === "image"
-              ? {
-                  ...attachment,
-                  availability: options.imageAssets.has(attachment.assetId)
-                    ? ("available" as const)
-                    : ("unavailable" as const),
-                }
-              : attachment,
-          ),
-        }
-      : {}),
-  }));
+  const availableMessages = sidebarMessagesForWebview(messages, (id) => options.imageAssets.has(id));
   return mergeKnownImageLabels(availableMessages, options.knownMessages ?? []);
 }
 
@@ -360,15 +346,6 @@ function isComposerRevision(value: unknown): value is number {
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
-}
-
-function extractMessageText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .filter((part) => isRecord(part) && part.type === "text" && typeof part.text === "string")
-    .map((part) => String(part.text))
-    .join("\n");
 }
 
 function hasMessageText(content: unknown): boolean {
