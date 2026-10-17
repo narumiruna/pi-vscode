@@ -206,8 +206,9 @@ function render(): void {
     meta.className = "meta";
     const actions = element("div");
     actions.className = "actions";
-    if (!descriptor.enum && descriptor.type !== "boolean") {
-      const button = element("button", "Save");
+    const automatic = !!descriptor.enum || descriptor.type === "boolean";
+    if (!automatic || (draft && !pending.has(key))) {
+      const button = element("button", automatic ? "Retry save" : "Save");
       button.type = "button";
       button.id = `${key}-save`;
       button.disabled = blocked || conflict;

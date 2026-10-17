@@ -44,7 +44,21 @@ export class SettingsPanelController implements vscode.Disposable {
     this.listeners = [
       panel.onDidDispose(() => this.release(panel)),
       panel.webview.onDidReceiveMessage((message: unknown) => {
-        if (this.queued >= 16) return;
+        if (this.queued >= 16) {
+          // A rejected write must clear the browser's pending state. Echo only a bounded request ID.
+          if (message && typeof message === "object" && !Array.isArray(message)) {
+            const { type, id } = message as Record<string, unknown>;
+            if ((type === "save" || type === "reset") && typeof id === "string" && /^[a-zA-Z0-9-]{1,80}$/.test(id)) {
+              void panel.webview.postMessage({
+                type: "result",
+                id,
+                ok: false,
+                error: "Settings are busy. Try saving this row again.",
+              });
+            }
+          }
+          return;
+        }
         this.queued++;
         this.queue = this.queue
           .then(() => this.handleMessage(panel, message))
