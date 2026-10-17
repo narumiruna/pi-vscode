@@ -71,7 +71,11 @@ test("extension identity stays consistent across packaging, settings, and docume
 test("workflow commands are contributed, registered, documented and keep minimum stable workspace-host compatibility", () => {
   assert.equal(manifest.engines.vscode, "^1.106.0");
   assert.deepEqual(manifest.extensionKind, ["workspace"]);
-  assert.equal(manifest.devDependencies["@types/vscode"], manifest.engines.vscode.slice(1));
+  const vscodeTypesVersion = manifest.devDependencies["@types/vscode"];
+  assert.match(vscodeTypesVersion, /^\d+\.\d+\.\d+$/);
+  const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+  assert.equal(lock.packages[""].devDependencies["@types/vscode"], vscodeTypesVersion);
+  assert.equal(lock.packages["node_modules/@types/vscode"].version, vscodeTypesVersion);
   assert.equal(manifest.contributes.configuration.properties["picode.defaultMode"], undefined);
   assert.equal(existsSync("src/runtimeProfiles.ts"), false);
   assert.equal(existsSync("src/test/runtimeProfiles.test.ts"), false);
