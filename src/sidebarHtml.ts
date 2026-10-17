@@ -52,9 +52,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     * { box-sizing: border-box; }
     /* Author display rules must never override native hidden state. */
     [hidden] { display: none !important; }
-    body { margin: 0; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); line-height: 1.5; overflow: hidden; }
-    #app { height: 100vh; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto auto auto; padding: 0 12px 10px; }
-    #app.sessions-layer { grid-template-rows: minmax(0, 1fr) auto auto auto; }
+    body { margin: 0; padding: 0; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); line-height: 1.5; overflow: hidden; }
+    #app { height: 100vh; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto minmax(0, auto) auto auto; padding: 0 12px 10px; }
+    #app.sessions-layer { grid-template-rows: minmax(0, 1fr) minmax(0, auto) auto auto; }
     #app.sessions-layer > :not(#sessions):not(#composer):not(#notice):not(#runtime) { display: none; }
     button, select { min-height: 28px; border: 1px solid var(--vscode-button-border, transparent); border-radius: 7px; padding: 4px 9px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); cursor: pointer; font: inherit; }
     button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
@@ -62,9 +62,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     button:active:not(:disabled) { transform: translateY(1px); }
     button.secondary { color: var(--vscode-foreground); background: transparent; }
     button.secondary:hover:not(:disabled) { background: var(--vscode-toolbar-hoverBackground); }
-    button.danger { color: var(--vscode-errorForeground); }
+    button.danger:hover:not(:disabled), button.danger:focus-visible { color: var(--vscode-errorForeground); }
     button:focus-visible, select:focus-visible, summary:focus-visible, textarea:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
-    button:disabled, select:disabled { cursor: default; opacity: .5; }
+    button:disabled, select:disabled { cursor: default; opacity: 1; color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground)); border-style: dashed; }
     .icon { width: 16px; height: 16px; flex: 0 0 auto; }
     .icon-button { width: 28px; padding: 5px; }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
@@ -97,22 +97,29 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .thinking-picker { position: relative; display: inline-flex; flex: 0 1 auto; min-width: 38px; align-items: center; }
     #thinking-level { appearance: none; min-width: 0; max-width: 100%; min-height: 30px; border-radius: 8px; padding: 4px 27px 4px 9px; color: var(--vscode-descriptionForeground); }
     .thinking-picker > .icon { position: absolute; right: 9px; width: 12px; height: 12px; color: var(--vscode-descriptionForeground); pointer-events: none; }
+    #model-picker:disabled, #thinking-level:disabled { color: var(--vscode-descriptionForeground); }
     #thinking-level:disabled + .icon { opacity: .5; }
     #thinking-level option { color: var(--vscode-foreground); background: var(--pi-control-background); }
-    #model-picker { min-width: 0; max-width: 132px; justify-content: flex-start; color: var(--vscode-descriptionForeground); }
+    #model-picker { min-width: 0; flex: 0 1 auto; justify-content: flex-start; color: var(--vscode-foreground); }
+    .model-settings { display: flex; min-width: 0; gap: 6px; align-items: center; }
+    .thinking-caption { color: var(--vscode-descriptionForeground); font-size: .85em; }
+    #settings-description { margin: 0; }
     #model-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #model-picker .icon { width: 12px; height: 12px; }
-    #runtime { display: flex; flex-wrap: wrap; min-width: 0; gap: 6px; align-items: center; margin-top: 7px; padding: 7px 2px 0; color: var(--vscode-descriptionForeground); border-top: 1px solid var(--pi-border); font-size: .82em; }
+    #runtime { position: relative; display: flex; flex-wrap: wrap; min-width: 0; gap: 6px; align-items: center; margin-top: 7px; padding: 7px 2px 0; color: var(--vscode-descriptionForeground); border-top: 1px solid var(--pi-border); font-size: .82em; }
     .status-dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--vscode-descriptionForeground); }
     #runtime[data-connection="connected"] .status-dot { background: var(--vscode-testing-iconPassed, var(--pi-accent)); }
     #runtime[data-connection="busy"] .status-dot { background: var(--vscode-progressBar-background); }
     #runtime[data-connection="disconnected"] .status-dot { background: var(--vscode-editorWarning-foreground); }
     #runtime span:not(.status-dot) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #status { flex: 1 1 70px; }
-    #session { max-width: 38%; }
+    #session-details { min-width: 0; }
+    #session-details > summary { cursor: pointer; }
+    .session-details-content { position: absolute; bottom: 100%; right: 0; z-index: 11; width: min(300px, calc(100vw - 32px)); padding: 8px; border: 1px solid var(--vscode-contrastBorder, var(--pi-border)); border-radius: 7px; background: var(--vscode-editor-background); }
+    #session { width: 100%; min-width: 0; color: var(--vscode-input-foreground); background: var(--vscode-input-background); font: inherit; }
     #usage { font-variant-numeric: tabular-nums; }
     #runtime button { min-height: 24px; padding: 2px 6px; font-size: inherit; }
-    #conversation { min-width: 0; overflow-y: auto; padding: 18px 2px 8px; scrollbar-width: thin; }
+    #conversation { min-width: 0; overflow-y: auto; padding: 18px 2px 24px; scrollbar-width: thin; }
     #messages { min-width: 0; }
     #messages.is-empty { min-height: 100%; display: flex; }
     .empty { width: 100%; max-width: 380px; margin: auto; padding: 24px 8px 40px; text-align: center; color: var(--vscode-descriptionForeground); }
@@ -133,6 +140,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .assistant .role::before { content: 'π'; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; background: var(--vscode-input-background); color: var(--pi-accent); font: 15px Georgia, serif; }
     .content { min-width: 0; padding: 0 2px; overflow-wrap: anywhere; line-height: 1.6; }
     .content p { margin: 0 0 10px; }
+    .assistant .content > :is(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote) { max-width: 78ch; }
     .content > :first-child { margin-top: 0; }
     .content > :last-child { margin-bottom: 0; }
     .content h1, .content h2, .content h3, .content h4 { font-size: 1.1em; margin: 16px 0 8px; }
@@ -144,9 +152,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .user .content { padding: 10px 12px; border-radius: 9px; background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); }
     .transcript-contexts { display: flex; min-width: 0; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
     .context, .truncated { display: inline-block; max-width: 100%; padding: 2px 7px; border-radius: 5px; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); font-size: .8em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .transcript-images { display: grid; min-width: 0; grid-template-columns: repeat(auto-fit, minmax(min(124px, 100%), 1fr)); gap: 7px; margin-top: 8px; }
-    .transcript-image { min-width: 0; min-height: 72px; padding: 0; overflow: hidden; border-color: var(--pi-border); color: var(--vscode-foreground); background: var(--vscode-editor-background); }
-    .transcript-image img { display: block; width: 100%; height: auto; max-height: 180px; object-fit: cover; background: var(--vscode-input-background); }
+    .transcript-images { display: grid; min-width: 0; grid-template-columns: repeat(auto-fit, minmax(min(124px, 100%), 180px)); gap: 7px; margin-top: 8px; }
+    .transcript-image { display: flex; flex-direction: column; align-items: stretch; gap: 0; min-width: 0; min-height: 72px; padding: 0; overflow: hidden; border-color: var(--pi-border); color: var(--vscode-foreground); background: var(--vscode-editor-background); }
+    .transcript-image img { display: block; width: 100%; height: 140px; max-height: 180px; object-fit: contain; background: var(--vscode-input-background); }
     .image-placeholder { display: grid; width: 100%; min-height: 72px; place-items: center; padding: 10px; color: var(--vscode-descriptionForeground); text-align: center; overflow-wrap: anywhere; }
     .image-label { display: block; min-width: 0; padding: 5px 7px; overflow: hidden; color: var(--vscode-descriptionForeground); font-size: .78em; text-overflow: ellipsis; white-space: nowrap; }
     #activity { max-height: min(28vh, 240px); overflow-y: auto; padding: 8px 2px 0; border-top: 1px solid var(--pi-border); scrollbar-width: thin; }
@@ -181,48 +189,56 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .change-actions { margin-top: 0; }
     .section-heading { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin: 4px 0 8px; color: var(--vscode-descriptionForeground); font-size: .85em; font-weight: 500; }
     #source-control { min-height: 24px; font-size: inherit; }
-    #attachments { display: flex; align-items: flex-start; gap: 7px; flex-wrap: wrap; padding: 9px 10px 1px; }
+    #attachments { display: flex; min-height: 0; align-items: flex-start; gap: 7px; flex-wrap: wrap; max-height: min(132px, 20vh); overflow-y: auto; padding: 9px 10px 1px; }
     .attachment-chip { display: inline-flex; max-width: 100%; align-items: center; gap: 4px; padding: 3px 4px 3px 7px; border-radius: 5px; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); font-size: .82em; }
     .attachment-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .attachment-chip button { min-height: 20px; width: 20px; padding: 0; color: inherit; background: transparent; }
-    .attachment-image { position: relative; display: grid; width: 104px; min-width: 0; overflow: hidden; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--vscode-editor-background); box-shadow: 0 1px 2px rgba(0, 0, 0, .16); }
-    button.composer-image { display: block; width: 100%; height: 72px; min-height: 72px; padding: 0; overflow: hidden; border: 0; border-radius: 0; color: var(--vscode-descriptionForeground); background: var(--vscode-input-background); }
+    .attachment-image { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 25px; flex: 0 0 120px; width: 120px; min-width: 0; overflow: hidden; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--vscode-editor-background); box-shadow: 0 1px 2px rgba(0, 0, 0, .16); }
+    button.composer-image { grid-column: 1 / -1; display: block; width: 100%; height: 72px; min-height: 72px; padding: 0; overflow: hidden; border: 0; border-radius: 0; color: var(--vscode-descriptionForeground); background: var(--vscode-input-background); }
     button.composer-image:hover:not(:disabled) { background: var(--vscode-list-hoverBackground, var(--vscode-toolbar-hoverBackground)); }
-    .composer-image img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .composer-image img { display: block; width: 100%; height: 100%; object-fit: contain; }
     .composer-image-placeholder { display: grid; width: 100%; height: 100%; place-items: center; padding: 8px; text-align: center; font-size: .78em; line-height: 1.25; }
     .composer-image-label { display: block; min-width: 0; padding: 5px 7px 6px; overflow: hidden; color: var(--vscode-descriptionForeground); font-size: .76em; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
-    button.attachment-remove { position: absolute; top: 5px; right: 5px; width: 21px; min-height: 21px; padding: 0; border: 1px solid rgba(255, 255, 255, .35); border-radius: 50%; color: #fff; background: rgba(0, 0, 0, .66); font-size: 15px; line-height: 1; }
-    button.attachment-remove:hover:not(:disabled) { background: rgba(0, 0, 0, .86); }
+    button.attachment-remove { align-self: center; width: 23px; min-height: 23px; padding: 0; border-color: var(--pi-control-border); border-radius: 5px; color: var(--vscode-foreground); background: transparent; font-size: 15px; line-height: 1; }
+    button.attachment-remove:hover:not(:disabled) { background: var(--vscode-toolbar-hoverBackground); }
     button.composer-image:focus-visible, button.attachment-remove:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--vscode-focusBorder); }
-    #composer { position: relative; min-width: 0; padding-top: 12px; }
+    #composer { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding-top: 12px; }
     #slash-commands { position: absolute; bottom: calc(100% - 6px); left: 0; right: 0; z-index: 10; max-height: min(260px, 40vh); overflow-y: auto; padding: 4px; border: 1px solid var(--vscode-editorSuggestWidget-border, var(--pi-border)); border-radius: 8px; color: var(--vscode-editorSuggestWidget-foreground, var(--vscode-foreground)); background: var(--vscode-editorSuggestWidget-background, var(--vscode-editor-background)); box-shadow: 0 4px 16px var(--vscode-widget-shadow); }
     #slash-commands button { display: flex; width: 100%; justify-content: flex-start; gap: 12px; border: 0; padding: 6px 8px; text-align: left; color: inherit; background: transparent; }
     #slash-commands button[aria-selected="true"] { color: var(--vscode-editorSuggestWidget-selectedForeground, var(--vscode-list-activeSelectionForeground)); background: var(--vscode-editorSuggestWidget-selectedBackground, var(--vscode-list-activeSelectionBackground)); }
     .slash-name { flex: 0 0 auto; font-family: var(--vscode-editor-font-family); }
     .slash-description { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .75; }
-    .composer-box { position: relative; overflow: hidden; background: var(--pi-composer-background); border: 1px solid var(--vscode-input-border, var(--pi-border)); border-radius: 14px; box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, .2)); }
+    /* Reserve short/zoomed view space for the session header, help, notices and runtime footer. */
+    .composer-box { position: relative; display: flex; flex-direction: column; min-height: 0; max-height: 60vh; overflow: hidden; background: var(--pi-composer-background); border: 1px solid var(--vscode-input-border, var(--pi-border)); border-radius: 14px; box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, .2)); }
     .composer-box:focus-within { border-color: var(--vscode-focusBorder); box-shadow: 0 6px 20px var(--vscode-widget-shadow, rgba(0, 0, 0, .24)); }
     textarea { display: block; width: 100%; height: 42px; min-height: 42px; max-height: min(220px, 28vh); resize: none; padding: 11px 13px 7px; color: var(--vscode-input-foreground); background: transparent; border: 0; border-radius: 14px 14px 6px 6px; font: inherit; line-height: 1.5; scrollbar-width: thin; }
     textarea:focus-visible { outline: none; }
     textarea::placeholder { color: var(--vscode-input-placeholderForeground); }
     #attachment-estimate, #queue-status { padding: 0 12px; }
-    #pending-queue { display: grid; gap: 4px; padding: 5px 10px 1px; }
+    #pending-queue { display: grid; min-height: 0; max-height: 15vh; overflow-y: auto; gap: 4px; padding: 5px 10px 1px; }
     #pending-queue[hidden] { display: none; }
     .pending-queue-item { display: flex; min-width: 0; gap: 5px; padding: 4px 7px; border-radius: 5px; color: var(--vscode-descriptionForeground); background: var(--vscode-editorWidget-background, var(--vscode-input-background)); font-size: .8em; line-height: 1.3; }
     .pending-queue-kind { flex: 0 0 auto; font-weight: 600; }
     .pending-queue-text { min-width: 0; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
     .composer-box > .proposal-actions { padding: 0 10px; }
-    .composer-actions { display: flex; flex-wrap: nowrap; min-width: 0; gap: 6px; padding: 3px 8px 8px; align-items: center; }
+    .composer-actions { display: flex; flex-shrink: 0; flex-wrap: wrap; min-width: 0; gap: 6px; padding: 3px 8px 8px; align-items: center; }
     .composer-actions > button, .composer-actions > select { min-height: 30px; border-radius: 8px; }
     #add-context { flex: 0 1 auto; min-width: 30px; border-color: transparent; color: var(--vscode-descriptionForeground); font-size: .9em; }
     .composer-spacer { min-width: 0; flex: 1; }
     #model-picker, #thinking-level { border-color: var(--pi-control-border); background: var(--pi-control-background); }
     #model-picker:hover:not(:disabled), #thinking-level:hover:not(:disabled) { background: var(--vscode-list-hoverBackground, var(--vscode-toolbar-hoverBackground)); }
     #send { width: 30px; flex: 0 0 30px; padding: 6px; }
-    #send:disabled { border-color: transparent; color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground)); background: var(--vscode-toolbar-hoverBackground); opacity: .72; }
+    #send:disabled { border-color: var(--pi-control-border); color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground)); background: transparent; }
+    #send.queue-action { width: auto; flex: 0 0 auto; }
+    #after-this { min-height: 30px; font-size: .9em; }
+    #submission-label { display: none; }
+    #send.queue-action #submission-label { display: inline; }
+    #send.queue-action .icon { display: none; }
     #cancel { border-color: var(--pi-control-border); font-size: .9em; }
-    #composer-hint { min-height: 16px; margin: 6px 4px 0; color: var(--vscode-descriptionForeground); font-size: .75em; line-height: 1.35; text-align: right; overflow-wrap: anywhere; }
-    #notice { max-height: 20vh; overflow-y: auto; padding: 7px 2px 0; color: var(--vscode-descriptionForeground); font-size: .85em; overflow-wrap: anywhere; }
+    #composer-help { position: relative; flex-shrink: 0; margin: 4px; color: var(--vscode-descriptionForeground); font-size: .8em; }
+    #composer-help > summary { cursor: pointer; width: fit-content; margin-left: auto; }
+    #composer-hint { position: absolute; bottom: 100%; right: 0; z-index: 12; width: min(340px, calc(100vw - 40px)); padding: 8px; border: 1px solid var(--vscode-contrastBorder, var(--pi-border)); border-radius: 7px; background: var(--vscode-editor-background); line-height: 1.4; overflow-wrap: anywhere; }
+    #notice { max-height: 12vh; overflow-y: auto; padding: 7px 2px 0; color: var(--vscode-descriptionForeground); font-size: .85em; overflow-wrap: anywhere; }
     #notice:empty { display: none; }
     #notice.error { color: var(--vscode-errorForeground); }
     #notice.warning { color: var(--vscode-editorWarning-foreground); }
@@ -237,8 +253,10 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     body.vscode-high-contrast .welcome-action, body.vscode-high-contrast-light .welcome-action,
     body.vscode-high-contrast .attachment-image, body.vscode-high-contrast-light .attachment-image { border-color: var(--vscode-contrastBorder); }
     body.vscode-high-contrast .composer-box:focus-within, body.vscode-high-contrast-light .composer-box:focus-within { border-color: var(--vscode-focusBorder); }
-    @media (max-width: 340px) { #app { padding: 0 8px 8px; } .sessions-actions { gap: 0; } #session { display: none; } .composer-actions { gap: 4px; padding-left: 6px; padding-right: 6px; } #add-context span { display: none; } #model-picker { max-width: 88px; } .empty { padding-left: 2px; padding-right: 2px; } .empty h2 { font-size: 1.5em; } button.welcome-action { gap: 9px; padding: 10px; } }
-    @media (max-height: 500px) { .empty { padding-top: 8px; padding-bottom: 16px; } .welcome-mark { display: none; } .empty-actions { margin-top: 16px; } }
+    @media (max-width: 340px) { #app { padding: 0 8px 8px; } .sessions-actions { gap: 0; } .thinking-caption { display: none; } .composer-actions { gap: 4px; padding-left: 6px; padding-right: 6px; } #add-context span { display: none; } #model-picker { flex: 1; } .empty { padding-left: 2px; padding-right: 2px; } .empty h2 { font-size: 1.5em; } button.welcome-action { gap: 9px; padding: 10px; } }
+    @media (max-width: 600px) { .model-settings { flex: 1 0 100%; } #model-picker { flex: 1; } }
+    @media (max-width: 240px) { #cancel { padding: 4px; } #after-this { padding: 4px; } .composer-actions { gap: 3px; } }
+    @media (max-height: 500px) { textarea { max-height: 18vh; } #attachments { max-height: 16vh; } .empty { padding-top: 8px; padding-bottom: 16px; } .welcome-mark { display: none; } .empty-actions { margin-top: 16px; } }
     @media (prefers-reduced-motion: no-preference) { button { transition: background-color .12s ease, border-color .12s ease, transform .08s ease; } .composer-box { transition: border-color .12s ease, box-shadow .12s ease; } }
   </style>
 </head>
@@ -287,19 +305,23 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           <button id="recover-queue" class="secondary" type="button" hidden>Restore drafts</button>
         </div>
         <div class="composer-actions">
+          <div class="model-settings">
+          <button id="model-picker" class="secondary" type="button" aria-label="Change Pi model"><span id="model-label">Choose model…</span>${icon("chevron")}</button>
+          <label for="thinking-level" class="sr-only">Pi thinking level</label>
+          <span class="thinking-caption" aria-hidden="true">Thinking</span><span class="thinking-picker"><select id="thinking-level" aria-label="Pi thinking level" title="Pi thinking level"><option value="">—</option></select>${icon("chevron")}</span>
+          </div>
           <button id="add-context" class="secondary" type="button" title="Attach code, files, or images">${icon("attachment")}<span>Attach</span></button>
           <span class="composer-spacer"></span>
           <button id="cancel" class="secondary" type="button" aria-label="Cancel Pi response" hidden>${icon("stop")}<span>Stop</span></button>
-          <button id="model-picker" class="secondary" type="button" aria-label="Change Pi model"><span id="model-label">Choose model…</span>${icon("chevron")}</button>
-          <label for="thinking-level" class="sr-only">Pi thinking level</label>
-          <span class="thinking-picker"><select id="thinking-level" aria-label="Pi thinking level" title="Pi thinking level"><option value="">—</option></select>${icon("chevron")}</span>
-          <button id="send" type="button" aria-label="Send message" title="Send message" disabled>${icon("send")}</button>
+          <button id="after-this" class="secondary" type="button" aria-label="After this: send when Pi finishes responding" hidden>After this</button>
+          <button id="send" type="button" aria-label="Send message" title="Send message" disabled>${icon("send")}<span id="submission-label">Next</span></button>
         </div>
       </div>
-      <div id="composer-hint">Enter to send · Shift+Enter for a new line</div>
+      <p id="settings-description" class="sr-only"></p>
+      <details id="composer-help"><summary>Submission help</summary><div id="composer-hint">Enter to send · Shift+Enter for a new line</div></details>
     </section>
     <div id="notice" role="status" aria-live="polite"></div>
-    <div id="runtime"><span class="status-dot" aria-hidden="true"></span><span id="status" role="status" aria-live="polite">Connecting…</span><span id="session"></span><span id="usage"></span><button id="retry" class="secondary" type="button" hidden>Retry</button><button id="refresh-history" class="secondary" type="button" hidden>Refresh history</button><button id="reconnect" class="secondary" type="button" hidden>Reconnect</button></div>
+    <div id="runtime"><span class="status-dot" aria-hidden="true"></span><span id="status" role="status" aria-live="polite">Connecting…</span><details id="session-details" hidden><summary>Session details</summary><div class="session-details-content"><label for="session">Session ID (select to copy)</label><input id="session" readonly></div></details><span id="usage"></span><button id="retry" class="secondary" type="button" hidden>Retry</button><button id="refresh-history" class="secondary" type="button" hidden>Refresh history</button><button id="reconnect" class="secondary" type="button" hidden>Reconnect</button></div>
   </main>
   <dialog id="image-preview" aria-labelledby="preview-label">
     <div class="preview-header"><span id="preview-label"></span><button id="preview-close" class="secondary" type="button" aria-label="Close image preview">Close</button></div>
@@ -349,6 +371,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let busy = false;
     let cancellable = false;
     let queueable = false;
+    let pendingQueueCount = 0;
     let connected = false;
     let deletableSession = false;
     let imageSupported = true;
@@ -360,6 +383,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let composerRevision = 0;
     let updatingControls = false;
     let thinkingSelectable = false;
+    let thinkingUnavailableReason = '';
     let latestStatus = 'Connecting…';
     let conversationPinnedToBottom = true;
     let programmaticConversationScrollTop;
@@ -385,7 +409,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         const details = document.createElement('button');
         details.className = 'secondary';
         details.type = 'button';
-        details.textContent = 'Details';
+        details.textContent = 'View diagnostic';
         details.dataset.noticeDetails = 'true';
         notice.appendChild(details);
       }
@@ -407,7 +431,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           : submissionPending
             ? 'Sending to Pi…'
             : latestStatus;
-      $('status').textContent = displayed;
+      if ($('status').textContent !== displayed) $('status').textContent = displayed;
       $('status').title = displayed;
     }
 
@@ -427,13 +451,17 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
 
     function submit(kind = 'steer') {
       const text = input.value.trim();
-      if ((!text && !attachedItems) || !connected || submissionPending || backgroundSubmissionPending) return;
+      if ((!text && !attachedItems) || !connected || submissionPending || backgroundSubmissionPending || recoveredDraftPending) return;
       if (pendingImageReads > 0 || (attachedImages && !imageSupported)) return;
       if (sessionsLayerVisible && busy) {
         showNotice('Wait for Pi to finish before starting a new session.', 'warning', false, true);
         return;
       }
       if (busy) {
+        if (input.value.trimStart().startsWith('/') || pendingQueueCount >= 10) {
+          showNotice(input.value.trimStart().startsWith('/') ? 'Slash commands cannot be queued. Wait for Pi to finish.' : 'The queue is full. Wait for a pending message to start.', 'warning', false, true);
+          return;
+        }
         if (!queueable) {
           showNotice('This request does not accept queued messages.', 'warning', false, true);
           return;
@@ -580,7 +608,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const cached = imageAssetCache.get(attachment.assetId);
       if (cached) {
         button.disabled = false;
-        button.setAttribute('aria-label', 'Preview ' + attachment.fullLabel);
+        button.setAttribute('aria-label', 'Open image preview: ' + attachment.fullLabel);
         const beforeHeight = conversationElement.scrollHeight;
         const beforeTop = conversationElement.scrollTop;
         const wasNearBottom = beforeHeight - beforeTop - conversationElement.clientHeight < 80;
@@ -620,7 +648,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const cached = imageAssetCache.get(attachment.assetId);
       if (cached) {
         button.disabled = false;
-        button.setAttribute('aria-label', 'Preview ' + attachment.fullLabel);
+        button.setAttribute('aria-label', 'Open image preview: ' + attachment.fullLabel);
         const image = document.createElement('img');
         image.alt = attachment.fullLabel;
         if (attachment.width && attachment.height) { image.width = attachment.width; image.height = attachment.height; }
@@ -1023,6 +1051,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     function resizeInput() {
       input.style.height = '0px';
       input.style.height = input.scrollHeight + 'px';
+      if (conversationPinnedToBottom) scrollConversationToBottom();
     }
 
     function setComposerInput(text) {
@@ -1065,6 +1094,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         thinkingLevel.dataset.levels = signature;
       }
       thinkingSelectable = levels.length > 1;
+      thinkingUnavailableReason = !levels.length ? 'Thinking is unavailable for this model.' : !thinkingSelectable ? 'Only one thinking level is available.' : '';
       thinkingLevel.value = current || levels[0] || '';
       thinkingLevel.title = current ? 'Pi thinking level: ' + formatThinkingLevel(current) : 'Pi thinking level unavailable';
     }
@@ -1130,7 +1160,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('back-to-sessions').title = sessionsLayerVisible ? 'Back to recent Sessions' : 'Back to Sessions';
       $('session-header-title').textContent = sessionsLayerVisible ? 'Sessions' : current?.title || 'Session';
       $('session-header-title').title = sessionsLayerVisible ? '' : current?.title || '';
-      input.placeholder = sessionsLayerVisible ? 'Start a new session…' : 'Ask Pi anything…';
+      input.placeholder = sessionsLayerVisible ? 'Start a new session…' : busy ? 'Write a follow-up…' : 'Ask Pi anything…';
       renderSessions();
     }
 
@@ -1202,6 +1232,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           rows.push(row);
         }
       }
+      pendingQueueCount = rows.length;
       $('pending-queue').replaceChildren(...rows);
       $('pending-queue').hidden = rows.length === 0;
       $('queue-status').textContent = rows.length
@@ -1226,8 +1257,24 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       input.disabled = Boolean(recoveredDraftPending);
       $('add-context').disabled = Boolean(recoveredDraftPending);
       for (const button of emptyActionButtons) button.disabled = interactionLocked;
-      sendButton.disabled = interactionLocked || sessionStartBlocked || !connected || (!input.value.trim() && !attachedItems) || imageBlocked;
-      sendButton.title = imageLoading
+      const canQueue = busy && queueable && !sessionsLayerVisible;
+      const queueBlocked = canQueue && (input.value.trimStart().startsWith('/') || pendingQueueCount >= 10);
+      sendButton.hidden = busy && !canQueue;
+      sendButton.classList.toggle('queue-action', canQueue);
+      sendButton.setAttribute('aria-label', canQueue ? 'Next: send after the current tool finishes' : 'Send message');
+      $('after-this').hidden = !canQueue;
+      sendButton.disabled = (busy && !canQueue) || queueBlocked || submissionPending || backgroundSubmissionPending || imageLoading || Boolean(recoveredDraftPending) || sessionStartBlocked || !connected || (!input.value.trim() && !attachedItems) || imageBlocked;
+      $('after-this').disabled = sendButton.disabled;
+      $('after-this').title = 'Send when Pi finishes responding (' + followUpShortcutLabel + ')';
+      const settingsReason = !connected ? 'Reconnect to change settings.' : interactionLocked ? 'Settings are locked during active work.' : '';
+      $('settings-description').textContent = [settingsReason, thinkingUnavailableReason].filter(Boolean).join(' ');
+      $('model-picker').setAttribute('aria-describedby', 'settings-description');
+      $('model-picker').parentElement?.setAttribute('title', settingsReason);
+      thinkingLevel.setAttribute('aria-describedby', 'settings-description');
+      thinkingLevel.title = (thinkingLevel.value ? 'Pi thinking level: ' + formatThinkingLevel(thinkingLevel.value) : 'Pi thinking level unavailable for this model.') + (settingsReason ? ' ' + settingsReason : '');
+      sendButton.title = queueBlocked
+        ? input.value.trimStart().startsWith('/') ? 'Slash commands cannot be queued.' : 'The queue is full (10 messages).'
+        : imageLoading
         ? 'Wait for pasted images to finish loading.'
         : submissionPending
           ? 'Waiting for Pi to accept this message.'
@@ -1239,7 +1286,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
                 ? 'The current model does not support image attachments.'
                 : !connected
                   ? 'Reconnect to Pi before sending.'
-                  : !input.value.trim() && attachedItems ? 'Send attachments' : sessionsLayerVisible ? 'Start new session' : 'Send message';
+                  : canQueue ? 'Send after the current tool finishes (Enter)' : !input.value.trim() && attachedItems ? 'Send attachments' : sessionsLayerVisible ? 'Start new session' : 'Send message';
+      if (queueBlocked) $('after-this').title = sendButton.title;
       $('composer-hint').textContent = imageLoading
         ? 'Loading pasted image…'
         : backgroundSubmissionPending
@@ -1249,7 +1297,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
             : imageBlocked
               ? 'Choose a model that supports images, or remove them'
               : queueable && !sessionsLayerVisible
-                ? 'Enter to send next · ' + followUpShortcutLabel + ' to send after this · Shift+Enter for a new line'
+                ? 'Next: after the current tool · After this: after the response · Enter / ' + followUpShortcutLabel + ' · Shift+Enter for a new line'
                 : busy
                   ? 'Wait for Pi to finish before sending'
                   : 'Enter to send · Shift+Enter for a new line';
@@ -1290,11 +1338,13 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       renderAttachments(state.attachments || []);
       const estimate = state.attachmentEstimate || {};
       const attachmentCount = (state.attachments || []).length;
+      const imageCount = (state.attachments || []).filter(attachment => attachment.image).length;
       $('attachment-estimate').textContent = attachmentCount
-        ? attachmentCount + (attachmentCount === 1 ? ' attachment' : ' attachments')
-          + ' · ' + (estimate.characters || 0) + ' characters'
-          + ' · about ' + (estimate.estimatedTextTokens || 0) + ' text tokens (estimated)'
-          + (attachedImages ? ' · image tokens not included' : '')
+        ? (imageCount ? imageCount + (imageCount === 1 ? ' image' : ' images') : '')
+          + (attachmentCount > imageCount ? (imageCount ? ' · ' : '') + (estimate.characters || 0) + ' attachment text characters' : '')
+        : '';
+      $('attachment-estimate').title = attachmentCount
+        ? 'About ' + (estimate.estimatedTextTokens || 0) + ' attachment text tokens (estimated); image tokens not included. Attach → View attachments for details.'
         : '';
       $('activity').hidden = ![state.proposals, state.changes, state.backgroundTasks].some(items => items && items.length);
       updatingControls = true;
@@ -1304,15 +1354,17 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const currentModel = state.runtime.model || {};
       $('model-label').textContent = currentModel.name || currentModel.id || 'Choose model…';
       $('model-picker').title = currentModel.provider && currentModel.id ? currentModel.provider + '/' + currentModel.id : 'Choose Pi model';
+      $('model-picker').setAttribute('aria-label', 'Pi model: ' + (currentModel.name || currentModel.id || 'Choose model'));
       $('model-picker').disabled = busy || !connected;
       $('new-session').disabled = busy;
       $('delete-session').hidden = !deletableSession;
       $('delete-session').disabled = busy || !connected || !deletableSession;
       $('more').disabled = busy || !connected;
       $('runtime').dataset.connection = !connected ? 'disconnected' : busy ? 'busy' : 'connected';
-      latestStatus = state.status + (connected || /disconnected/i.test(state.status) ? '' : ' · disconnected');
-      $('session').textContent = state.runtime.sessionName || (state.runtime.sessionId ? 'Session ' + state.runtime.sessionId.slice(0, 8) : '');
-      $('session').title = state.runtime.sessionName || state.runtime.sessionId || '';
+      const status = busy && (!state.status || state.status === 'Ready') ? 'Working…' : state.status || 'Ready';
+      latestStatus = status + (connected || /disconnected/i.test(status) ? '' : ' · disconnected');
+      $('session').value = state.runtime.sessionId || '';
+      $('session-details').hidden = !state.runtime.sessionId;
       const context = (state.runtime.stats || {}).contextUsage || {};
       const hasContextUsage = typeof context.percent === 'number';
       $('usage').textContent = hasContextUsage ? 'Context ' + Math.round(context.percent) + '%' : '';
@@ -1324,7 +1376,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('refresh-history').disabled = busy || !connected;
       $('add-context').disabled = false;
       cancelButton.hidden = !cancellable;
-      sendButton.hidden = cancellable;
       updateSendState();
     }
 
@@ -1381,6 +1432,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     }
 
     $('image-preview').addEventListener('close', () => {
+      // A deferred close event from an earlier preview must not clear a newly opened preview.
+      if ($('image-preview').open || !previewAssetId) return;
       $('preview-image').removeAttribute('src');
       $('preview-image').alt = '';
       const trigger = imageTargets.get(previewAssetId)?.[previewTargetIndex]?.button;
@@ -1453,6 +1506,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     });
     $('recover-queue').addEventListener('click', () => vscode.postMessage({ type: 'recoverQueue', revision: composerRevision }));
     sendButton.addEventListener('click', () => submit());
+    $('after-this').addEventListener('click', () => submit('followUp'));
     cancelButton.addEventListener('click', () => vscode.postMessage({ type: 'cancel' }));
     $('reconnect').addEventListener('click', () => vscode.postMessage({ type: 'reconnect' }));
     $('retry').addEventListener('click', () => vscode.postMessage({ type: 'retry' }));
@@ -1486,6 +1540,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     input.addEventListener('blur', () => { slashFocused = false; closeSlashCommands(); });
     input.addEventListener('focus', () => { slashFocused = true; renderSlashCommands(); });
     window.addEventListener('resize', resizeInput);
+    if (typeof ResizeObserver === 'function') {
+      new ResizeObserver(() => {
+        if (conversationPinnedToBottom) scrollConversationToBottom();
+      }).observe(conversationElement);
+    }
     conversationElement.addEventListener('scroll', event => {
       const atBottom = conversationElement.scrollHeight - conversationElement.scrollTop - conversationElement.clientHeight <= 16;
       if (atBottom) conversationPinnedToBottom = true;

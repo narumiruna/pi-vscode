@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { build } from "esbuild";
 import { chromium } from "playwright-core";
 import { assertRichContent, richFixture } from "./rich-content-fixture.mjs";
+import { assertInterface } from "./interface-fixture.mjs";
 
 const require = createRequire(import.meta.url);
 const { getSidebarHtml } = require("../out/sidebarHtml.js");
@@ -30,6 +31,10 @@ const origin = `http://127.0.0.1:${server.address().port}`;
 let browser;
 try {
   browser = await chromium.launch({ headless: true });
+  console.log(
+    "PI_INTERFACE_BROWSER_EVIDENCE",
+    JSON.stringify(await assertInterface(browser, getSidebarHtml, renderSafeMarkdown)),
+  );
   const page = await browser.newPage({ viewport: { width: 600, height: 800 } });
   const errors = [];
   const external = [];

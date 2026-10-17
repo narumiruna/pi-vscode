@@ -51,6 +51,7 @@ import {
   historySyncFailureState,
   limitSidebarMessages,
   persistableSidebarMessages,
+  runtimeNoticeSummary,
   type SidebarMessage,
   shortTranscriptLabel,
   sidebarMessagesForWebview,
@@ -1401,12 +1402,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       }
       this.status = "Disconnected · Reconnect available";
     } else if (event.type === "runtime_warning" || event.type === "protocol_error") {
-      const details = stringValue(event.message);
-      this.postNotice(
-        event.type === "protocol_error" ? "Pi reported a protocol error." : "Pi reported a runtime warning.",
-        "warning",
-        details,
-      );
+      const details = stringValue(event.message) || "No additional diagnostic information was supplied.";
+      this.postNotice(runtimeNoticeSummary(event), "warning", details);
     } else if (event.type === "extension_ui_request") {
       void this.handleExtensionUiRequest(event).catch((error) => {
         this.postNotice("The Pi extension UI request failed.", "error", formatError(error));

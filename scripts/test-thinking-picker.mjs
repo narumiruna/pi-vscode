@@ -17,22 +17,25 @@ try {
     "body { --vscode-font-family: Arial; --vscode-font-size: 13px; margin: 0;",
   );
   await page.setContent(html);
-  for (const width of [180, 200, 210, 220, 280, 400, 600]) {
+  for (const width of [180, 200, 210, 220, 280, 400, 600, 960]) {
     await page.setViewportSize({ width, height: 800 });
-    for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", null]) {
+    for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max", null]) {
       await page.evaluate((thinkingLevel) => {
-        window.dispatchEvent(new MessageEvent("message", {
-          data: {
-            type: "state",
-            runtime: {
-              connected: true,
-              busy: false,
-              model: { name: "A long model name that must shrink" },
-              thinkingLevel,
-              availableThinkingLevels: thinkingLevel === null ? [] : ["off", "minimal", "low", "medium", "high", "xhigh"],
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: {
+              type: "state",
+              runtime: {
+                connected: true,
+                busy: false,
+                model: { name: "A long model name that must shrink" },
+                thinkingLevel,
+                availableThinkingLevels:
+                  thinkingLevel === null ? [] : ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+              },
             },
-          },
-        }));
+          }),
+        );
       }, level);
       const geometry = await page.evaluate(() => {
         const box = document.querySelector(".composer-box").getBoundingClientRect();
@@ -59,7 +62,7 @@ try {
     }
   }
   assert.deepEqual(errors, []);
-  console.log("Thinking picker: 49 browser layout cases passed.");
+  console.log("Thinking picker: 64 browser layout cases passed.");
 } finally {
   await browser.close();
 }

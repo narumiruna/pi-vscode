@@ -229,9 +229,20 @@ try {
   const pick = async (text) => {
     const input = page.locator(".quick-input-widget input[type=text]");
     await input.waitFor({ state: "visible" });
-    await input.fill(text);
+    const label = await input.getAttribute("aria-label");
+    // A chained Quick Pick can transfer native focus while Playwright inserts text.
+    // Set only this input and dispatch its normal input event; never type into the editor.
+    await input.evaluate((element, value) => {
+      element.focus();
+      element.value = value;
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+    }, text);
     await page.locator(".quick-input-list .monaco-list-row").filter({ hasText: text }).first().click();
-    await input.waitFor({ state: "hidden" });
+    // Current VS Code can reuse the input without a hidden frame between chained Quick Picks.
+    await until(
+      async () => !(await input.isVisible()) || (await input.getAttribute("aria-label")) !== label,
+      "Quick Pick accepted or advanced",
+    );
   };
   // Start a session detail pane, then capture all five provider-backed attachment types.
   let pi = await frame();
@@ -382,6 +393,12 @@ try {
     "Problems captured-document navigation",
   );
   await respond(richFixture);
+  await writeFile(
+    path.join(directory, "interface-images.json"),
+    JSON.stringify([
+      { type: "image", mimeType: "image/gif", data: "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" },
+    ]),
+  );
   await writeFile(path.join(directory, "tools.json"), JSON.stringify(toolFixture.calls));
   await problem.click();
   await invoke("command", { command: "problems.action.showQuickFixes" });
@@ -404,6 +421,26 @@ try {
   console.log("PI_NATIVE_TOOL_ACTIVITY", JSON.stringify(toolEvidence));
   const richEvidence = await assertRichContent(await frame());
   console.log("PI_NATIVE_RICH_CONTENT", JSON.stringify({ packaged, ...richEvidence }));
+  pi = await frame();
+  const imagePreview = pi.locator(".transcript-image").first();
+  await imagePreview.waitFor();
+  await until(async () => imagePreview.isEnabled(), "native image payload");
+  await imagePreview.focus();
+  await page.keyboard.press("Enter");
+  assert.equal(await pi.locator("#image-preview").evaluate((dialog) => dialog.open), true);
+  await page.keyboard.press("Escape");
+  assert.equal(await imagePreview.evaluate((element) => document.activeElement === element), true);
+  await pi.locator("#session-details summary").focus();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  assert.equal(await pi.locator("#session").inputValue(), "native-ui-session");
+  assert.equal(await pi.locator("#session").evaluate((element) => document.activeElement === element), true);
+  await pi.locator("#session").selectText();
+  assert.equal(await pi.locator("#session").evaluate((input) => input.selectionEnd - input.selectionStart), 17);
+  await pi.locator("#session-details summary").click();
+  console.log(
+    "PI_NATIVE_INTERFACE image keyboard preview, Escape/focus restoration and copyable session details passed",
+  );
   // Restore the captured document through the legacy-independent findings command.
   const navigation = await invoke("command", { command: "pi.showReviewFindings" }, false);
   await pick("Native workingTree finding");
@@ -502,6 +539,94 @@ try {
   const prompts = (await readFile(path.join(directory, "prompts.jsonl"), "utf8")).trim().split("\n").map(JSON.parse);
   assert.equal(prompts.length, 7);
   assert.ok(prompts.every((prompt) => /read.only/i.test(prompt.message)));
+  // Ordinary composer requests, unlike callback-owned review requests, accept both queue actions.
+  await writeFile(path.join(directory, "interface-hold"), "hold");
+  pi = await frame();
+  await pi.locator("#input").fill("Hold this deterministic response");
+  await pi.locator("#input").press("Enter");
+  await pi.locator("#after-this").waitFor();
+  assert.equal(await pi.locator("#cancel").isVisible(), true);
+  assert.match(await pi.locator("#status").innerText(), /working|Sending/i);
+  for (const [selector, text] of [
+    ["#send", "Next native instruction"],
+    ["#after-this", "After this native instruction"],
+  ]) {
+    await pi.locator("#input").fill(text);
+    await pi.locator(selector).click();
+    await until(async () => (await pi.locator("#input").inputValue()) === "", "accepted native queue input");
+  }
+  const queued = (await readFile(path.join(directory, "queued.jsonl"), "utf8")).trim().split("\n").map(JSON.parse);
+  assert.deepEqual(
+    queued.map((request) => request.type),
+    ["steer", "follow_up"],
+  );
+  await until(async () => (await pi.locator(".pending-queue-item").count()) === 2, "both pending native queue rows");
+  await pi.locator("#input").fill("A visible draft");
+  for (const [theme, cssClass] of [
+    ["Default Dark Modern", "vscode-dark"],
+    ["Default Light Modern", "vscode-light"],
+    ["Default High Contrast", "vscode-high-contrast"],
+  ]) {
+    await invoke("theme", { theme });
+    await pi.waitForFunction((name) => document.body.classList.contains(name), cssClass);
+    await invoke("zoom", { level: Math.log(2) / Math.log(1.2) });
+    await delay(500);
+    assert.equal(await pi.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    for (const id of ["input", "add-context", "cancel", "after-this", "send", "status", "usage"]) {
+      const geometry = await pi.locator(`#${id}`).evaluate((element) => ({
+        rect: element.getBoundingClientRect().toJSON(),
+        viewport: [innerWidth, innerHeight],
+      }));
+      assert.equal(
+        await pi.locator(`#${id}`).evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          const composer = element.closest(".composer-box")?.getBoundingClientRect();
+          return (
+            rect.width > 0 &&
+            rect.left >= 0 &&
+            rect.right <= innerWidth &&
+            rect.top >= 0 &&
+            rect.bottom <= innerHeight &&
+            (!composer ||
+              (rect.left >= composer.left &&
+                rect.right <= composer.right &&
+                rect.top >= composer.top &&
+                rect.bottom <= composer.bottom))
+          );
+        }),
+        true,
+        `${cssClass} 200% ${id} must remain inside the native webview: ${JSON.stringify(geometry)}`,
+      );
+    }
+    // Electron CDP clips iframe screenshots at incorrect coordinates under native zoom.
+    // Review native DOM/styles in an isolated viewport; the geometry check above stays native.
+    const snapshotBrowser = await chromium.launch({ headless: true });
+    try {
+      const snapshot = await snapshotBrowser.newPage({
+        viewport: await pi.evaluate(() => ({ width: innerWidth, height: innerHeight })),
+      });
+      await snapshot.route("**/*", (route) => route.abort());
+      await snapshot.setContent((await pi.content()).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ""));
+      await snapshot.waitForTimeout(200);
+      await snapshot
+        .locator("#composer")
+        .screenshot({ path: path.join(tmpdir(), `pi-interface-native-${evidenceLabel}-${cssClass}-200.png`) });
+    } finally {
+      await snapshotBrowser.close();
+    }
+    await invoke("zoom", { level: 0 });
+  }
+  await invoke("theme", { theme: "Default Dark Modern" });
+  await pi.locator("#cancel").click();
+  await until(async () => !(await pi.locator("#cancel").isVisible()), "native Stop settlement");
+  assert.equal(await pi.locator("#recover-queue").isVisible(), true);
+  await rm(path.join(directory, "interface-hold"));
+  // Merely choosing Delete must still require the native modal; cancellation keeps the session file.
+  await pi.locator("#delete-session").click();
+  await page.getByRole("button", { name: "Delete Session", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  assert.ok((await readFile(path.join(directory, "session.jsonl"), "utf8")).includes("native-ui-session"));
+  console.log("PI_NATIVE_INTERFACE both queue buttons, pending labels, Stop/recovery and deletion confirmation passed");
   console.log(
     "PI_NATIVE_UI_EVIDENCE",
     JSON.stringify({
@@ -512,6 +637,8 @@ try {
       richContent: "Markdown, math fonts, flowchart and sequence SVG passed",
       settingsPanel: "gear, singleton, User/Workspace writes, reset, hide/reveal drafts, no Pi side effects passed",
       semanticAttachmentPicker: "passed",
+      interface:
+        "image preview/focus, session details, both queue actions, status/Stop, recovered drafts, deletion modal and native 200% zoom geometry in dark/light/high-contrast passed",
       fourReviewScopes: "passed",
       nativeProblemsAndAskFix: "passed",
       dirtyFindingBufferGuard: "passed",

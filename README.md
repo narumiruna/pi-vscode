@@ -51,9 +51,9 @@ After installation or an update, run **Developer: Reload Window**. Sidebar sessi
 
 1. Run **Pi: Open Sessions** from the Command Palette, or open **Pi** in the Secondary Sidebar. Choose a session from **Sessions**, or use **View all** to search the current workspace. Sending from the Sessions-level composer starts a new session; **Back to Sessions** returns there from a conversation.
 2. Choose **Attach** to add code, files, or images, or paste a supported image with Ctrl/Cmd+V.
-3. Enter a request. The active model and thinking level appear beside **Send**.
+3. Enter a request. The active model and **Thinking** level appear in the composer; narrow panels put these settings on a separate row. **Submission help** lists the applicable shortcuts.
 4. For proposed changes, choose **Preview**, optionally select hunks, and then choose **Apply**.
-5. Open **More…** for session management, export, terminal handoff, staged review, repair tools, checkpoints, and background or worktree agents.
+5. Open **More…** for session management, export, terminal handoff, staged review, repair tools, checkpoints, and background or worktree agents. Expand **Session details** in the footer to select and copy the full session ID.
 
 Use `@pi` in VS Code's native Chat view when you prefer the native participant workflow. Native Chat history is separate from the Pi sidebar session.
 
@@ -100,16 +100,18 @@ This release also changes the identifier contract. Rename existing `picode.*` se
 | **Semantic context** | Choose **Attach → Definition / References / Callers / Callees / Document Symbols** at the active cursor. Inspect/redact or pin the captured context before sending; attach again for a fresh provider lookup. Missing providers produce a notice, not guessed results. |
 | **Selected edits** | On a proposal card, choose **Choose Hunks → Preview → Apply**. Changing the selection invalidates the preview; normal editor Undo remains available after application. |
 | **Worktree result import** | Start an isolated agent from **More…**. When it becomes inactive, choose **Review Results → Apply Selected** to import reviewed text files into the originating worktree. |
-| **Attachment inspection** | Choose **View attachments** in the composer to inspect the exact snapshot, redact or edit it, refresh it explicitly, or pin it for later requests. |
+| **Attachment inspection** | Choose **Attach → View attachments** to inspect the exact snapshot, text-token estimate (excluding image tokens), redact or edit it, refresh it explicitly, or pin it for later requests. Composer counts cover attachment text only, not your typed prompt. Image thumbnails preserve the full image; activate **Open image preview** for a larger view. Removal is a separate control. |
 | **Failed-test repair** | Run **Pi: Repair Failed Test (Preview)**, approve a command or provide an existing UTF-8 log, inspect the evidence, then preview and apply the repair. |
 | **Request checkpoints** | Choose **More… → Request Checkpoints** to inspect coverage, preview a restore, and revert covered changes. Checkpoints are memory-only file recovery, not a Git or conversation rewind. |
 | **Slash commands** | Type `/` in the composer to list Pi extension commands, prompt templates, skills, and `/compact`. Type `/com` to find command names that contain `com`. Use Up/Down to select, Enter or Tab to complete, then Enter to run. Click to complete or press Escape to close. `/compact` accepts optional instructions and acts on the current session. Remove attachments before running commands. TUI-only commands are not listed. |
-| **In-flight instructions** | While a request is running, press Enter to send **Next** after the current tool finishes. Use Alt+Enter on macOS and Linux, or Ctrl+Q on Windows (including remote WSL sessions), to send **After this** when Pi finishes responding. Pending text stays visible under these labels, then moves into the transcript as soon as Pi starts that user message. |
+| **In-flight instructions** | While an ordinary request is running, choose **Next** (Enter) to submit after the current tool finishes, or **After this** to submit after the response finishes. The alternate shortcut is Alt+Enter on macOS and Linux, or Ctrl+Q on Windows (including remote WSL sessions). **Submission help** explains the actions; **Stop** stays separate. Pending text stays visible under these labels, then moves into the transcript as soon as Pi starts that user message. Locked requests cannot accept queued messages. |
 | **Debug questions** | Pause a Node.js debugger and run **Pi: Ask Debug Context**. Approve capture, choose local variables, inspect or redact the snapshot, and ask a read-only question. |
 
 Process-launching and mutation workflows require a trusted, file-backed workspace. A Pi session's working directory must match the active workspace. Open an isolated worktree in its own VS Code window before resuming its session.
 
 ## Panel content
+
+Long assistant prose uses a bounded reading column. Code, tables, math, and diagrams can use the full message width. The footer keeps work/connection status and context usage visible; **Session details** contains the copyable session ID. Runtime notices show bounded summaries with **View diagnostic** for raw details. Queue uncertainty never means it is safe to resend.
 
 The session panel supports Markdown headings, nested lists, task lists, tables, quotes, links, emphasis, and strikethrough. Code highlighting covers Bash, CSS, JavaScript, JSON, Python, TypeScript, and HTML/XML, including their registered aliases. Other languages stay plain text.
 
@@ -237,14 +239,14 @@ npm run test:thinking-picker
 npm run test:settings
 ```
 
-The rich-content check tests the sidebar document, CSP, rendering, themes, overflow, and asynchronous lifecycle. Run it after renderer changes. Run the thinking-picker check after thinking-picker changes. The settings check tests controls, scopes, reset, external-change conflicts, draft recovery, keyboard navigation, themes, layout, and CSP using the bundled assets. None of these checks uses a live model.
+The rich-content check tests the sidebar document, CSP, rendering, themes, overflow, and asynchronous lifecycle. It also runs deterministic interface fixtures for responsive actions, attachments, queue submissions, session details, status, and scroll preservation. Run it after renderer changes. Run the thinking-picker check after thinking-picker changes. The settings check tests controls, scopes, reset, external-change conflicts, draft recovery, keyboard navigation, themes, layout, and CSP using the bundled assets. None of these checks uses a live model.
 
 ### Native VS Code checks
 
 | Command | Purpose |
 | --- | --- |
 | `npm run test:native -- 1.106.0` | Isolated Extension Host assertions against the minimum supported VS Code version. |
-| `xvfb-run -a npm run test:native-ui -- 1.106.0` | Linux UI checks for attachments, review confirmations, Problems actions, proposals, multi-file Apply/Undo, and reload. |
+| `xvfb-run -a npm run test:native-ui -- 1.106.0` | Linux UI checks for attachments, image preview/focus, queue controls, status/Stop, session details, deletion confirmation, review confirmations, Problems actions, proposals, multi-file Apply/Undo, and reload. |
 
 On headless Linux, also prefix `test:native` with `xvfb-run -a`. Replace `1.106.0` with `stable` to check the current VS Code release.
 

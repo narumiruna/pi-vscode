@@ -226,6 +226,7 @@ export class PiRpcClient {
     if (child.pid && child.exitCode === null && child.signalCode === null) {
       this.emit({
         type: "runtime_warning",
+        warningCode: "cleanup-unverified",
         message: "Pi termination deadline reached; descendant cleanup could not be verified.",
       });
     }

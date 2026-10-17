@@ -377,6 +377,7 @@ export class PiRuntimeManager implements vscode.Disposable {
         if (delivered) {
           this.eventEmitter.fire({
             type: "runtime_warning",
+            warningCode: "queue-delivered",
             message: `Pi delivered the queued instruction but its acknowledgement failed. Pi disconnected without replay. ${formatError(error)}`,
           });
           return;
@@ -557,6 +558,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     if (warnings.length)
       this.eventEmitter.fire({
         type: "runtime_warning",
+        warningCode: "deleted-cleanup",
         message: `The conversation was deleted. ${warnings.join(" ")}`,
       });
   }
@@ -669,6 +671,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       await this.createAndStartClient(undefined);
       this.eventEmitter.fire({
         type: "runtime_warning",
+        warningCode: "session-replaced",
         message: "The previous Pi session could not be restored, so a new session was started.",
       });
     }
@@ -726,6 +729,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     } catch (error) {
       this.eventEmitter.fire({
         type: "runtime_warning",
+        warningCode: "state-refresh",
         message: `${command} completed, but runtime state refresh failed. Reconnect to refresh state. Do not repeat the command. ${formatError(error)}`,
       });
     }
@@ -905,6 +909,7 @@ export class PiRuntimeManager implements vscode.Disposable {
         } catch (error) {
           this.eventEmitter.fire({
             type: "runtime_warning",
+            warningCode: "queue-uncertain",
             message: `${formatError(error)} Pi disconnected without replay.`,
           });
           void this.client?.stop();
@@ -916,6 +921,7 @@ export class PiRuntimeManager implements vscode.Disposable {
         void this.client?.stop();
         this.eventEmitter.fire({
           type: "runtime_warning",
+          warningCode: "queue-uncertain",
           message: "Queue changed during cancellation; disconnected to prevent hidden continuation.",
         });
       }
@@ -932,6 +938,7 @@ export class PiRuntimeManager implements vscode.Disposable {
         this.recoverQueue(uncertain, true);
         this.eventEmitter.fire({
           type: "runtime_warning",
+          warningCode: "queue-uncertain",
           message:
             "Pi settled after removing queued instructions without matching user-message delivery events. Review recovered drafts before resending.",
         });
