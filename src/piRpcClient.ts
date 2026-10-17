@@ -1,7 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
-import { planPiSpawn, type PiSpawnPlan } from "./piSpawn";
 import type * as vscode from "vscode";
+import { type PiSpawnPlan, planPiSpawn } from "./piSpawn";
 
 const maxDiagnosticBytes = 1024 * 1024;
 const maxJsonLineBytes = 5 * 1024 * 1024;
@@ -136,18 +136,14 @@ export class PiRpcClient {
     this.stderr = "";
     const rpcArguments = [...(this.options.executableArgs ?? []), ...buildRpcArguments(this.options)];
     const plan: PiSpawnPlan = planPiSpawn(this.options.executablePath, rpcArguments);
-    const child = spawn(
-      plan.command,
-      plan.args,
-      {
-        cwd: this.options.cwd,
-        env: buildPiProcessEnvironment(process.env, this.options.env, this.options.unsetEnv),
-        shell: plan.shell,
-        detached: process.platform !== "win32",
-        windowsHide: true,
-        stdio: ["pipe", "pipe", "pipe"],
-      },
-    );
+    const child = spawn(plan.command, plan.args, {
+      cwd: this.options.cwd,
+      env: buildPiProcessEnvironment(process.env, this.options.env, this.options.unsetEnv),
+      shell: plan.shell,
+      detached: process.platform !== "win32",
+      windowsHide: true,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
     this.process = child;
 
     const lineDecoder = new StrictJsonLineDecoder((line) => this.handleLine(line));

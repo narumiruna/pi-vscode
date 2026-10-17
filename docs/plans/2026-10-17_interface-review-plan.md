@@ -180,7 +180,7 @@ The apparent inner scrollbar in the final screenshot may be pixels in the attach
 | Check | Result |
 | --- | --- |
 | Runtime/dependencies | Node.js 26.8.2; existing locked dependencies present; `npm ls --depth=0` passed. No dependency changes. |
-| `npm test` (also run by package and pre-commit) | 47 files, 391 tests passed. |
+| `npm test` (also run by package and pre-commit) | 48 files, 395 tests passed after rebasing onto current main. |
 | Biome 2.5.13 `check src resources` | Exit 0; 464 warnings and 17 informational diagnostics, no errors. Warnings were not hidden or treated as errors. |
 | `npm run test:rich-content` | Passed: 72 interface layout cases at 180/220/280/400/600/960px and 420/800px; four image cases; eight foreground phases; keyboard, stable live-region, scroll, CSP, sanitization, and rich-renderer lifecycle checks. |
 | `npm run test:thinking-picker` | Passed: 64 browser cases including Max and unsupported state. |
@@ -188,11 +188,13 @@ The apparent inner scrollbar in the final screenshot may be pixels in the attach
 | `xvfb-run -a npm run test:native -- stable` | Passed on Linux, VS Code 1.142.0. |
 | `xvfb-run -a npm run test:native-ui -- 1.106.0` | Passed, including new interface controls, modal confirmation, native 200% geometry, and reload cleanup. |
 | `xvfb-run -a npm run test:native-ui -- stable` | Passed on Linux, VS Code 1.142.0, with the same interface assertions. |
-| `npm run package` | Passed; local VSIX contains 137 files. Archive inspection confirmed compiled sidebar controls, renderer assets, and fonts. No installation or publication. |
+| `npm run package` | Passed; local VSIX contains 138 files. Archive inspection confirmed compiled sidebar controls, renderer assets, and fonts. No installation or publication. |
 | Visual/keyboard review | Browser dark/light/high-contrast snapshots and native-DOM 200% snapshots reviewed. Native preview/Escape/focus restoration, session-ID selection, and queue buttons passed. |
 | Screen reader | Not run with assistive technology. DOM names/descriptions and unchanged-live-region tests passed; spoken output is unverified. |
 | Windows/macOS/remote | Not run; explicit acceptance of deferral is required. Windows shortcut selection is unit-tested, not platform-tested. |
 | Live provider | Not run, as required; all model responses came from deterministic fixtures. |
+
+The branch was rebased onto main at `d263ed2` after the process-launch refactor merged. Its four existing Biome errors were corrected with import ordering and whitespace only in `piClient.ts`, `piRpcClient.ts`, and `piSpawn.ts`; process-launch behavior was not changed. All listed checks were rerun on this integrated base.
 
 During development, checks exposed outdated UI assertions, a concurrent-build race in the generated output directory, missing queue-update events in the new fixture, current-VS-Code chained Quick Pick/focus races, a pending-row presentation race, preview-close timing, and zoom clipping. Tests/builds now run sequentially, fixture acknowledgements match the protocol, and the final runs listed above passed. No failed run is represented as acceptance evidence.
 
