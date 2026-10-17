@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { planPiSpawn, type PiSpawnPlan } from "./piSpawn";
 
 const maxOutputBytes = 5 * 1024 * 1024;
 
@@ -42,10 +43,11 @@ export function invokePi(prompt: string, options: PiInvocationOptions, signal?: 
       return;
     }
 
-    const child = spawn(options.executablePath, buildPiArguments(options), {
+    const plan: PiSpawnPlan = planPiSpawn(options.executablePath, buildPiArguments(options));
+    const child = spawn(plan.command, plan.args, {
       cwd: options.cwd,
       env: { ...process.env, NO_COLOR: "1" },
-      shell: false,
+      shell: plan.shell,
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
