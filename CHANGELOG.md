@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0
+
+### Minor Changes
+
+- 92911ff: Add a Pi Settings editor tab with General, Permissions, and Editor categories, explicit User/Workspace saves, scope-specific reset, inherited values, and external-change checks. Open it from the Command Palette or the Pi view-title gear without starting Pi. Launch setting changes leave running sessions unchanged. Align VS Code types with the existing 1.106.0 minimum so VSIX packaging retains its compatibility checks.
+
+### Patch Changes
+
+- 3f7704c: Add a retry action for failed automatic settings saves. Return an error when the settings queue is full so rejected saves and resets do not leave rows disabled.
+- e356b3a: Launch standard Windows npm Node shims without a shell, preserve literal arguments, and use the final child PATH and working directory. Reject unsupported batch wrappers and report bounded process-cleanup uncertainty instead of treating shell exit as Pi termination. Keep foreground cleanup warnings visible during session deletion and failed startup cleanup.
+- 6b83219: Improve Marketplace discovery with keywords for editing, reviews, diagnostics, documentation, and test workflows. Replace the Programming Languages and Machine Learning categories with Testing to match the extension's features.
+- 7912c8a: Clarify sidebar attachments, model and thinking settings, runtime notices, and in-flight actions. Add visible Next and After this controls, contextual submission help, copyable session details, full-image thumbnails, and responsive reading and composer layouts.
+
 ## 0.3.1
 
 ### Patch Changes
