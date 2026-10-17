@@ -7,7 +7,7 @@ import { parseGitReview } from "../gitReview";
 import { assertStagedCurrent, captureStaged, digest, gitEnvironment, safeRelativePath } from "../gitSnapshots";
 
 async function fixture(run: (root: string, git: (...args: string[]) => Buffer) => Promise<void>): Promise<void> {
-  const root = await mkdtemp(path.join(tmpdir(), "picode-git-review-"));
+  const root = await mkdtemp(path.join(tmpdir(), "pi-git-review-"));
   const git = (...args: string[]) =>
     execFileSync("git", ["-c", "commit.gpgsign=false", ...args], {
       cwd: root,

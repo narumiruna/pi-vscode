@@ -1,7 +1,7 @@
 import path from "node:path";
 import * as vscode from "vscode";
 import { boundCompletionContext, buildCompletionPrompt, extractCompletion } from "./completion";
-import { picodeConfiguration } from "./configuration";
+import { piConfiguration } from "./configuration";
 import { invokePiWithCancellation } from "./vscodePi";
 
 const maxPrefixCharacters = 12_000;
@@ -16,20 +16,20 @@ interface CachedCompletion {
 
 export function registerInlineCompletions(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel("Pi");
-  const provider = new PiCodeInlineCompletionProvider(output);
+  const provider = new PiInlineCompletionProvider(output);
   context.subscriptions.push(
     output,
     vscode.languages.registerInlineCompletionItemProvider(
       [{ scheme: "file" }, { scheme: "vscode-remote" }, { scheme: "untitled" }],
       provider,
     ),
-    vscode.commands.registerCommand("picode.triggerInlineCompletion", async () => {
+    vscode.commands.registerCommand("pi.triggerInlineCompletion", async () => {
       await vscode.commands.executeCommand("editor.action.inlineSuggest.trigger");
     }),
   );
 }
 
-class PiCodeInlineCompletionProvider implements vscode.InlineCompletionItemProvider {
+class PiInlineCompletionProvider implements vscode.InlineCompletionItemProvider {
   private readonly cache = new Map<string, CachedCompletion>();
 
   public constructor(private readonly output: vscode.OutputChannel) {}
@@ -40,7 +40,7 @@ class PiCodeInlineCompletionProvider implements vscode.InlineCompletionItemProvi
     completionContext: vscode.InlineCompletionContext,
     token: vscode.CancellationToken,
   ): Promise<vscode.InlineCompletionItem[] | undefined> {
-    const configuration = picodeConfiguration("inlineCompletions", document.uri);
+    const configuration = piConfiguration("inlineCompletions", document.uri);
     if (
       !configuration.get<boolean>("enabled", false) &&
       completionContext.triggerKind !== vscode.InlineCompletionTriggerKind.Invoke

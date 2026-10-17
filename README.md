@@ -66,7 +66,7 @@ Use `@pi` in VS Code's native Chat view when you prefer the native participant w
 | Suggest the next edit | **Ctrl+Alt+N** / **Cmd+Alt+N** on macOS |
 | Ask about or modify a selection | Editor lightbulb → **Rewrite**, or editor context menu → **Pi** |
 
-Automatic inline completions are disabled by default. Enable `picode.inlineCompletions.enabled` to request them after a typing pause.
+Automatic inline completions are disabled by default. Enable `pi.inlineCompletions.enabled` to request them after a typing pause.
 
 ## Upgrade from the old extension ID
 
@@ -83,7 +83,11 @@ The extension ID changed from `narumi.pi-coding-agent-vscode` to `narumi.narumi-
 3. Run **Developer: Reload Window**. Install the new extension, then reload again.
 4. Open **Pi: Open Sessions** and select a persistent Pi session for the current workspace.
 
-The installers do not copy or delete VS Code state. The old sidebar cache, last-session pointer, and background-task records do not transfer to the new ID. Worktrees under the old extension's global storage do not transfer. Save their results before removal. Pi session files remain separate from VS Code extension state and can be selected from the new extension. Existing `picode.*` settings keep their names.
+The installers do not copy or delete VS Code state. The old sidebar cache, last-session pointer, and background-task records do not transfer to the new ID. Worktrees under the old extension's global storage do not transfer. Save their results before removal. Pi session files remain separate from VS Code extension state and can be selected from the new extension.
+
+### Identifier changes
+
+This release also changes the identifier contract. Rename existing `picode.*` settings and command IDs in custom keybindings to `pi.*`; `piCodingAgent.*` settings are no longer read. Cached sidebar messages, last-session pointers, and background-task records use new keys and do not migrate. Persistent Pi session files are unchanged. Bridge consumers must use `PI_VSCODE_BRIDGE_PORT`, `PI_VSCODE_BRIDGE_TOKEN`, and `PI_VSCODE_BRIDGE_EXTENSION`; create a new integrated terminal after reloading. Prompt markers now use `PI_VSCODE_*`; old markers remain plain transcript text.
 
 ## Focused workflows
 
@@ -119,14 +123,14 @@ Links permit only HTTP, HTTPS, and email targets. Raw HTML and Markdown images a
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `picode.executablePath` | `pi` | Pi executable name or absolute path. |
-| `picode.provider` | Empty | Optional provider override; empty uses Pi settings. |
-| `picode.model` | Empty | Optional model override; empty uses Pi settings. |
-| `picode.thinkingLevel` | `default` | Optional thinking-level override. |
-| `picode.agent.confirmToolCalls` | `dangerous` | Approval policy for Pi's built-in `bash`, `edit`, and `write` tools. |
-| `picode.approveProjectResources` | `false` | Allow trusted project-local Pi settings, extensions, skills, and prompts. |
-| `picode.sensitiveContextNames` | Sensitive filename fragments | Add best-effort warnings to matching attachment labels. |
-| `picode.inlineCompletions.enabled` | `false` | Enable automatic inline completions. |
+| `pi.executablePath` | `pi` | Pi executable name or absolute path. |
+| `pi.provider` | Empty | Optional provider override; empty uses Pi settings. |
+| `pi.model` | Empty | Optional model override; empty uses Pi settings. |
+| `pi.thinkingLevel` | `default` | Optional thinking-level override. |
+| `pi.agent.confirmToolCalls` | `dangerous` | Approval policy for Pi's built-in `bash`, `edit`, and `write` tools. |
+| `pi.approveProjectResources` | `false` | Allow trusted project-local Pi settings, extensions, skills, and prompts. |
+| `pi.sensitiveContextNames` | Sensitive filename fragments | Add best-effort warnings to matching attachment labels. |
+| `pi.inlineCompletions.enabled` | `false` | Enable automatic inline completions. |
 
 Additional settings control inline-completion delay, minimum prefix length, and excluded languages.
 
@@ -134,7 +138,7 @@ Additional settings control inline-completion delay, minimum prefix length, and 
 
 Pi sidebar sessions expose Pi's default coding tools and tools contributed by installed Pi extensions. The packaged confirmation policy covers only Pi's built-in `bash`, `edit`, and `write` tools; contributed tools define their own permission behavior.
 
-Focused edit workflows use a packaged read-only policy while generating proposals. Applying edits, importing worktree results, rerunning tests, and restoring checkpoints always require explicit user action. Project-local Pi resources remain disabled until the workspace is trusted and `picode.approveProjectResources` is enabled.
+Focused edit workflows use a packaged read-only policy while generating proposals. Applying edits, importing worktree results, rerunning tests, and restoring checkpoints always require explicit user action. Project-local Pi resources remain disabled until the workspace is trusted and `pi.approveProjectResources` is enabled.
 
 Prompts and approved context are sent to Pi through standard input, not command-line arguments. The selected provider receives that content under its own data policy. Transcript state stores image metadata, but not Base64 image payloads.
 
@@ -167,10 +171,10 @@ The bridge provides `vscode_context`, `vscode_code_context`, `vscode_open_file`,
 A new ordinary integrated terminal inherits the authenticated bridge environment and bridge path, but plain `pi` does not load the bridge. Load it explicitly when you need these tools:
 
 ```bash
-pi --extension "$PICODE_BRIDGE_EXTENSION"
+pi --extension "$PI_VSCODE_BRIDGE_EXTENSION"
 ```
 
-In PowerShell, use `pi --extension $env:PICODE_BRIDGE_EXTENSION`.
+In PowerShell, use `pi --extension $env:PI_VSCODE_BRIDGE_EXTENSION`.
 
 Other Pi extensions can use `pi.events` to send an allowlisted `vscode:request` and receive a correlated `vscode:response` or `vscode:event`.
 
@@ -244,7 +248,7 @@ Native checks download a VS Code test build into the system temporary cache and 
 These commands run local processes or change the installed extension; they are not isolated checks:
 
 - `npm run dev` rebuilds and installs the extension, removes legacy bridge files, then opens the current directory in a new VS Code window.
-- `npm run dev:pi` starts Pi with `resources/picode-bridge.ts` in the current terminal.
+- `npm run dev:pi` starts Pi with `resources/pi-bridge.ts` in the current terminal.
 
 ## Release
 

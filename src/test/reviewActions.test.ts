@@ -100,7 +100,7 @@ test.each([
                 { path: filePath, side: "after", startLine: 1, endLine: 1, severity: "error", message: "Wrong output" },
               ],
             })
-          : "<<<PICODE_REPLACEMENT_START>>>\ngood\n\n<<<PICODE_REPLACEMENT_END>>>";
+          : "<<<PI_VSCODE_REPLACEMENT_START>>>\ngood\n\n<<<PI_VSCODE_REPLACEMENT_END>>>";
         if (changeDuringResponse) document.version++;
         await options?.onResponse?.(response);
         return response;
@@ -110,13 +110,13 @@ test.each([
         return "p";
       },
     });
-    const fixFinding = vscode.registrations.get("picode.fixReviewFinding");
+    const fixFinding = vscode.registrations.get("pi.fixReviewFinding");
     assert.equal(typeof fixFinding, "function");
     try {
       git("init", "-q");
       await writeFile(document.uri.fsPath, document.text);
       git("add", filePath);
-      await vscode.registrations.get("picode.reviewStagedChanges")!();
+      await vscode.registrations.get("pi.reviewStagedChanges")!();
       assert.deepEqual(errors, []);
       const uri = [...diagnostics.keys()].find((uri) => diagnostics.get(uri)!.length);
       assert.ok(uri);
@@ -125,7 +125,7 @@ test.each([
       const actions = await actionProvider.provideCodeActions(virtual, range);
       assert.deepEqual(
         actions.map((action: any) => action.command.command),
-        ["picode.askReviewFinding", "picode.fixReviewFinding"],
+        ["pi.askReviewFinding", "pi.fixReviewFinding"],
       );
       vscode.workspace.fs.stat = async () => {
         document.text = "changed during writable check\n";
@@ -170,7 +170,7 @@ test.each([
       runtime.currentCwd = subfolder;
       vscode.workspace.workspaceFolders = [{ uri: MockUri.file(subfolder), name: "Subfolder" }];
       document.text = "different staged\n";
-      await vscode.registrations.get("picode.reviewStagedChanges")!();
+      await vscode.registrations.get("pi.reviewStagedChanges")!();
       assert.deepEqual(errors, []);
       const outsideUri = [...diagnostics.keys()].find((uri) => diagnostics.get(uri)!.length);
       assert.equal(requests, 5);
@@ -188,7 +188,7 @@ test.each([
         assert.equal(options.modal, true);
         return "Send Review";
       };
-      await vscode.registrations.get("picode.reviewChanges")!();
+      await vscode.registrations.get("pi.reviewChanges")!();
       assert.deepEqual(errors, []);
       assert.equal(requests, 6);
       assert.ok([...diagnostics.values()].flat().some((diagnostic) => diagnostic.source.includes("Working tree")));

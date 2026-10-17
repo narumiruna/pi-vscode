@@ -20,7 +20,7 @@ try {
       "security.workspace.trust.startupPrompt": "never",
       "files.autoSave": "off",
       "telemetry.telemetryLevel": "off",
-      "picode.executablePath": path.join(directory, "nonexistent-pi"),
+      "pi.executablePath": path.join(directory, "nonexistent-pi"),
       "workbench.startupEditor": "none",
     }),
   );
@@ -74,8 +74,8 @@ try {
       env: {
         ...process.env,
         PI_CODING_AGENT_DIR: path.join(directory, "pi"),
-        PICODE_NATIVE_EVIDENCE: evidence,
-        PICODE_NATIVE_EXPECT_TRUST: String(trusted),
+        PI_VSCODE_NATIVE_EVIDENCE: evidence,
+        PI_VSCODE_NATIVE_EXPECT_TRUST: String(trusted),
       },
     });
     const timer = setTimeout(() => {

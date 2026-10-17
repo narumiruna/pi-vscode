@@ -86,7 +86,7 @@ test("existing editor action requests stay read-only; selected preview matches o
   registerEditorActions(context, {
     sendRequest: async (_request, _contexts, options) => {
       assert.equal(options?.policy, "read-only");
-      const response = "<<<PICODE_REPLACEMENT_START>>>\nA\nb\nC\n\n<<<PICODE_REPLACEMENT_END>>>";
+      const response = "<<<PI_VSCODE_REPLACEMENT_START>>>\nA\nb\nC\n\n<<<PI_VSCODE_REPLACEMENT_END>>>";
       await options?.onResponse?.(response);
       return response;
     },
@@ -101,7 +101,7 @@ test("existing editor action requests stay read-only; selected preview matches o
       inputOptions = options;
       return undefined;
     };
-    await vscode.registrations.get("picode.inlineEdit")();
+    await vscode.registrations.get("pi.inlineEdit")();
     assert.deepEqual(inputOptions, {
       title: "Inline Edit with Pi",
       prompt: "How should Pi change the selected code or current line?",
@@ -110,7 +110,7 @@ test("existing editor action requests stay read-only; selected preview matches o
     });
 
     const selectionProvider = codeActionProviders.find(({ metadata }) =>
-      metadata.providedCodeActionKinds.some((kind: any) => kind.value === "refactor.rewrite.picode"),
+      metadata.providedCodeActionKinds.some((kind: any) => kind.value === "refactor.rewrite.pi"),
     )?.provider;
     assert.ok(selectionProvider);
     const selectionActions = await selectionProvider.provideCodeActions(
@@ -122,12 +122,12 @@ test("existing editor action requests stay read-only; selected preview matches o
     assert.deepEqual(
       selectionActions.map((action: any) => [action.title, action.kind.value, action.command.command]),
       [
-        ["Ask Pi", "refactor.rewrite.picode", "picode.askSelection"],
-        ["Modify with Pi", "refactor.rewrite.picode", "picode.modifySelection"],
+        ["Ask Pi", "refactor.rewrite.pi", "pi.askSelection"],
+        ["Modify with Pi", "refactor.rewrite.pi", "pi.modifySelection"],
       ],
     );
 
-    await vscode.registrations.get("picode.fixSelection")();
+    await vscode.registrations.get("pi.fixSelection")();
     assert.ok(proposal);
     assert.equal(proposal.hunks?.length, 2);
     await proposal.onPreview(["h0"]);
@@ -139,7 +139,7 @@ test("existing editor action requests stay read-only; selected preview matches o
     await proposal.onDispose?.();
     text = "a\nb\nc\n";
     version++;
-    await vscode.registrations.get("picode.fixSelection")();
+    await vscode.registrations.get("pi.fixSelection")();
     await proposal.onPreview(["h1"]);
     await proposal.onApply(["h1"]);
     assert.equal(text, "a\nb\nC\n");

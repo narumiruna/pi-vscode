@@ -8,14 +8,22 @@ const workflow = readFileSync(".github/workflows/publish.yml", "utf8");
 const detectionStep = workflow.split("      - name: Detect the version bump\n")[1].split("\n      - name:")[0];
 const detectionScript = detectionStep.split("        run: |\n")[1].replace(/^ {10}/gm, "");
 
-function detectRelease(previousManifest: string | undefined, beforeOverride?: string, existingTag = false) {
+function detectRelease(
+  previousManifest: string | undefined,
+  beforeOverride?: string,
+  existingTag = false,
+  inheritedEnvironment: NodeJS.ProcessEnv = process.env,
+) {
   const cwd = mkdtempSync(join(tmpdir(), "pi-publish-test-"));
+  const environment = Object.fromEntries(
+    Object.entries(inheritedEnvironment).filter(([key]) => !key.startsWith("GIT_")),
+  );
   const git = (...args: string[]) =>
     execFileSync("git", args, {
       cwd,
       encoding: "utf8",
       env: {
-        ...process.env,
+        ...environment,
         GIT_AUTHOR_NAME: "Test",
         GIT_AUTHOR_EMAIL: "test@example.com",
         GIT_COMMITTER_NAME: "Test",
@@ -43,7 +51,7 @@ function detectRelease(previousManifest: string | undefined, beforeOverride?: st
     const result = spawnSync("bash", ["--noprofile", "--norc", "-c", detectionScript], {
       cwd,
       encoding: "utf8",
-      env: { ...process.env, BEFORE_SHA: before, GITHUB_OUTPUT: output },
+      env: { ...environment, BEFORE_SHA: before, GITHUB_OUTPUT: output },
     });
     assert.ifError(result.error);
     return { status: result.status, stderr: result.stderr, output: readFileSync(output, "utf8") };
@@ -74,6 +82,17 @@ test("release detection skips unchanged versions", () => {
 
 test("release detection publishes a validated version bump", () => {
   const result = detectRelease(JSON.stringify({ version: "0.1.0" }));
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.output, "release=true\nversion=0.2.0\ntag=v0.2.0\n");
+});
+
+test("release fixtures ignore inherited Git hook repository variables", () => {
+  const result = detectRelease(JSON.stringify({ version: "0.1.0" }), undefined, false, {
+    ...process.env,
+    GIT_DIR: "/nonexistent/hook-repository",
+    GIT_WORK_TREE: "/nonexistent/hook-worktree",
+    GIT_INDEX_FILE: "/nonexistent/hook-index",
+  });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.output, "release=true\nversion=0.2.0\ntag=v0.2.0\n");
 });

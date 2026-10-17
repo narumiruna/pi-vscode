@@ -15,9 +15,10 @@ interface ExtensionManifest {
   readonly extensionKind: readonly string[];
   readonly devDependencies: Record<string, string>;
   readonly contributes: {
-    readonly viewsContainers: { readonly secondarySidebar: readonly { readonly title: string }[] };
+    readonly viewsContainers: { readonly secondarySidebar: readonly { readonly id: string; readonly title: string }[] };
+    readonly views: Record<string, readonly { readonly id: string }[]>;
     readonly commands: readonly { command: string; title: string; category: string; enablement?: string }[];
-    readonly chatParticipants: readonly { readonly name: string; readonly fullName: string }[];
+    readonly chatParticipants: readonly { readonly id: string; readonly name: string; readonly fullName: string }[];
     readonly submenus: readonly { readonly label: string }[];
     readonly menus: Record<string, readonly MenuContribution[]>;
     readonly configuration: { readonly title: string; readonly properties: Record<string, unknown> };
@@ -30,6 +31,10 @@ test("extension identity stays consistent across packaging, settings, and docume
   assert.equal(manifest.name, "narumi-pi");
   assert.equal(manifest.displayName, "Pi");
   assert.equal(manifest.contributes.viewsContainers.secondarySidebar[0].title, "Pi");
+  assert.equal(manifest.contributes.viewsContainers.secondarySidebar[0].id, "pi");
+  assert.deepEqual(Object.keys(manifest.contributes.views), ["pi"]);
+  assert.equal(manifest.contributes.views.pi[0].id, "pi.chatView");
+  assert.equal(manifest.contributes.chatParticipants[0].id, "pi.chat");
   assert.ok(
     manifest.contributes.commands.every((command) => command.category === "Pi" && !command.title.includes("PiCode")),
   );
@@ -48,23 +53,32 @@ test("extension identity stays consistent across packaging, settings, and docume
   assert.ok(readFileSync("README.md", "utf8").includes(`The extension ID is \`${id}\``));
   assert.ok(manifest.scripts.package.includes("--out pi.vsix"));
   assert.ok(manifest.scripts["install:vsix"].includes("code --install-extension pi.vsix --force"));
-  assert.ok(manifest.contributes.commands.every((command) => command.command.startsWith("picode.")));
-  assert.ok(Object.keys(manifest.contributes.configuration.properties).every((key) => key.startsWith("picode.")));
+  assert.ok(manifest.contributes.commands.every((command) => command.command.startsWith("pi.")));
+  assert.ok(Object.keys(manifest.contributes.configuration.properties).every((key) => key.startsWith("pi.")));
+  for (const path of [
+    "resources/pi.svg",
+    "resources/pi-bridge.ts",
+    "resources/pi-permission-gate.ts",
+    "resources/pi-read-only-gate.ts",
+    "scripts/remove-legacy-pi-extension.mjs",
+  ]) {
+    assert.equal(existsSync(path), true, `missing Pi asset: ${path}`);
+  }
   for (const path of [
     "resources/picode.svg",
     "resources/picode-bridge.ts",
     "resources/picode-permission-gate.ts",
     "resources/picode-read-only-gate.ts",
     "scripts/remove-legacy-picode-extension.mjs",
+    "scripts/install-picode-extension.mjs",
   ]) {
-    assert.equal(existsSync(path), true, `missing Pi asset: ${path}`);
+    assert.equal(existsSync(path), false, `obsolete PiCode asset: ${path}`);
   }
-  assert.equal(existsSync("scripts/install-picode-extension.mjs"), false);
   assert.equal(existsSync("justfile"), false);
   assert.equal(manifest.scripts.install, undefined, "npm install must not install the extension");
   assert.equal(
     manifest.scripts["install:extension"],
-    "npm run install:vsix && node scripts/remove-legacy-picode-extension.mjs",
+    "npm run install:vsix && node scripts/remove-legacy-pi-extension.mjs",
   );
 });
 
@@ -76,7 +90,7 @@ test("workflow commands are contributed, registered, documented and keep minimum
   const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
   assert.equal(lock.packages[""].devDependencies["@types/vscode"], vscodeTypesVersion);
   assert.equal(lock.packages["node_modules/@types/vscode"].version, vscodeTypesVersion);
-  assert.equal(manifest.contributes.configuration.properties["picode.defaultMode"], undefined);
+  assert.equal(manifest.contributes.configuration.properties["pi.defaultMode"], undefined);
   assert.equal(existsSync("src/runtimeProfiles.ts"), false);
   assert.equal(existsSync("src/test/runtimeProfiles.test.ts"), false);
   const entry = readFileSync("src/extension.ts", "utf8");
@@ -92,7 +106,7 @@ test("workflow commands are contributed, registered, documented and keep minimum
     ["repairFailedTest", "testRepairController", "registerTestRepair"],
     ["askDebugContext", "debugContextController", "registerDebugContext"],
   ]) {
-    const id = `picode.${command}`;
+    const id = `pi.${command}`;
     assert.match(
       manifest.contributes.commands.find((item) => item.command === id)?.enablement ?? "",
       /isWorkspaceTrusted/,
@@ -114,7 +128,7 @@ test("workflow commands are contributed, registered, documented and keep minimum
 
 test("quick-fix menu contributions are hidden for read-only editors", () => {
   for (const menu of ["editor/title", "editor/context"]) {
-    const contribution = manifest.contributes.menus[menu].find((item) => item.command === "picode.quickFix");
+    const contribution = manifest.contributes.menus[menu].find((item) => item.command === "pi.quickFix");
 
     assert.ok(contribution, `missing Pi quick fix contribution in ${menu}`);
     assert.match(contribution.when ?? "", /(?:^|&&)\s*!editorReadonly(?:\s*&&|$)/);
@@ -132,5 +146,5 @@ test("development launchers target the intended extension mode", () => {
   }
 
   assert.equal(manifest.scripts.dev, "npm run install:extension && node scripts/open-dev-window.mjs");
-  assert.equal(manifest.scripts["dev:pi"], "pi -ne -e resources/picode-bridge.ts");
+  assert.equal(manifest.scripts["dev:pi"], "pi -ne -e resources/pi-bridge.ts");
 });

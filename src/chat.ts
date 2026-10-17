@@ -9,7 +9,7 @@ import {
 } from "./prompts";
 import { invokePiWithCancellation } from "./vscodePi";
 
-const participantId = "picode.chat";
+const participantId = "pi.chat";
 const maxReferenceCharacters = 200_000;
 const maxSingleReferenceCharacters = 100_000;
 const maxHistoryCharacters = 40_000;

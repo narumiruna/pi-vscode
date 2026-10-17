@@ -5,14 +5,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 const repositoryRoot = path.resolve(__dirname, "..", "..");
-const removalScript = path.join(repositoryRoot, "scripts", "remove-legacy-picode-extension.mjs");
+const removalScript = path.join(repositoryRoot, "scripts", "remove-legacy-pi-extension.mjs");
 const releaseInstaller = path.join(repositoryRoot, "scripts", "install.sh");
 const upgradeCheck = path.join(repositoryRoot, "scripts", "check-legacy-vscode-extension.sh");
 
 test.each([releaseInstaller, upgradeCheck])(
   "upgrade check stops safely before replacing the old ID: %s",
   async (script) => {
-    const root = await mkdtemp(path.join(tmpdir(), "picode-upgrade-"));
+    const root = await mkdtemp(path.join(tmpdir(), "pi-upgrade-"));
     const bin = path.join(root, "bin");
     const mutations = path.join(root, "mutations.log");
     const env = { ...process.env, PATH: `${bin}:/usr/bin:/bin`, MUTATIONS_LOG: mutations };
@@ -66,7 +66,7 @@ test.each([releaseInstaller, upgradeCheck])(
 );
 
 test("development launcher opens INIT_CWD or the current directory without shell expansion", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "picode-dev-launch-"));
+  const root = await mkdtemp(path.join(tmpdir(), "pi-dev-launch-"));
   const bin = path.join(root, "bin");
   const workspace = path.join(root, "workspace & $HOME 'quoted'");
   const log = path.join(root, "code.log");
@@ -96,7 +96,7 @@ test("development launcher opens INIT_CWD or the current directory without shell
 });
 
 test("source cleanup removes only legacy bridge paths and does not create Pi configuration", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "picode-cleanup-"));
+  const root = await mkdtemp(path.join(tmpdir(), "pi-cleanup-"));
   const missingAgentDirectory = path.join(root, "missing-agent");
   const agentDirectory = path.join(root, "agent");
   const extensionsDirectory = path.join(agentDirectory, "extensions");
@@ -127,7 +127,7 @@ test("source cleanup removes only legacy bridge paths and does not create Pi con
 });
 
 test("release installer installs only the VSIX and safely removes exact legacy bridge paths", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "picode-release-installer-"));
+  const root = await mkdtemp(path.join(tmpdir(), "pi-release-installer-"));
   const fakeBin = path.join(root, "bin");
   const home = path.join(root, "home");
   const agentDirectory = path.join(root, "agent");
@@ -169,7 +169,7 @@ test("release installer installs only the VSIX and safely removes exact legacy b
     assert.equal(await readFile(path.join(extensionsDirectory, "user-extension.ts"), "utf8"), "keep me");
 
     const source = await readFile(releaseInstaller, "utf8");
-    assert.doesNotMatch(source, /unzip|bridge_source|mkdir -p|cp .*picode/);
+    assert.doesNotMatch(source, /unzip|bridge_source|mkdir -p|cp .*pi/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

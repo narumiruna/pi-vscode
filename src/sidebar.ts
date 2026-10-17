@@ -58,8 +58,8 @@ import {
 } from "./sidebarState";
 import { WorkflowDocuments } from "./workflowUi";
 
-const viewId = "picode.chatView";
-const storageKey = "picode.sidebar.messages.v1";
+const viewId = "pi.chatView";
+const storageKey = "pi.sidebar.messages.v1";
 const maxMessages = 100;
 const maxStoredCharacters = 250_000;
 const maxInputCharacters = 100_000;
@@ -87,27 +87,27 @@ interface QueuedTranscriptPresentation {
   readonly message: SidebarMessage;
 }
 
-export function registerPiCodeSidebar(
+export function registerPiSidebar(
   context: vscode.ExtensionContext,
   runtime: PiRuntimeManager,
 ): PiConversationController {
   const backgroundAgents = new BackgroundAgentManager(context);
   const changeTracker = new WorkspaceChangeTracker();
-  const provider = new PiCodeChatViewProvider(context, runtime, changeTracker, backgroundAgents);
+  const provider = new PiChatViewProvider(context, runtime, changeTracker, backgroundAgents);
   context.subscriptions.push(
     backgroundAgents,
     changeTracker,
     provider,
-    vscode.workspace.registerTextDocumentContentProvider("picode-checkpoint", changeTracker),
+    vscode.workspace.registerTextDocumentContentProvider("pi-checkpoint", changeTracker),
     vscode.window.registerWebviewViewProvider(viewId, provider, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
-    vscode.commands.registerCommand("picode.openChat", () => provider.showSessions()),
+    vscode.commands.registerCommand("pi.openChat", () => provider.showSessions()),
   );
   return provider;
 }
 
-class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable, PiConversationController {
+class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable, PiConversationController {
   private readonly disposables: vscode.Disposable[] = [];
   private readonly markdownRenderer = new MarkdownRenderer();
   private view: vscode.WebviewView | undefined;
@@ -578,12 +578,12 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
         release();
         this.postState();
       }
-    } else if (selected.action === "review") await vscode.commands.executeCommand("picode.reviewChanges");
-    else if (selected.action === "findings") await vscode.commands.executeCommand("picode.showReviewFindings");
-    else if (selected.action === "diagnostics") await vscode.commands.executeCommand("picode.fixWorkspaceDiagnostics");
-    else if (selected.action === "staged") await vscode.commands.executeCommand("picode.reviewStagedChanges");
-    else if (selected.action === "repair") await vscode.commands.executeCommand("picode.repairFailedTest");
-    else if (selected.action === "debug") await vscode.commands.executeCommand("picode.askDebugContext");
+    } else if (selected.action === "review") await vscode.commands.executeCommand("pi.reviewChanges");
+    else if (selected.action === "findings") await vscode.commands.executeCommand("pi.showReviewFindings");
+    else if (selected.action === "diagnostics") await vscode.commands.executeCommand("pi.fixWorkspaceDiagnostics");
+    else if (selected.action === "staged") await vscode.commands.executeCommand("pi.reviewStagedChanges");
+    else if (selected.action === "repair") await vscode.commands.executeCommand("pi.repairFailedTest");
+    else if (selected.action === "debug") await vscode.commands.executeCommand("pi.askDebugContext");
     else if (selected.action === "resume") await this.resumeSession();
     else if (selected.action === "rename") await this.nameSession();
     else if (selected.action === "model") await this.pickModel();
@@ -670,7 +670,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     this.queuedTranscriptPresentations.set(instructionId, {
       id: instructionId,
       message: {
-        id: `picode-queued-${instructionId}`,
+        id: `pi-queued-${instructionId}`,
         role: "user",
         content: resolved.text,
         ...(submission.transcriptAttachments.length ? { attachments: [...submission.transcriptAttachments] } : {}),
@@ -1328,7 +1328,7 @@ class PiCodeChatViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       const text = instruction ? stringValue(instruction.text) : undefined;
       if (id && text !== undefined) {
         const presentation = this.queuedTranscriptPresentations.get(id);
-        const message = presentation?.message ?? { id: `picode-queued-${id}`, role: "user" as const, content: text };
+        const message = presentation?.message ?? { id: `pi-queued-${id}`, role: "user" as const, content: text };
         this.queuedTranscriptPresentations.delete(id);
         if (!this.messages.some((candidate) => candidate.id === message.id)) {
           this.messages = limitSidebarMessages([...this.messages, message], maxMessages, maxStoredCharacters);

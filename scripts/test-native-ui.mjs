@@ -74,7 +74,7 @@ try {
       "security.workspace.trust.startupPrompt": "never",
       "files.autoSave": "off",
       "telemetry.telemetryLevel": "off",
-      "picode.executablePath": executableFixture,
+      "pi.executablePath": executableFixture,
       "workbench.startupEditor": "none",
       "window.dialogStyle": "custom",
       "window.zoomLevel": 0,
@@ -131,7 +131,7 @@ try {
   );
   await writeFile(
     path.join(helper, "main.cjs"),
-    `exports.activate = () => { require('./workflow.js').run().catch(error => { require('node:fs').writeFileSync(require('node:path').join(process.env.PICODE_UI_FIXTURE, 'coordinator-error.txt'), String(error.stack)); }); };`,
+    `exports.activate = () => { require('./workflow.js').run().catch(error => { require('node:fs').writeFileSync(require('node:path').join(process.env.PI_VSCODE_UI_FIXTURE, 'coordinator-error.txt'), String(error.stack)); }); };`,
   );
   const executable = await downloadAndUnzipVSCode({
     version,
@@ -180,7 +180,7 @@ try {
     ],
     {
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, PICODE_UI_FIXTURE: directory, PI_CODING_AGENT_DIR: path.join(directory, "pi") },
+      env: { ...process.env, PI_VSCODE_UI_FIXTURE: directory, PI_CODING_AGENT_DIR: path.join(directory, "pi") },
     },
   );
   child.stdout.on("data", (chunk) => {
@@ -254,7 +254,7 @@ try {
   assert.match(await pi.locator("#attachments").innerText(), /documentSymbols|symbols/i);
   console.log("PI_NATIVE_UI semantic attachment picker passed");
   // Cancellation must not dispatch an RPC prompt.
-  const cancelled = await invoke("command", { command: "picode.reviewChanges" }, false);
+  const cancelled = await invoke("command", { command: "pi.reviewChanges" }, false);
   await page.locator(".quick-input-widget input").first().waitFor({ state: "visible" });
   await page.keyboard.press("Escape");
   await cancelled();
@@ -281,7 +281,7 @@ try {
         ],
       }),
     );
-    const complete = await invoke("command", { command: "picode.reviewChanges" }, false);
+    const complete = await invoke("command", { command: "pi.reviewChanges" }, false);
     await pick(label);
     if (scope === "branch") await pick("base");
     await page
@@ -310,7 +310,7 @@ try {
   const problem = page.getByRole("treeitem", { name: /Warning: Native workingTree/ });
   await problem.dblclick();
   await until(
-    async () => /^picode-review:/.test((await invoke("state")).active ?? ""),
+    async () => /^pi-review:/.test((await invoke("state")).active ?? ""),
     "Problems captured-document navigation",
   );
   await respond(richFixture);
@@ -337,10 +337,10 @@ try {
   const richEvidence = await assertRichContent(await frame());
   console.log("PI_NATIVE_RICH_CONTENT", JSON.stringify({ packaged, ...richEvidence }));
   // Restore the captured document through the legacy-independent findings command.
-  const navigation = await invoke("command", { command: "picode.showReviewFindings" }, false);
+  const navigation = await invoke("command", { command: "pi.showReviewFindings" }, false);
   await pick("Native workingTree finding");
   await navigation();
-  await respond("<<<PICODE_REPLACEMENT_START>>>\nexport const other = 40;\n\n<<<PICODE_REPLACEMENT_END>>>");
+  await respond("<<<PI_VSCODE_REPLACEMENT_START>>>\nexport const other = 40;\n\n<<<PI_VSCODE_REPLACEMENT_END>>>");
   await problem.click();
   await invoke("command", { command: "problems.action.showQuickFixes" });
   await page.getByRole("menuitem", { name: "Fix Finding with Pi (Preview)", exact: true }).waitFor();
@@ -371,7 +371,7 @@ try {
       ],
     }),
   );
-  const repair = await invoke("command", { command: "picode.fixWorkspaceDiagnostics" }, false);
+  const repair = await invoke("command", { command: "pi.fixWorkspaceDiagnostics" }, false);
   await page.locator(".quick-input-widget input[type=text]").waitFor({ state: "visible" });
   await page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Fixture diagnostic 1" }).click();
   await page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Fixture diagnostic 2" }).click();

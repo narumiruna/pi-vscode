@@ -8,7 +8,7 @@ import {
   isSupportedImageMimeType,
   withoutAttachmentIds,
 } from "./attachmentUtils";
-import { picodeConfiguration } from "./configuration";
+import { piConfiguration } from "./configuration";
 import {
   type ContextMetadata,
   consumedUnpinnedIds,
@@ -625,7 +625,7 @@ export class SidebarAttachmentManager {
     const warnings = contextWarnings(
       context.label,
       content,
-      picodeConfiguration().get<string[]>("sensitiveContextNames", [".env", "credential", "secret", "id_rsa"]),
+      piConfiguration().get<string[]>("sensitiveContextNames", [".env", "credential", "secret", "id_rsa"]),
     );
     if (warnings.length)
       this.options.onNotice(

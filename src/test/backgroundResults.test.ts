@@ -19,7 +19,7 @@ async function fixture(
     git: (cwd: string, ...args: string[]) => string,
   ) => Promise<void>,
 ): Promise<void> {
-  const root = await mkdtemp(path.join(tmpdir(), "picode-results-"));
+  const root = await mkdtemp(path.join(tmpdir(), "pi-results-"));
   const task = `${root}-task`;
   const git = (cwd: string, ...args: string[]) =>
     execFileSync("git", ["-c", "commit.gpgsign=false", ...args], {

@@ -2,7 +2,7 @@
   "name": "narumi-pi",
   "displayName": "Pi",
   "description": "Use Pi in VS Code to understand code and apply focused modifications.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "publisher": "narumi",
   "license": "MIT",
@@ -42,145 +42,145 @@
     "viewsContainers": {
       "secondarySidebar": [
         {
-          "id": "picode",
+          "id": "pi",
           "title": "Pi",
-          "icon": "resources/picode.svg"
+          "icon": "resources/pi.svg"
         }
       ]
     },
     "views": {
-      "picode": [
+      "pi": [
         {
-          "id": "picode.chatView",
+          "id": "pi.chatView",
           "name": "Sessions",
           "type": "webview",
-          "icon": "resources/picode.svg"
+          "icon": "resources/pi.svg"
         }
       ]
     },
     "commands": [
       {
-        "command": "picode.reviewChanges",
+        "command": "pi.reviewChanges",
         "title": "Review Changes",
         "category": "Pi",
         "enablement": "isWorkspaceTrusted"
       },
       {
-        "command": "picode.showReviewFindings",
+        "command": "pi.showReviewFindings",
         "title": "Show Review Findings",
         "category": "Pi",
         "enablement": "isWorkspaceTrusted"
       },
       {
-        "command": "picode.fixWorkspaceDiagnostics",
+        "command": "pi.fixWorkspaceDiagnostics",
         "title": "Fix Workspace Diagnostics (Preview)",
         "category": "Pi",
         "enablement": "isWorkspaceTrusted"
       },
       {
-        "command": "picode.askReviewFinding",
+        "command": "pi.askReviewFinding",
         "title": "Ask About Review Finding",
         "category": "Pi",
         "enablement": "isWorkspaceTrusted"
       },
       {
-        "command": "picode.fixReviewFinding",
+        "command": "pi.fixReviewFinding",
         "title": "Fix Review Finding (Preview)",
         "category": "Pi",
         "enablement": "isWorkspaceTrusted"
       },
       {
-        "command": "picode.repairFailedTest",
+        "command": "pi.repairFailedTest",
         "title": "Repair Failed Test (Preview)",
         "category": "Pi",
         "enablement": "isWorkspaceTrusted"
       },
       {
-        "command": "picode.askDebugContext",
+        "command": "pi.askDebugContext",
         "title": "Ask Debug Context",
         "category": "Pi",
         "enablement": "isWorkspaceTrusted && debugState == stopped"
       },
       {
-        "command": "picode.reviewStagedChanges",
+        "command": "pi.reviewStagedChanges",
         "title": "Review Staged Changes",
         "category": "Pi",
         "enablement": "isWorkspaceTrusted"
       },
       {
-        "command": "picode.showStagedFindings",
+        "command": "pi.showStagedFindings",
         "title": "Show Staged Findings",
         "category": "Pi",
         "enablement": "isWorkspaceTrusted"
       },
       {
-        "command": "picode.openChat",
+        "command": "pi.openChat",
         "title": "Open Sessions",
         "category": "Pi",
-        "icon": "resources/picode.svg"
+        "icon": "resources/pi.svg"
       },
       {
-        "command": "picode.askSelection",
+        "command": "pi.askSelection",
         "title": "Ask About Selection",
         "category": "Pi",
         "icon": "$(comment-discussion)"
       },
       {
-        "command": "picode.modifySelection",
+        "command": "pi.modifySelection",
         "title": "Modify Selection (Preview)",
         "category": "Pi",
         "icon": "$(wand)"
       },
       {
-        "command": "picode.inlineEdit",
+        "command": "pi.inlineEdit",
         "title": "Inline Edit (Preview)",
         "category": "Pi",
         "icon": "$(edit)"
       },
       {
-        "command": "picode.quickFix",
+        "command": "pi.quickFix",
         "title": "Quick Fix with Pi (Preview)",
         "category": "Pi",
         "icon": "$(lightbulb-sparkle)"
       },
       {
-        "command": "picode.explainSelection",
+        "command": "pi.explainSelection",
         "title": "Explain Selection",
         "category": "Pi",
         "icon": "$(info)"
       },
       {
-        "command": "picode.fixSelection",
+        "command": "pi.fixSelection",
         "title": "Fix Selection (Preview)",
         "category": "Pi",
         "icon": "$(wrench)"
       },
       {
-        "command": "picode.reviewSelection",
+        "command": "pi.reviewSelection",
         "title": "Review Selection",
         "category": "Pi",
         "icon": "$(eye)"
       },
       {
-        "command": "picode.documentSelection",
+        "command": "pi.documentSelection",
         "title": "Document Selection (Preview)",
         "category": "Pi",
         "icon": "$(book)"
       },
       {
-        "command": "picode.generateTests",
+        "command": "pi.generateTests",
         "title": "Generate Tests (Preview)",
         "category": "Pi",
         "icon": "$(beaker)"
       },
       {
-        "command": "picode.triggerInlineCompletion",
+        "command": "pi.triggerInlineCompletion",
         "title": "Trigger Inline Completion",
         "category": "Pi",
         "icon": "$(sparkle)"
       },
       {
-        "command": "picode.suggestNextEdit",
+        "command": "pi.suggestNextEdit",
         "title": "Suggest Next Edit (Preview)",
         "category": "Pi",
         "icon": "$(lightbulb-sparkle)"
@@ -188,7 +188,7 @@
     ],
     "chatParticipants": [
       {
-        "id": "picode.chat",
+        "id": "pi.chat",
         "name": "pi",
         "fullName": "Pi",
         "description": "Ask Pi about code and programming tasks using your local Pi configuration.",
@@ -211,89 +211,89 @@
     ],
     "submenus": [
       {
-        "id": "picode.selectionMenu",
+        "id": "pi.selectionMenu",
         "label": "Pi"
       }
     ],
     "menus": {
       "commandPalette": [
         {
-          "command": "picode.askReviewFinding",
+          "command": "pi.askReviewFinding",
           "when": "false"
         },
         {
-          "command": "picode.fixReviewFinding",
+          "command": "pi.fixReviewFinding",
           "when": "false"
         }
       ],
       "editor/title": [
         {
-          "command": "picode.quickFix",
+          "command": "pi.quickFix",
           "group": "navigation@40",
           "when": "!editorReadonly"
         },
         {
-          "command": "picode.openChat",
+          "command": "pi.openChat",
           "group": "navigation@50"
         }
       ],
       "editor/context": [
         {
-          "command": "picode.quickFix",
+          "command": "pi.quickFix",
           "group": "1_modification@40",
           "when": "!editorReadonly"
         },
         {
-          "submenu": "picode.selectionMenu",
+          "submenu": "pi.selectionMenu",
           "group": "1_modification@50",
           "when": "editorHasSelection"
         }
       ],
-      "picode.selectionMenu": [
+      "pi.selectionMenu": [
         {
-          "command": "picode.askSelection",
+          "command": "pi.askSelection",
           "group": "1_query@10"
         },
         {
-          "command": "picode.modifySelection",
+          "command": "pi.modifySelection",
           "group": "1_query@20"
         },
         {
-          "command": "picode.explainSelection",
+          "command": "pi.explainSelection",
           "group": "2_actions@10"
         },
         {
-          "command": "picode.fixSelection",
+          "command": "pi.fixSelection",
           "group": "2_actions@20"
         },
         {
-          "command": "picode.reviewSelection",
+          "command": "pi.reviewSelection",
           "group": "2_actions@30"
         },
         {
-          "command": "picode.documentSelection",
+          "command": "pi.documentSelection",
           "group": "2_actions@40"
         },
         {
-          "command": "picode.generateTests",
+          "command": "pi.generateTests",
           "group": "2_actions@50"
         }
       ]
     },
     "keybindings": [
       {
-        "command": "picode.quickFix",
+        "command": "pi.quickFix",
         "key": "ctrl+i",
         "mac": "cmd+i",
         "when": "editorTextFocus && !editorReadonly && !suggestWidgetVisible"
       },
       {
-        "command": "picode.triggerInlineCompletion",
+        "command": "pi.triggerInlineCompletion",
         "key": "alt+]",
         "when": "editorTextFocus && !editorReadonly"
       },
       {
-        "command": "picode.suggestNextEdit",
+        "command": "pi.suggestNextEdit",
         "key": "ctrl+alt+n",
         "mac": "cmd+alt+n",
         "when": "editorTextFocus && !editorReadonly"
@@ -302,7 +302,7 @@
     "configuration": {
       "title": "Pi",
       "properties": {
-        "picode.sensitiveContextNames": {
+        "pi.sensitiveContextNames": {
           "type": "array",
           "items": {
             "type": "string"
@@ -316,26 +316,26 @@
           ],
           "description": "Best-effort warnings for attachment labels containing these names. Inspect/redact before transmission."
         },
-        "picode.inlineCompletions.enabled": {
+        "pi.inlineCompletions.enabled": {
           "type": "boolean",
           "default": false,
           "description": "Request automatic Pi inline completions after a typing pause. Disabled by default to avoid unexpected model usage; manual trigger remains available."
         },
-        "picode.inlineCompletions.debounceMilliseconds": {
+        "pi.inlineCompletions.debounceMilliseconds": {
           "type": "number",
           "default": 650,
           "minimum": 100,
           "maximum": 5000,
           "description": "Delay before an automatic inline completion request."
         },
-        "picode.inlineCompletions.minimumPrefixLength": {
+        "pi.inlineCompletions.minimumPrefixLength": {
           "type": "number",
           "default": 3,
           "minimum": 0,
           "maximum": 100,
           "description": "Minimum non-whitespace characters on the current line before automatic completion."
         },
-        "picode.inlineCompletions.excludedLanguages": {
+        "pi.inlineCompletions.excludedLanguages": {
           "type": "array",
           "items": {
             "type": "string"
@@ -346,7 +346,7 @@
           ],
           "description": "Language IDs excluded from Pi inline completions."
         },
-        "picode.agent.confirmToolCalls": {
+        "pi.agent.confirmToolCalls": {
           "type": "string",
           "default": "dangerous",
           "enum": [
@@ -361,27 +361,27 @@
           ],
           "description": "Per-tool confirmation policy for built-in mutating tools in foreground and background Pi sessions. Tools contributed by Pi extensions manage their own permissions."
         },
-        "picode.approveProjectResources": {
+        "pi.approveProjectResources": {
           "type": "boolean",
           "default": false,
           "description": "Trust and load project-local Pi settings, extensions, skills, and prompts for RPC sessions. Enable only for workspaces you trust."
         },
-        "picode.executablePath": {
+        "pi.executablePath": {
           "type": "string",
           "default": "pi",
           "description": "Path or command used to start the Pi CLI."
         },
-        "picode.provider": {
+        "pi.provider": {
           "type": "string",
           "default": "",
           "description": "Optional Pi provider override. Leave empty to use Pi settings."
         },
-        "picode.model": {
+        "pi.model": {
           "type": "string",
           "default": "",
           "description": "Optional Pi model override. Leave empty to use Pi settings."
         },
-        "picode.thinkingLevel": {
+        "pi.thinkingLevel": {
           "type": "string",
           "default": "default",
           "enum": [
@@ -406,9 +406,9 @@
     "test:rich-content": "npm run compile && node scripts/test-rich-content.mjs",
     "test:thinking-picker": "npm run compile && node scripts/test-thinking-picker.mjs",
     "dev": "npm run install:extension && node scripts/open-dev-window.mjs",
-    "dev:pi": "pi -ne -e resources/picode-bridge.ts",
+    "dev:pi": "pi -ne -e resources/pi-bridge.ts",
     "install:vsix": "sh scripts/check-legacy-vscode-extension.sh && npm run package && code --install-extension pi.vsix --force",
-    "install:extension": "npm run install:vsix && node scripts/remove-legacy-picode-extension.mjs",
+    "install:extension": "npm run install:vsix && node scripts/remove-legacy-pi-extension.mjs",
     "test": "npm run compile && vitest run",
     "test:native": "npm run compile && node scripts/test-native.mjs",
     "test:native-ui": "npm run compile && node scripts/test-native-ui.mjs",

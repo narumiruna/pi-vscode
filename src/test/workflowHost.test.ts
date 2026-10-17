@@ -17,7 +17,7 @@ import { installVscodeMock, MockUri } from "./vscodeMock";
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 test("packaged read-only gate blocks mutating default and extension tools and restores tools only at settlement", async () => {
-  const source = readFileSync(path.resolve(__dirname, "../../resources/picode-read-only-gate.ts"), "utf8");
+  const source = readFileSync(path.resolve(__dirname, "../../resources/pi-read-only-gate.ts"), "utf8");
   const javascript = stripTypeScriptTypes(source);
   const { default: readOnlyGate } = await import(`data:text/javascript,${encodeURIComponent(javascript)}`);
   const handlers = new Map<string, (event?: unknown) => unknown>();
@@ -48,7 +48,7 @@ test("packaged read-only gate blocks mutating default and extension tools and re
 
 test("foreground queue ownership, settlement grouping, clear-before-abort and uncertain fallback", async () => {
   const vscode = installVscodeMock();
-  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "picode-queue-workspaces-"));
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "pi-queue-workspaces-"));
   const activeRoot = path.join(workspaceRoot, "active");
   const otherRoot = path.join(workspaceRoot, "other");
   await Promise.all([mkdir(activeRoot), mkdir(otherRoot)]);
@@ -91,17 +91,17 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
   assert.match(replacements.get(vscodeBridgeTokenEnvironmentKey) ?? "", /^[a-f0-9]{64}$/);
   assert.equal(
     replacements.get(vscodeBridgeExtensionEnvironmentKey),
-    path.join("/extension path", "resources", "picode-bridge.ts"),
+    path.join("/extension path", "resources", "pi-bridge.ts"),
   );
-  const foregroundOptions = internal.buildClientOptions(undefined, { PICODE_BRIDGE_TOKEN: "token" });
+  const foregroundOptions = internal.buildClientOptions(undefined, { PI_VSCODE_BRIDGE_TOKEN: "token" });
   assert.equal(foregroundOptions.tools, undefined);
   assert.equal(foregroundOptions.appendSystemPrompt, undefined);
   assert.equal("mode" in runtime.currentState, false);
   assert.deepEqual(
     foregroundOptions.extensions.map((value: string) => path.basename(value)),
-    ["picode-bridge.ts", "picode-permission-gate.ts", "picode-read-only-gate.ts"],
+    ["pi-bridge.ts", "pi-permission-gate.ts", "pi-read-only-gate.ts"],
   );
-  assert.equal(foregroundOptions.extensions[0], path.join("/extension path", "resources", "picode-bridge.ts"));
+  assert.equal(foregroundOptions.extensions[0], path.join("/extension path", "resources", "pi-bridge.ts"));
   const calls: string[] = [];
   const queuedImage = { type: "image" as const, data: "R0lGODlhAgADAAAAAA==", mimeType: "image/gif" };
   const receivedImages: unknown[] = [];
@@ -153,14 +153,14 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
     shellPath: "pi",
     shellArgs: [
       "--extension",
-      path.join("/extension path", "resources", "picode-bridge.ts"),
+      path.join("/extension path", "resources", "pi-bridge.ts"),
       "--session",
       "/tmp/session.jsonl",
     ],
     env: {
       [vscodeBridgePortEnvironmentKey]: replacements.get(vscodeBridgePortEnvironmentKey),
       [vscodeBridgeTokenEnvironmentKey]: replacements.get(vscodeBridgeTokenEnvironmentKey),
-      [vscodeBridgeExtensionEnvironmentKey]: path.join("/extension path", "resources", "picode-bridge.ts"),
+      [vscodeBridgeExtensionEnvironmentKey]: path.join("/extension path", "resources", "pi-bridge.ts"),
     },
   });
   try {
@@ -662,7 +662,7 @@ test("Open Sessions focuses the sidebar and restores its list layer", async () =
   vscode.commands.executeCommand = async (command: string) => {
     executed.push(command);
   };
-  const { registerPiCodeSidebar } = require("../sidebar") as typeof import("../sidebar");
+  const { registerPiSidebar } = require("../sidebar") as typeof import("../sidebar");
   const subscription = () => ({ dispose() {} });
   const runtime: any = {
     currentState: { model: undefined },
@@ -674,7 +674,7 @@ test("Open Sessions focuses the sidebar and restores its list layer", async () =
     extensionUri: MockUri.file("/extension"),
     subscriptions: [],
   };
-  const provider = registerPiCodeSidebar(context, runtime);
+  const provider = registerPiSidebar(context, runtime);
   const posted: Record<string, unknown>[] = [];
   (provider as any).view = {
     webview: {
@@ -685,8 +685,8 @@ test("Open Sessions focuses the sidebar and restores its list layer", async () =
     },
   };
   try {
-    await vscode.registrations.get("picode.openChat")!();
-    assert.deepEqual(executed, ["picode.chatView.focus"]);
+    await vscode.registrations.get("pi.openChat")!();
+    assert.deepEqual(executed, ["pi.chatView.focus"]);
     assert.deepEqual(posted, [{ type: "showSessionsLayer" }]);
   } finally {
     for (const disposable of context.subscriptions) disposable.dispose();
@@ -698,7 +698,7 @@ test("Sessions-layer submission snapshots attachments and holds the request gate
   const vscode = installVscodeMock();
   vscode.window.registerWebviewViewProvider = () => ({ dispose() {} });
   vscode.commands.executeCommand = async () => {};
-  const { registerPiCodeSidebar } = require("../sidebar") as typeof import("../sidebar");
+  const { registerPiSidebar } = require("../sidebar") as typeof import("../sidebar");
   const subscription = () => ({ dispose() {} });
   let completeSessionSwitch: (() => void) | undefined;
   const sessionSwitch = new Promise<void>((resolve) => {
@@ -732,7 +732,7 @@ test("Sessions-layer submission snapshots attachments and holds the request gate
     extensionUri: MockUri.file("/extension"),
     subscriptions: [],
   };
-  const provider = registerPiCodeSidebar(context, runtime);
+  const provider = registerPiSidebar(context, runtime);
   const internal = provider as any;
   const posted: Record<string, unknown>[] = [];
   internal.view = {
@@ -937,7 +937,7 @@ for (const command of ["/handled-command", "/compact"]) {
     const vscode = installVscodeMock();
     vscode.window.registerWebviewViewProvider = () => ({ dispose() {} });
     const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
-    const { registerPiCodeSidebar } = require("../sidebar") as typeof import("../sidebar");
+    const { registerPiSidebar } = require("../sidebar") as typeof import("../sidebar");
     let failure = "getState";
     const runtime = new PiRuntimeManager({
       workspaceState: {
@@ -985,7 +985,7 @@ for (const command of ["/handled-command", "/compact"]) {
       extensionUri: MockUri.file("/extension"),
       subscriptions: [],
     };
-    const internal = registerPiCodeSidebar(context, runtime) as any;
+    const internal = registerPiSidebar(context, runtime) as any;
     internal.view = {
       webview: {
         postMessage: async (message: Record<string, unknown>) => {
@@ -1039,7 +1039,7 @@ for (const command of ["/handled-command", "/compact"]) {
 test("compact commands are accepted before history refresh and history failure does not reject them", async () => {
   const vscode = installVscodeMock();
   vscode.window.registerWebviewViewProvider = () => ({ dispose() {} });
-  const { registerPiCodeSidebar } = require("../sidebar") as typeof import("../sidebar");
+  const { registerPiSidebar } = require("../sidebar") as typeof import("../sidebar");
   const subscription = () => ({ dispose() {} });
   const posted: Record<string, unknown>[] = [];
   let compactions = 0;
@@ -1068,7 +1068,7 @@ test("compact commands are accepted before history refresh and history failure d
     extensionUri: MockUri.file("/extension"),
     subscriptions: [],
   };
-  const internal = registerPiCodeSidebar(context, runtime) as any;
+  const internal = registerPiSidebar(context, runtime) as any;
   internal.view = {
     webview: {
       postMessage: async (message: Record<string, unknown>) => {
@@ -1131,7 +1131,7 @@ test("compact commands are accepted before history refresh and history failure d
 test("sidebar rejects an empty queued snapshot and forwards an attachment resource", async () => {
   const vscode = installVscodeMock();
   vscode.window.registerWebviewViewProvider = () => ({ dispose() {} });
-  const { registerPiCodeSidebar } = require("../sidebar") as typeof import("../sidebar");
+  const { registerPiSidebar } = require("../sidebar") as typeof import("../sidebar");
   const subscription = () => ({ dispose() {} });
   let runtimeListener: ((event: Record<string, unknown>) => void) | undefined;
   const posted: Record<string, unknown>[] = [];
@@ -1153,7 +1153,7 @@ test("sidebar rejects an empty queued snapshot and forwards an attachment resour
     extensionUri: MockUri.file("/extension"),
     subscriptions: [],
   };
-  const provider = registerPiCodeSidebar(context, runtime);
+  const provider = registerPiSidebar(context, runtime);
   const internal = provider as any;
   internal.view = {
     webview: {
@@ -1223,7 +1223,7 @@ test("sidebar rejects an empty queued snapshot and forwards an attachment resour
       })),
       [
         {
-          id: `picode-queued-${instructionId}`,
+          id: `pi-queued-${instructionId}`,
           content: "use this",
           attachments: [
             { type: "context", label: "context.ts", fullLabel: "context.ts" },
@@ -1371,7 +1371,7 @@ test("cleared queue validation preserves both attachment ledgers until every que
 });
 
 test("session-workspace binding rejects cross-root, malformed and oversized headers without reading full history", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "picode-session-binding-"));
+  const root = await mkdtemp(path.join(tmpdir(), "pi-session-binding-"));
   try {
     const session = path.join(root, "s.jsonl");
     await writeFile(session, JSON.stringify({ type: "session", cwd: root }) + "\n" + "x".repeat(100000));
