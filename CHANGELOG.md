@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+### Patch Changes
+
+- 3df5fa3: Remove unused prompt and file-version code, share transcript transformations, and simplify background startup without changing behavior.
+
 ## 0.3.0
 
 ### Minor Changes
