@@ -17,8 +17,7 @@
   "categories": [
     "AI",
     "Chat",
-    "Programming Languages",
-    "Machine Learning"
+    "Testing"
   ],
   "keywords": [
     "pi",
@@ -29,7 +28,20 @@
     "autocomplete",
     "inline completion",
     "agent",
-    "chat"
+    "chat",
+    "ai assistant",
+    "code generation",
+    "code editing",
+    "inline edit",
+    "next edit",
+    "test generation",
+    "test repair",
+    "diagnostics",
+    "quick fix",
+    "code explanation",
+    "documentation",
+    "git review",
+    "worktree"
   ],
   "extensionKind": [
     "workspace"
