@@ -1,5 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
+import { planPiSpawn, type PiSpawnPlan } from "./piSpawn";
 import type * as vscode from "vscode";
 
 const maxDiagnosticBytes = 1024 * 1024;
@@ -133,13 +134,15 @@ export class PiRpcClient {
 
     this.stopping = false;
     this.stderr = "";
+    const rpcArguments = [...(this.options.executableArgs ?? []), ...buildRpcArguments(this.options)];
+    const plan: PiSpawnPlan = planPiSpawn(this.options.executablePath, rpcArguments);
     const child = spawn(
-      this.options.executablePath,
-      [...(this.options.executableArgs ?? []), ...buildRpcArguments(this.options)],
+      plan.command,
+      plan.args,
       {
         cwd: this.options.cwd,
         env: buildPiProcessEnvironment(process.env, this.options.env, this.options.unsetEnv),
-        shell: false,
+        shell: plan.shell,
         detached: process.platform !== "win32",
         windowsHide: true,
         stdio: ["pipe", "pipe", "pipe"],
@@ -207,25 +210,29 @@ export class PiRpcClient {
   private async stopChild(child: ChildProcessWithoutNullStreams): Promise<void> {
     this.stopping = true;
     this.rejectPending(new Error("Pi RPC client stopped."));
-    killOwnedProcess(child, "SIGTERM");
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(() => {
-        killOwnedProcess(child, "SIGKILL");
-        resolve();
-      }, 1_000);
-      child.once("exit", () => {
-        clearTimeout(timer);
-        resolve();
+    if (child.pid) {
+      killOwnedProcess(child, "SIGTERM");
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          killOwnedProcess(child, "SIGKILL");
+          resolve();
+        }, 1_000);
+        child.once("exit", () => {
+          clearTimeout(timer);
+          resolve();
+        });
       });
-    });
-    if (this.process === child) {
-      this.process = undefined;
-      // SIGKILL may not have produced an exit event yet. Always release runtime
-      // settlement waiters; do not lose the event by clearing process first.
+    }
+    if (child.pid && child.exitCode === null && child.signalCode === null) {
       this.emit({
         type: "runtime_warning",
         message: "Pi termination deadline reached; descendant cleanup could not be verified.",
       });
+    }
+    if (this.process === child) {
+      this.process = undefined;
+      // SIGKILL may not have produced an exit event yet. Always release runtime
+      // settlement waiters; do not lose the event by clearing process first.
       this.emit({ type: "process_exit", code: child.exitCode, signal: child.signalCode, expected: true });
     }
     child.stdin.destroy();
