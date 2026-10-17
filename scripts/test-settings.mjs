@@ -159,7 +159,27 @@ try {
   snapshot.revision++;
   await push();
   await row("agent.confirmToolCalls").locator("select").selectOption("all");
-  await accept(await lastRequest());
+  const failedEnum = await lastRequest();
+  const executable = snapshot.entries.find((entry) => entry.key === "executablePath");
+  executable.user = "other-pi";
+  executable.effective = "other-pi";
+  snapshot.revision++;
+  await push();
+  await page.evaluate(
+    (id) =>
+      window.dispatchEvent(
+        new MessageEvent("message", { data: { type: "result", id, ok: false, error: "Settings changed. Try again." } }),
+      ),
+    failedEnum.id,
+  );
+  assert.equal(await row("agent.confirmToolCalls").locator("select").inputValue(), "all");
+  await row("agent.confirmToolCalls").getByRole("button", { name: "Retry save", exact: true }).click();
+  const enumRetry = await lastRequest();
+  assert.notEqual(enumRetry.id, failedEnum.id);
+  assert.equal(enumRetry.value, "all");
+  assert.equal(enumRetry.target, failedEnum.target);
+  assert.equal(enumRetry.revision, snapshot.revision);
+  await accept(enumRetry);
   await row("approveProjectResources").locator("input").check();
   const failed = await lastRequest();
   await page.evaluate(
@@ -171,6 +191,56 @@ try {
   );
   assert.equal(await row("approveProjectResources").locator("input").isChecked(), true);
   assert.match(await row("approveProjectResources").innerText(), /Read-only settings/);
+  assert.equal(await row("approveProjectResources").locator("input").isDisabled(), false);
+  await row("approveProjectResources").getByRole("button", { name: "Retry save", exact: true }).click();
+  const busyRetry = await lastRequest();
+  assert.notEqual(busyRetry.id, failed.id);
+  assert.equal(busyRetry.value, true);
+  await page.evaluate(
+    (id) =>
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "result", id, ok: false, error: "Settings are busy. Try saving this row again." },
+        }),
+      ),
+    busyRetry.id,
+  );
+  assert.equal(await row("approveProjectResources").locator("input").isDisabled(), false);
+  assert.match(await row("approveProjectResources").innerText(), /busy/);
+  await row("approveProjectResources").getByRole("button", { name: "Retry save", exact: true }).click();
+  const checkboxRetry = await lastRequest();
+  assert.equal(checkboxRetry.value, true);
+  assert.equal(checkboxRetry.target, failed.target);
+  await accept(checkboxRetry);
+  assert.equal(
+    await row("approveProjectResources").getByRole("button", { name: "Retry save", exact: true }).count(),
+    0,
+  );
+  assert.ok(
+    messages
+      .filter((message) => message.type === "save" && message.key === "approveProjectResources")
+      .every((message) => message.value === true),
+  );
+  // A changed value in the same row still requires an explicit reload, not a stale retry.
+  await row("agent.confirmToolCalls").locator("select").selectOption("dangerous");
+  const staleEnum = await lastRequest();
+  const policy = snapshot.entries.find((entry) => entry.key === "agent.confirmToolCalls");
+  policy.workspace = "off";
+  policy.effective = "off";
+  snapshot.revision++;
+  await push();
+  await page.evaluate(
+    (id) =>
+      window.dispatchEvent(
+        new MessageEvent("message", { data: { type: "result", id, ok: false, error: "Settings changed." } }),
+      ),
+    staleEnum.id,
+  );
+  assert.equal(
+    await row("agent.confirmToolCalls").getByRole("button", { name: "Retry save", exact: true }).isDisabled(),
+    true,
+  );
+  await row("agent.confirmToolCalls").getByRole("button", { name: "Reload row", exact: true }).click();
   // Recreate the document as VS Code can do after hiding a non-retained webview.
   await row("sensitiveContextNames").locator("textarea").fill("draft-secret");
   await page.reload();

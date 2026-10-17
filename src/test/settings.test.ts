@@ -172,6 +172,50 @@ test("Settings host validates, scopes, synchronizes, serializes, and disposes wi
     await flush();
     assert.equal(user.get("model"), "first");
     assert.equal(workspace.get("model"), "external-without-event");
+    // Hold one write and fill the remaining queue slots. Rejected writes need immediate results.
+    const callsBeforeFullQueue = calls.length;
+    delay = () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    panel.receive({
+      type: "save",
+      id: "held-write",
+      target: "user",
+      revision: state().revision,
+      key: "model",
+      value: "held",
+    });
+    await flush();
+    for (let i = 0; i < 15; i++) panel.receive({ type: "ready" });
+    for (const type of ["save", "reset"]) {
+      panel.receive({
+        type,
+        id: `overflow-${type}`,
+        target: "workspace",
+        revision: state().revision,
+        key: "model",
+        value: "must-not-write",
+      });
+      const result = panel.webview.messages.at(-1);
+      assert.equal(result.id, `overflow-${type}`);
+      assert.equal(result.ok, false);
+      assert.match(result.error, /busy/);
+    }
+    const responsesAfterOverflow = panel.webview.messages.length;
+    panel.receive({ type: "save", id: "invalid!" });
+    panel.receive({ type: "executeCommand", id: "not-a-write" });
+    assert.equal(panel.webview.messages.length, responsesAfterOverflow);
+    assert.equal(calls.length, callsBeforeFullQueue, "Overflow must not start another configuration update");
+    release();
+    delay = undefined;
+    await flush();
+    assert.equal(calls.length, callsBeforeFullQueue + 1, "Only the accepted held write reaches configuration");
+    assert.equal(
+      (await send({ key: "model", value: "after-full-queue" })).ok,
+      true,
+      "The queue recovers after the held write finishes",
+    );
     panel.receive({ type: "openNative", command: "malicious" });
     await flush();
     assert.deepEqual(commands, [["workbench.action.openSettings", "@ext:narumi.narumi-pi"]]);
