@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1
+
+### Patch Changes
+
+- 27cdc11: Move conversation search and history navigation to accessible header icons. Move Word wrap into More… under Conversation display, with its current On/Off state. Remove the transcript toolbar and keep search details collapsed until requested without changing source text or history limits.
+
 ## 0.6.0
 
 ### Minor Changes
