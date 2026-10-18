@@ -1049,6 +1049,53 @@ test("recent session switching respects every non-busy interaction lock", () => 
   }
 });
 
+test("idle host updates preserve local control locks and restore controls when each lock clears", () => {
+  for (const lock of [
+    "submissionPending",
+    "backgroundSubmissionPending",
+    "pendingImageReads",
+    "recoveredDraftPending",
+  ]) {
+    const sidebar = createSidebarScriptHarness();
+    const state = (locked: boolean, busy = false) =>
+      sidebar.receive({
+        type: "state",
+        status: "Ready",
+        backgroundSubmissionPending: lock === "backgroundSubmissionPending" && locked,
+        runtime: {
+          busy,
+          connected: true,
+          sessionFile: "/workspace/session.jsonl",
+          thinkingLevel: "high",
+          availableThinkingLevels: ["off", "high"],
+        },
+      });
+    const controls = ["model-picker", "thinking-level", "new-session", "delete-session", "more"];
+    state(false);
+    for (const id of controls) assert.equal(sidebar.element(id).disabled, false, `${lock}: initially enabled ${id}`);
+    const pendingValue =
+      lock === "recoveredDraftPending"
+        ? '{ id: "draft", text: "recover" }'
+        : lock === "pendingImageReads"
+          ? "1"
+          : "true";
+    sidebar.run(`${lock} = ${pendingValue}`);
+    state(true);
+    for (const id of controls) assert.equal(sidebar.element(id).disabled, true, `${lock}: locked ${id}`);
+    const recovering = lock === "recoveredDraftPending";
+    assert.equal(sidebar.element("input").disabled, recovering, `${lock}: input lock`);
+    assert.equal(sidebar.element("add-context").disabled, recovering, `${lock}: attachment lock`);
+    sidebar.run(`${lock} = ${recovering ? "undefined" : "0"}`);
+    state(false);
+    for (const id of controls) assert.equal(sidebar.element(id).disabled, false, `${lock}: restored ${id}`);
+    assert.equal(sidebar.element("input").disabled, false);
+    assert.equal(sidebar.element("add-context").disabled, false);
+    state(false, true);
+    for (const id of controls) assert.equal(sidebar.element(id).disabled, true, `${lock}: busy ${id}`);
+    assert.equal(sidebar.element("add-context").disabled, false, "ordinary work still permits attachment capture");
+  }
+});
+
 test("proposal cards block empty previews and hide dead terminal actions", () => {
   const sidebar = createSidebarScriptHarness();
   sidebar.receive({
@@ -1364,6 +1411,85 @@ test("an attachment removal race can release a pending submission", () => {
   assert.equal(sidebar.run("submissionPending"), false);
   assert.equal(sidebar.element("status").textContent, "Ready");
 });
+
+for (const reason of ["eviction", "rejection"] as const) {
+  test(`image ${reason} updates transcript and composer once with separate preview behavior`, () => {
+    const sidebar = createSidebarScriptHarness();
+    const bytes = Buffer.alloc(11);
+    bytes.write("GIF89a", 0, "ascii");
+    bytes.writeUInt16LE(3, 6);
+    bytes.writeUInt16LE(2, 8);
+    const id = imageAssetId(bytes);
+    const attachment = {
+      type: "image",
+      assetId: id,
+      label: "shared.gif",
+      fullLabel: "shared.gif",
+      mimeType: "image/gif",
+      width: 3,
+      height: 2,
+      availability: "available",
+    };
+    const deliver = (payload: Buffer) =>
+      sidebar.receive({
+        type: "imageAsset",
+        id: imageAssetId(payload),
+        mimeType: "image/gif",
+        data: payload.toString("base64"),
+        byteLength: payload.length,
+      });
+    sidebar.receive({
+      type: "state",
+      status: "Ready",
+      imageSupported: true,
+      runtime: { busy: false, connected: true },
+      messages: [{ role: "user", html: "<p>Shared image</p>", attachments: [{ ...attachment }] }],
+      attachments: [{ ...attachment, id: "draft-image", image: true }],
+    });
+    deliver(bytes);
+    const targets = sidebar.run(`imageTargets.get(${JSON.stringify(id)})`) as { button: SidebarTestElement }[];
+    assert.equal(targets.length, 2);
+    assert.equal(sidebar.run("imageAssetCacheBytes"), bytes.length, "one payload serves both surfaces");
+    const [transcript, composer] = targets;
+    assert.ok(transcript);
+    assert.ok(composer);
+    const openPreview = sidebar.element("messages").listeners.get("click");
+    assert.ok(openPreview);
+    openPreview({ target: transcript.button });
+    assert.equal(sidebar.element("image-preview").open, true);
+
+    if (reason === "eviction") {
+      for (let marker = 1; marker <= 100; marker += 1) {
+        const other = Buffer.from(bytes);
+        other[10] = marker;
+        deliver(other);
+      }
+    } else {
+      const thumbnail = composer.button.children[0];
+      assert.ok(thumbnail);
+      const rejectAsset = thumbnail.listeners.get("error");
+      assert.ok(rejectAsset);
+      rejectAsset();
+    }
+    for (const { button } of targets) {
+      assert.equal(button.disabled, true);
+      const placeholder = button.children[0];
+      assert.ok(placeholder);
+      assert.match(placeholder.textContent, /unavailable/i);
+    }
+    assert.equal(sidebar.run(`imageAssetCache.has(${JSON.stringify(id)})`), false);
+    const retainedBytes = reason === "eviction" ? 100 * bytes.length : 0;
+    assert.equal(sidebar.run("imageAssetCacheBytes"), retainedBytes);
+    assert.equal(sidebar.element("image-preview").open, reason === "eviction");
+    const notifications = sidebar.posted.filter((message) => message.id === id);
+    assert.equal(notifications.length, 1);
+    assert.equal(notifications[0].type, reason === "eviction" ? "imageAssetEvicted" : "imageAssetRejected");
+    sidebar.run(`rejectImageAsset(${JSON.stringify(id)})`);
+    assert.equal(sidebar.run("imageAssetCacheBytes"), retainedBytes, "missing rejection does not subtract again");
+    assert.equal(sidebar.posted.filter((message) => message.id === id).length, 1, "missing rejection is silent");
+    assert.equal(sidebar.element("image-preview").open, reason === "eviction");
+  });
+}
 
 test("thumbnail and preview decode failures become unavailable without retrying corrupt payloads", () => {
   const bytes = Buffer.alloc(11);

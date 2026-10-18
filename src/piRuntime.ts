@@ -769,10 +769,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       const client = this.requireClient();
       try {
         const cleared = await client.clearQueue();
-        if (this.awaitingQueueStarts.length)
-          throw new Error("A queued instruction left the pending queue without a delivery event.");
-        this.recoverQueue(this.takeClearedInstructions(cleared), false);
-        this.updateState({ queue: { steering: [], followUp: [] }, pendingQueue: emptyPendingQueue() });
+        this.completeQueueClear(cleared);
       } catch (error) {
         await client.stop();
         throw new Error(`Queue clearing unsupported/uncertain; disconnected without replay. ${formatError(error)}`);
@@ -781,6 +778,13 @@ export class PiRuntimeManager implements vscode.Disposable {
       release();
       this.queueStopping = false;
     }
+  }
+
+  private completeQueueClear(cleared: PiRpcQueue): void {
+    if (this.awaitingQueueStarts.length)
+      throw new Error("A queued instruction left the pending queue without a delivery event.");
+    this.recoverQueue(this.takeClearedInstructions(cleared), false);
+    this.updateState({ queue: { steering: [], followUp: [] }, pendingQueue: emptyPendingQueue() });
   }
 
   public restoreRecoveredDraftAttachments(id: string): void {
@@ -842,10 +846,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     const release = this.queueGate.acquire();
     try {
       const cleared = await client.clearQueue();
-      if (this.awaitingQueueStarts.length)
-        throw new Error("A queued instruction left the pending queue without a delivery event.");
-      this.recoverQueue(this.takeClearedInstructions(cleared), false);
-      this.updateState({ queue: { steering: [], followUp: [] }, pendingQueue: emptyPendingQueue() });
+      this.completeQueueClear(cleared);
       await client.abort();
     } catch (error) {
       await client.stop();
@@ -1104,12 +1105,6 @@ export class PiRuntimeManager implements vscode.Disposable {
   public restartSessionProcess(): Promise<boolean> {
     return this.control.restartSessionProcess();
   }
-  public getSessionTree() {
-    return this.control.getSessionTree();
-  }
-  public branchSession(action: "fork" | "clone" | "navigate", origin: string, targetId?: string) {
-    return this.control.branchSession(action, origin, targetId);
-  }
   public chooseSessionBranch(select: Parameters<PiRuntimeControl["chooseSessionBranch"]>[0]) {
     return this.control.chooseSessionBranch(select);
   }
@@ -1169,11 +1164,6 @@ export class PiRuntimeManager implements vscode.Disposable {
       if (client === this.client && client.isRunning) await this.refreshState(true).catch(() => undefined);
       throw error;
     }
-  }
-
-  public async exportSession(outputPath?: string): Promise<string> {
-    await this.ensureStarted(this.resource);
-    return this.requireClient().exportHtml(outputPath);
   }
 
   public openInTerminal(expectedOrigin?: () => Promise<void>): Promise<void> {
