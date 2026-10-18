@@ -27,6 +27,7 @@ import { deleteConversationWithTrashFallback, type PiRuntimeManager, runtimeSess
 import { type AgentRequestPolicy, buildAgentPrompt, type ChatReferenceContext } from "./prompts";
 import { listRecentPiSessions, type PiSessionSummary, piSessionKey } from "./sessionHistory";
 import { SidebarAssistantStream } from "./sidebarAssistantStream";
+import { registerSessionTransfer } from "./sessionTransferController";
 import {
   resolveSidebarQueueSubmission,
   resolveSidebarSubmissionText,
@@ -99,6 +100,7 @@ export function registerPiSidebar(
   const backgroundAgents = new BackgroundAgentManager(context);
   const changeTracker = new WorkspaceChangeTracker();
   const provider = new PiChatViewProvider(context, runtime, changeTracker, backgroundAgents);
+  registerSessionTransfer(context, runtime);
   context.subscriptions.push(
     backgroundAgents,
     changeTracker,
@@ -605,6 +607,10 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         { label: "$(question) Extension UI Compatibility", action: "compatibility" },
         { label: "$(debug-disconnect) Return Pi from Terminal", action: "returnTerminal" },
         { label: "$(export) Export Session", action: "export" },
+        { label: "$(import) Import Session Copy", action: "import" },
+        { label: "$(share) Share Session", action: "share" },
+        { label: "$(sign-in) Sign In to Provider", action: "login" },
+        { label: "$(sign-out) Sign Out of Provider", action: "logout" },
         { label: "$(terminal) Open in Terminal", action: "terminal" },
         { label: "$(run) Run Message in Background", action: "background" },
         { label: "$(workspace-trusted) Run Message in Worktree", action: "worktree" },
@@ -644,6 +650,10 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     else if (selected.action === "compatibility") await vscode.commands.executeCommand("pi.extensionUiCompatibility");
     else if (selected.action === "returnTerminal") await this.returnFromTerminal();
     else if (selected.action === "export") await this.exportSession();
+    else if (selected.action === "import") await vscode.commands.executeCommand("pi.importSession");
+    else if (selected.action === "share") await vscode.commands.executeCommand("pi.shareSession");
+    else if (selected.action === "login") await vscode.commands.executeCommand("pi.signInProvider");
+    else if (selected.action === "logout") await vscode.commands.executeCommand("pi.signOutProvider");
     else if (selected.action === "terminal") await this.runtime.openInTerminal();
     else if (selected.action === "background") await this.runBackground(composerText, false, composerRevision);
     else await this.runBackground(composerText, true, composerRevision);
@@ -1518,27 +1528,28 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async exportSession(): Promise<void> {
-    const defaultName = `${this.runtime.currentState.sessionName ?? "pi-session"}.html`;
-    const target = await vscode.window.showSaveDialog({
-      title: "Export Pi Session",
-      defaultUri: vscode.Uri.joinPath(
-        vscode.workspace.workspaceFolders?.[0]?.uri ?? vscode.Uri.file(homedir()),
-        defaultName,
-      ),
-      filters: { HTML: ["html"] },
-      saveLabel: "Export",
-    });
-    if (!target) {
-      return;
-    }
-    const exportedPath = await this.runtime.exportSession(target.fsPath);
-    const action = await vscode.window.showInformationMessage(`Pi session exported to ${exportedPath}.`, "Open Export");
-    if (action === "Open Export") {
-      await vscode.env.openExternal(vscode.Uri.file(exportedPath));
-    }
+    await vscode.commands.executeCommand("pi.exportSession");
+  }
+
+  private async refreshImportedSession(): Promise<void> {
+    await this.resetConversation("Pi session imported");
+    await this.syncMessagesFromPi(true);
+    await this.refreshRecentSessions(false);
+    this.status = "Pi session imported";
+    this.postState();
+    this.postMessage({ type: "showSessionDetail" });
   }
 
   private handleRuntimeEvent(event: PiRpcEvent): void {
+    if (event.type === "session_imported") {
+      void this.refreshImportedSession().catch(() => {
+        this.postNotice(
+          "The imported session is active, but history could not be refreshed. Refresh Pi before sending.",
+          "warning",
+        );
+      });
+      return;
+    }
     if (event.type === "resources_reloaded" && (event.action === "reload" || event.action === "restart")) {
       this.attachments.clearPins();
       this.proposals.clear();
@@ -1726,7 +1737,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.tools = this.tools.map((tool) => (tool.id === id ? { ...tool, ...changes } : tool));
   }
 
-  private async syncMessagesFromPi(): Promise<void> {
+  private async syncMessagesFromPi(verifiedImport = false): Promise<void> {
     if (!this.runtime.currentState.connected) {
       const failure = historySyncFailureState(false);
       this.status = failure.status;
@@ -1734,7 +1745,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.postState();
       throw new Error("Pi disconnected before conversation history could be synchronized.");
     }
-    if (this.runtime.currentState.busy) {
+    if (this.runtime.currentState.busy && !verifiedImport) {
       throw new Error("Wait for Pi to finish before refreshing conversation history.");
     }
     const revision = ++this.historySyncRevision;

@@ -168,6 +168,33 @@ if (ctx.mode === "tui") {
 | Pi themes | Theme lookup/listing is empty/undefined and switching fails in RPC. VS Code supplies sidebar colors. |
 
 Unsupported calls can be discarded before an RPC event exists. No automatic detector or arbitrary in-panel TUI rendering is promised. A new serializable component protocol or PTY design requires upstream support and separate design approval. This task explicitly accepts that boundary; no PTY or component protocol is added.
+## Provider authentication
+
+Run **Pi: Sign In to Provider** or **Pi: Sign Out of Provider**, also available under **More…**. These actions require a trusted, file-backed workspace. They use the configured Pi executable on the Extension Host, not a Pi runtime inside VS Code. The isolated helper currently accepts Pi **1.3.0** only. Unsupported installations fail without attempting another authentication route.
+
+The chooser lists built-in provider IDs and available API-key/OAuth methods without reading the selected credential store. Extension-defined providers are not loaded. After you select a provider, confirm the host and Pi store affected. Pi owns credential writes; all credential, private configuration, and complete manual redirect input uses masked native input and helper stdin. Browser/device approval opens only a validated HTTPS URL in your local browser. Pi owns redirect state and expiry checks. Arbitrary provider progress and error text are not displayed.
+
+Sign-out removes Pi's stored credential, not provider access. Environment and `models.json` credentials can remain effective. A verified store change and a store change followed by catalog-refresh failure have different notices. Restart a running Pi explicitly to refresh model availability; authentication does not change its selected model, conversation, or composer. Cancellation or uncertain completion never triggers another login. Opening Pi Settings does not authenticate or start this helper.
+
+API-key, browser, device, manual-redirect, and cancellation behavior has deterministic fixture coverage. Live-provider and remote authorization are not validated. The native input uses generic field labels to avoid forwarding potentially sensitive provider prose; provider-specific configuration flows can require Pi's own terminal UI. This is not a claim of all-provider native authentication support.
+
+## Session transfer and sharing
+
+Use **Pi: Export Session**, **Pi: Import Session Copy**, or **Pi: Share Session**, also available under **More…**. These operations share foreground ownership and the canonical workspace operation lock. Stop active work first. JSONL operations require the isolated Pi 1.3.0 helper; no UI transcript is used as a session backup.
+
+| Operation | Scope and limits |
+| --- | --- |
+| HTML export | Pi's existing renderer, including the complete entry tree and abandoned branches; up to 32 MiB. |
+| JSONL export | Pi SDK active-branch semantics at the captured active leaf; up to 32 MiB. This is not a full-tree backup. |
+| JSONL import | Complete Pi v3 tree, same canonical working directory, at most 50,000 entries, 8 MiB per line, 32 MiB per file. Legacy/future versions, malformed references, unsupported entries, unsafe paths and links are rejected. Images allow 5 MiB each and 25 MiB total. |
+| GitHub share | Reviewed active-branch JSONL, at most 2 MiB, through the authenticated `gh` CLI on the Extension Host. No automatic destination choice or upload. |
+| Radius share | Blocked: no verified public artifact-upload contract in Pi 1.3.0. No private endpoint is used. |
+
+Local exports create a new file exclusively. Existing names are never replaced; choose another name. Import validates and stages the source, calls Pi's public runtime import, then retains a collision-safe copy in Pi's configured session directory before guarded activation. This directory comes from the active SessionManager, not the resumed source file's parent directory. Pi can append initialization metadata to the copy. Source files are unchanged. A failed or cancelled activation leaves the copy available and does not retry switching; check which session is authoritative before selecting it manually. No retained copy is deleted as compensation.
+
+JSONL export and sharing require a read-only, packaged command-context snapshot. It returns the canonical session location, active leaf and SHA-256 entry digest, not transcript content. The staged file must match Pi's active in-memory entries; changed paths, entries or leaves require new preparation.
+
+Sharing preparation is network-free. Inspect the exact read-only JSONL payload, optionally replace a literal in string values using masked input, and inspect again after each change. A separate modal confirmation is required before `gh gist create --public=false` receives that exact payload on stdin. A non-public gist is **not confidential storage**: anyone with its link can read it. Images, `!!` shell entries, tool arguments/output, thinking signatures, and custom metadata can contain secrets even when hidden in the conversation. Redacted JSONL can become non-resumable. Delete remote copies separately on GitHub; deleting local history does not remove an upload. Unknown upload completion is never retried automatically.
 
 ## Panel content
 
@@ -326,6 +353,10 @@ Composer completion fixtures cover attachment capture, path-only insertion, fail
 Thinking fixtures check thinking-only and redacted responses, disclosure keyboard access, live focus and scroll preservation, and authoritative history replacement without a provider.
 
 Direct-shell fixtures check explicit composer guards, context labels, inert cards, and terminal-control removal.
+
+### Isolated Pi public-SDK check
+
+After compilation, run `node scripts/test-isolated-sdk.mjs <configured-pi-executable>` to verify the packaged helper against an explicit Pi 1.3.0 installation. This check uses disposable directories and a fixture session. It verifies static provider discovery, active-branch export, complete-tree import and unchanged source bytes without authentication, model calls, or uploads. No installed Pi path is embedded in the extension.
 
 ### Native VS Code checks
 

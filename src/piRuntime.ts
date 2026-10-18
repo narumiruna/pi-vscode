@@ -1035,7 +1035,18 @@ export class PiRuntimeManager implements vscode.Disposable {
 
   public async getMessages(): Promise<unknown[]> {
     await this.ensureStarted(this.resource);
-    return this.requireClient().getMessages();
+    const client = this.requireClient();
+    const sessionId = this.state.sessionId;
+    const sessionFile = this.state.sessionFile;
+    const messages = await client.getMessages();
+    if (
+      client !== this.client ||
+      !client.isRunning ||
+      sessionId !== this.state.sessionId ||
+      sessionFile !== this.state.sessionFile
+    )
+      throw new Error("Pi history belongs to an expired client or session.");
+    return messages;
   }
 
   public get hasPendingExtensionDialogs(): boolean {
@@ -1084,6 +1095,60 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
   public returnFromTerminal(): Promise<boolean> {
     return this.control.returnFromTerminal();
+  }
+
+  /** Read the active store and entry digest without acquiring a second foreground lock. */
+  public getSessionTransferSnapshot(
+    client: PiRpcClient,
+    assertCurrent: () => Promise<void>,
+    expectedLeafId?: string | null,
+  ) {
+    if (!this.ownership.isPending || client !== this.client)
+      throw new Error("The session snapshot requires the held foreground operation.");
+    return this.control.getSessionTransferSnapshot(client, assertCurrent, expectedLeafId);
+  }
+
+  /** Activate a validated retained import while the caller holds withForegroundOperation. Never retries. */
+  public async activateImportedSession(client: PiRpcClient, target: string): Promise<void> {
+    if (
+      !this.ownership.isPending ||
+      client !== this.client ||
+      !client.isRunning ||
+      this.state.busy ||
+      !vscode.workspace.isTrusted
+    )
+      throw new Error("The session import no longer owns the current Pi client.");
+    const cwd = this.currentCwd;
+    const root = await realpath(cwd);
+    await assertSessionWorkspace(target, root);
+    if (
+      (await realpath(target)) !== target ||
+      (await realpath(cwd)) !== root ||
+      client !== this.client ||
+      !client.isRunning ||
+      !vscode.workspace.isTrusted
+    )
+      throw new Error("The imported session or workspace changed before activation.");
+    this.control.invalidate();
+    this.resetExtensionUi();
+    this.resetQueueTracking();
+    try {
+      const result = await client.switchSession(target);
+      if (isRecord(result) && result.cancelled) throw new Error("Pi cancelled the import activation.");
+      await this.refreshState(true, true);
+      if (
+        client !== this.client ||
+        !client.isRunning ||
+        this.state.sessionFile !== target ||
+        !vscode.workspace.isTrusted ||
+        (await realpath(cwd)) !== root
+      )
+        throw new Error("Pi could not verify the imported session as active.");
+      this.eventEmitter.fire({ type: "session_imported", sessionFile: target, sessionId: this.state.sessionId });
+    } catch (error) {
+      if (client === this.client && client.isRunning) await this.refreshState(true).catch(() => undefined);
+      throw error;
+    }
   }
 
   public async exportSession(outputPath?: string): Promise<string> {

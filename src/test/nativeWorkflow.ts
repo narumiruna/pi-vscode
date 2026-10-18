@@ -12,6 +12,7 @@ import type { CodeContextResult } from "../semanticContext";
 import { queryCodeContext } from "../semanticContext";
 import { VscodeBridgeServer } from "../vscodeBridge";
 import { vscodeBridgePortEnvironmentKey, vscodeBridgeTokenEnvironmentKey } from "../vscodeBridgeProtocol";
+import { verifyNativeAuthTransfer } from "./nativeAuthTransfer";
 import { verifyDiagnosticEncodings } from "./nativeDiagnosticEncoding";
 import { verifyNativePiControl } from "./nativePiControl";
 import { verifyNativeDirectShell } from "./nativeDirectShell";
@@ -37,6 +38,7 @@ export async function run(): Promise<void> {
   }
   await verifyNativeSettings();
   await verifyNativePiControl(root);
+  await verifyNativeAuthTransfer();
   await vscode.extensions.getExtension("vscode.typescript-language-features")?.activate();
   await vscode.window.showTextDocument(source);
   let definitions: CodeContextResult | undefined;

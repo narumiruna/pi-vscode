@@ -106,8 +106,20 @@
         "enablement": "isWorkspaceTrusted"
       },
       {
+        "command": "pi.signInProvider",
+        "title": "Sign In to Provider",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
         "command": "pi.openNativeSettings",
         "title": "Open Native Pi Settings",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "pi.signOutProvider",
+        "title": "Sign Out of Provider",
         "category": "Pi",
         "enablement": "isWorkspaceTrusted"
       },
@@ -118,14 +130,32 @@
         "enablement": "isWorkspaceTrusted"
       },
       {
+        "command": "pi.exportSession",
+        "title": "Export Session",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
         "command": "pi.openNativeMcp",
         "title": "Manage Native MCP Configuration",
         "category": "Pi",
         "enablement": "isWorkspaceTrusted"
       },
       {
+        "command": "pi.importSession",
+        "title": "Import Session Copy",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
         "command": "pi.browseSessionTree",
         "title": "Browse Session Tree / Fork / Clone",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "pi.shareSession",
+        "title": "Share Session",
         "category": "Pi",
         "enablement": "isWorkspaceTrusted"
       },

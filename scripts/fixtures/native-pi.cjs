@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 // Deterministic RPC subprocess for native UI tests. Never invokes a provider or tool.
+if (process.argv.some((value) => value.endsWith("pi-isolated-helper.ts"))) {
+  void import("../../src/test/fixtures/isolated-pi-fixture.mjs");
+  return;
+}
 const fs = require("node:fs");
 const path = require("node:path");
 const directory = process.env.PI_VSCODE_UI_FIXTURE;

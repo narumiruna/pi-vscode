@@ -9,6 +9,7 @@ import { removeLegacyGlobalBridgeExtensions } from "./legacyBridge";
 import { registerPiCompatibility } from "./piCompatibility";
 import { registerNativePiManagement } from "./nativePiController";
 import { PiRuntimeManager } from "./piRuntime";
+import { registerProviderAuthentication } from "./providerAuth";
 import { registerSettingsPanel } from "./settingsPanel";
 import { registerPiSidebar } from "./sidebar";
 import { registerTestRepair } from "./testRepairController";
@@ -34,6 +35,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<PiVsco
   registerPiCompatibility(context, runtime);
   registerSettingsPanel(context);
   registerNativePiManagement(context, runtime);
+  registerProviderAuthentication(context, runtime);
   registerPiChat(context);
   registerEditorActions(context, conversation);
   registerGitReview(context, runtime, conversation);
