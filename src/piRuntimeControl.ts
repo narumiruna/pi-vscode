@@ -60,6 +60,14 @@ function parseOwnership(value: unknown): ExternalOwnership | "invalid" {
   };
 }
 
+export interface PiSessionTransferSnapshot {
+  readonly sessionDir: string;
+  readonly sessionId: string;
+  readonly sessionFile: string;
+  readonly leafId: string | null;
+  readonly entriesHash: string;
+}
+
 /** Foreground control, origin validation, and terminal ownership share one lifecycle. */
 export class PiRuntimeControl {
   private generation = 0;
@@ -452,6 +460,102 @@ export class PiRuntimeControl {
     await client.stop();
     throw new Error(`Pi control outcome is uncertain; disconnected without replay. ${String(error)}`);
   }
+  /** Narrow read-only query inside an already-owned operation. No UI reset, reload, or generation change. */
+  public async getSessionTransferSnapshot(
+    client: PiRpcClient,
+    assertCurrent: () => Promise<void>,
+    expectedLeafId?: string | null,
+  ): Promise<PiSessionTransferSnapshot> {
+    await assertCurrent();
+    this.assertSidebarOwnership();
+    if (client !== this.host.client || !client.isRunning) throw new Error("The snapshot query has an expired client.");
+    const resources = path.join(this.host.context.extensionUri.fsPath, "resources");
+    await verifyPackagedCommands(await client.getCommands(), resources);
+    const cwd = await realpath(this.host.cwd);
+    await assertCurrent();
+    const token = randomUUID();
+    let result: PiSessionTransferSnapshot | undefined;
+    let failure = false;
+    const subscription = client.onEvent((event) => {
+      if (
+        ["extension_error", "agent_start", "protocol_error"].includes(event.type) ||
+        (event.type === "extension_ui_request" && event.method === "notify" && event.notifyType === "error")
+      )
+        failure = true;
+      if (
+        event.type !== "extension_ui_request" ||
+        event.method !== "notify" ||
+        typeof event.message !== "string" ||
+        !event.message.startsWith(controlResultPrefix)
+      )
+        return;
+      try {
+        if (Buffer.byteLength(event.message) > 16_384) throw new Error("oversize");
+        const value: unknown = JSON.parse(event.message.slice(controlResultPrefix.length));
+        if (!value || typeof value !== "object" || !("token" in value) || value.token !== token) return;
+        const fields = value as Record<string, unknown>;
+        if (
+          result ||
+          Object.keys(fields).some(
+            (key) => !["token", "sessionDir", "sessionId", "sessionFile", "leafId", "entriesHash"].includes(key),
+          ) ||
+          [fields.sessionDir, fields.sessionFile].some(
+            (value) =>
+              typeof value !== "string" || value.length > 4_096 || !path.isAbsolute(value) || value.includes("\0"),
+          ) ||
+          typeof fields.sessionId !== "string" ||
+          !/^[a-z0-9][a-z0-9._-]{0,127}$/i.test(fields.sessionId) ||
+          (fields.leafId !== null &&
+            (typeof fields.leafId !== "string" || !/^[a-z0-9][a-z0-9._-]{0,127}$/i.test(fields.leafId))) ||
+          typeof fields.entriesHash !== "string" ||
+          !/^[a-f0-9]{64}$/.test(fields.entriesHash)
+        )
+          throw new Error("invalid");
+        result = {
+          sessionDir: fields.sessionDir as string,
+          sessionId: fields.sessionId,
+          sessionFile: fields.sessionFile as string,
+          leafId: fields.leafId as string | null,
+          entriesHash: fields.entriesHash,
+        };
+      } catch {
+        failure = true;
+      }
+    });
+    try {
+      const disposition = await client.prompt(
+        `/${controlCommand} ${JSON.stringify({
+          action: "session-location",
+          token,
+          cwd,
+          sessionId: this.host.state.sessionId,
+          ...(expectedLeafId !== undefined ? { leafId: expectedLeafId } : {}),
+        })}`,
+      );
+      if (disposition !== "handled" || failure || !result || this.host.client !== client)
+        throw new Error("Missing verified session-location acknowledgement.");
+      const snapshot: PiSessionTransferSnapshot = result;
+      if (
+        snapshot.sessionId !== this.host.state.sessionId ||
+        !this.host.state.sessionFile ||
+        snapshot.sessionFile !== (await realpath(this.host.state.sessionFile)) ||
+        (expectedLeafId !== undefined && snapshot.leafId !== expectedLeafId) ||
+        (await realpath(snapshot.sessionDir)) !== snapshot.sessionDir ||
+        (await realpath(snapshot.sessionFile)) !== snapshot.sessionFile ||
+        !(await lstat(snapshot.sessionDir)).isDirectory()
+      )
+        throw new Error("Stale session location.");
+      await verifyPackagedCommands(await client.getCommands(), resources);
+      await assertCurrent();
+      if (failure) throw new Error("Session-location query failed.");
+      return snapshot;
+    } catch (error) {
+      return this.uncertain(client, error);
+    } finally {
+      subscription.dispose();
+    }
+  }
+
   private async runControl(
     client: PiRpcClient,
     assertCurrent: () => Promise<void>,
