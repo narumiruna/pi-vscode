@@ -65,6 +65,16 @@ After installation or an update, run **Developer: Reload Window**. Sidebar sessi
 
 Use `@pi` in VS Code's native Chat view when you prefer the native participant workflow. Native Chat history is separate from the Pi sidebar session.
 
+### Pi extension dialogs
+
+Pi extensions can request single-line input or a native multiline editor through the public RPC UI protocol (reference: Pi 1.3.0). No model request is needed to display a dialog.
+
+Before each multiline editor opens, accept **Open Non-Secret Editor** or press Escape to cancel. VS Code can retain untitled text in hot-exit backups. Do not enter credentials. Use **Pi: Submit Extension Editor** or Ctrl/Cmd+Enter to return the full current text, including an empty value. Use **Pi: Cancel Extension Editor**, Ctrl/Cmd+Escape, or close the document to cancel without returning a partial value. Actions appear only for the owned active editor. **Save does not submit** and can prompt for a file path. On cleanup, choose **Don't Save** to discard the text; cancelling that close leaves an inactive document that you must close yourself.
+
+Only one multiline editor request can be active at a time. Prefill and returned text are limited to 100,000 characters. Text uses VS Code's document line endings; mixed line endings can be normalized. Timeouts close the owned UI locally, while Pi supplies its own timeout default. Replies cannot move to a replacement session or process.
+
+Untimed confirmations keep the native permission modal. Timed confirmations default to **Block**. **Review Full Message** opens the complete bounded Unicode/multiline message in a read-only, memory-only document. Only that active review enables **Pi: Allow Reviewed Extension Action** and **Pi: Block Reviewed Extension Action**. Closing the review blocks the action; timeout removes the review and disables its actions.
+
 ### Editor actions
 
 | Action | Shortcut or location |
@@ -276,6 +286,8 @@ On headless Linux, also prefix `test:native` with `xvfb-run -a`. Replace `1.106.
 1. Append `untrusted` to the `test:native` command for Restricted Mode.
 2. Append `alias` to the `test:native-ui` command to test a workspace opened through a directory symlink.
 3. Append `packaged` to the `test:native-ui` command to install and test the local `pi.vsix`.
+
+Append `editor` to `test:native-ui` for the isolated multiline-editor and timed-confirmation fixtures only. They cover exact text, keyboard Submit/Cancel, close/discard, privacy decline, read-only review, timeouts, and process replacement.
 
 Native checks download a VS Code test build into the system temporary cache and use disposable profiles and workspaces. UI checks use a deterministic Pi RPC fixture; Playwright connects only to the disposable profile's loopback debugging endpoint. These checks do not use a live model, your VS Code profile, or your workspace.
 

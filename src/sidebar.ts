@@ -1464,30 +1464,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       return;
     }
 
+    // Dialogs use origin-bound ExtensionUiDialogs; keyed updates expect no response.
     if (method === "setStatus" || method === "setWidget") {
       if (this.extensionUi.update(event)) this.scheduleState();
-    } else if (method === "select") {
-      const options = Array.isArray(event.options) ? event.options.filter((value) => typeof value === "string") : [];
-      const value = await vscode.window.showQuickPick(options, {
-        title: stringValue(event.title) ?? "Pi",
-        ignoreFocusOut: true,
-      });
-      this.runtime.sendExtensionUiResponse(id, value === undefined ? { cancelled: true } : { value });
-    } else if (method === "confirm") {
-      const choice = await vscode.window.showWarningMessage(
-        stringValue(event.message) ?? stringValue(event.title) ?? "Confirm Pi action?",
-        { modal: true },
-        "Allow",
-      );
-      this.runtime.sendExtensionUiResponse(id, { confirmed: choice === "Allow" });
-    } else if (method === "input" || method === "editor") {
-      const value = await vscode.window.showInputBox({
-        title: stringValue(event.title) ?? "Pi Input",
-        prompt: stringValue(event.placeholder),
-        value: stringValue(event.prefill),
-        ignoreFocusOut: true,
-      });
-      this.runtime.sendExtensionUiResponse(id, value === undefined ? { cancelled: true } : { value });
     } else if (method === "notify") {
       const message = stringValue(event.message) ?? "Pi notification";
       const notifyType = stringValue(event.notifyType);

@@ -2,6 +2,7 @@ import type * as vscode from "vscode";
 import { registerPiChat } from "./chat";
 import { registerDebugContext } from "./debugContextController";
 import { registerEditorActions } from "./editorActions";
+import { registerExtensionUiDialogs } from "./extensionUiDialogs";
 import { registerGitReview } from "./gitReviewController";
 import { registerInlineCompletions } from "./inlineCompletion";
 import { removeLegacyGlobalBridgeExtensions } from "./legacyBridge";
@@ -25,6 +26,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<PiVsco
   const runtime = new PiRuntimeManager(context);
   context.subscriptions.push(runtime);
   await runtime.initializeBridge();
+  registerExtensionUiDialogs(context, runtime);
   const conversation = registerPiSidebar(context, runtime);
   registerSettingsPanel(context);
   registerPiChat(context);

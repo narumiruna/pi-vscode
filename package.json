@@ -72,6 +72,34 @@
     },
     "commands": [
       {
+        "command": "pi.extensionDialog.allow",
+        "title": "Allow Reviewed Extension Action",
+        "category": "Pi",
+        "icon": "$(check)",
+        "enablement": "isWorkspaceTrusted && pi.extensionConfirmationActive"
+      },
+      {
+        "command": "pi.extensionDialog.block",
+        "title": "Block Reviewed Extension Action",
+        "category": "Pi",
+        "icon": "$(close)",
+        "enablement": "isWorkspaceTrusted && pi.extensionConfirmationActive"
+      },
+      {
+        "command": "pi.extensionEditor.submit",
+        "title": "Submit Extension Editor",
+        "category": "Pi",
+        "icon": "$(check)",
+        "enablement": "isWorkspaceTrusted && pi.extensionEditorActive"
+      },
+      {
+        "command": "pi.extensionEditor.cancel",
+        "title": "Cancel Extension Editor",
+        "category": "Pi",
+        "icon": "$(close)",
+        "enablement": "isWorkspaceTrusted && pi.extensionEditorActive"
+      },
+      {
         "command": "pi.openSettings",
         "title": "Open Settings",
         "category": "Pi",
@@ -253,6 +281,26 @@
       ],
       "editor/title": [
         {
+          "command": "pi.extensionDialog.allow",
+          "group": "navigation@1",
+          "when": "pi.extensionConfirmationActive"
+        },
+        {
+          "command": "pi.extensionDialog.block",
+          "group": "navigation@2",
+          "when": "pi.extensionConfirmationActive"
+        },
+        {
+          "command": "pi.extensionEditor.submit",
+          "group": "navigation@1",
+          "when": "pi.extensionEditorActive"
+        },
+        {
+          "command": "pi.extensionEditor.cancel",
+          "group": "navigation@2",
+          "when": "pi.extensionEditorActive"
+        },
+        {
           "command": "pi.quickFix",
           "group": "navigation@40",
           "when": "!editorReadonly"
@@ -306,6 +354,18 @@
       ]
     },
     "keybindings": [
+      {
+        "command": "pi.extensionEditor.submit",
+        "key": "ctrl+enter",
+        "mac": "cmd+enter",
+        "when": "editorTextFocus && isWorkspaceTrusted && pi.extensionEditorActive"
+      },
+      {
+        "command": "pi.extensionEditor.cancel",
+        "key": "ctrl+escape",
+        "mac": "cmd+escape",
+        "when": "editorTextFocus && isWorkspaceTrusted && pi.extensionEditorActive"
+      },
       {
         "command": "pi.quickFix",
         "key": "ctrl+i",

@@ -126,6 +126,44 @@ test("workflow commands are contributed, registered, documented and keep minimum
     assert.ok(readme.includes(`Pi: ${label}`));
 });
 
+test("extension editor commands use matching IDs, guarded context and keyboard bindings", () => {
+  const controller = readFileSync("src/extensionUiDialogs.ts", "utf8");
+  assert.ok(readFileSync("src/extension.ts", "utf8").includes("registerExtensionUiDialogs(context, runtime)"));
+  const raw = JSON.parse(readFileSync("package.json", "utf8"));
+  for (const action of ["submit", "cancel"]) {
+    const id = `pi.extensionEditor.${action}`;
+    assert.ok(controller.includes(`"${id}"`));
+    assert.equal(
+      manifest.contributes.commands.find((item) => item.command === id)?.enablement,
+      "isWorkspaceTrusted && pi.extensionEditorActive",
+    );
+    assert.equal(
+      manifest.contributes.menus["editor/title"].find((item) => item.command === id)?.when,
+      "pi.extensionEditorActive",
+    );
+    assert.match(
+      raw.contributes.keybindings.find((item: { command: string }) => item.command === id).when,
+      /editorTextFocus.*pi.extensionEditorActive/,
+    );
+  }
+});
+
+test("timed extension confirmations expose approval only for the active owned review", () => {
+  const controller = readFileSync("src/extensionUiDialogs.ts", "utf8");
+  for (const action of ["allow", "block"]) {
+    const id = `pi.extensionDialog.${action}`;
+    assert.ok(controller.includes(`"${id}"`));
+    assert.equal(
+      manifest.contributes.commands.find((item) => item.command === id)?.enablement,
+      "isWorkspaceTrusted && pi.extensionConfirmationActive",
+    );
+    assert.equal(
+      manifest.contributes.menus["editor/title"].find((item) => item.command === id)?.when,
+      "pi.extensionConfirmationActive",
+    );
+  }
+});
+
 test("quick-fix menu contributions are hidden for read-only editors", () => {
   for (const menu of ["editor/title", "editor/context"]) {
     const contribution = manifest.contributes.menus[menu].find((item) => item.command === "pi.quickFix");

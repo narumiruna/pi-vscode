@@ -4,6 +4,7 @@ import path from "node:path";
 import * as vscode from "vscode";
 import { piConfiguration } from "./configuration";
 import { ConversationResponseCapture, ExclusiveOperationGate } from "./conversationController";
+import { type ExtensionDialogRequest, ExtensionDialogRequests } from "./extensionDialogRequests";
 import {
   PiRpcClient,
   type PiRpcClientOptions,
@@ -142,6 +143,9 @@ export function runtimeSessionIdentityChanged(
 }
 
 export class PiRuntimeManager implements vscode.Disposable {
+  private readonly extensionDialogs = new ExtensionDialogRequests();
+  private readonly dialogOrigins = new WeakMap<PiRpcEvent, ExtensionDialogRequest>();
+  private dialogGeneration = 0;
   private readonly eventEmitter = new vscode.EventEmitter<PiRpcEvent>();
   private readonly stateEmitter = new vscode.EventEmitter<PiRuntimeState>();
   private readonly bridge = new VscodeBridgeServer();
@@ -456,6 +460,12 @@ export class PiRuntimeManager implements vscode.Disposable {
   public async abort(): Promise<void> {
     const client = this.client;
     if (!client) return;
+    try {
+      this.extensionDialogs.cancelPending();
+    } catch (error) {
+      await client.stop();
+      throw new Error(`Pi disconnected after a dialog cancellation write failed. ${formatError(error)}`);
+    }
     if (this.queueGate.isPending) {
       await client.stop();
       throw new Error(
@@ -486,6 +496,8 @@ export class PiRuntimeManager implements vscode.Disposable {
     return this.owned(async () => {
       await this.ensureStarted(this.resource);
       if (this.state.busy) throw new Error("Stop or wait for Pi before starting a session.");
+      if (this.hasPendingExtensionDialogs) throw new Error("Finish or cancel the Pi extension dialog first.");
+      this.invalidateExtensionDialogs();
       this.resetExtensionUi();
       const result = await this.requireClient().newSession();
       if (isRecord(result) && result.cancelled) throw new Error("Pi cancelled the session switch.");
@@ -575,6 +587,8 @@ export class PiRuntimeManager implements vscode.Disposable {
       if (this.state.busy) throw new Error("Stop or wait for Pi before switching session.");
       await this.ensureStarted(this.resource);
       await assertSessionWorkspace(sessionPath, this.currentCwd);
+      if (this.hasPendingExtensionDialogs) throw new Error("Finish or cancel the Pi extension dialog first.");
+      this.invalidateExtensionDialogs();
       this.resetExtensionUi();
       const result = await this.requireClient().switchSession(sessionPath);
       if (isRecord(result) && result.cancelled) throw new Error("Pi cancelled the session switch.");
@@ -623,8 +637,19 @@ export class PiRuntimeManager implements vscode.Disposable {
     return this.requireClient().getMessages();
   }
 
-  public sendExtensionUiResponse(id: string, fields: Record<string, unknown>): void {
-    this.client?.sendExtensionUiResponse(id, fields);
+  public get hasPendingExtensionDialogs(): boolean {
+    return this.extensionDialogs.hasPending;
+  }
+
+  public invalidateExtensionDialogs(): void {
+    this.dialogGeneration++;
+    this.extensionDialogs.invalidate();
+  }
+
+  public claimExtensionUiRequest(event: PiRpcEvent): ExtensionDialogRequest | undefined {
+    const request = this.dialogOrigins.get(event);
+    this.dialogOrigins.delete(event);
+    return request?.isActive ? request : undefined;
   }
 
   public async exportSession(outputPath?: string): Promise<string> {
@@ -690,6 +715,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     const bridgeEnvironment = await this.bridgeEnvironment();
     const options = this.buildClientOptions(sessionPath, bridgeEnvironment);
     const client = new PiRpcClient(options);
+    this.invalidateExtensionDialogs();
     this.clientSubscription?.dispose();
     const subscription = client.onEvent((event) => {
       if (this.client === client) this.handleEvent(event);
@@ -703,6 +729,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     } catch (error) {
       subscription.dispose();
       if (this.client === client) {
+        this.invalidateExtensionDialogs();
         this.clientSubscription = undefined;
         this.client = undefined;
         this.resetExtensionUi();
@@ -768,6 +795,13 @@ export class PiRuntimeManager implements vscode.Disposable {
       await this.context.workspaceState.update(sessionPathKey, sessionFile);
     }
     if (revision !== this.refreshRevision || this.client !== client) return;
+    if (
+      runtimeSessionIdentityChanged(this.state, {
+        sessionId: stringField(rpcState, "sessionId"),
+        sessionFile,
+      })
+    )
+      this.invalidateExtensionDialogs();
     this.state = {
       connected: true,
       busy: this.promptActive || Boolean(rpcState.isStreaming),
@@ -904,6 +938,18 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   private handleEvent(event: PiRpcEvent): void {
+    if (event.type === "process_exit") this.invalidateExtensionDialogs();
+    if (event.type === "extension_ui_request") {
+      const client = this.client;
+      const generation = this.dialogGeneration;
+      if (client) {
+        const request = this.extensionDialogs.accept(event, (response) => {
+          if (this.client === client && client.isRunning && generation === this.dialogGeneration)
+            client.sendExtensionUiResponse(event.id as string, response);
+        });
+        if (request) this.dialogOrigins.set(event, request);
+      }
+    }
     this.eventEmitter.fire(event);
     if (event.type === "queue_update") {
       const queue = parseRpcQueue(event);
@@ -1098,6 +1144,7 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   private async stopClient(): Promise<void> {
+    this.invalidateExtensionDialogs();
     this.resetExtensionUi();
     const client = this.client;
     this.clientSubscription?.dispose();

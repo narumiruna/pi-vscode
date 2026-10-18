@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { downloadAndUnzipVSCode } from "@vscode/test-electron";
 import { chromium } from "playwright-core";
 import extensionUiFixture from "./fixtures/extension-ui.cjs";
+import { assertExtensionEditorDialogs } from "./editor-dialog-fixture.mjs";
 import toolFixture from "./fixtures/tool-activity.cjs";
 import { assertRichContent, richFixture } from "./rich-content-fixture.mjs";
 import { assertToolActivity } from "./tool-activity-fixture.mjs";
@@ -252,6 +253,7 @@ try {
   // Start a session detail pane, then capture all five provider-backed attachment types.
   let pi = await frame();
   await until(async () => (await pi.locator("body").innerText()).includes("Ready"), "Pi runtime ready");
+  if (!process.argv.includes("editor")) {
   const initial = await invoke("state");
   // Settings uses the real Extension Host configuration API and packaged webview.
   const settingsFrame = () =>
@@ -713,6 +715,8 @@ try {
       screenshot,
     }),
   );
+  }
+  await assertExtensionEditorDialogs({ page, directory, invoke, until, frame });
   await invoke("finish", {}, false);
 } catch (error) {
   if (page) {

@@ -29,6 +29,8 @@ export async function run(): Promise<void> {
   await vscode.commands.executeCommand("pi.openChat");
   await vscode.extensions.getExtension("vscode.typescript-language-features")?.activate();
   // Do not replay the reload command from the previous Extension Host.
+  let extensionEditor: vscode.TextDocument | undefined;
+  let extensionConfirmation: vscode.TextDocument | undefined;
   let lastId = await readFile(path.join(directory, "request.json"), "utf8")
     .then((text) => JSON.parse(text).id as number)
     .catch(() => 0);
@@ -55,6 +57,76 @@ export async function run(): Promise<void> {
         switch (request.action) {
           case "command":
             result = await vscode.commands.executeCommand(request.command);
+            break;
+          case "extensionConfirmationState": {
+            const editor = vscode.window.activeTextEditor;
+            assert.ok(editor);
+            assert.equal(editor.document.uri.scheme, "pi-extension-confirmation");
+            extensionConfirmation = editor.document;
+            const before = editor.document.getText();
+            result = {
+              text: before,
+              editAccepted: await editor.edit((edit) => edit.insert(new vscode.Position(0, 0), "forbidden")),
+              unchanged: editor.document.getText() === before,
+            };
+            break;
+          }
+          case "extensionConfirmationRefocus":
+            assert.ok(extensionConfirmation);
+            await vscode.window.showTextDocument(extensionConfirmation);
+            break;
+          case "extensionEditorState": {
+            const active = vscode.window.activeTextEditor?.document;
+            if (active?.uri.scheme === "untitled") extensionEditor = active;
+            result = {
+              text: active?.getText(),
+              scheme: active?.uri.scheme,
+              eol: active?.eol,
+              confirmationTabs: vscode.window.tabGroups.all
+                .flatMap((group) => group.tabs)
+                .filter(
+                  (tab) =>
+                    tab.input instanceof vscode.TabInputText && tab.input.uri.scheme === "pi-extension-confirmation",
+                ).length,
+              ownedTabs: extensionEditor
+                ? vscode.window.tabGroups.all
+                    .flatMap((group) => group.tabs)
+                    .filter(
+                      (tab) =>
+                        tab.input instanceof vscode.TabInputText &&
+                        tab.input.uri.toString() === extensionEditor?.uri.toString(),
+                    ).length
+                : 0,
+            };
+            break;
+          }
+          case "extensionEditorEdit": {
+            const editor = vscode.window.activeTextEditor;
+            assert.equal(editor?.document.uri.scheme, "untitled");
+            assert.ok(editor);
+            const document = editor.document;
+            assert.ok(
+              await editor.edit((edit) =>
+                edit.replace(
+                  new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)),
+                  request.text,
+                ),
+              ),
+            );
+            break;
+          }
+          case "extensionEditorOtherDocument":
+            await vscode.window.showTextDocument(source);
+            await vscode.commands.executeCommand("pi.extensionEditor.submit");
+            await vscode.commands.executeCommand("pi.extensionEditor.cancel");
+            break;
+          case "extensionEditorRefocus":
+            assert.ok(extensionEditor);
+            await vscode.window.showTextDocument(extensionEditor);
+            break;
+          case "extensionEditorClose":
+            assert.ok(vscode.window.tabGroups.activeTabGroup.activeTab);
+            result = await vscode.window.tabGroups.close(vscode.window.tabGroups.activeTabGroup.activeTab);
             break;
           case "settingsState":
             result = {

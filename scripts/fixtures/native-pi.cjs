@@ -2,7 +2,6 @@
 // Deterministic RPC subprocess for native UI tests. Never invokes a provider or tool.
 const fs = require("node:fs");
 const path = require("node:path");
-const readline = require("node:readline");
 const directory = process.env.PI_VSCODE_UI_FIXTURE;
 if (!directory) throw new Error("An isolated native UI fixture is required");
 const sessionFile = path.join(directory, "session.jsonl");
@@ -17,8 +16,21 @@ const messages = fs.existsSync(thinkingHistoryFile) ? JSON.parse(fs.readFileSync
 let queue = { steering: [], followUp: [] };
 let heldTimer;
 const emit = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
-readline.createInterface({ input: process.stdin }).on("line", (line) => {
+// Test-only inbound UI events; never uses a provider or the production bridge.
+setInterval(() => {
+  const file = path.join(directory, "extension-dialog.json");
+  if (!fs.existsSync(file)) return;
+  const event = JSON.parse(fs.readFileSync(file, "utf8"));
+  fs.unlinkSync(file);
+  if (event.type === "fixture_exit") process.exit(0);
+  emit(event);
+}, 50).unref();
+const onLine = (line) => {
   const request = JSON.parse(line);
+  if (request.type === "extension_ui_response") {
+    fs.appendFileSync(path.join(directory, "extension-dialog-responses.jsonl"), `${JSON.stringify(request)}\n`);
+    return;
+  }
   let data = {};
   if (request.type === "get_state")
     data = {
@@ -138,5 +150,17 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   if (request.type === "abort") {
     clearInterval(heldTimer);
     emit({ type: "agent_settled" });
+  }
+};
+// Match the public strict-JSONL framing: Unicode LS/PS are valid string content, not records.
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  input += chunk;
+  let newline;
+  while ((newline = input.indexOf("\n")) >= 0) {
+    const line = input.slice(0, newline).replace(/\r$/, "");
+    input = input.slice(newline + 1);
+    if (line) onLine(line);
   }
 });
