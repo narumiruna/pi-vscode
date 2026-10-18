@@ -86,6 +86,36 @@ for (const outcome of ["success", "cancelled", "switch-failed", "refresh-failed"
   });
 }
 
+test("history reads reject active execution before and after the RPC response", async () => {
+  const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
+  const runtime = new PiRuntimeManager({
+    environmentVariableCollection: { clear() {} },
+  } as unknown as vscode.ExtensionContext);
+  const internal = runtime as any;
+  internal.ensureStarted = async () => {};
+  let reads = 0;
+  internal.client = {
+    isRunning: true,
+    onEvent: () => ({ dispose() {} }),
+    stop: async () => {},
+    getMessages: async () => {
+      reads++;
+      internal.state.busy = true;
+      return [{ role: "assistant", content: "stale" }];
+    },
+  };
+  try {
+    internal.state.busy = true;
+    await assert.rejects(runtime.getMessages(), /Wait for Pi execution/);
+    assert.equal(reads, 0);
+    internal.state.busy = false;
+    await assert.rejects(runtime.getMessages(), /active execution/);
+    assert.equal(reads, 1);
+  } finally {
+    runtime.dispose();
+  }
+});
+
 test("history from a replaced client cannot be applied to the current session", async () => {
   const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
   const runtime = new PiRuntimeManager({

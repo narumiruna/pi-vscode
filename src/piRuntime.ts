@@ -1035,6 +1035,7 @@ export class PiRuntimeManager implements vscode.Disposable {
 
   public async getMessages(): Promise<unknown[]> {
     await this.ensureStarted(this.resource);
+    if (this.state.busy || this.promptActive || this.shellActive) throw new Error("Wait for Pi execution before reading history.");
     const client = this.requireClient();
     const sessionId = this.state.sessionId;
     const sessionFile = this.state.sessionFile;
@@ -1043,9 +1044,10 @@ export class PiRuntimeManager implements vscode.Disposable {
       client !== this.client ||
       !client.isRunning ||
       sessionId !== this.state.sessionId ||
-      sessionFile !== this.state.sessionFile
+      sessionFile !== this.state.sessionFile ||
+      this.state.busy || this.promptActive || this.shellActive
     )
-      throw new Error("Pi history belongs to an expired client or session.");
+      throw new Error("Pi history belongs to an expired client or session, or active execution.");
     return messages;
   }
 

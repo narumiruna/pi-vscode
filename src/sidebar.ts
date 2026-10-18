@@ -1594,6 +1594,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         }
       }
     } else if (event.type === "agent_start") {
+      this.historySyncRevision += 1;
       this.status = "Pi is working…";
       this.tools = [];
     } else if (event.type === "message_start") {
@@ -1745,13 +1746,13 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.postState();
       throw new Error("Pi disconnected before conversation history could be synchronized.");
     }
-    if (this.runtime.currentState.busy && !verifiedImport) {
+    if (verifiedImport ? this.requestGate.isPending : this.runtime.currentState.busy) {
       throw new Error("Wait for Pi to finish before refreshing conversation history.");
     }
     const revision = ++this.historySyncRevision;
     try {
       const values = await this.runtime.getMessages();
-      if (revision !== this.historySyncRevision || this.runtime.currentState.busy) return;
+      if (revision !== this.historySyncRevision || (verifiedImport ? this.requestGate.isPending : this.runtime.currentState.busy)) return;
       const messages = convertPiMessages(values, {
         imageAssets: this.imageAssets,
         knownMessages: this.messages,
