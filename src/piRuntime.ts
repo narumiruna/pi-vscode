@@ -486,6 +486,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     return this.owned(async () => {
       await this.ensureStarted(this.resource);
       if (this.state.busy) throw new Error("Stop or wait for Pi before starting a session.");
+      this.resetExtensionUi();
       const result = await this.requireClient().newSession();
       if (isRecord(result) && result.cancelled) throw new Error("Pi cancelled the session switch.");
       this.resetQueueTracking();
@@ -574,6 +575,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       if (this.state.busy) throw new Error("Stop or wait for Pi before switching session.");
       await this.ensureStarted(this.resource);
       await assertSessionWorkspace(sessionPath, this.currentCwd);
+      this.resetExtensionUi();
       const result = await this.requireClient().switchSession(sessionPath);
       if (isRecord(result) && result.cancelled) throw new Error("Pi cancelled the session switch.");
       this.resetQueueTracking();
@@ -649,7 +651,13 @@ export class PiRuntimeManager implements vscode.Disposable {
     terminal.show();
   }
 
+  /** Clear before replacing resources/session so only newly emitted Pi UI is retained. */
+  public resetExtensionUi(): void {
+    this.eventEmitter.fire({ type: "extension_ui_reset" });
+  }
+
   public dispose(): void {
+    this.resetExtensionUi();
     this.clientSubscription?.dispose();
     this.clientSubscription = undefined;
     void this.stopClient();
@@ -683,9 +691,12 @@ export class PiRuntimeManager implements vscode.Disposable {
     const options = this.buildClientOptions(sessionPath, bridgeEnvironment);
     const client = new PiRpcClient(options);
     this.clientSubscription?.dispose();
-    const subscription = client.onEvent((event) => this.handleEvent(event));
+    const subscription = client.onEvent((event) => {
+      if (this.client === client) this.handleEvent(event);
+    });
     this.clientSubscription = subscription;
     this.client = client;
+    this.resetExtensionUi();
     try {
       await client.start();
       await this.refreshState(true);
@@ -694,6 +705,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       if (this.client === client) {
         this.clientSubscription = undefined;
         this.client = undefined;
+        this.resetExtensionUi();
       }
       await this.stopDetachedClient(client);
       throw error;
@@ -1086,6 +1098,7 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   private async stopClient(): Promise<void> {
+    this.resetExtensionUi();
     const client = this.client;
     this.clientSubscription?.dispose();
     this.clientSubscription = undefined;

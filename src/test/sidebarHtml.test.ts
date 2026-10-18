@@ -22,6 +22,61 @@ test("rich assets preserve nonce-only scripts, offline resource restrictions and
   assert.match(html, /else content\.innerHTML = html/);
 });
 
+test("extension status and widgets render as inert ordered text without changing host warning or Stop", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "showSessionDetail" });
+  sidebar.receive({ type: "notice", level: "warning", message: "Queued delivery is uncertain. Check history." });
+  const text = "<script>unsafe()</script> [run](command:run)";
+  const state = {
+    type: "state",
+    runtime: { connected: true, busy: true, cancellable: true },
+    status: "Pi is working…",
+    extensionUi: {
+      statuses: [
+        { key: "second", text },
+        { key: "first", text: "one" },
+      ],
+      widgets: [
+        { key: "above", lines: [text, "line two"], placement: "aboveEditor" },
+        { key: "below", lines: ["below text"], placement: "belowEditor" },
+      ],
+      diagnostic: "An extension update was ignored.",
+    },
+  };
+  sidebar.receive(state);
+  const above = sidebar.element("extension-ui-above");
+  const below = sidebar.element("extension-ui-below");
+  assert.deepEqual(
+    above.children.map((child) => child.textContent),
+    [
+      "Extension status",
+      `second: ${text}`,
+      "first: one",
+      "Extension widgets · above editor",
+      "above",
+      `${text}\nline two`,
+      "An extension update was ignored.",
+    ],
+  );
+  assert.deepEqual(
+    below.children.map((child) => child.textContent),
+    ["Extension widgets · below editor", "below", "below text"],
+  );
+  assert.equal(above.innerHTML, "");
+  assert.equal(below.innerHTML, "");
+  assert.equal(sidebar.element("cancel").hidden, false);
+  assert.equal(sidebar.element("notice").textContent, "Queued delivery is uncertain. Check history.");
+  assert.equal(sidebar.element("status").textContent, "Pi is working…");
+  const retained = above.children[0];
+  sidebar.receive(state);
+  assert.equal(above.children[0], retained, "identical updates preserve keyboard/scroll targets");
+  sidebar.receive({ ...state, extensionUi: { statuses: [], widgets: [] } });
+  assert.equal(above.hidden, true);
+  assert.equal(below.hidden, true);
+  assert.equal(above.children.length, 0);
+  assert.equal(below.children.length, 0);
+});
+
 test("follow-up shortcut selection uses the webview client OS", () => {
   const windows = createSidebarScriptHarness("Win32");
   assert.equal(windows.run("useCtrlQForFollowUp"), true);

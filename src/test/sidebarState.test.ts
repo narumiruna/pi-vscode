@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { extensionUiLimits, SidebarExtensionUi } from "../sidebarExtensionUi";
 import {
   historySyncFailureState,
   limitSidebarMessages,
@@ -9,6 +10,131 @@ import {
   shortTranscriptLabel,
   sidebarMessagesForWebview,
 } from "../sidebarState";
+
+test("extension UI preserves keyed order, replacement, removal, empty widgets and placements", () => {
+  const ui = new SidebarExtensionUi();
+  const status = (statusKey: string, statusText?: unknown) => ui.update({ method: "setStatus", statusKey, statusText });
+  const widget = (widgetKey: string, widgetLines?: unknown, widgetPlacement?: unknown) =>
+    ui.update({ method: "setWidget", widgetKey, widgetLines, widgetPlacement });
+  assert.equal(status("second", "two"), true);
+  status("first", "one");
+  status("second", "updated");
+  assert.deepEqual(ui.state.statuses, [
+    { key: "second", text: "updated" },
+    { key: "first", text: "one" },
+  ]);
+  assert.equal(status("second", "updated"), false, "identical updates do not change visible state");
+  widget("default", ["one", "two"]);
+  widget("below", ["below"], "belowEditor");
+  widget("empty", []);
+  assert.deepEqual(ui.state.widgets, [
+    { key: "default", lines: ["one", "two"], placement: "aboveEditor" },
+    { key: "below", lines: ["below"], placement: "belowEditor" },
+    { key: "empty", lines: [], placement: "aboveEditor" },
+  ]);
+  assert.equal(widget("default", ["one", "two"], "aboveEditor"), false);
+  widget("default", ["replacement"], "belowEditor");
+  status("second");
+  widget("below");
+  assert.equal(status("absent"), false);
+  assert.deepEqual(
+    ui.state.statuses.map((entry) => entry.key),
+    ["first"],
+  );
+  assert.deepEqual(
+    ui.state.widgets.map((entry) => entry.key),
+    ["default", "empty"],
+  );
+  status("__proto__", "safe map key");
+  assert.equal(ui.state.statuses.at(-1)?.key, "__proto__");
+  ui.clear();
+  assert.deepEqual(ui.state, { statuses: [], widgets: [] });
+});
+
+test("extension UI removes ANSI, OSC, string controls and bidi while keeping inert source text", () => {
+  const ui = new SidebarExtensionUi();
+  const source = "<script>alert(1)</script> **text** [link](command:workbench.action.closeWindow)";
+  ui.update({
+    method: "setStatus",
+    statusKey: "raw\u001b[31mkey",
+    statusText: `\u001b[31m${source}\u001b[0m\u0008\u202e`,
+  });
+  ui.update({
+    method: "setWidget",
+    widgetKey: "raw",
+    widgetLines: [
+      "\u001b]8;;https://example.invalid\u0007visible\u001b]8;;\u001b\\",
+      "before\u001b]52;c;secret\u0007after",
+      "\u009d0;title\u009ctext\u001bPprivate\u001b\\end",
+      "start\u001b]unterminated payload",
+      "\u001b[2Jline\r\n\tend",
+    ],
+  });
+  assert.deepEqual(ui.state.statuses, [{ key: "rawkey", text: source }]);
+  assert.deepEqual(ui.state.widgets[0]?.lines, ["visible", "beforeafter", "textend", "start", "lineend"]);
+  ui.update({ method: "setStatus", statusKey: "raw\u001b[31mkey" });
+  assert.equal(ui.state.statuses.length, 0, "raw protocol keys remain removal identities");
+});
+
+test("extension UI rejects malformed records, exact bounds and floods without evicting earlier state", () => {
+  assert.deepEqual(extensionUiLimits, {
+    statusKeys: 16,
+    widgetKeys: 16,
+    keyCharacters: 128,
+    lines: 20,
+    lineCharacters: 1000,
+    retainedCharacters: 32000,
+  });
+  const ui = new SidebarExtensionUi();
+  ui.update({ method: "setWidget", widgetKey: "kept", widgetLines: ["kept"] });
+  const invalid = [
+    { method: "setStatus", statusKey: "", statusText: "x" },
+    { method: "setStatus", statusKey: "k".repeat(129), statusText: "x" },
+    { method: "setStatus", statusKey: "key", statusText: null },
+    { method: "setStatus", statusKey: "key", statusText: "x".repeat(1001) },
+    { method: "setWidget", widgetKey: "kept", widgetLines: "not array" },
+    { method: "setWidget", widgetKey: "kept", widgetLines: [null] },
+    { method: "setWidget", widgetKey: "kept", widgetLines: Array(21).fill("") },
+    { method: "setWidget", widgetKey: "kept", widgetLines: ["x".repeat(1001)] },
+    ...["invalid", null, false].map((widgetPlacement) => ({
+      method: "setWidget",
+      widgetKey: "kept",
+      widgetLines: [],
+      widgetPlacement,
+    })),
+  ];
+  for (const event of invalid) ui.update(event);
+  assert.deepEqual(ui.state.widgets[0]?.lines, ["kept"]);
+  assert.ok(ui.state.diagnostic);
+  assert.ok(ui.state.diagnostic.length < 120);
+  assert.equal(ui.update(invalid[0]!), false, "one fixed diagnostic per generation, not a notice flood");
+  ui.clear();
+  ui.update({ method: "setStatus", statusKey: "k".repeat(128), statusText: "x".repeat(1000) });
+  ui.update({ method: "setWidget", widgetKey: "k".repeat(128), widgetLines: Array(20).fill("x".repeat(1000)) });
+  assert.equal(ui.state.statuses.length, 1);
+  assert.equal(ui.state.widgets.length, 1);
+  // Exactly 32,000 retained characters, counting both raw keys and text.
+  ui.update({
+    method: "setWidget",
+    widgetKey: "tail",
+    widgetLines: Array(10).fill("x".repeat(1000)).concat("x".repeat(740)),
+  });
+  assert.equal(ui.state.widgets.length, 2);
+  ui.update({ method: "setStatus", statusKey: "overflow", statusText: "x" });
+  assert.equal(ui.state.statuses.length, 1);
+  ui.update({ method: "setWidget", widgetKey: "tail", widgetLines: [] });
+  ui.update({ method: "setStatus", statusKey: "overflow", statusText: "x" });
+  assert.equal(ui.state.statuses.length, 2, "replacement releases its previous budget");
+  ui.clear();
+  for (let index = 0; index < 10_000; index++) {
+    ui.update({ method: "setStatus", statusKey: String(index), statusText: "x" });
+    ui.update({ method: "setWidget", widgetKey: String(index), widgetLines: [] });
+  }
+  assert.equal(ui.state.statuses.length, 16);
+  assert.equal(ui.state.widgets.length, 16);
+  assert.equal(ui.state.statuses[0]?.key, "0");
+  assert.equal(ui.state.widgets[0]?.key, "0");
+});
 
 test("runtime notices use bounded known causes and never interpolate diagnostics", () => {
   const unknown = runtimeNoticeSummary({ type: "runtime_warning", warningCode: "/secret/path <script>" });

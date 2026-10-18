@@ -44,6 +44,12 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   if (request.type === "get_queue") data = queue;
   emit({ type: "response", id: request.id, command: request.type, success: true, data });
   if (request.type === "prompt") {
+    const uiFile = path.join(directory, "extension-ui.json");
+    if (fs.existsSync(uiFile)) {
+      JSON.parse(fs.readFileSync(uiFile, "utf8")).forEach((event, index) => {
+        emit({ type: "extension_ui_request", id: `fixture-ui-${index}`, ...event });
+      });
+    }
     fs.appendFileSync(path.join(directory, "prompts.jsonl"), `${JSON.stringify(request)}\n`);
     const text = fs.readFileSync(path.join(directory, "response.txt"), "utf8");
     const imageFile = path.join(directory, "interface-images.json");

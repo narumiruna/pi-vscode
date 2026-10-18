@@ -30,6 +30,7 @@ import {
   resolveSidebarSubmissionText,
   SidebarAttachmentManager,
 } from "./sidebarAttachments";
+import { SidebarExtensionUi } from "./sidebarExtensionUi";
 import {
   boundToolText,
   convertPiMessages,
@@ -114,6 +115,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   private view: vscode.WebviewView | undefined;
   private messages: SidebarMessage[];
   private tools: ToolActivity[] = [];
+  private readonly extensionUi = new SidebarExtensionUi();
   private changes: TrackedFileChange[] = [];
   private readonly proposals: EditProposalStore;
   private readonly imageAssets = new ImageAssetCache({
@@ -219,6 +221,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     }
     this.proposals.clear();
     this.queuedTranscriptPresentations.clear();
+    this.extensionUi.clear();
     this.attachments.dispose();
     this.imageAssets.clear();
   }
@@ -1394,7 +1397,10 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         this.changes = this.changeTracker.finishRequest(this.requestLifecycle.wasCancelled ? "cancelled" : "completed");
         this.trackCurrentRequestChanges = false;
       }
+    } else if (event.type === "extension_ui_reset") {
+      this.extensionUi.clear();
     } else if (event.type === "process_exit") {
+      this.extensionUi.clear();
       this.queuedTranscriptPresentations.clear();
       if (this.trackCurrentRequestChanges) {
         this.changes = this.changeTracker.finishRequest("process-exit");
@@ -1419,7 +1425,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       return;
     }
 
-    if (method === "select") {
+    if (method === "setStatus" || method === "setWidget") {
+      if (this.extensionUi.update(event)) this.scheduleState();
+    } else if (method === "select") {
       const options = Array.isArray(event.options) ? event.options.filter((value) => typeof value === "string") : [];
       const value = await vscode.window.showQuickPick(options, {
         title: stringValue(event.title) ?? "Pi",
@@ -1587,6 +1595,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       type: "state",
       messages,
       tools: this.tools,
+      extensionUi: this.extensionUi.state,
       changes: this.changes,
       proposals: this.proposals.states,
       backgroundTasks: this.backgroundAgents.states,

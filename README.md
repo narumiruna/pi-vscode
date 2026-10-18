@@ -119,6 +119,10 @@ Process-launching and mutation workflows require a trusted, file-backed workspac
 
 ## Panel content
 
+Pi extensions can show keyed status text and text-array widgets above or below the composer. These labelled **Extension status** and **Extension widgets** areas are separate from host connection, permission, queue, and Stop controls. Keys are supplied by Pi, not verified extension identities. Terminal controls are removed; HTML, Markdown, links, ANSI styling, and terminal component factories are not rendered. This uses the public RPC contract checked against Pi 1.3.0; runtimes that do not emit these events show no extension area and need no feature probe.
+
+Extension UI is memory-only. A new session, session switch, client replacement, disconnect, or extension disposal clears it. Only new Pi events restore it; RPC has no widget snapshot endpoint. Reopening the panel within the same runtime keeps current entries. Limits are 16 status keys and 16 widget keys, 128 characters per key, 20 lines per widget, 1,000 characters per status or line, and 32,000 retained key/text characters. Invalid or oversized updates keep earlier entries and show one bounded diagnostic in the extension area, not a host warning.
+
 Long assistant prose uses a bounded reading column. Code, tables, math, and diagrams can use the full message width. The footer keeps work/connection status and context usage visible; **Session details** contains the copyable session ID. Runtime notices show bounded summaries with **View diagnostic** for raw details. Queue uncertainty never means it is safe to resend.
 
 The session panel supports Markdown headings, nested lists, task lists, tables, quotes, links, emphasis, and strikethrough. Code highlighting covers Bash, CSS, JavaScript, JSON, Python, TypeScript, and HTML/XML, including their registered aliases. Other languages stay plain text.
@@ -247,7 +251,7 @@ npm run test:thinking-picker
 npm run test:settings
 ```
 
-The rich-content check tests the sidebar document, CSP, rendering, themes, overflow, and asynchronous lifecycle. It also runs deterministic interface fixtures for responsive actions, attachments, queue submissions, session details, status, and scroll preservation. Run it after renderer changes. Run the thinking-picker check after thinking-picker changes. The settings check tests controls, scopes, reset, external-change conflicts, draft recovery, keyboard navigation, themes, layout, and CSP using the bundled assets. None of these checks uses a live model.
+The rich-content check tests the sidebar document, CSP, rendering, themes, overflow, and asynchronous lifecycle. It also runs deterministic interface fixtures for responsive actions, attachments, queue submissions, session details, status, and scroll preservation. Extension status/widget fixtures check keyed ordering, removal, text safety, keyboard order, four themes, 40 narrow/short layouts, and host warning/Stop visibility. Run it after renderer changes. Run the thinking-picker check after thinking-picker changes. The settings check tests controls, scopes, reset, external-change conflicts, draft recovery, keyboard navigation, themes, layout, and CSP using the bundled assets. None of these checks uses a live model.
 
 ### Native VS Code checks
 

@@ -4,8 +4,9 @@ import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { build } from "esbuild";
 import { chromium } from "playwright-core";
-import { assertRichContent, richFixture } from "./rich-content-fixture.mjs";
+import { assertExtensionUi } from "./extension-ui-fixture.mjs";
 import { assertInterface } from "./interface-fixture.mjs";
+import { assertRichContent, richFixture } from "./rich-content-fixture.mjs";
 
 const require = createRequire(import.meta.url);
 const { getSidebarHtml } = require("../out/sidebarHtml.js");
@@ -35,6 +36,7 @@ try {
     "PI_INTERFACE_BROWSER_EVIDENCE",
     JSON.stringify(await assertInterface(browser, getSidebarHtml, renderSafeMarkdown)),
   );
+  console.log("PI_EXTENSION_UI_BROWSER_EVIDENCE", JSON.stringify(await assertExtensionUi(browser, getSidebarHtml)));
   const page = await browser.newPage({ viewport: { width: 600, height: 800 } });
   const errors = [];
   const external = [];

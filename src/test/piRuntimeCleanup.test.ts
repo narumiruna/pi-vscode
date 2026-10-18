@@ -106,11 +106,19 @@ for (const mode of ["trash", "permanent", "stop-failure"] as const) {
         await deletion;
         assert.deepEqual(client.order, ["stop", "warning", "stop-settled", "delete", "replacement"]);
       }
-      assert.deepEqual(events, [cleanupWarning], "old-client exit must not enter the detached runtime event stream");
+      assert.deepEqual(
+        events,
+        [{ type: "extension_ui_reset" }, cleanupWarning],
+        "old-client exit must not enter the detached runtime event stream",
+      );
       assert.equal(client.listeners.size, 0, "cleanup subscriptions must be released on success and failure");
       client.emit(cleanupWarning);
       client.emit({ type: "process_exit", code: 7, signal: null, expected: false });
-      assert.deepEqual(events, [cleanupWarning], "late detached-client events must not reach a replacement session");
+      assert.deepEqual(
+        events,
+        [{ type: "extension_ui_reset" }, cleanupWarning],
+        "late detached-client events must not reach a replacement session",
+      );
     } finally {
       runtime.dispose();
       rmSync(root, { recursive: true, force: true });
@@ -122,7 +130,9 @@ for (const phase of ["refresh", "start-exit"]) {
   test(`foreground ${phase} failure reports cleanup and releases its subscription`, async () => {
     const { PiRpcClient } = require("../piRpcClient") as typeof import("../piRpcClient");
     const startupExit: PiRpcEvent = { type: "process_exit", code: 1, signal: null, expected: true };
-    const expectedEvents = phase === "start-exit" ? [startupExit, cleanupWarning] : [cleanupWarning];
+    const reset: PiRpcEvent = { type: "extension_ui_reset" };
+    const expectedEvents =
+      phase === "start-exit" ? [reset, startupExit, cleanupWarning] : [reset, reset, cleanupWarning];
     const start = vi.spyOn(PiRpcClient.prototype, "start").mockImplementation(async function (this: PiRpcClient) {
       if (phase === "start-exit") {
         (this as unknown as { emit: (event: PiRpcEvent) => void }).emit(startupExit);

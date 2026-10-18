@@ -203,6 +203,12 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     button.attachment-remove:hover:not(:disabled) { background: var(--vscode-toolbar-hoverBackground); }
     button.composer-image:focus-visible, button.attachment-remove:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--vscode-focusBorder); }
     #composer { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding-top: 12px; }
+    .extension-ui-block { flex: 0 1 auto; min-width: 0; min-height: 0; max-height: 8vh; overflow-y: auto; scrollbar-width: thin; padding: 3px 4px; border: 1px solid var(--vscode-contrastBorder, var(--pi-border)); color: var(--vscode-descriptionForeground); font-size: .8em; overflow-wrap: anywhere; }
+    .extension-ui-block[hidden] { display: none; }
+    .extension-ui-block h2, .extension-ui-block p { margin: 0; font: inherit; }
+    .extension-ui-block h2 { font-weight: 600; }
+    .extension-ui-block pre { margin: 0 0 3px; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+    #composer.has-extension-ui .composer-box { max-height: 44vh; }
     #slash-commands { position: absolute; bottom: calc(100% - 6px); left: 0; right: 0; z-index: 10; max-height: min(260px, 40vh); overflow-y: auto; padding: 4px; border: 1px solid var(--vscode-editorSuggestWidget-border, var(--pi-border)); border-radius: 8px; color: var(--vscode-editorSuggestWidget-foreground, var(--vscode-foreground)); background: var(--vscode-editorSuggestWidget-background, var(--vscode-editor-background)); box-shadow: 0 4px 16px var(--vscode-widget-shadow); }
     #slash-commands button { display: flex; width: 100%; justify-content: flex-start; gap: 12px; border: 0; padding: 6px 8px; text-align: left; color: inherit; background: transparent; }
     #slash-commands button[aria-selected="true"] { color: var(--vscode-editorSuggestWidget-selectedForeground, var(--vscode-list-activeSelectionForeground)); background: var(--vscode-editorSuggestWidget-selectedBackground, var(--vscode-list-activeSelectionBackground)); }
@@ -294,6 +300,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     </section>
     <section id="composer" aria-label="Message composer">
       <div id="slash-commands" role="listbox" aria-label="Slash commands" hidden></div>
+      <section id="extension-ui-above" class="extension-ui-block" tabindex="0" aria-label="Pi extension status and widgets above editor" hidden></section>
       <div class="composer-box">
         <div id="attachments" aria-label="Attachments for the next message" hidden></div>
         <div id="attachment-estimate" class="proposal-meta"></div>
@@ -317,6 +324,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           <button id="send" type="button" aria-label="Send message" title="Send message" disabled>${icon("send")}<span id="submission-label">Next</span></button>
         </div>
       </div>
+      <section id="extension-ui-below" class="extension-ui-block" tabindex="0" aria-label="Pi extension widgets below editor" hidden></section>
       <p id="settings-description" class="sr-only"></p>
       <details id="composer-help"><summary>Submission help</summary><div id="composer-hint">Enter to send · Shift+Enter for a new line</div></details>
     </section>
@@ -1305,7 +1313,53 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       renderSlashCommands();
     }
 
+    let renderedExtensionUi = '';
+    function renderExtensionUi(state) {
+      const ui = state || { statuses: [], widgets: [] };
+      const serialized = JSON.stringify(ui);
+      if (serialized === renderedExtensionUi) return;
+      renderedExtensionUi = serialized;
+      const above = $('extension-ui-above');
+      const below = $('extension-ui-below');
+      above.replaceChildren();
+      below.replaceChildren();
+      function heading(parent, text) {
+        const node = document.createElement('h2');
+        node.textContent = text;
+        parent.append(node);
+      }
+      if ((ui.statuses || []).length) {
+        heading(above, 'Extension status');
+        for (const entry of ui.statuses) {
+          const row = document.createElement('p');
+          row.textContent = entry.key + ': ' + entry.text;
+          above.append(row);
+        }
+      }
+      for (const placement of ['aboveEditor', 'belowEditor']) {
+        const parent = placement === 'aboveEditor' ? above : below;
+        const widgets = (ui.widgets || []).filter(widget => widget.placement === placement);
+        if (widgets.length) heading(parent, 'Extension widgets · ' + (placement === 'aboveEditor' ? 'above editor' : 'below editor'));
+        for (const widget of widgets) {
+          const label = document.createElement('p');
+          label.textContent = widget.key;
+          const text = document.createElement('pre');
+          text.textContent = widget.lines.join('\\n');
+          parent.append(label, text);
+        }
+      }
+      if (ui.diagnostic) {
+        const diagnostic = document.createElement('p');
+        diagnostic.textContent = ui.diagnostic;
+        above.append(diagnostic);
+      }
+      above.hidden = !above.children.length;
+      below.hidden = !below.children.length;
+      $('composer').classList.toggle('has-extension-ui', !above.hidden || !below.hidden);
+    }
+
     function render(state) {
+      renderExtensionUi(state.extensionUi);
       const catalog = [{ name: 'compact', description: 'Manually compact the session context' }, ...(state.runtime.commands || [])];
       const names = new Set();
       slashCommands = catalog.filter(command => {

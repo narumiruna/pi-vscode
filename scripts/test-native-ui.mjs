@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { downloadAndUnzipVSCode } from "@vscode/test-electron";
 import { chromium } from "playwright-core";
+import extensionUiFixture from "./fixtures/extension-ui.cjs";
 import toolFixture from "./fixtures/tool-activity.cjs";
 import { assertRichContent, richFixture } from "./rich-content-fixture.mjs";
 import { assertToolActivity } from "./tool-activity-fixture.mjs";
@@ -68,6 +69,7 @@ try {
   await copyFile(path.join(repository, "scripts", "fixtures", "native-pi.cjs"), executableFixture);
   await chmod(executableFixture, 0o700);
   await respond("Native fixture explanation.");
+  await writeFile(path.join(directory, "extension-ui.json"), JSON.stringify(extensionUiFixture));
   await writeFile(
     path.join(userData, "User", "settings.json"),
     JSON.stringify({
@@ -527,6 +529,12 @@ try {
   assert.equal(state.findings.length, 0);
   pi = await frame();
   assert.equal(await pi.locator(".proposal").count(), 0);
+  assert.equal(
+    await pi.locator("#extension-ui-above").isVisible(),
+    false,
+    "reload must not restore stale extension UI",
+  );
+  assert.equal(await pi.locator("#extension-ui-below").isVisible(), false);
   const pids = (await readFile(path.join(directory, "pids.jsonl"), "utf8")).trim().split("\n").map(Number);
   await until(() => {
     try {
@@ -547,6 +555,11 @@ try {
   await pi.locator("#after-this").waitFor();
   assert.equal(await pi.locator("#cancel").isVisible(), true);
   assert.match(await pi.locator("#status").innerText(), /working|Sending/i);
+  await pi.locator("#extension-ui-above").waitFor();
+  assert.match(await pi.locator("#extension-ui-above").innerText(), /second: Updated status/);
+  assert.equal(await pi.locator(".extension-ui-block script, .extension-ui-block a").count(), 0);
+  assert.equal(await pi.evaluate(() => window.extensionInjected), undefined);
+  assert.equal(await pi.locator("#extension-ui-below > p").textContent(), "below");
   for (const [selector, text] of [
     ["#send", "Next native instruction"],
     ["#after-this", "After this native instruction"],
@@ -572,7 +585,17 @@ try {
     await invoke("zoom", { level: Math.log(2) / Math.log(1.2) });
     await delay(500);
     assert.equal(await pi.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    for (const id of ["input", "add-context", "cancel", "after-this", "send", "status", "usage"]) {
+    for (const id of [
+      "input",
+      "add-context",
+      "cancel",
+      "after-this",
+      "send",
+      "status",
+      "usage",
+      "extension-ui-above",
+      "extension-ui-below",
+    ]) {
       const geometry = await pi.locator(`#${id}`).evaluate((element) => ({
         rect: element.getBoundingClientRect().toJSON(),
         viewport: [innerWidth, innerHeight],

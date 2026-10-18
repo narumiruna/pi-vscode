@@ -655,6 +655,117 @@ test("process exit recovers only the undelivered queue suffix with its attachmen
   }
 });
 
+test("extension UI is foreground-generation scoped, fire-and-forget and restored only within panel re-resolution", async () => {
+  const vscode = installVscodeMock();
+  vscode.window.registerWebviewViewProvider = () => ({ dispose() {} });
+  const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
+  const { PiRpcClient } = require("../piRpcClient") as typeof import("../piRpcClient");
+  const { registerPiSidebar } = require("../sidebar") as typeof import("../sidebar");
+  const context: any = {
+    workspaceState: { get: () => undefined, update: async () => {} },
+    environmentVariableCollection: { clear() {} },
+    extensionUri: MockUri.file("/extension"),
+    subscriptions: [],
+  };
+  const runtime = new PiRuntimeManager(context);
+  const host = runtime as any;
+  host.bridgeEnvironment = async () => ({});
+  host.buildClientOptions = () => ({ executablePath: process.execPath, cwd: process.cwd() });
+  host.refreshState = async () => {};
+  host.ensureStarted = async () => {};
+  const callbacks: Array<(event: any) => void> = [];
+  const onEvent = PiRpcClient.prototype.onEvent;
+  const eventSpy = vi.spyOn(PiRpcClient.prototype, "onEvent").mockImplementation(function (this: any, listener) {
+    callbacks.push(listener);
+    return onEvent.call(this, listener);
+  });
+  const start = vi.spyOn(PiRpcClient.prototype, "start").mockResolvedValue(undefined);
+  const stop = vi.spyOn(PiRpcClient.prototype, "stop").mockResolvedValue(undefined);
+  const response = vi.spyOn(PiRpcClient.prototype, "sendExtensionUiResponse");
+  const internal = registerPiSidebar(context, runtime) as any;
+  internal.initializeRuntime = async () => {};
+  const posted: any[] = [];
+  const resolveView = () =>
+    internal.resolveWebviewView({
+      webview: {
+        cspSource: "resource:",
+        asWebviewUri: (uri: any) => uri,
+        onDidReceiveMessage: () => ({ dispose() {} }),
+        postMessage: async (message: any) => {
+          posted.push(message);
+          return true;
+        },
+      },
+      onDidDispose: () => ({ dispose() {} }),
+    });
+  const status = (text: string) => ({
+    type: "extension_ui_request",
+    id: "status",
+    method: "setStatus",
+    statusKey: "key",
+    statusText: text,
+  });
+  try {
+    await host.createAndStartClient(undefined);
+    const first = callbacks[0]!;
+    first(status("old"));
+    first({
+      type: "extension_ui_request",
+      id: "widget",
+      method: "setWidget",
+      widgetKey: "widget",
+      widgetLines: ["old widget"],
+    });
+    resolveView();
+    assert.equal(posted.at(-1).extensionUi.statuses[0].text, "old");
+    resolveView();
+    assert.equal(
+      posted.at(-1).extensionUi.widgets[0].lines[0],
+      "old widget",
+      "panel re-resolution retains only current memory state",
+    );
+    Object.defineProperty(host.client, "isRunning", { value: true });
+    host.client.newSession = async () => {
+      first(status("new session"));
+      return {};
+    };
+    await runtime.newSession();
+    internal.postState();
+    assert.deepEqual(
+      posted.at(-1).extensionUi,
+      { statuses: [{ key: "key", text: "new session" }], widgets: [] },
+      "reset precedes new session_start events",
+    );
+    await host.createAndStartClient(undefined);
+    first(status("late replaced client"));
+    internal.postState();
+    assert.deepEqual(posted.at(-1).extensionUi, { statuses: [], widgets: [] });
+    const second = callbacks[1]!;
+    second(status("replacement"));
+    runtime.resetExtensionUi(); // Shared lifecycle hook for reload/fork/clone integrations.
+    internal.postState();
+    assert.deepEqual(posted.at(-1).extensionUi, { statuses: [], widgets: [] });
+    second(status("re-emitted"));
+    second({ type: "process_exit" });
+    second(status("late disconnected client"));
+    internal.postState();
+    assert.deepEqual(posted.at(-1).extensionUi, { statuses: [], widgets: [] });
+    assert.equal(response.mock.calls.length, 0, "status and widget updates never receive dialog responses");
+    assert.deepEqual(context.workspaceState.get(), undefined, "extension UI has no persistent snapshot");
+    internal.dispose();
+    assert.deepEqual(internal.extensionUi.state, { statuses: [], widgets: [] });
+  } finally {
+    for (const disposable of context.subscriptions) disposable.dispose();
+    runtime.dispose();
+    eventSpy.mockRestore();
+    start.mockRestore();
+    stop.mockRestore();
+    response.mockRestore();
+    delete require.cache[require.resolve("../sidebar")];
+    vscode.restore();
+  }
+});
+
 test("Open Sessions focuses the sidebar and restores its list layer", async () => {
   const vscode = installVscodeMock();
   vscode.window.registerWebviewViewProvider = () => ({ dispose() {} });
