@@ -246,7 +246,10 @@
         "command": "pi.openChat",
         "title": "Open Sessions",
         "category": "Pi",
-        "icon": "resources/pi.svg"
+        "icon": {
+          "light": "resources/pi.svg",
+          "dark": "resources/pi-dark.svg"
+        }
       },
       {
         "command": "pi.askSelection",
