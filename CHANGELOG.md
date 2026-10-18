@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.2
+
+### Patch Changes
+
+- ca87a42: Show submission blockers beside the composer. Add latest-output navigation, capability-aware file hints, stable accessible message headings, grouped native session actions, and a transcript code-wrapping toggle.
+  
+  Add bounded, local conversation search and earlier/latest history browsing without model calls or changes to permission and edit guards.
+- ca87a42: Add opt-in, bounded workspace text draft recovery with explicit Restore and Discard. Keep attachments and extension dialogs out of draft storage, and prevent recovery from sending requests or replacing newer composer text.
+- b6a8a86: Keep the Sessions composer available after accepted local reload and compaction commands, and resume saving newer draft text after acceptance or rejection. Keep the decorative Pi mark out of screen-reader heading navigation. Clarify text draft storage using verified desktop-profile and web-remote browser storage paths.
+
 ## 0.5.1
 
 ### Patch Changes
