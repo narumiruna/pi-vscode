@@ -208,7 +208,9 @@ export async function run(): Promise<void> {
             let editor: vscode.TextEditor | undefined;
             for (let attempt = 0; attempt < 100 && !editor; attempt++) {
               editor = vscode.window.visibleTextEditors.find(
-                (candidate) => candidate.document.uri.scheme === "pi-session-inspection",
+                (candidate) =>
+                  candidate.document.uri.scheme === "pi-session-inspection" &&
+                  candidate.document.uri.path.endsWith(`-${request.revision}.jsonl`),
               );
               if (!editor) await new Promise((resolve) => setTimeout(resolve, 50));
             }

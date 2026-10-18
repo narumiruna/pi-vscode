@@ -161,7 +161,7 @@ export async function assertAuthTransferDialogs({ page, directory, workspace, in
   const rows = () => page.locator(".quick-input-list").innerText();
   assert.ok(!(await rows()).includes("Continue to upload approval"));
   await pick("Inspect exact active-branch JSONL payload");
-  const first = await invoke("transferInspection");
+  const first = await invoke("transferInspection", { revision: 0 });
   assert.equal(first.unchanged, true, JSON.stringify(first));
   assert.ok(first.text.includes("fixture-secret"));
   assert.ok(!first.text.includes("IMPORT_ABANDONED_HIDDEN"));
@@ -173,7 +173,7 @@ export async function assertAuthTransferDialogs({ page, directory, workspace, in
   await until(async () => (await rows()).includes("Inspect exact active-branch"), "new redacted revision");
   assert.ok(!(await rows()).includes("Continue to upload approval"));
   await pick("Inspect exact active-branch JSONL payload");
-  const redacted = await invoke("transferInspection");
+  const redacted = await invoke("transferInspection", { revision: 1 });
   assert.equal(redacted.unchanged, true, JSON.stringify(redacted));
   assert.ok(!redacted.text.includes("fixture-secret"));
   assert.ok(redacted.text.includes("[REDACTED]"));
