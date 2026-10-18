@@ -7,7 +7,7 @@ import { acquireOperation } from "./operationLocks";
 import { controlCommand, controlResultPrefix, type PiSessionTree, verifyPackagedCommands } from "./piControl";
 import { buildRpcArguments, type PiRpcClient, type PiRpcClientOptions, type PiRpcEvent } from "./piRpcClient";
 import type { PiRuntimeState } from "./piRuntime";
-import { assertSessionWorkspace } from "./sessionIdentity";
+import { canonicalAssignedSessionPath, assertSessionWorkspace } from "./sessionIdentity";
 import { readPiInvocationOptions } from "./vscodePi";
 
 export interface RuntimeControlHost {
@@ -20,7 +20,7 @@ export interface RuntimeControlHost {
   readonly queuePending: boolean;
   owned<T>(action: () => Promise<T>): Promise<T>;
   start(): Promise<void>;
-  startSession(sessionFile: string | undefined): Promise<void>;
+  startSession(sessionFile: string | undefined, allowUnsaved?: boolean, root?: string): Promise<void>;
   stop(): Promise<void>;
   refresh(): Promise<void>;
   emit(event: PiRpcEvent): void;
@@ -299,6 +299,8 @@ export class PiRuntimeControl {
         const state = await client.getState();
         if (state.isStreaming || state.isCompacting || Number(state.pendingMessageCount ?? 0) > 0)
           throw new Error("Wait for Pi before restarting.");
+        if (state.sessionId !== sessionId || state.sessionFile !== sessionFile)
+          throw new Error("Pi session changed before restart. Refresh before restarting.");
       }
       await assertCurrent();
       let uncertain = false;
@@ -329,7 +331,7 @@ export class PiRuntimeControl {
         throw new Error("Pi restart origin changed. Recover ownership explicitly before retrying.");
       this.terminal = undefined;
       try {
-        await this.host.startSession(sessionFile);
+        await this.host.startSession(sessionFile, this.persistedOwnership !== undefined && this.persistedOwnership !== "invalid" && this.persistedOwnership.sessionId === undefined, root);
         await verifyPackagedCommands(
           await this.requireActiveClient().getCommands(),
           path.join(this.host.context.extensionUri.fsPath, "resources"),
@@ -538,10 +540,10 @@ export class PiRuntimeControl {
       if (
         snapshot.sessionId !== this.host.state.sessionId ||
         !this.host.state.sessionFile ||
-        snapshot.sessionFile !== (await realpath(this.host.state.sessionFile)) ||
+        snapshot.sessionFile !== (await canonicalAssignedSessionPath(this.host.state.sessionFile)) ||
         (expectedLeafId !== undefined && snapshot.leafId !== expectedLeafId) ||
         (await realpath(snapshot.sessionDir)) !== snapshot.sessionDir ||
-        (await realpath(snapshot.sessionFile)) !== snapshot.sessionFile ||
+        (await canonicalAssignedSessionPath(snapshot.sessionFile)) !== snapshot.sessionFile ||
         !(await lstat(snapshot.sessionDir)).isDirectory()
       )
         throw new Error("Stale session location.");
@@ -758,7 +760,7 @@ export class PiRuntimeControl {
         return false;
       }
       try {
-        await this.host.startSession(sessionFile);
+        await this.host.startSession(sessionFile, marker !== undefined && marker.sessionId === undefined, root);
         await verifyPackagedCommands(
           await this.requireActiveClient().getCommands(),
           path.join(this.host.context.extensionUri.fsPath, "resources"),

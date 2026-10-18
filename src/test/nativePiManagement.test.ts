@@ -330,7 +330,22 @@ test("native settings and MCP surfaces use passive host dialogs, explicit target
     picks.push("project", "defaultModel", "edit");
     vscode.window.showInputBox = async () => "fixture-model";
     vscode.window.showWarningMessage = async (_message: string, _options: unknown, action: string) => action;
-    await vscode.registrations.get("pi.openNativeSettings")();
+    let notified!: () => void;
+    let dismiss!: () => void;
+    const notification = new Promise<void>((resolve) => { notified = resolve; });
+    const originalInformation = vscode.window.showInformationMessage;
+    vscode.window.showInformationMessage = () => new Promise<void>((resolve) => { dismiss = resolve; notified(); });
+    let completed = false;
+    const saving = vscode.registrations.get("pi.openNativeSettings")().then(() => { completed = true; });
+    try {
+      await notification;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(completed, true, "informational notifications must not retain operation ownership");
+    } finally {
+      dismiss();
+      await saving;
+      vscode.window.showInformationMessage = originalInformation;
+    }
     assert.equal(
       JSON.parse(await readFile(path.join(root, ".pi/settings.json"), "utf8")).defaultModel,
       "fixture-model",

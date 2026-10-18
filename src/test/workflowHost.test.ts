@@ -630,6 +630,10 @@ test("process exit recovers only the undelivered queue suffix with its attachmen
 
 test("extension UI is foreground-generation scoped, fire-and-forget and restored only within panel re-resolution", async () => {
   const vscode = installVscodeMock();
+  const folder = { uri: MockUri.file(process.cwd()) };
+  vscode.workspace.workspaceFolders = [folder];
+  vscode.workspace.getWorkspaceFolder = () => folder;
+  vscode.workspace.isTrusted = true;
   vscode.window.registerWebviewViewProvider = () => ({ dispose() {} });
   const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
   const { PiRpcClient } = require("../piRpcClient") as typeof import("../piRpcClient");
@@ -644,6 +648,7 @@ test("extension UI is foreground-generation scoped, fire-and-forget and restored
   const host = runtime as any;
   host.bridgeEnvironment = async () => ({});
   host.buildClientOptions = () => ({ executablePath: process.execPath, cwd: process.cwd() });
+  Object.defineProperty(host, "currentCwd", { get: () => process.cwd() });
   host.refreshState = async () => {};
   host.ensureStarted = async () => {};
   const callbacks: Array<(event: any) => void> = [];

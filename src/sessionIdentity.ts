@@ -1,6 +1,34 @@
 import { constants } from "node:fs";
-import { open, realpath } from "node:fs/promises";
+import { lstat, open, realpath } from "node:fs/promises";
 import path from "node:path";
+
+/** Resolve a Pi-assigned file path without creating its not-yet-written leaf. */
+export async function canonicalAssignedSessionPath(sessionFile: string): Promise<string> {
+  if (!path.isAbsolute(sessionFile) || sessionFile.length > 4_096 || sessionFile.includes("\0"))
+    throw new Error("Invalid Pi session path.");
+  try {
+    return await realpath(sessionFile);
+  } catch (error) {
+    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ENOENT") throw error;
+    return path.join(await realpath(path.dirname(sessionFile)), path.basename(sessionFile));
+  }
+}
+
+/** Only controlled recovery may reopen a captured assigned path before its first save. */
+export async function assertAssignedSessionWorkspace(sessionFile: string, cwd: string): Promise<void> {
+  try {
+    await assertSessionWorkspace(sessionFile, cwd);
+  } catch (error) {
+    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ENOENT") throw error;
+    const missing = await lstat(sessionFile).then(() => false, (failure: NodeJS.ErrnoException) => {
+      if (failure.code === "ENOENT") return true;
+      throw failure;
+    });
+    if (!missing) throw error; // An existing header with a missing cwd is not an unsaved session.
+    await canonicalAssignedSessionPath(sessionFile);
+    await realpath(cwd);
+  }
+}
 
 /** Read only the bounded JSONL header; never load a full session to identify its workspace. */
 export async function assertSessionWorkspace(sessionFile: string, cwd: string): Promise<void> {

@@ -51,6 +51,7 @@ async function fixture(action: (f: any) => Promise<void>): Promise<void> {
   let executions = 0;
   const client: any = {
     isRunning: true,
+    onEvent: () => ({ dispose() {} }),
     getCommands: async () => descriptors,
     getState: async () => ({ sessionId: "fixture-session" }),
     sendExtensionUiResponse: (id: string, fields: any) => responses.push({ id, ...fields }),
@@ -98,6 +99,15 @@ async function fixture(action: (f: any) => Promise<void>): Promise<void> {
     await rm(root, { recursive: true, force: true });
   }
 }
+
+test("direct shell is available before the first model turn writes a session file", async () => {
+  await fixture(async (f) => {
+    f.internal.state.sessionFile = path.join(f.root, "assigned-but-unsaved.jsonl");
+    f.client.getState = async () => ({ sessionId: "fixture-session", sessionFile: f.internal.state.sessionFile });
+    assert.deepEqual(await f.runtime.executeShell("printf harmless", false), f.result);
+    assert.equal(f.executions(), 1);
+  });
+});
 
 test("every direct shell has full host approval independent of tool mode, with canonical operation and foreground ownership", async () => {
   await fixture(async (f) => {
@@ -305,6 +315,7 @@ test("shell-specific Stop waits for final result; failed abort disconnects witho
       throw new Error("fixture abort failure");
     };
     f.client.stop = async () => {
+      if (!f.client.isRunning) return;
       f.client.isRunning = false;
       finish(Promise.reject(new Error("disconnected")));
     };
@@ -408,6 +419,11 @@ test("history replacement stays inside the canonical owner and final session ide
     await assert.rejects(f.runtime.executeShell("printf harmless", false), /session changed|session is busy or changed/);
     assert.equal(hasOperation(f.root), false);
     assert.equal(f.events.at(-1).state, "uncertain");
+    assert.equal(f.client.isRunning, false);
+    assert.equal(f.internal.client, undefined, "uncertain actual session cannot receive another prompt");
+    assert.equal(f.runtime.currentState.connected, false);
+    f.internal.ensureStarted = async () => {};
+    await assert.rejects(f.runtime.prompt("must not enter the replaced session"), /not running/);
   });
 });
 

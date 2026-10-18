@@ -23,7 +23,7 @@ import {
   parseRpcQueue,
 } from "./piRpcClient";
 import { PiRuntimeControl } from "./piRuntimeControl";
-import { assertSessionWorkspace } from "./sessionIdentity";
+import { assertAssignedSessionWorkspace, assertSessionWorkspace } from "./sessionIdentity";
 import { VscodeBridgeServer } from "./vscodeBridge";
 import {
   vscodeBridgeExtensionEnvironmentKey,
@@ -172,6 +172,7 @@ export class PiRuntimeManager implements vscode.Disposable {
   private readonly stateEmitter = new vscode.EventEmitter<PiRuntimeState>();
   private readonly bridge = new VscodeBridgeServer();
   private client: PiRpcClient | undefined;
+  private disposed = false;
   private clientSubscription: vscode.Disposable | undefined;
   private startPromise: Promise<void> | undefined;
   private resource: vscode.Uri | undefined;
@@ -246,7 +247,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       },
       owned: (action) => runtime.owned(action),
       start: () => runtime.ensureStarted(runtime.resource),
-      startSession: (sessionFile) => runtime.createAndStartClient(sessionFile),
+      startSession: (sessionFile, allowUnsaved, root) => runtime.createAndStartClient(sessionFile, allowUnsaved, root),
       stop: () => runtime.stopClient(),
       refresh: () => runtime.refreshState(true, true),
       emit: (event) => runtime.eventEmitter.fire(event),
@@ -411,7 +412,8 @@ export class PiRuntimeManager implements vscode.Disposable {
       const cwd = await realpath(this.currentCwd);
       if ((await realpath(folder.uri.fsPath)) !== cwd)
         throw new Error("Direct shell workspace differs from Pi's working directory.");
-      if (this.state.sessionFile) await assertSessionWorkspace(this.state.sessionFile, cwd);
+      // The shared owner verifies existing headers and the canonical launch binding for unsaved sessions.
+      await assertCurrent();
       const commands = await client.getCommands();
       const policyPath = path.join(this.context.extensionUri.fsPath, "resources", "pi-permission-gate.ts");
       const readOnlyPath = path.join(this.context.extensionUri.fsPath, "resources", "pi-read-only-gate.ts");
@@ -533,6 +535,15 @@ export class PiRuntimeManager implements vscode.Disposable {
         return result;
       } catch (error) {
         if (submitted) {
+          try {
+            if (this.client === client) await this.stopClient();
+            else await this.stopDetachedClient(client);
+          } catch (cleanupError) {
+            this.eventEmitter.fire({ type: "runtime_warning", warningCode: "cleanup-unverified",
+              message: `Shell cleanup failed after an uncertain execution. ${formatError(cleanupError)}` });
+          } finally {
+            if (!this.client) this.updateState({ connected: false, busy: false, queueable: false });
+          }
           if (
             this.shellActive === shell &&
             (!this.client || this.client === client) &&
@@ -1169,6 +1180,8 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   public dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     this.resetExtensionUi();
     this.control.dispose();
     this.clientSubscription?.dispose();
@@ -1185,7 +1198,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     try {
       await this.createAndStartClient(savedSession);
     } catch (error) {
-      if (!savedSession) {
+      if (!savedSession || this.disposed) {
         throw error;
       }
       await this.context.workspaceState.update(sessionPathKey, undefined);
@@ -1198,10 +1211,21 @@ export class PiRuntimeManager implements vscode.Disposable {
     }
   }
 
-  private async createAndStartClient(sessionPath: string | undefined): Promise<void> {
-    if (sessionPath) await assertSessionWorkspace(sessionPath, this.currentCwd);
+  private async createAndStartClient(sessionPath: string | undefined, allowUnsaved = false, expectedRoot?: string): Promise<void> {
+    if (this.disposed) throw new Error("Pi startup was disposed.");
+    const launch = JSON.stringify(this.buildClientOptions(sessionPath, {}));
+    const root = expectedRoot ?? await realpath(this.currentCwd);
+    if (await realpath(this.currentCwd) !== root) throw new Error("Pi workspace changed during startup.");
+    if (sessionPath) {
+      if (allowUnsaved) await assertAssignedSessionWorkspace(sessionPath, this.currentCwd);
+      else await assertSessionWorkspace(sessionPath, this.currentCwd);
+    }
     const bridgeEnvironment = await this.bridgeEnvironment();
-    const options = this.buildClientOptions(sessionPath, bridgeEnvironment);
+    if (await realpath(this.currentCwd) !== root) throw new Error("Pi workspace changed during startup.");
+    if (this.disposed) throw new Error("Pi startup was disposed.");
+    if (!vscode.workspace.isTrusted) throw new Error("Pi startup requires a trusted workspace.");
+    if (JSON.stringify(this.buildClientOptions(sessionPath, {})) !== launch) throw new Error("Pi launch settings changed during startup.");
+    const options = { ...this.buildClientOptions(sessionPath, bridgeEnvironment), cwd: root };
     const client = new PiRpcClient(options);
     this.invalidateExtensionDialogs();
     this.clientSubscription?.dispose();
@@ -1224,7 +1248,9 @@ export class PiRuntimeManager implements vscode.Disposable {
     this.resetExtensionUi();
     this.control.clientStarted();
     try {
+      if (this.disposed || this.client !== client) throw new Error("Pi startup was disposed or replaced.");
       await client.start();
+      if (this.disposed || this.client !== client) throw new Error("Pi startup was disposed or replaced.");
       await this.refreshState(true);
     } catch (error) {
       subscription.dispose();

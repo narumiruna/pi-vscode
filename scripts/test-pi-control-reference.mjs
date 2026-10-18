@@ -111,6 +111,14 @@ try {
   const hasHeader = await readFile(emptyState.sessionFile, "utf8").then(() => true).catch((error) => { if (error.code !== "ENOENT") throw error; return false; });
   assert.equal((await empty.command("prompt", { message: `/vscode-pi-control ${JSON.stringify({ action: "reload", token: "empty-reload", cwd: root, sessionId: emptyState.sessionId, leafId: emptyTree.leafId })}` })).disposition, "handled");
   assert.equal(empty.events.some((event) => event.type === "agent_start" || event.type === "extension_error"), false);
+  assert.equal((await empty.command("prompt", { message: `/vscode-pi-control ${JSON.stringify({ action: "session-location", token: "empty-location", cwd: root, sessionId: emptyState.sessionId })}` })).disposition, "handled");
+  const location = empty.events.find(event => event.type === "extension_ui_request" && event.method === "notify" && event.message?.includes('"token":"empty-location"'));
+  assert.ok(location, "a new unsaved session must expose its import directory without a model call");
+  const metadata = JSON.parse(location.message.slice("PI_VSCODE_CONTROL_RESULT:".length));
+  assert.equal(metadata.sessionFile, emptyState.sessionFile);
+  assert.equal(path.isAbsolute(metadata.sessionDir), true);
+  assert.match(metadata.entriesHash, /^[a-f0-9]{64}$/);
+  assert.equal(empty.events.some((event) => event.type === "agent_start" || event.type === "extension_error"), false);
   await empty.close();
   const unsavedResume = launch(true, true, emptyState.sessionFile);
   const unsavedState = await unsavedResume.command("get_state");

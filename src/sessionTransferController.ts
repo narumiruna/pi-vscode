@@ -166,7 +166,7 @@ export function registerSessionTransfer(context: vscode.ExtensionContext, runtim
       }
       await check();
       await writeTransferFile(target.fsPath, payload);
-      await vscode.window.showInformationMessage(
+      void vscode.window.showInformationMessage(
         `Pi session exported to ${target.fsPath}. Existing files are never replaced.`,
       );
     });
@@ -233,7 +233,7 @@ export function registerSessionTransfer(context: vscode.ExtensionContext, runtim
           `The imported copy remains at ${target}, but activation or history refresh did not complete. The source and old session file were retained. Verify the active session before selecting the copy; no switch was retried.`,
         );
       }
-      await vscode.window.showInformationMessage(
+      void vscode.window.showInformationMessage(
         "Pi imported and activated the validated copy. The source was not changed.",
       );
     });

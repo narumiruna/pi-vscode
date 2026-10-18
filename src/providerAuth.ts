@@ -201,7 +201,7 @@ export function registerProviderAuthentication(context: vscode.ExtensionContext,
                   "The Pi credential may have changed after the operation origin changed. Verify Pi authentication before retrying.",
                 );
               });
-              await vscode.window.showInformationMessage(
+              void vscode.window.showInformationMessage(
                 `${result.status === "changed-refresh-failed" ? "Pi changed the credential, but its model catalog refresh failed." : "Pi updated its stored credential."} Restart a running Pi explicitly to refresh model availability. The conversation and selected model were not changed. Environment/configuration credentials can remain effective.${result.cleanupWarning ? " Process descendant cleanup is unverified." : ""}`,
               );
             } finally {

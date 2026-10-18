@@ -148,7 +148,7 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
     };
     await verify();
     await saveNativeFile(snapshot, keys, value, verify);
-    await vscode.window.showInformationMessage(
+    void vscode.window.showInformationMessage(
       "Native file saved. Active foreground and background runtimes are unchanged. Apply is a separate command; startup model preferences require restart.",
     );
   };
@@ -183,7 +183,7 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
       if (!action) return;
       if (action === "advanced") {
         if (!target.exists) {
-          await vscode.window.showInformationMessage(
+          void vscode.window.showInformationMessage(
             "Create an override with a validated control first, then open the native editor.",
           );
           return;
@@ -284,7 +284,7 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
       if (!action) return;
       if (action === "terminal") {
         if (nativeMcpCommandOwner(runtime.currentState.commands) !== "native") {
-          await vscode.window.showInformationMessage(
+          void vscode.window.showInformationMessage(
             "Native /mcp ownership is not verified. Start Pi explicitly and refresh command discovery first. Replacement commands are not treated as native MCP.",
           );
           return;
@@ -306,7 +306,7 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
       }
       if (action === "last") {
         if (lastDiagnostic && !diagnosticIsCurrent) {
-          await vscode.window.showInformationMessage(
+          void vscode.window.showInformationMessage(
             "The last MCP CLI diagnostic belongs to a different workspace or file revision. Run a fresh explicit diagnostic; current-session state is still unknown.",
           );
           return;
@@ -325,7 +325,7 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
       }
       if (action === "check") {
         if (state.project.exists && !state.approved) {
-          await vscode.window.showInformationMessage(
+          void vscode.window.showInformationMessage(
             "The CLI uses saved native Pi trust, not the VS Code project-resource switch. Diagnostics are blocked while a project MCP file exists without explicit project-resource approval.",
           );
           return;
@@ -372,7 +372,7 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
             lastDiagnostic = result;
             lastDiagnosticOrigin = diagnosticOrigin;
           }
-          await vscode.window.showInformationMessage(
+          void vscode.window.showInformationMessage(
             `Separate MCP CLI diagnostic: ${result.outcome}; ${result.servers.length} servers reported. Current-session state remains unknown. ${result.cleanup}`,
           );
         } finally {
@@ -480,7 +480,7 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
     try {
       // reloadResources owns its approval and generation guard. false means cancelled.
       if (!(await runtime.reloadResources())) return;
-      await vscode.window.showInformationMessage(
+      void vscode.window.showInformationMessage(
         "Resource reload completed. Startup defaults and scoped-model patterns are not live-applied.",
       );
     } catch {
@@ -492,7 +492,7 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
 
   register("pi.nativeRuntimeControls", async () => {
     if (!runtime.currentState.connected) {
-      await vscode.window.showInformationMessage(
+      void vscode.window.showInformationMessage(
         "Start Pi explicitly before opening native runtime controls. Native file settings remain available without starting Pi.",
       );
       return;
@@ -530,7 +530,7 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
       return { key, value };
     });
     if (applied) {
-      await vscode.window.showInformationMessage(
+      void vscode.window.showInformationMessage(
         "Runtime control acknowledged. Global persistence was requested, not verified. Retry state cannot be read through Pi 1.3 RPC.",
       );
     }

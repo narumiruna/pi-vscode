@@ -19,12 +19,12 @@ const compiled = transformSync(readFileSync(path.resolve("resources/pi-control.t
   target: "es2022",
 }).code;
 
-async function fixture() {
+async function fixture(saved = true) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "pi-snapshot-")));
   const sessionDir = path.join(root, "configured-sessions");
   await mkdir(sessionDir);
   const sessionFile = path.join(root, "external.jsonl");
-  await writeFile(sessionFile, "fixture");
+  if (saved) await writeFile(sessionFile, "fixture");
   const entries = [
     {
       type: "custom",
@@ -174,6 +174,20 @@ test("read-only snapshot uses authoritative configured directory, bounded digest
     await f.cleanup();
   }
 });
+test("read-only import location is available before Pi writes its assigned session file", async () => {
+  const f = await fixture(false);
+  try {
+    const snapshot = await f.control.getSessionTransferSnapshot(f.client, f.check, "a");
+    assert.equal(snapshot.sessionFile, f.sessionFile);
+    assert.equal(snapshot.sessionDir, f.sessionDir);
+    await assert.rejects(realpath(f.sessionFile), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
+    assert.equal(f.stops(), 0);
+    assert.equal(f.resets(), 0);
+  } finally {
+    await f.cleanup();
+  }
+});
+
 for (const mode of ["wrongToken", "malformed", "fallback"] as const) {
   test(`snapshot ${mode} fails closed without replay`, async () => {
     const f = await fixture();

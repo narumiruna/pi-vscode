@@ -30,10 +30,10 @@ export default function (pi: ExtensionAPI) {
         const source = ctx.sessionManager.getSessionFile();
         const leafId = ctx.sessionManager.getLeafId();
         const entriesHash = hashEntries(ctx.sessionManager.getEntries());
-        if (!source) throw new Error("Session transfer requires a saved session.");
+        if (!source) throw new Error("Session transfer requires an assigned persistent session path.");
         // getSessionDir is independent of dirname(source), including after resuming an external file.
         const sessionDir = await realpath(ctx.sessionManager.getSessionDir());
-        const sessionFile = await realpath(source);
+        const sessionFile = await canonicalAssignedSessionPath(source);
         if (
           [sessionDir, sessionFile].some(
             (value) => !path.isAbsolute(value) || value.length > 4_096 || value.includes("\0"),
@@ -75,6 +75,16 @@ export default function (pi: ExtensionAPI) {
       );
     },
   });
+}
+
+/** Read location metadata before the first save; export/share still require a persisted source. */
+async function canonicalAssignedSessionPath(source: string): Promise<string> {
+  try {
+    return await realpath(source);
+  } catch (error) {
+    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ENOENT") throw error;
+    return path.join(await realpath(path.dirname(source)), path.basename(source));
+  }
 }
 
 /** Same JSON.stringify(entry) + LF digest as the host; never serialize the complete tree at once. */

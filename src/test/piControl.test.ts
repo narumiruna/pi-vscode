@@ -622,6 +622,19 @@ test("unverified stop cannot launch terminal without separate inspection approva
   }
 });
 
+test("restart rejects a stale cached session before stopping the actual writer", async () => {
+  const f = await fixture();
+  f.client.getState = async () => ({ sessionId: "different", sessionFile: f.host.state.sessionFile, isStreaming: false });
+  try {
+    await assert.rejects(f.control.restartResources(), /session changed before restart/);
+    assert.equal(f.calls.includes("stop"), false);
+    assert.equal(f.calls.includes("start-session"), false);
+    assert.equal(hasOperation(root), false);
+  } finally {
+    f.control.dispose();
+  }
+});
+
 test("restart explicitly accepts changed launch policy without replay and cancellation retains ownership", async () => {
   const f = await fixture();
   f.setPolicyChanged();
