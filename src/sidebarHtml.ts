@@ -1226,7 +1226,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('session-header-title').textContent = sessionsLayerVisible ? 'Sessions' : current?.title || 'Session';
       $('session-header-title').title = sessionsLayerVisible ? '' : current?.title || '';
       input.placeholder = sessionsLayerVisible ? 'Start a new session…' : busy ? 'Write a follow-up…' : 'Ask Pi anything…';
-      renderSessions();
+      if (sessionsLayerVisible) renderSessions();
     }
 
     function showSessionDetail() {

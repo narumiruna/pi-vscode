@@ -83,36 +83,46 @@ interface PiRpcResponse {
 export class StrictJsonLineDecoder {
   private readonly decoder = new StringDecoder("utf8");
   private buffer = "";
+  private bufferedBytes = 0;
+  private newlineIndex = -1;
 
   public constructor(private readonly onLine: (line: string) => void) {}
 
   public push(chunk: Buffer): void {
-    this.buffer += this.decoder.write(chunk);
+    const decoded = this.decoder.write(chunk);
+    // The retained prefix has already been scanned. Do not flatten and rescan it for every chunk.
+    if (this.newlineIndex < 0) {
+      const newline = decoded.indexOf("\n");
+      if (newline >= 0) this.newlineIndex = this.buffer.length + newline;
+    }
+    this.buffer += decoded;
+    this.bufferedBytes += Buffer.byteLength(decoded, "utf8");
     this.drain();
-    if (Buffer.byteLength(this.buffer, "utf8") > maxJsonLineBytes) {
+    if (this.bufferedBytes > maxJsonLineBytes) {
       throw new Error("Pi RPC emitted a JSON line larger than 5 MiB.");
     }
   }
 
   public end(): void {
     this.buffer += this.decoder.end();
+    this.bufferedBytes = Buffer.byteLength(this.buffer, "utf8");
     if (this.buffer.length > 0) {
-      if (Buffer.byteLength(this.buffer) > maxJsonLineBytes)
-        throw new Error("Pi RPC emitted a JSON line larger than 5 MiB.");
+      if (this.bufferedBytes > maxJsonLineBytes) throw new Error("Pi RPC emitted a JSON line larger than 5 MiB.");
       this.onLine(stripCarriageReturn(this.buffer));
       this.buffer = "";
+      this.bufferedBytes = 0;
+      this.newlineIndex = -1;
     }
   }
 
   private drain(): void {
-    while (true) {
-      const newlineIndex = this.buffer.indexOf("\n");
-      if (newlineIndex < 0) {
-        return;
-      }
-      const line = this.buffer.slice(0, newlineIndex);
-      if (Buffer.byteLength(line) > maxJsonLineBytes) throw new Error("Pi RPC emitted a JSON line larger than 5 MiB.");
-      this.buffer = this.buffer.slice(newlineIndex + 1);
+    while (this.newlineIndex >= 0) {
+      const line = this.buffer.slice(0, this.newlineIndex);
+      const lineBytes = Buffer.byteLength(line, "utf8");
+      if (lineBytes > maxJsonLineBytes) throw new Error("Pi RPC emitted a JSON line larger than 5 MiB.");
+      this.buffer = this.buffer.slice(this.newlineIndex + 1);
+      this.bufferedBytes -= lineBytes + 1;
+      this.newlineIndex = this.buffer.indexOf("\n");
       this.onLine(stripCarriageReturn(line));
     }
   }
