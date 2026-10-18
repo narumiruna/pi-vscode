@@ -523,7 +523,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         details = document.createElement('details');
         details.className = 'thinking-transcript';
         const summary = document.createElement('summary');
-        summary.textContent = 'Provider thinking';
+        summary.textContent = 'Thinking';
         const body = document.createElement('div');
         details.append(summary, body);
         wrapper.appendChild(details);

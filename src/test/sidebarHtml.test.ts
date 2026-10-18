@@ -643,7 +643,7 @@ test("thinking-only messages use collapsed inert disclosures and retain user sta
   const details = wrapper.children[2]!;
   assert.equal(details.className, "thinking-transcript");
   assert.equal(details.open, false);
-  assert.equal(details.children[0]?.textContent, "Provider thinking");
+  assert.equal(details.children[0]?.textContent, "Thinking");
   assert.equal(details.children[1]?.children[0]?.textContent, "<script>bad()</script>");
   assert.equal(details.children[1]?.children[0]?.innerHTML, "");
   assert.match(details.children[1]?.children[1]?.textContent ?? "", /Provider redacted.*unavailable/);
