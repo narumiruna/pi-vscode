@@ -26,7 +26,9 @@ export async function run(): Promise<void> {
   };
   const subscription = vscode.workspace.onDidChangeTextDocument(publish);
   await vscode.extensions.getExtension("narumi.narumi-pi")?.activate();
-  await vscode.commands.executeCommand("pi.openChat");
+  // The isolated selection run must let pi.askSelection resolve the sidebar for the first time.
+  const selectionFirstOpen = await readFile(path.join(directory, "selection-first-open"), "utf8").catch(() => "");
+  if (!selectionFirstOpen) await vscode.commands.executeCommand("pi.openChat");
   await vscode.extensions.getExtension("vscode.typescript-language-features")?.activate();
   // Do not replay the reload command from the previous Extension Host.
   let extensionEditor: vscode.TextDocument | undefined;
@@ -177,6 +179,12 @@ export async function run(): Promise<void> {
                 .filter((tab) => tab.label === "Pi Settings").length,
             };
             break;
+          case "selection": {
+            const editor = await vscode.window.showTextDocument(source);
+            editor.selection = new vscode.Selection(0, 0, 0, source.lineAt(0).text.length);
+            result = source.getText(editor.selection);
+            break;
+          }
           case "source": {
             const editor = await vscode.window.showTextDocument(source);
             editor.selection = new vscode.Selection(0, 17, 0, 17);

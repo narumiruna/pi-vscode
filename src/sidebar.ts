@@ -129,6 +129,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   private readonly disposables: vscode.Disposable[] = [];
   private readonly markdownRenderer = new MarkdownRenderer();
   private view: vscode.WebviewView | undefined;
+  private webviewReady = false;
+  private pendingNavigation: "showSessionDetail" | "showSessionsLayer" | undefined;
   private messages: SidebarMessage[];
   private tools: ToolActivity[] = [];
   private readonly extensionUi = new SidebarExtensionUi();
@@ -245,6 +247,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
 
   public resolveWebviewView(webviewView: vscode.WebviewView): void {
     this.view = webviewView;
+    this.webviewReady = false;
     this.drafts.beginView();
     this.imageAssetDelivery.reset();
     webviewView.webview.options = {
@@ -268,6 +271,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         this.fileCompletion.cancel();
         this.drafts.endView();
         this.view = undefined;
+        this.webviewReady = false;
+        this.pendingNavigation = undefined;
       }
     });
     this.disposables.push(messageListener, viewListener);
@@ -276,6 +281,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   public dispose(): void {
+    this.webviewReady = false;
+    this.pendingNavigation = undefined;
     if (this.renderTimer) {
       clearTimeout(this.renderTimer);
       this.renderTimer = undefined;
@@ -294,7 +301,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
 
   public async showSessions(): Promise<void> {
     await vscode.commands.executeCommand(`${viewId}.focus`);
-    this.postMessage({ type: "showSessionsLayer" });
+    this.navigate("showSessionsLayer");
   }
 
   public async sendRequest(
@@ -303,7 +310,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     options: ConversationRequestOptions = {},
   ): Promise<string> {
     await vscode.commands.executeCommand(`${viewId}.focus`);
-    this.postMessage({ type: "showSessionDetail" });
+    this.navigate("showSessionDetail");
     return this.runRequest(
       request,
       contexts,
@@ -369,8 +376,10 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     try {
       switch (message.type) {
         case "ready":
+          this.webviewReady = true;
           this.drafts.ready();
           this.postState();
+          if (this.pendingNavigation) this.navigate(this.pendingNavigation);
           break;
         case "send":
           await this.send(message.text, message.revision);
@@ -926,7 +935,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       await this.runtime.newSession();
       await this.resetConversation("New Pi session", true);
       await this.refreshRecentSessions();
-      this.postMessage({ type: "showSessionDetail" });
+      this.navigate("showSessionDetail");
       await this.runRequest(
         text,
         submission.textContexts,
@@ -1541,7 +1550,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       );
     }
     this.postState();
-    this.postMessage({ type: "showSessionDetail" });
+    this.navigate("showSessionDetail");
   }
 
   private async compact(customInstructions?: string, onAccepted?: () => void): Promise<void> {
@@ -1691,7 +1700,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     await this.refreshRecentSessions(false);
     this.status = "Pi session imported";
     this.postState();
-    this.postMessage({ type: "showSessionDetail" });
+    this.navigate("showSessionDetail");
   }
 
   private handleRuntimeEvent(event: PiRpcEvent): void {
@@ -2153,6 +2162,14 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.noticeRevision += 1;
     this.noticeDetails = details?.slice(0, maxToolOutputCharacters);
     this.postMessage({ type: "notice", message, level, detailsAvailable: Boolean(this.noticeDetails) });
+  }
+
+  private navigate(type: "showSessionDetail" | "showSessionsLayer"): void {
+    // Focusing the view can finish before its browser message listener is ready.
+    this.pendingNavigation = type;
+    if (!this.view || !this.webviewReady) return;
+    this.pendingNavigation = undefined;
+    this.postMessage({ type });
   }
 
   private postMessage(message: Record<string, unknown>): void {

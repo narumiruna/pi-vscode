@@ -104,6 +104,8 @@ The Pi button in the editor title opens Sessions and uses separate light and dar
 | Suggest the next edit | **Ctrl+Alt+N** / **Cmd+Alt+N** on macOS |
 | Ask about or modify a selection | Editor lightbulb → **Rewrite**, or editor context menu → **Pi** |
 
+**Ask About Selection** opens the active conversation and shows your question and Pi's response, including when the sidebar opens for the first time. It does not create a replacement session.
+
 Automatic inline completions are disabled by default. Enable `pi.inlineCompletions.enabled` to request them after a typing pause.
 
 ## Upgrade from the old extension ID
@@ -396,6 +398,8 @@ On headless Linux, also prefix `test:native` with `xvfb-run -a`. Replace `1.106.
 3. Append `packaged` to the `test:native-ui` command to install and test the local `pi.vsix`.
 
 Append `transfer` to `test:native-ui` for native export/import/sharing/authentication dialogs only. These fixtures use fake credentials, cancel browser/upload approval, and never contact a provider or GitHub.
+
+Append `selection` to `test:native-ui` to check **Ask About Selection** before the sidebar has opened. This fixture uses the real editor command and question input, then checks the visible conversation and a single read-only request without source changes.
 
 Append `editor` to `test:native-ui` for the isolated multiline-editor and timed-confirmation fixtures only. They cover exact text, keyboard Submit/Cancel, close/discard, privacy decline, read-only review, timeouts, and process replacement.
 
