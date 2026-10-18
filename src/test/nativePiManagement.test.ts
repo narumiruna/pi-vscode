@@ -220,6 +220,7 @@ test("native runtime selection retains one guard, rejects stale approval and dis
     let checks = 0;
     let failAfterAck = false;
     const client = {
+      isRunning: true,
       setSteeringMode: async (mode: string) => {
         commands.push(`steering:${mode}`);
       },
@@ -233,6 +234,12 @@ test("native runtime selection retains one guard, rejects stale approval and dis
         commands.push(`retry:${enabled}`);
       },
     };
+    await assert.rejects(
+      runtime.configureNativeRuntimeControl(async () => ({ key: "retry.enabled", value: true })),
+      /Start Pi explicitly/,
+    );
+    internal.client = client;
+    internal.state.connected = true;
     internal.withForegroundOperation = async (
       _label: string,
       action: (client: unknown, guard: () => Promise<void>) => Promise<unknown>,
@@ -277,6 +284,7 @@ test("native runtime selection retains one guard, rejects stale approval and dis
     await assert.rejects(runtime.setNativeRuntimeControl("retry.enabled", false), NativeRuntimeControlAppliedError);
     assert.deepEqual(commands, ["retry:false"]);
     assert.ok(checks >= 10);
+    internal.client = undefined;
     runtime.dispose();
   } finally {
     vscode.workspace.workspaceFolders = [];
@@ -317,6 +325,7 @@ test("native settings and MCP surfaces use passive host dialogs, explicit target
     picks.push("global");
     await vscode.registrations.get("pi.openNativeSettings")();
     await vscode.registrations.get("pi.openNativeMcp")();
+    await vscode.registrations.get("pi.nativeRuntimeControls")();
     assert.equal(starts, 0);
     picks.push("project", "defaultModel", "edit");
     vscode.window.showInputBox = async () => "fixture-model";

@@ -491,6 +491,12 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
   });
 
   register("pi.nativeRuntimeControls", async () => {
+    if (!runtime.currentState.connected) {
+      await vscode.window.showInformationMessage(
+        "Start Pi explicitly before opening native runtime controls. Native file settings remain available without starting Pi.",
+      );
+      return;
+    }
     const applied = await runtime.configureNativeRuntimeControl(async (assertCurrent) => {
       const controls = nativeSettingControls.filter((control) =>
         ["steeringMode", "followUpMode", "compaction.enabled", "retry.enabled"].includes(control.key),

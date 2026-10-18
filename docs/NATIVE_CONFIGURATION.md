@@ -11,7 +11,7 @@ The reference implementation is Pi 1.3.0. This is not a new minimum Pi version. 
 | Ordered `enabledModels` | Agent/project `settings.json` | Selected file member | Startup/cycling preferences, not model access control; no supported live setter |
 | Queue grouping files | Agent/project `settings.json` | Selected file member | Later restart; runtime controls are separate |
 | Compaction/retry files | Nested `enabled` member | Selected file member | Later restart; sibling tuning members remain unchanged |
-| Native runtime controls | `get_state` for queue modes/compaction; retry read unavailable | Public `set_steering_mode`, `set_follow_up_mode`, `set_auto_compaction`, `set_auto_retry` | Idle foreground runtime plus a GLOBAL persistence request; not session-only |
+| Native runtime controls (requires an already running Pi; opening never cold-starts it) | `get_state` for queue modes/compaction; retry read unavailable | Public `set_steering_mode`, `set_follow_up_mode`, `set_auto_compaction`, `set_auto_retry` | Idle foreground runtime plus a GLOBAL persistence request; not session-only |
 | MCP configuration | Agent/project `mcp.json` | Selected server/metadata member | Save alone does not connect; explicit resource reload is separate |
 | MCP CLI diagnostic | Explicit `pi mcp list --json` | No extension-owned persistent result | Separate temporary connections; not evidence of current-session connections |
 

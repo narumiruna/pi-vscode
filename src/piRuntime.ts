@@ -1004,7 +1004,11 @@ export class PiRuntimeManager implements vscode.Disposable {
       | undefined
     >,
   ): Promise<boolean> {
+    const expectedClient = this.client;
+    if (!this.state.connected || !expectedClient?.isRunning)
+      throw new Error("Start Pi explicitly before opening native runtime controls.");
     return this.withForegroundOperation("changing native Pi runtime controls", async (client, assertCurrent) => {
+      if (client !== expectedClient) throw new Error("Native runtime control origin changed.");
       const selection = await select(assertCurrent);
       if (!selection) return false;
       await assertCurrent();
