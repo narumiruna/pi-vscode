@@ -143,17 +143,75 @@ test("message headings retain locally generated identity and focus through strea
 
 test("wrapping is scoped to transcript source and uses no persistence, source rewrite, or CSP expansion", () => {
   const source = html();
-  assert.match(source, /id="wrap-code"[^>]*aria-pressed="false"/);
+  assert.doesNotMatch(source, /id="(?:wrap-code|transcript-controls)"/);
+  assert.match(source, /type: 'showMoreActions'.*codeWrapping: messagesElement\.classList\.contains\('wrap-code'\)/);
+  assert.match(source, /message\.type === 'toggleCodeWrapping'\) toggleCodeWrapping\(\)/);
   assert.match(source, /#messages\.wrap-code \.message:not\(\.shell\) \.content pre code/);
   assert.match(source, /white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal/);
   const toggle = functionsBetween("toggleCodeWrapping", "renderThinking");
+  assert.match(toggle, /const enabled = !messagesElement\.classList\.contains\('wrap-code'\)/);
   assert.match(toggle, /classList\.toggle\('wrap-code', enabled\)/);
+  assert.match(toggle, /const readingEdge = bounds\.top;/);
+  assert.doesNotMatch(toggle, /transcript-controls|\$\('wrap-code'\)/);
   assert.match(toggle, /conversationElement\.scrollTop \+ after - before/);
   assert.match(toggle, /pi-transcript-layout/);
   assert.doesNotMatch(toggle, /innerHTML\s*=|textContent\s*=|postMessage|setState|localStorage|\.focus\(/);
   assert.match(source, /<section id="messages" aria-live="off">/);
   assert.match(source, /default-src 'none'/);
   assert.doesNotMatch(source, /unsafe-eval|connect-src/);
+});
+
+test("menu-driven wrapping preserves reading position and bottom following from class state", () => {
+  const classes = new Set<string>();
+  const events: string[] = [];
+  let followCalls = 0;
+  const anchor = {
+    tagName: "PRE",
+    getBoundingClientRect: () => ({ top: classes.has("wrap-code") ? -30 : -20, bottom: 200 }),
+  };
+  const conversationElement = {
+    scrollTop: 50,
+    getBoundingClientRect: () => ({ top: 0, left: 0, width: 300, bottom: 100 }),
+  };
+  const context = createContext({
+    conversationElement,
+    conversationPinnedToBottom: false,
+    wrapReadingAnchor: undefined,
+    wrapReadingTop: 0,
+    document: { activeElement: undefined },
+    messagesElement: {
+      querySelectorAll: () => [anchor],
+      contains: (node: unknown) => node === anchor,
+      classList: {
+        contains: (name: string) => classes.has(name),
+        toggle: (name: string, enabled: boolean) => (enabled ? classes.add(name) : classes.delete(name)),
+      },
+    },
+    setConversationScrollTop: (value: number) => {
+      conversationElement.scrollTop = value;
+    },
+    scrollConversationToBottom: () => {
+      followCalls++;
+    },
+    window: { dispatchEvent: (event: { type: string }) => events.push(event.type) },
+    Event: class {
+      constructor(public type: string) {}
+    },
+  });
+  new Script(functionsBetween("toggleCodeWrapping", "renderThinking")).runInContext(context);
+  const toggle = (prefix = "") => new Script(`${prefix}; toggleCodeWrapping()`).runInContext(context);
+  assert.equal(classes.has("wrap-code"), false);
+  toggle();
+  assert.equal(classes.has("wrap-code"), true);
+  assert.equal(conversationElement.scrollTop, 40);
+  toggle();
+  assert.equal(classes.has("wrap-code"), false);
+  assert.equal(conversationElement.scrollTop, 50);
+  assert.equal(followCalls, 0);
+  toggle("conversationPinnedToBottom = true");
+  assert.equal(followCalls, 1);
+  assert.equal(context.conversationPinnedToBottom, true);
+  assert.deepEqual(events, Array(3).fill("pi-transcript-layout"));
 });
 
 test("file completion support checks canonical workspace metadata without discovery or a Pi request", async () => {

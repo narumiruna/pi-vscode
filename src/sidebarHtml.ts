@@ -22,6 +22,8 @@ const iconPaths = {
   stop: '<rect x="4" y="4" width="8" height="8" rx="1"/>',
   back: '<path d="m10.5 3-5 5 5 5"/>',
   search: '<circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/>',
+  history: '<path d="M2 7a6 6 0 1 1 1.5 5M2 3v4h4M8 4.5V8l2.5 1.5"/>',
+  latest: '<path d="M8 2v8m-3-3 3 3 3-3M3 13h10"/>',
 } as const;
 
 function icon(name: keyof typeof iconPaths): string {
@@ -77,9 +79,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .icon-button { width: 28px; padding: 5px; }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
     #sessions { min-width: 0; padding: 8px 0 7px; border-bottom: 1px solid var(--pi-border); }
-    .sessions-header { display: flex; min-width: 0; align-items: center; gap: 6px; min-height: 30px; }
-    .sessions-title { flex: 1; min-width: 0; overflow: hidden; color: var(--vscode-descriptionForeground); font-size: .9em; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-    .sessions-actions { display: flex; flex: 0 0 auto; gap: 2px; }
+    .sessions-header { display: flex; flex-wrap: wrap; min-width: 0; align-items: center; gap: 6px; min-height: 30px; }
+    .sessions-title { flex: 1 1 80px; min-width: 0; overflow: hidden; color: var(--vscode-descriptionForeground); font-size: .9em; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+    .sessions-actions { display: flex; flex: 0 0 auto; gap: 2px; margin-left: auto; }
     .sessions-actions button { min-width: 0; white-space: nowrap; }
     #back-to-sessions .icon { width: 15px; height: 15px; }
     #session-list-content { min-height: 0; overflow: hidden; }
@@ -168,9 +170,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .content pre { max-width: 100%; overflow: auto; margin: 10px 0; padding: 12px; border: 1px solid var(--pi-border); background: var(--vscode-textCodeBlock-background); border-radius: 7px; white-space: pre; }
     .content code { font-family: var(--vscode-editor-font-family); font-size: .95em; }
     .content pre code { font-size: var(--vscode-editor-font-size); }
-    #transcript-controls { position: sticky; top: 0; z-index: 2; display: flex; justify-content: flex-end; margin: -10px 0 8px; background: var(--vscode-sideBar-background); }
-    #wrap-code { min-height: 24px; padding: 2px 6px; font-size: .82em; border-color: var(--vscode-contrastBorder, var(--pi-border)); }
-    #wrap-code[aria-pressed="true"] { color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
     #messages.wrap-code .message:not(.shell) .content pre,
     #messages.wrap-code .message:not(.shell) .content pre code { white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; }
     .content :not(pre) > code { padding: 1px 4px; background: var(--vscode-textCodeBlock-background); border-radius: 4px; }
@@ -290,6 +289,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     @media (max-width: 340px) { #app { padding: 0 8px 8px; } .sessions-actions { gap: 0; } .thinking-caption { display: none; } .composer-actions { gap: 4px; padding-left: 6px; padding-right: 6px; } #add-context span { display: none; } #model-picker { flex: 1; } .empty { padding-left: 2px; padding-right: 2px; } .empty h2 { font-size: 1.5em; } button.welcome-action { gap: 9px; padding: 10px; } }
     @media (max-width: 600px) { .model-settings { flex: 1 0 100%; } #model-picker { flex: 1; } }
     @media (max-width: 240px) { #cancel { padding: 4px; } #after-this { padding: 4px; } .composer-actions { gap: 3px; } }
+    @media (max-width: 200px) { .sessions-actions .icon-button { width: 24px; padding: 3px; } }
     @media (max-height: 500px) { #file-discovery-hint { max-height: 1.3em; } textarea { max-height: 18vh; } #attachments { max-height: 16vh; } .empty { padding-top: 8px; padding-bottom: 16px; } .welcome-mark { display: none; } .empty-actions { margin-top: 16px; } }
     @media (prefers-reduced-motion: no-preference) { button { transition: background-color .12s ease, border-color .12s ease, transform .08s ease; } .composer-box { transition: border-color .12s ease, box-shadow .12s ease; } }
   </style>
@@ -303,6 +303,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         <div class="sessions-actions" aria-label="Pi session controls">
           <button id="new-session" class="secondary icon-button" type="button" title="New session" aria-label="New Pi session">${icon("plus")}</button>
           <button id="delete-session" class="secondary danger icon-button" type="button" title="Delete session" aria-label="Delete current Pi session" hidden>${icon("trash")}</button>
+          <button id="history-search-open" class="secondary icon-button" type="button" title="Find literal, case-sensitive text in this history window" aria-label="Find text" aria-expanded="false" aria-controls="history-search-bar" hidden>${icon("search")}</button>
+          <button id="history-earlier" class="secondary icon-button" type="button" title="Show an earlier history window" aria-label="Earlier history" hidden disabled>${icon("history")}</button>
+          <button id="history-latest" class="secondary icon-button" type="button" title="Return to the latest history window" aria-label="Latest history" hidden disabled>${icon("latest")}</button>
           <button id="more" class="secondary icon-button" type="button" title="More… · Session and advanced actions" aria-label="More Pi actions">${icon("more")}</button>
         </div>
       </div>
@@ -319,7 +322,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     </section>
     <section id="conversation" aria-label="Pi conversation">
       ${conversationHistoryControlsHtml()}
-      <div id="transcript-controls"><button id="wrap-code" class="secondary" type="button" aria-pressed="false" title="Wrap transcript code without changing its text">Wrap code</button></div>
       <section id="messages" aria-live="off"></section>
       <details id="tools-group" hidden><summary id="tools-group-toggle"><span id="tools-summary">Tool activity</span><span id="tools-running"></span><span id="tools-failed"></span></summary><section id="tools" aria-label="Pi tool activity"></section></details>
       <button id="jump-to-latest" class="secondary" type="button" hidden>Jump to latest</button>
@@ -582,7 +584,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const top = conversationElement.scrollTop;
       const bounds = conversationElement.getBoundingClientRect();
       const x = bounds.left + Math.min(24, bounds.width / 2);
-      const readingEdge = bounds.top + $('transcript-controls').getBoundingClientRect().height;
+      const readingEdge = bounds.top;
       const y = Math.min(readingEdge + 8, bounds.bottom - 1);
       const candidates = Array.from(messagesElement.querySelectorAll('pre, p, .role'));
       const visible = node => {
@@ -599,8 +601,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const range = caret && anchor?.tagName === 'PRE' && anchor.contains(caret.startContainer)
         && caret.getBoundingClientRect().height > 0 ? caret : undefined;
       const before = range?.getBoundingClientRect().top ?? anchor?.getBoundingClientRect().top;
-      const enabled = $('wrap-code').getAttribute('aria-pressed') !== 'true';
-      $('wrap-code').setAttribute('aria-pressed', String(enabled));
+      const enabled = !messagesElement.classList.contains('wrap-code');
       messagesElement.classList.toggle('wrap-code', enabled);
       if (follow) scrollConversationToBottom();
       else {
@@ -611,7 +612,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       wrapReadingTop = conversationElement.scrollTop;
       window.dispatchEvent(new Event('pi-transcript-layout'));
     }
-    $('wrap-code').addEventListener('click', toggleCodeWrapping);
 
     function renderThinking(wrapper, blocks) {
       const thinking = Array.isArray(blocks) ? blocks : [];
@@ -1346,6 +1346,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('back-to-sessions').title = sessionsLayerVisible ? 'Back to recent Sessions' : 'Back to Sessions';
       $('session-header-title').textContent = sessionsLayerVisible ? 'Sessions' : current?.title || 'Session';
       $('session-header-title').title = sessionsLayerVisible ? '' : current?.title || '';
+      for (const id of ['history-search-open', 'history-earlier', 'history-latest']) $(id).hidden = sessionsLayerVisible;
       input.placeholder = sessionsLayerVisible ? 'Start a new session…' : busy ? 'Write a follow-up…' : 'Ask Pi anything…';
       if (sessionsLayerVisible) renderSessions();
     }
@@ -1716,6 +1717,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       if (message.type === 'state') render(message);
       else if (message.type === 'showSessionDetail') showSessionDetail();
       else if (message.type === 'showSessionsLayer') showSessionsLayer();
+      else if (message.type === 'toggleCodeWrapping') toggleCodeWrapping();
       else if (message.type === 'imageAsset') acceptImageAsset(message);
       else if (message.type === 'notice') showNotice(message.message, message.level, Boolean(message.detailsAvailable));
       else if (message.type === 'appendDraft') {
@@ -1802,7 +1804,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       vscode.postMessage({ type: 'newSession' });
     });
     $('delete-session').addEventListener('click', () => vscode.postMessage({ type: 'deleteSession' }));
-    $('more').addEventListener('click', () => vscode.postMessage({ type: 'showMoreActions', text: input.value, revision: composerRevision }));
+    $('more').addEventListener('click', () => vscode.postMessage({ type: 'showMoreActions', text: input.value, revision: composerRevision, codeWrapping: messagesElement.classList.contains('wrap-code') }));
     $('source-control').addEventListener('click', () => vscode.postMessage({ type: 'openSourceControl' }));
     thinkingLevel.addEventListener('change', () => { if (!updatingControls) vscode.postMessage({ type: 'setThinking', level: thinkingLevel.value }); });
     input.addEventListener('input', () => { composerRevision += 1; slashFocused = true; slashDismissed = false; slashIndex = 0; resizeInput(); updateSendState(); });

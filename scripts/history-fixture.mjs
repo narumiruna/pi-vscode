@@ -27,19 +27,32 @@ export async function assertNativeConversationHistory({ pi, invoke }) {
   await pi.locator("#history-earlier:not([disabled])").waitFor();
   await assertHistoryControls(pi);
   await pi.locator("#history-earlier").click();
-  await pi.locator("#history-scope").filter({ hasText: "Earlier window" }).waitFor();
+  await pi.locator("#history-status").filter({ hasText: "Earlier window" }).waitFor();
   assert.match(await pi.locator("#messages").innerText(), /History 005/);
   assert.doesNotMatch(await pi.locator("#messages").innerText(), /History 204/);
   assert.ok((await pi.locator("#messages .message").count()) <= 100);
   await pi.locator("#history-latest").click();
-  await pi.locator("#history-scope").filter({ hasText: "Latest window" }).waitFor();
+  // Loading also disables Latest. Wait for the replacement tail before asserting completion.
+  await pi.locator("#messages").filter({ hasText: "History 204" }).waitFor();
+  await pi.locator("#history-latest[disabled]").waitFor();
+  assert.equal(await pi.locator("#history-search-bar").isVisible(), false);
   assert.match(await pi.locator("#messages").innerText(), /History 204/);
   return { native: "earlier/latest replacement, literal search, source, Unicode, focus" };
 }
 
 async function assertHistoryControls(frame) {
-  await frame.locator("#history-search-open").click();
+  const trigger = frame.locator("#history-search-open");
+  assert.equal(await trigger.getAttribute("aria-expanded"), "false");
+  assert.equal(await trigger.getAttribute("aria-controls"), "history-search-bar");
+  assert.equal(await frame.locator("#history-scope").isVisible(), false);
+  await trigger.focus();
+  await trigger.press("Enter");
+  assert.equal(await trigger.getAttribute("aria-expanded"), "true");
+  assert.equal(await frame.locator("#history-scope").isVisible(), true);
+  assert.equal(await frame.locator("#history-search-bar #history-scope").count(), 1);
+  assert.match(await frame.locator("#history-scope").innerText(), /current text window|current history window/);
   const input = frame.locator("#history-search-input");
+  assert.equal(await input.evaluate((node) => document.activeElement === node), true);
   await input.fill("[.*]");
   assert.match(await frame.locator("#history-search-count").innerText(), /1 of 100 in this window/);
   await input.press("Enter");
@@ -48,34 +61,37 @@ async function assertHistoryControls(frame) {
   assert.match(await frame.locator("#history-search-count").innerText(), /1 of 100/);
   await input.fill("literal_code_204");
   assert.match(await frame.locator("#history-search-count").innerText(), /1 of 1/);
+  await input.fill("LITERAL_CODE_204");
+  assert.equal(await frame.locator("#history-search-count").innerText(), "No matches in this window.");
   await input.fill("日本語 🐈");
   assert.match(await frame.locator("#history-search-count").innerText(), /1 of 100/);
   await input.fill("absent text");
   assert.equal(await frame.locator("#history-search-count").innerText(), "No matches in this window.");
   await input.press("Escape");
   assert.equal(await frame.locator("#history-search-bar").isVisible(), false);
-  assert.equal(await frame.locator("#history-search-open").evaluate((node) => document.activeElement === node), true);
+  assert.equal(await trigger.getAttribute("aria-expanded"), "false");
+  assert.equal(await frame.locator("#history-scope").isVisible(), false);
+  assert.equal(await trigger.evaluate((node) => document.activeElement === node), true);
+  await trigger.click();
+  await frame.locator("#history-search-close").click();
+  assert.equal(await trigger.getAttribute("aria-expanded"), "false");
+  assert.equal(await trigger.evaluate((node) => document.activeElement === node), true);
 }
 
 export async function assertHistoryBrowser(browser) {
-  const {
-    conversationHistoryControlsHtml,
-    conversationHistoryStyles,
-    conversationHistoryScript,
-  } = require("../out/conversationHistoryHtml.js");
+  const { getSidebarHtml } = require("../out/sidebarHtml.js");
   const { renderSafeMarkdown } = require("../out/markdown.js");
   const page = await browser.newPage({ viewport: { width: 280, height: 700 } });
   const errors = [];
   page.on("pageerror", (error) => errors.push(String(error)));
-  await page.setContent(`<!doctype html><style>${conversationHistoryStyles()}#conversation{height:400px;overflow:auto}.content pre{overflow:auto}</style>
-    ${conversationHistoryControlsHtml()}<section id="conversation"><div id="messages"></div></section>
-    <script>const posts=[]; const vscode={postMessage(message){posts.push(message)}};
-    ${conversationHistoryScript()}
-    window.historyTest={posts,search:conversationHistory,render(state){conversationHistory.beforeRender(state);
-      const root=document.getElementById('messages');root.replaceChildren();
-      for(const message of state.messages){const article=document.createElement('article');article.className='message';article.messageId=message.id;
-      const content=document.createElement('div');content.className='content';content.innerHTML=message.html;article.append(content);root.append(article)}
-      conversationHistory.onState(state)}};</script>`);
+  await page.evaluate(() => {
+    window.fixturePosts = [];
+    window.acquireVsCodeApi = () => ({ postMessage: (message) => window.fixturePosts.push(message) });
+  });
+  await page.setContent(getSidebarHtml(100000, 5000000));
+  await page.evaluate(() => {
+    window.dispatchEvent(new MessageEvent("message", { data: { type: "showSessionDetail" } }));
+  });
   const all = historyFixtureMessages().map((message, index) => ({
     id: `fixture-${index}`,
     role: message.role,
@@ -97,8 +113,12 @@ export async function assertHistoryBrowser(browser) {
       canNavigate: true,
     },
   };
-  const send = (state) => page.evaluate((state) => window.historyTest.render(state), state);
+  const send = (state) => page.evaluate((state) => {
+    window.dispatchEvent(new MessageEvent("message", { data: { type: "state", ...state } }));
+  }, state);
   await send(latest);
+  assert.equal(await page.locator("#history-latest").isDisabled(), true);
+  assert.equal(await page.locator("#history-status").isVisible(), false);
   await assertHistoryControls(page);
   await page.locator("#history-search-open").click();
   const input = page.locator("#history-search-input");
@@ -126,7 +146,7 @@ export async function assertHistoryBrowser(browser) {
   const streamMilliseconds = performance.now() - start;
   await send(latest);
   await page.locator("#history-earlier").click();
-  assert.deepEqual(await page.evaluate(() => window.historyTest.posts.at(-1)), {
+  assert.deepEqual(await page.evaluate(() => window.fixturePosts.at(-1)), {
     type: "historyWindow",
     direction: "earlier",
     generation: 1,
@@ -144,19 +164,48 @@ export async function assertHistoryBrowser(browser) {
       omittedAfter: 100,
     },
   });
-  assert.equal(await page.evaluate(() => window.historyTest.search.isEarlier()), true);
-  assert.equal(await page.evaluate(() => window.historyTest.search.latest()), true);
-  assert.equal((await page.evaluate(() => window.historyTest.posts.at(-1))).direction, "latest");
+  await input.press("Escape");
+  assert.equal(await page.locator("#history-scope").isVisible(), false);
+  assert.match(await page.locator("#history-status").innerText(), /Earlier window/);
+  assert.equal(await page.locator("#history-latest").isEnabled(), true);
+  await page.locator("#history-latest").click();
+  assert.deepEqual(await page.evaluate(() => window.fixturePosts.at(-1)), {
+    type: "historyWindow", direction: "latest", generation: 3,
+  });
   await send({ ...latest, runtime: { ...latest.runtime, sessionId: "replacement" } });
   assert.equal(await input.inputValue(), "", "session replacement clears the search selection");
   await send({ ...latest, history: { ...latest.history, truncated: true } });
-  assert.match(await page.locator("#history-scope").innerText(), /omitted portions of long messages cannot be browsed/);
+  assert.equal(await page.locator("#history-scope").isVisible(), false);
+  assert.match(await page.locator("#history-status").innerText(), /omitted portions of long messages cannot be browsed/);
+  for (const history of [
+    { ...latest.history, mode: "earlier", loading: true },
+    { ...latest.history, mode: "earlier", available: false, error: "Fixture history failure." },
+  ]) {
+    await send({ ...latest, history });
+    assert.equal(await page.locator("#history-earlier").isDisabled(), true);
+    assert.equal(await page.locator("#history-latest").isDisabled(), true);
+    assert.equal(await page.locator("#history-status").isVisible(), true);
+    assert.match(await page.locator("#history-status").innerText(), history.loading ? /Loading history/ : /unavailable|failure/i);
+  }
+  for (const runtime of [
+    { ...latest.runtime, busy: true },
+    { ...latest.runtime, connected: false },
+  ]) {
+    await send({ ...latest, runtime, history: { ...latest.history, mode: "earlier" } });
+    const before = await page.evaluate(() => window.fixturePosts.length);
+    for (const id of ["history-earlier", "history-latest"]) {
+      assert.equal(await page.locator(`#${id}`).isDisabled(), true);
+      await page.locator(`#${id}`).evaluate((node) => node.click());
+    }
+    assert.equal(await page.evaluate(() => window.fixturePosts.length), before, "disabled actions cannot emit navigation");
+  }
   const limit = {
     ...latest,
     messages: [{ id: "limit", role: "assistant", html: `<pre><code>${"x".repeat(250000)}</code></pre>` }],
   };
   const limitStart = performance.now();
   await send(limit);
+  await page.locator("#history-search-open").click();
   await input.fill("x");
   const limitRenderSearchMilliseconds = Math.round(performance.now() - limitStart);
   assert.match(await page.locator("#history-search-count").innerText(), /1000\+ \(match limit\)/);

@@ -13,6 +13,7 @@ const groups = [
     "Session management",
     ["resume", "rename", "compact", "branches", "export", "import", "share", "terminal", "returnTerminal"],
   ],
+  ["Conversation display", ["wordWrap"]],
   ["Review and repair", ["checkpoints", "review", "findings", "diagnostics", "staged", "repair", "debug"]],
   ["Background work", ["background", "worktree"]],
   ["Pi configuration", ["model", "thinking", "commands", "reload", "restart", "compatibility", "login", "logout"]],
@@ -125,7 +126,7 @@ function fixture() {
   };
 }
 
-test("More accounts for all 26 actions in four native groups with searchable descriptions", async () => {
+test("More accounts for all 27 actions in five native groups with searchable descriptions", async () => {
   const f = fixture();
   try {
     vscode.window.showQuickPick = async (items: any[], options: any) => {
@@ -144,12 +145,13 @@ test("More accounts for all 26 actions in four native groups with searchable des
         }
       }
       assert.equal(index, items.length);
-      assert.equal(new Set(items.filter((item) => item.action).map((item) => item.action)).size, 26);
+      assert.equal(new Set(items.filter((item) => item.action).map((item) => item.action)).size, 27);
       for (const [query, action] of [
         ["JSONL file", "resume"],
         ["TUI", "terminal"],
         ["template", "commands"],
         ["credential", "logout"],
+        ["long code lines", "wordWrap"],
       ] as const) {
         const matches = items.filter((item) => `${item.label} ${item.description ?? ""}`.includes(query));
         assert.ok(
@@ -162,6 +164,74 @@ test("More accounts for all 26 actions in four native groups with searchable des
     await f.provider.showMoreActions("keep this draft", 37);
     assert.deepEqual(f.posted, []);
     assert.deepEqual(f.runtimeCalls, []);
+  } finally {
+    f.dispose();
+  }
+});
+
+for (const codeWrapping of [undefined, false, true]) {
+  test(`More Word wrap state ${codeWrapping} sends only a display toggle`, async () => {
+    const f = fixture();
+    const getConfiguration = vscode.workspace.getConfiguration;
+    try {
+      vscode.workspace.getConfiguration = () => assert.fail("Word wrap must not access configuration");
+      f.provider.attachments.attachments.push({ id: "context", label: "context", content: "keep" });
+      f.provider.send = async () => assert.fail("Word wrap must not submit the composer");
+      f.provider.runBackground = async () => assert.fail("Word wrap must not start an agent");
+      f.select("wordWrap");
+      const select = vscode.window.showQuickPick;
+      vscode.window.showQuickPick = async (...args: Parameters<typeof select>) => {
+        const item = await select(...args);
+        assert.equal(item.label, "Word wrap");
+        assert.equal(item.description, `${codeWrapping ? "On" : "Off"} · Wrap long code lines for display only`);
+        return item;
+      };
+      if (codeWrapping === undefined) await f.provider.showMoreActions("keep this draft", 37);
+      else await f.provider.showMoreActions("keep this draft", 37, codeWrapping);
+      assert.deepEqual(f.posted, [{ type: "toggleCodeWrapping" }]);
+      assert.deepEqual(f.commands, []);
+      assert.deepEqual(f.runtimeCalls, []);
+      assert.equal(f.provider.attachments.summaries.length, 1);
+      assert.equal(f.listeners.size, 1);
+      assert.equal(f.eventListeners.size, 1);
+    } finally {
+      vscode.workspace.getConfiguration = getConfiguration;
+      f.dispose();
+    }
+  });
+}
+
+test("More message routes the optional wrapping state without changing the draft", async () => {
+  const f = fixture();
+  const calls: unknown[][] = [];
+  try {
+    f.provider.showMoreActions = async (...args: unknown[]) => calls.push(args);
+    await f.provider.handleMessage({ type: "showMoreActions", text: "keep this draft", revision: 37 });
+    for (const codeWrapping of [false, true]) {
+      await f.provider.handleMessage({ type: "showMoreActions", text: "keep this draft", revision: 37, codeWrapping });
+    }
+    assert.deepEqual(calls, [
+      ["keep this draft", 37, undefined],
+      ["keep this draft", 37, false],
+      ["keep this draft", 37, true],
+    ]);
+    assert.deepEqual(f.posted, []);
+    assert.deepEqual(f.runtimeCalls, []);
+  } finally {
+    f.dispose();
+  }
+});
+
+test("More rejects invalid wrapping values before opening the picker", async () => {
+  const f = fixture();
+  try {
+    vscode.window.showQuickPick = async () => assert.fail("invalid wrapping state must not open the menu");
+    for (const codeWrapping of [null, 0, "true", [], {}]) {
+      await f.provider.handleMessage({ type: "showMoreActions", text: "keep this draft", revision: 37, codeWrapping });
+    }
+    assert.deepEqual(f.posted, []);
+    assert.deepEqual(f.runtimeCalls, []);
+    assert.deepEqual(f.commands, []);
   } finally {
     f.dispose();
   }
@@ -212,7 +282,7 @@ for (const selection of ["cancel", "separator", "separator-with-action", "unknow
             : selection === "separator-with-action"
               ? { ...items[0], action: "worktree" }
               : { label: "Unknown", action: "unknown" };
-      await f.provider.showMoreActions("keep this draft", 37);
+      await f.provider.showMoreActions("keep this draft", 37, true);
       assert.deepEqual(f.commands, []);
       assert.deepEqual(f.runtimeCalls, []);
       assert.deepEqual(f.posted, []);
@@ -238,11 +308,15 @@ test("More releases its temporary origin listener if the native picker fails", a
   }
 });
 
-for (const change of ["sessionId", "sessionFile", "cwd", "connection", "replacement-round-trip"]) {
-  test(`More rejects a stale ${change} origin after the picker returns`, async () => {
+for (const [action, change] of ["terminal", "wordWrap"].flatMap((action) =>
+  ["sessionId", "sessionFile", "cwd", "connection", "replacement-round-trip"].map(
+    (change) => [action, change] as const,
+  ),
+)) {
+  test(`More ${action} rejects a stale ${change} origin after the picker returns`, async () => {
     const f = fixture();
     try {
-      f.select("terminal", () => {
+      f.select(action, () => {
         if (change === "cwd") f.runtime.currentCwd = "/other-workspace";
         else if (change === "connection" || change === "replacement-round-trip") {
           f.runtime.currentState.connected = false;
@@ -258,6 +332,25 @@ for (const change of ["sessionId", "sessionFile", "cwd", "connection", "replacem
       assert.deepEqual(f.commands, []);
       assert.deepEqual(f.posted, []);
       assert.equal(f.listeners.size, 1);
+    } finally {
+      f.dispose();
+    }
+  });
+}
+
+for (const change of ["dispose", "replace"]) {
+  test(`More Word wrap cannot target a ${change}d webview`, async () => {
+    const f = fixture();
+    try {
+      f.provider.view = {};
+      f.select("wordWrap", () => {
+        f.provider.view = change === "dispose" ? undefined : {};
+      });
+      await assert.rejects(f.provider.showMoreActions("keep this draft", 37, true), /session changed/);
+      assert.deepEqual(f.posted, []);
+      assert.deepEqual(f.runtimeCalls, []);
+      assert.equal(f.listeners.size, 1);
+      assert.equal(f.eventListeners.size, 1);
     } finally {
       f.dispose();
     }
@@ -287,18 +380,17 @@ for (const action of ["checkpoints", "resume", "compact", "reload", "restart", "
   });
 }
 
-for (const event of ["extension_ui_reset", "process_exit"]) {
-  test(`More rejects a replaced client or same-session control after ${event}`, async () => {
+for (const [action, event] of ["terminal", "wordWrap"].flatMap((action) =>
+  ["extension_ui_reset", "process_exit"].map((event) => [action, event] as const),
+)) {
+  test(`More ${action} rejects a replaced client or same-session control after ${event}`, async () => {
     const f = fixture();
     try {
-      f.select("terminal", () => f.emitEvent(event));
+      f.select(action, () => f.emitEvent(event));
       await assert.rejects(f.provider.showMoreActions("keep this draft", 37), /session changed/);
       assert.deepEqual(f.runtimeCalls, []);
       assert.deepEqual(f.commands, []);
-      assert.equal(
-        f.posted.some((message) => message.type === "clearInput"),
-        false,
-      );
+      assert.deepEqual(f.posted, []);
       assert.equal(f.eventListeners.size, 1, "picker lifecycle subscription released");
     } finally {
       f.dispose();

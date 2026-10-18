@@ -40,7 +40,7 @@ Stop is separate from submission. Short-panel styles bound hints and preserve in
 | Activate Jump to latest | Return to the bottom and follow output; focus returns to the composer. No draft change or request occurs. |
 | Browse earlier history | Pause following; explicit latest navigation restores the current tail before following. |
 | Session changes | Reset the output indicator and navigation state. |
-| Wrap code or asynchronous layout | Preserve manual reading; do not force smooth scrolling. |
+| Word wrap or asynchronous layout | Preserve manual reading; do not force smooth scrolling. |
 
 ## Text draft ownership and storage
 
@@ -70,16 +70,17 @@ Other VS Code windows and external storage writers are not serialized by this ex
 
 ## Native session actions
 
-All 26 actions remain. Model/Thinking controls are not equally available when disconnected, and recent Sessions is not equivalent to choosing an arbitrary JSONL file. Return Pi from Terminal must remain available for held ownership recovery.
+The existing 26 actions remain; Word wrap adds one local conversation-display action. Model/Thinking controls are not equally available when disconnected, and recent Sessions is not equivalent to choosing an arbitrary JSONL file. Return Pi from Terminal must remain available for held ownership recovery.
 
-| Group | Existing actions retained |
+| Group | Available actions |
 | --- | --- |
 | Session management | Resume; Rename; Compact; Tree/Fork/Clone; Export; Import; Share; Open in Terminal; Return Pi from Terminal. |
+| Conversation display | Word wrap, with the current On/Off state. |
 | Review and repair | Checkpoints; Review Changes; Show Findings; Diagnostics; Staged Review; Failed-Test Repair; Debug Context. |
 | Background work | Background Agent; Worktree Agent. |
 | Pi configuration | Model; Thinking; Commands/Skills; Reload; Restart; Compatibility; Sign In; Sign Out. |
 
-The route map below uses the original guarded handlers. “Palette” means the existing command remains available; no new public command is added.
+The existing routes below retain their guarded handlers. Word wrap sends one fixed display message to the originating view without submitting a request or changing configuration. “Palette” means the existing command remains available; no new public command is added.
 
 | Action | Existing handler / alternate entry | Required state or approval |
 | --- | --- | --- |
@@ -92,6 +93,7 @@ The route map below uses the original guarded handlers. “Palette” means the 
 | Share | `pi.shareSession`; palette | Inspected saved snapshot and separate upload approval. |
 | Open in Terminal | `openInTerminal()`; compatibility handoff | Trusted canonical ownership transfer and cleanup confirmation. |
 | Return from Terminal | `returnFromTerminal()`; palette | Held terminal/recovery ownership and explicit inspection confirmation. |
+| Word wrap | More… → Conversation display; fixed `toggleCodeWrapping` message | Current view/session origin; picker cancellation and stale selections perform no toggle. |
 | Checkpoints | `selectCheckpoint()`; More only | No foreground request; captured coverage and guarded restore. |
 | Review Changes | `pi.reviewChanges`; palette | Trusted Git snapshot and confirmation; read-only review. |
 | Show Findings | `pi.showReviewFindings`; palette / Problems | Captured findings with original freshness checks. |
@@ -116,11 +118,17 @@ Labels and descriptions are searchable. VS Code can hide separator labels while 
 
 Public Pi `get_messages` returns the full active branch, not a paginated response. Every navigation reacquires it while idle under the unchanged 5 MiB RPC bound. Conversion retains at most 100 displayable messages and 250,000 shared text/thinking characters; earlier windows replace rather than accumulate, and do not overwrite the persisted latest-window cache. A long message's omitted text is labelled but cannot be paged independently.
 
+The header places Find text, Earlier history and Latest history after New/Delete and before More. These three controls are hidden in Sessions. Find text opens a collapsed search surface with its scope description; Escape returns focus to the trigger. Loading, failures, earlier-window position and truncation have separate conditional feedback. Latest history is disabled when already latest or when navigation is unavailable.
+
 Find text is literal and case-sensitive, with 256 query characters and at most 1,000 ranges over 250,000 rendered text characters. It includes answer/shell text and code/diagram source, but excludes thinking, tool details, images and SVG labels. CSS Highlight ranges do not alter source or copied code. Unsupported highlights leave text navigation available. A session change clears the search selection. Streaming preserves a still-valid selected match without jumping to it.
 
 Requests from earlier history acquire the request gate before awaiting a latest-window restore. Both prompt and direct-shell paths reject changed session or history generations before dispatch. This prevents a delayed history response from moving a request into another session.
 
-Wrap code is an in-view display choice, off by default. It applies to transcript code/source fallbacks only. Shell cards, extension widgets, editor files, source text and copy text are unchanged. Message headings have locally generated unique IDs and accessible role/number labels; unchanged headings retain identity and focus.
+More… → Conversation display → Word wrap is a view-local display choice, off by default and not saved. It applies to transcript code/source fallbacks only. Shell cards, extension widgets, editor files, source text and copy text are unchanged. Message headings have locally generated unique IDs and accessible role/number labels; unchanged headings retain identity and focus.
+
+## Header controls follow-up (2026-10-19)
+
+The header/control relocation passed 916 unit tests (3 skipped), the rich-content browser suite and the full Linux native UI suite on VS Code 1.106.0. Browser header checks cover four themes, short/long titles, widths 200/240/280/340/600/960 and the 169 CSS-pixel viewport found at native 200% zoom: 56 layouts. Tests cover disclosure/focus, literal search, conditional feedback, unavailable history, menu state/cancellation/stale views, display-only wrapping, copying and reading-position preservation. Native checks use the real Word wrap Quick Pick and guarded history actions with fixture Pi responses, not a live model. Remote, other-platform and screen-reader checks were not rerun for this relocation.
 
 ## Validation evidence
 

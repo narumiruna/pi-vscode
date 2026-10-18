@@ -69,11 +69,11 @@ Use `@pi` in VS Code's native Chat view when you prefer the native participant w
 
 - The composer shows why Send, Next, or After this is unavailable and gives a next action. An empty draft is a neutral hint, not an error. The host still validates every request.
 - Scroll up without following new output. **Jump to latest** returns to current output and restores automatic following; **New output** indicates a transcript change, not a status update.
-- **Wrap code** changes transcript code display only. Source text, copied text, shell cards, and editor files are unchanged.
-- **Find text** searches literal, case-sensitive text in the current history window, including code and diagram source. It excludes thinking, tool details, and images. Use **Previous/Next** or Enter/Shift+Enter; Escape closes search and returns focus.
-- **Earlier history** replaces the bounded window; **Latest history** returns to the current tail. Each window contains at most 100 messages and 250,000 text characters. Omitted portions of long messages are labelled and cannot be browsed. History responses above the existing 5 MiB RPC limit remain unavailable; this is not whole-session search.
+- **More… → Word wrap**, in **Conversation display**, shows On/Off and wraps long code lines for display only. It starts Off and is local to the view, not a saved setting. Source text, copied text, shell cards, and editor files are unchanged.
+- The header's **Find text** magnifying-glass icon opens literal, case-sensitive search in the current history window, including code and diagram source. The scope explanation appears only inside the expanded search bar. Search excludes thinking, tool details, and images. Use **Previous/Next** or Enter/Shift+Enter; Escape closes search and returns focus to the icon.
+- The header's **Earlier history** clock icon replaces the bounded window; its **Latest history** down-to-line icon returns to the current tail and is disabled when that window is already latest. Loading, failures, earlier-window position and truncation remain visible when relevant, even with search closed. Each window contains at most 100 messages and 250,000 text characters. Omitted portions of long messages are labelled and cannot be browsed. History responses above the existing 5 MiB RPC limit remain unavailable; this is not whole-session search.
 - The initial file hint distinguishes `@` snapshot attachment from Tab path-only insertion. Message headings support assistive-technology navigation. Real Orca structural navigation and hint speech text were checked on Linux; audible output and human usability were not tested.
-- **More…** has one searchable native picker with **Session management**, **Review and repair**, **Background work**, and **Pi configuration** groups. Existing action names and commands remain available.
+- **More…** has one searchable native picker with **Session management**, **Conversation display**, **Review and repair**, **Background work**, and **Pi configuration** groups. Existing action names and commands remain available.
 
 #### Text draft recovery
 

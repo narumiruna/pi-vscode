@@ -1,12 +1,10 @@
 export function conversationHistoryControlsHtml(): string {
-  return `<section id="history-controls" aria-label="Conversation search and history">
-    <div class="history-actions"><button id="history-search-open" type="button" class="secondary">Find text</button>
-    <button id="history-earlier" type="button" class="secondary">Earlier history</button>
-    <button id="history-latest" type="button" class="secondary">Latest history</button></div>
-    <p id="history-scope">Search current text window only; includes code and diagram source. Excludes thinking, tool details and images.</p>
+  return `<section id="history-controls" aria-label="Conversation search and history" hidden>
+    <p id="history-status" role="status" aria-live="polite" hidden></p>
     <div id="history-search-bar" hidden role="search" aria-label="Find conversation text">
+      <p id="history-scope">Search current text window only; includes code and diagram source. Excludes thinking, tool details and images.</p>
       <label for="history-search-input">Find literal text (case-sensitive)</label>
-      <input id="history-search-input" type="search" maxlength="256" autocomplete="off" />
+      <input id="history-search-input" type="search" maxlength="256" autocomplete="off" aria-describedby="history-scope" />
       <span id="history-search-count" role="status" aria-live="polite"></span>
       <div class="history-actions"><button id="history-search-prev" type="button" class="secondary">Previous</button>
       <button id="history-search-next" type="button" class="secondary">Next</button>
@@ -18,7 +16,7 @@ export function conversationHistoryStyles(): string {
   return `
     #history-controls { flex: 0 0 auto; min-width: 0; padding: 6px 12px; border-bottom: 1px solid var(--pi-border); }
     .history-actions { display: flex; flex-wrap: wrap; gap: 4px; }
-    #history-scope { margin: 4px 0; font-size: 11px; color: var(--vscode-descriptionForeground); }
+    #history-scope, #history-status { margin: 4px 0; font-size: 11px; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
     #history-search-bar label, #history-search-count { display: block; font-size: 11px; }
     #history-search-input { width: 100%; min-width: 0; box-sizing: border-box; margin: 4px 0; }
     ::highlight(pi-conversation-matches) { background: var(--vscode-editor-findMatchHighlightBackground, #785c00); color: var(--vscode-editor-foreground); }
@@ -32,7 +30,9 @@ export function conversationHistoryScript(): string {
     const conversationHistory = (() => {
       const el = id => document.getElementById(id);
       const bar = el('history-search-bar'), field = el('history-search-input'), count = el('history-search-count');
-      const earlier = el('history-earlier'), latestButton = el('history-latest'), scope = el('history-scope');
+      const trigger = el('history-search-open'), earlier = el('history-earlier'), latestButton = el('history-latest');
+      const controls = el('history-controls'), status = el('history-status');
+      bar.hidden = status.hidden = controls.hidden = true;
       const root = el('messages'), scroller = el('conversation');
       let state = {}, matches = [], selected = -1, session, windowKey, lastContent, lastRoot, followOnLatest = false;
       let hooks = { pauseFollowing() {}, followLatest() {} };
@@ -96,15 +96,24 @@ export function conversationHistoryScript(): string {
         const rect = matches[selected].range.getBoundingClientRect(), viewport = scroller.getBoundingClientRect();
         scroller.scrollTop += rect.top - viewport.top - viewport.height / 2;
       };
-      const close = () => { bar.hidden = true; matches = []; selected = -1; clear(); el('history-search-open').focus(); };
+      const syncSurface = () => { controls.hidden = bar.hidden && status.hidden; };
+      const canNavigate = () => Boolean(state.history?.canNavigate && state.history.available && !state.history.loading
+        && state.runtime?.connected && !state.runtime.busy);
+      const close = () => {
+        bar.hidden = true; trigger.setAttribute('aria-expanded', 'false'); syncSurface();
+        matches = []; selected = -1; clear(); trigger.focus();
+      };
       const latest = () => {
-        if (!state.history?.canNavigate) return false;
+        if (!canNavigate() || state.history.mode !== 'earlier') return false;
         followOnLatest = true;
         vscode.postMessage({ type: 'historyWindow', direction: 'latest', generation: state.history.generation });
         return true;
       };
-      const open = () => { bar.hidden = false; rebuild(); field.focus(); field.select(); };
-      el('history-search-open').addEventListener('click', open);
+      const open = () => {
+        bar.hidden = false; trigger.setAttribute('aria-expanded', 'true'); syncSurface();
+        rebuild(); field.focus(); field.select();
+      };
+      trigger.addEventListener('click', () => bar.hidden ? open() : close());
       el('history-search-close').addEventListener('click', close);
       el('history-search-prev').addEventListener('click', () => navigate(-1));
       el('history-search-next').addEventListener('click', () => navigate(1));
@@ -114,7 +123,7 @@ export function conversationHistoryScript(): string {
         else if (event.key === 'Enter' && event.target === field) { event.preventDefault(); navigate(event.shiftKey ? -1 : 1); }
       });
       earlier.addEventListener('click', () => {
-        if (!state.history?.canNavigate || !state.history.omittedBefore) return;
+        if (!canNavigate() || !state.history.omittedBefore) return;
         hooks.pauseFollowing(); followOnLatest = false;
         vscode.postMessage({ type: 'historyWindow', direction: 'earlier', generation: state.history.generation });
       });
@@ -134,15 +143,18 @@ export function conversationHistoryScript(): string {
         onState(next) {
           state = next;
           const history = next.history;
-          earlier.disabled = !history?.canNavigate || !history?.available || !history?.omittedBefore;
-          latestButton.disabled = !history?.canNavigate;
-          let label = 'Search current text window only; includes code and diagram source. Excludes thinking, tool details and images.';
-          if (!history?.available) label += ' Full history unavailable; current text remains searchable.';
-          else label += ' ' + (history.mode === 'earlier' ? 'Earlier' : 'Latest') + ' window: ' + (next.messages?.length || 0)
-            + ' of ' + history.total + ' messages. ' + history.omittedBefore + ' earlier; ' + history.omittedAfter + ' later.';
-          if (history?.truncated) label += ' Text is truncated; omitted portions of long messages cannot be browsed.';
-          if (history?.loading) label += ' Loading history…';
-          if (scope.textContent !== label) scope.textContent = label;
+          earlier.disabled = !canNavigate() || !history?.omittedBefore;
+          latestButton.disabled = !canNavigate() || history?.mode !== 'earlier';
+          const feedback = [];
+          if (history?.loading) feedback.push('Loading history…');
+          else if (!history?.available) feedback.push('Full history unavailable; current text remains searchable.');
+          if (history?.available && history.mode === 'earlier') feedback.push('Earlier window: ' + (next.messages?.length || 0)
+            + ' of ' + history.total + ' messages. ' + history.omittedBefore + ' earlier; ' + history.omittedAfter + ' later.');
+          if (history?.truncated) feedback.push('Text is truncated; omitted portions of long messages cannot be browsed.');
+          const label = feedback.join(' ');
+          if (status.textContent !== label) status.textContent = label;
+          status.hidden = !label;
+          syncSurface();
           const nextWindowKey = JSON.stringify([session, history?.mode, history?.start, history?.end]);
           const changedWindow = nextWindowKey !== windowKey;
           if (changedWindow && !history?.loading) { matches = []; selected = -1; windowKey = nextWindowKey; }

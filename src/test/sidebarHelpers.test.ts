@@ -73,6 +73,28 @@ test("history retains thinking-only and redacted assistants without interpreting
   }
 });
 
+test("More accepts an optional wrapping boolean and rejects malformed menu state", () => {
+  const vscode = installVscodeMock();
+  try {
+    const { isWebviewMessage } = require("../sidebarHelpers") as typeof import("../sidebarHelpers");
+    const message = { type: "showMoreActions", text: "keep this draft", revision: 37 };
+    assert.equal(isWebviewMessage(message, 100), true, "old callers do not need wrapping state");
+    for (const codeWrapping of [undefined, false, true]) {
+      assert.equal(isWebviewMessage({ ...message, codeWrapping }, 100), true);
+    }
+    for (const codeWrapping of [null, 0, 1, "false", "true", [], {}]) {
+      assert.equal(isWebviewMessage({ ...message, codeWrapping }, 100), false);
+    }
+    for (const revision of [undefined, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, "37"]) {
+      assert.equal(isWebviewMessage({ ...message, revision, codeWrapping: true }, 100), false);
+    }
+    assert.equal(isWebviewMessage({ ...message, text: null, codeWrapping: false }, 100), false);
+    assert.equal(isWebviewMessage({ type: "toggleCodeWrapping" }, 100), false, "toggle is host-to-renderer only");
+  } finally {
+    vscode.restore();
+  }
+});
+
 function imageCache(maxTotalBytes = 1024): ImageAssetCache {
   return new ImageAssetCache({ maxImageBytes: 100, maxTotalBytes, maxAssets: 10 });
 }

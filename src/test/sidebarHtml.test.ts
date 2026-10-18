@@ -743,6 +743,7 @@ class SidebarTestElement {
   children: SidebarTestElement[] = [];
   dataset: Record<string, string> = {};
   "aria-current"?: string;
+  "aria-expanded"?: string;
   classes = new Set<string>();
   classList = {
     toggle: (name: string, force?: boolean) => {
@@ -811,6 +812,7 @@ class SidebarTestElement {
   focus(): void {
     this.focusCount += 1;
   }
+  select(): void {}
   showModal(): void {
     this.open = true;
   }
@@ -869,6 +871,128 @@ function createSidebarScriptHarness(clientPlatform = "Linux x86_64", userAgent =
     welcomeButtons: () => element("messages").children[0].children[0].children,
   };
 }
+
+test("conversation header owns one accessible icon per action and no transcript toolbar", () => {
+  const html = getSidebarHtml(100_000, 1024);
+  const actions = /<div class="sessions-actions"[^>]*>([\s\S]*?)<\/div>/.exec(html)?.[1];
+  assert.ok(actions);
+  const buttons = [...actions.matchAll(/<button id="([^"]+)"([^>]*)>([\s\S]*?)<\/button>/g)];
+  assert.deepEqual(
+    buttons.map((button) => button[1]),
+    ["new-session", "delete-session", "history-search-open", "history-earlier", "history-latest", "more"],
+  );
+  for (const [_, id, attributes, content] of buttons) {
+    assert.match(attributes, /class="[^"]*icon-button/);
+    assert.match(attributes, /aria-label="[^"]+"/);
+    assert.match(attributes, /title="[^"]+"/);
+    assert.equal((content.match(/<svg\b/g) ?? []).length, 1);
+    assert.match(content, /aria-hidden="true" focusable="false"/);
+    assert.equal((html.match(new RegExp(`id="${id}"`, "g")) ?? []).length, 1);
+  }
+  assert.match(actions, /id="history-search-open"[^>]*aria-expanded="false"[^>]*aria-controls="history-search-bar"/);
+  assert.doesNotMatch(html, /id="(?:wrap-code|transcript-controls)"/);
+  const surface = html.slice(html.indexOf('id="history-controls"'), html.indexOf('<section id="messages"'));
+  assert.doesNotMatch(surface, /id="history-(?:search-open|earlier|latest)"/);
+  assert.ok(surface.indexOf('id="history-scope"') > surface.indexOf('id="history-search-bar"'));
+});
+
+test("conversation-only header controls follow list and detail navigation", () => {
+  const sidebar = createSidebarScriptHarness();
+  const controls = ["history-search-open", "history-earlier", "history-latest"];
+  sidebar.receive({ type: "showSessionsLayer" });
+  for (const id of controls) assert.equal(sidebar.element(id).hidden, true);
+  sidebar.receive({ type: "showSessionDetail" });
+  for (const id of controls) assert.equal(sidebar.element(id).hidden, false);
+  sidebar.receive({ type: "showSessionsLayer" });
+  for (const id of controls) assert.equal(sidebar.element(id).hidden, true);
+});
+
+test("search expands only on request and Escape restores the header trigger", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "showSessionDetail" });
+  sidebar.receive({ type: "state", runtime: { connected: true }, history: { mode: "latest", available: true } });
+  const trigger = sidebar.element("history-search-open");
+  const bar = sidebar.element("history-search-bar");
+  const field = sidebar.element("history-search-input");
+  assert.equal(bar.hidden, true);
+  assert.equal(sidebar.element("history-controls").hidden, true);
+  trigger.listeners.get("click")!();
+  assert.equal(bar.hidden, false);
+  assert.equal(trigger["aria-expanded"], "true");
+  assert.equal(field.focusCount, 1);
+  let prevented = 0;
+  bar.listeners.get("keydown")!({ key: "Escape", preventDefault: () => prevented++, stopPropagation() {} });
+  assert.equal(prevented, 1);
+  assert.equal(bar.hidden, true);
+  assert.equal(trigger["aria-expanded"], "false");
+  assert.equal(trigger.focusCount, 1);
+  trigger.listeners.get("click")!();
+  trigger.listeners.get("click")!();
+  assert.equal(bar.hidden, true, "the expanded trigger also closes search");
+});
+
+test("header history actions retain navigation guards and conditional feedback", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "showSessionDetail" });
+  const history = { mode: "latest", available: true, canNavigate: true, omittedBefore: 100, total: 200, generation: 7 };
+  const render = (overrides = {}, runtime = { connected: true, busy: false }) =>
+    sidebar.receive({ type: "state", runtime, history: { ...history, ...overrides } });
+  render();
+  assert.equal(sidebar.element("history-earlier").disabled, false);
+  assert.equal(sidebar.element("history-latest").disabled, true);
+  assert.equal(sidebar.element("history-status").hidden, true);
+  sidebar.element("history-latest").listeners.get("click")!();
+  assert.notEqual(sidebar.posted.at(-1)?.type, "historyWindow", "latest cannot request an already-latest window");
+  sidebar.element("history-earlier").listeners.get("click")!();
+  assert.equal(sidebar.posted.at(-1)?.direction, "earlier");
+  render({ mode: "earlier", omittedAfter: 100 });
+  assert.equal(sidebar.element("history-latest").disabled, false);
+  assert.match(sidebar.element("history-status").textContent, /Earlier window.*100 later/);
+  assert.equal(sidebar.element("history-search-bar").hidden, true);
+  sidebar.element("history-latest").listeners.get("click")!();
+  assert.equal(sidebar.posted.at(-1)?.direction, "latest");
+  for (const [overrides, runtime, expected] of [
+    [{ loading: true }, { connected: true, busy: false }, /Loading history/],
+    [{ available: false }, { connected: true, busy: false }, /Full history unavailable/],
+    [{}, { connected: false, busy: false }, undefined],
+    [{}, { connected: true, busy: true }, undefined],
+  ] as const) {
+    render(overrides, runtime);
+    assert.equal(sidebar.element("history-earlier").disabled, true);
+    assert.equal(sidebar.element("history-latest").disabled, true);
+    const before = sidebar.posted.length;
+    sidebar.element("history-earlier").listeners.get("click")!();
+    sidebar.element("history-latest").listeners.get("click")!();
+    assert.equal(sidebar.posted.length, before, "unavailable actions cannot dispatch even through a stale handler");
+    if (expected) assert.match(sidebar.element("history-status").textContent, expected);
+  }
+  render({ truncated: true });
+  assert.match(sidebar.element("history-status").textContent, /omitted portions.*cannot be browsed/);
+  assert.equal(sidebar.element("history-controls").hidden, false);
+  render();
+  assert.equal(sidebar.element("history-controls").hidden, true);
+});
+
+test("More sends current wrapping state and only the fixed host reply toggles it", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.run(
+    "let wrapCalls = 0; toggleCodeWrapping = () => { wrapCalls++; messagesElement.classList.toggle('wrap-code', !messagesElement.classList.contains('wrap-code')); }",
+  );
+  sidebar.element("input").value = "Keep draft";
+  sidebar.element("more").listeners.get("click")!();
+  assert.deepEqual(JSON.parse(JSON.stringify(sidebar.posted.at(-1))), {
+    type: "showMoreActions",
+    text: "Keep draft",
+    revision: 0,
+    codeWrapping: false,
+  });
+  assert.equal(sidebar.run("wrapCalls"), 0);
+  sidebar.receive({ type: "toggleCodeWrapping" });
+  sidebar.element("more").listeners.get("click")!();
+  assert.equal(sidebar.posted.at(-1)?.codeWrapping, true);
+  assert.equal(sidebar.run("wrapCalls"), 1);
+  assert.equal(sidebar.element("input").value, "Keep draft");
+});
 
 test("composer keeps idle hints short and hides empty queue and unknown usage", () => {
   const sidebar = createSidebarScriptHarness();

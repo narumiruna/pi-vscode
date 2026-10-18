@@ -66,7 +66,12 @@ export type WebviewMessage =
     }
   | { readonly type: "recoverQueue"; readonly revision: number }
   | { readonly type: "restoreQueueAttachments"; readonly id: string }
-  | { readonly type: "showMoreActions"; readonly text: string; readonly revision: number }
+  | {
+      readonly type: "showMoreActions";
+      readonly text: string;
+      readonly revision: number;
+      readonly codeWrapping?: boolean;
+    }
   | { readonly type: "pasteImage"; readonly data: string; readonly mimeType: string; readonly fileName?: string }
   | { readonly type: "setModel"; readonly provider: string; readonly modelId: string }
   | { readonly type: "setThinking"; readonly level: string }
@@ -111,7 +116,11 @@ export function isWebviewMessage(value: unknown, maxImageBytes: number): value i
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value.id)
     );
   if (value.type === "showMoreActions") {
-    return typeof value.text === "string" && isComposerRevision(value.revision);
+    return (
+      typeof value.text === "string" &&
+      isComposerRevision(value.revision) &&
+      (value.codeWrapping === undefined || typeof value.codeWrapping === "boolean")
+    );
   }
   if (value.type === "pasteImage") {
     return (

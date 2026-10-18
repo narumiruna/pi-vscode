@@ -557,20 +557,49 @@ try {
   const richEvidence = await assertRichContent(await frame());
   console.log("PI_NATIVE_RICH_CONTENT", JSON.stringify({ packaged, ...richEvidence }));
   console.log("PI_NATIVE_COMPOSER_NAVIGATION", JSON.stringify(await assertComposerNavigation(await frame(), page)));
-  console.log("PI_NATIVE_DISCOVERY_WRAP", JSON.stringify(await assertDiscoveryWrap(await frame())));
+  const wrapFrame = await frame();
+  const promptsBeforeWrap = await readFile(path.join(directory, "prompts.jsonl"), "utf8");
+  const draftBeforeWrap = await wrapFrame.locator("#input").inputValue();
+  const wrapped = () => wrapFrame.locator("#messages").evaluate((node) => node.classList.contains("wrap-code"));
+  const toggleWrapping = async ({ key = "Enter" } = {}) => {
+    const before = await wrapped();
+    const openWrapping = async () => {
+      await wrapFrame.locator("#more").focus();
+      await wrapFrame.locator("#more").press(key);
+      const filter = page.locator(".quick-input-widget input[type=text]");
+      await filter.waitFor({ state: "visible" });
+      await filter.fill("Word wrap");
+      const row = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Word wrap" });
+      await row.waitFor();
+      assert.match(await row.innerText(), before ? /Word wrap\s*On\b/ : /Word wrap\s*Off\b/);
+      assert.match(await row.innerText(), /display only|display-only/i);
+      return filter;
+    };
+    // Cancel one real picker first; its state and the unsent composer must remain unchanged.
+    await openWrapping();
+    await page.keyboard.press("Escape");
+    await until(async () => !(await page.locator(".quick-input-widget").isVisible()), "Word wrap cancellation");
+    assert.equal(await wrapped(), before);
+    const filter = await openWrapping();
+    await filter.press("Enter");
+    await until(async () => (await wrapped()) === !before, "real Word wrap menu selection");
+    assert.equal(await wrapFrame.locator("#input").inputValue(), draftBeforeWrap);
+  };
+  console.log("PI_NATIVE_DISCOVERY_WRAP", JSON.stringify(await assertDiscoveryWrap(wrapFrame, toggleWrapping)));
+  assert.equal(await readFile(path.join(directory, "prompts.jsonl"), "utf8"), promptsBeforeWrap, "Word wrap must not request a model");
   await assertSessionActions({ page, frame, until });
   console.log("PI_NATIVE_SESSION_ACTIONS grouped filtering and keyboard selection/cancellation passed");
   pi = await frame();
   try {
     const evidence = await assertNativeConversationHistory({ pi, invoke: async () => {
       await writeFile(path.join(directory, "history.json"), JSON.stringify(historyFixtureMessages()));
-      await pi.locator("#history-latest").click();
+      // Fixture setup uses the existing guarded refresh action; Latest is disabled at the tail.
+      await pi.locator("#refresh-history").evaluate((node) => node.click());
     } });
     console.log("PI_NATIVE_HISTORY", JSON.stringify(evidence));
   } finally {
     await rm(path.join(directory, "history.json"), { force: true });
-    await pi.locator("#history-latest:not([disabled])").waitFor();
-    await pi.locator("#history-latest").click();
+    await pi.locator("#refresh-history").evaluate((node) => node.click());
     await until(async () => !(await pi.locator("#messages").innerText()).includes("History 204"), "original native history restored");
   }
   const shellEvidence = await assertNativeDirectShell(frame, page, async () =>
@@ -739,7 +768,17 @@ try {
     await pi.waitForFunction((name) => document.body.classList.contains(name), cssClass);
     await invoke("zoom", { level: Math.log(2) / Math.log(1.2) });
     await delay(500);
-    assert.equal(await pi.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    assert.equal(await pi.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true,
+      JSON.stringify(await pi.evaluate(() => ({
+        viewport: [innerWidth, innerHeight], scrollWidth: document.documentElement.scrollWidth,
+        overflow: Array.from(document.querySelectorAll("body *")).filter((node) => {
+          const rect = node.getBoundingClientRect();
+          return rect.width > 0 && (rect.left < -1 || rect.right > innerWidth + 1);
+        }).slice(0, 20).map((node) => ({
+          tag: node.tagName, id: node.id, className: node.className,
+          rect: node.getBoundingClientRect().toJSON(),
+        })),
+      }))));
     for (const id of [
       "input",
       "add-context",
