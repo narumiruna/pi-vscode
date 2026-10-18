@@ -332,11 +332,21 @@ test("native settings and MCP surfaces use passive host dialogs, explicit target
     vscode.window.showWarningMessage = async (_message: string, _options: unknown, action: string) => action;
     let notified!: () => void;
     let dismiss!: () => void;
-    const notification = new Promise<void>((resolve) => { notified = resolve; });
+    const notification = new Promise<void>((resolve) => {
+      notified = resolve;
+    });
     const originalInformation = vscode.window.showInformationMessage;
-    vscode.window.showInformationMessage = () => new Promise<void>((resolve) => { dismiss = resolve; notified(); });
+    vscode.window.showInformationMessage = () =>
+      new Promise<void>((resolve) => {
+        dismiss = resolve;
+        notified();
+      });
     let completed = false;
-    const saving = vscode.registrations.get("pi.openNativeSettings")().then(() => { completed = true; });
+    const saving = vscode.registrations
+      .get("pi.openNativeSettings")()
+      .then(() => {
+        completed = true;
+      });
     try {
       await notification;
       await new Promise<void>((resolve) => setImmediate(resolve));
@@ -359,7 +369,32 @@ test("native settings and MCP surfaces use passive host dialogs, explicit target
       await writeFile(path.join(root, ".pi/settings.json"), '{"external":true}');
       return action;
     };
-    await vscode.registrations.get("pi.openNativeSettings")();
+    let errorNotified!: () => void;
+    let dismissError!: () => void;
+    const errorNotice = new Promise<void>((resolve) => {
+      errorNotified = resolve;
+    });
+    const originalError = vscode.window.showErrorMessage;
+    vscode.window.showErrorMessage = () =>
+      new Promise<void>((resolve) => {
+        dismissError = resolve;
+        errorNotified();
+      });
+    let failedCommandCompleted = false;
+    const rejectedSave = vscode.registrations
+      .get("pi.openNativeSettings")()
+      .then(() => {
+        failedCommandCompleted = true;
+      });
+    try {
+      await errorNotice;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(failedCommandCompleted, true, "a failure notice must not keep the command pending");
+    } finally {
+      dismissError();
+      await rejectedSave;
+      vscode.window.showErrorMessage = originalError;
+    }
     assert.deepEqual(JSON.parse(await readFile(path.join(root, ".pi/settings.json"), "utf8")), { external: true });
     vscode.window.showWarningMessage = async (_message: string, _options: unknown, action: string) => action;
     await mkdir(path.join(root, "agent"));

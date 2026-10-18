@@ -416,7 +416,10 @@ test("history replacement stays inside the canonical owner and final session ide
       f.client.getState = async () => ({ sessionId: "replacement" });
       return result;
     };
-    await assert.rejects(f.runtime.executeShell("printf harmless", false), /session changed|session is busy or changed/);
+    await assert.rejects(
+      f.runtime.executeShell("printf harmless", false),
+      /session changed|session is busy or changed/,
+    );
     assert.equal(hasOperation(f.root), false);
     assert.equal(f.events.at(-1).state, "uncertain");
     assert.equal(f.client.isRunning, false);

@@ -717,6 +717,7 @@ try {
   await until(async () => !(await pi.locator("#cancel").isVisible()), "native Stop settlement");
   assert.equal(await pi.locator("#recover-queue").isVisible(), true);
   await rm(path.join(directory, "interface-hold"));
+  await until(async () => await pi.locator("#send").isEnabled(), "foreground request owner released after Stop");
   // Merely choosing Delete must still require the native modal; cancellation keeps the session file.
   await pi.locator("#delete-session").click();
   await page.getByRole("button", { name: "Delete Session", exact: true }).waitFor();
@@ -734,17 +735,17 @@ try {
   await pick("Clone active branch into a new session");
   await branchComplete();
   branchComplete = await invoke("command", { command: "pi.browseSessionTree" }, false);
-  await pick("user: Hold this deterministic response");
+  await pick("Hold this deterministic response");
   await pick("Navigate without summary");
   await branchComplete();
   assert.equal(await pi.locator("#input").inputValue(), retainedDraft, "A native branch selection must not overwrite a nonempty draft");
   branchComplete = await invoke("command", { command: "pi.browseSessionTree" }, false);
-  await pick("user: Hold this deterministic response");
+  await pick("Hold this deterministic response");
   await pick("Fork from user message");
   await branchComplete();
   const controlRecords = (await readFile(path.join(directory, "controls.jsonl"), "utf8")).trim().split("\n").map(JSON.parse);
-  assert.deepEqual(controlRecords.map((record) => record.action), ["reload", "reload", "reload", "navigate"]);
-  assert.equal((await readFile(path.join(directory, "prompts.jsonl"), "utf8")).trim().split("\n").length, prompts.length + 1);
+  assert.deepEqual(controlRecords.filter((record) => record.action !== "session-location").map((record) => record.action), ["reload", "reload", "reload", "navigate"]);
+  assert.equal((await readFile(path.join(directory, "prompts.jsonl"), "utf8")).trim().split("\n").length, prompts.length + 2, "only completion Send and the held ordinary request add model prompts");
   // Integrated terminals survive EH reload. Persistent ownership must block automatic RPC startup.
   const handoffComplete = await invoke("command", { command: "pi.extensionUiCompatibility" }, false);
   await page.getByRole("button", { name: "Hand Off to Terminal", exact: true }).click();
@@ -762,9 +763,30 @@ try {
   await until(async () => (await pi.locator("body").innerText()).includes("Reconnect"), "blocked sidebar after terminal handoff");
   await delay(500);
   assert.equal((await readFile(path.join(directory, "pids.jsonl"), "utf8")).trim().split("\n").length, terminalPids.length, "EH reload must not start a second session writer");
-  await invoke("closePiTerminal");
-  await until(() => {
-    try { process.kill(terminalPids.at(-1), 0); return false; } catch (error) { return error.code === "ESRCH"; }
+  const closedTerminal = await invoke("closePiTerminal", { pid: terminalPids.at(-1) });
+  // Terminal restoration can replace its API handle with a default shell. Simulate the required
+  // manual inspection/stop of this known fixture writer, never an arbitrary process.
+  if (process.platform === "linux") {
+    try {
+      const commandLine = await readFile(`/proc/${terminalPids.at(-1)}/cmdline`, "utf8");
+      if (commandLine) {
+        assert.ok(commandLine.split("\0").includes(executableFixture), "only the captured disposable fixture may be stopped");
+        process.kill(terminalPids.at(-1), "SIGTERM");
+      }
+    } catch (error) {
+      if (error.code !== "ENOENT" && error.code !== "ESRCH") throw error;
+    }
+  } else assert.equal(closedTerminal.closed, 1, JSON.stringify(closedTerminal));
+  await until(async () => {
+    try {
+      process.kill(terminalPids.at(-1), 0);
+      // Container init can retain an exited terminal root as a zombie; it cannot write session data.
+      if (process.platform === "linux") {
+        const stat = await readFile(`/proc/${terminalPids.at(-1)}/stat`, "utf8");
+        return stat.slice(stat.lastIndexOf(")") + 1).trimStart().startsWith("Z");
+      }
+      return false;
+    } catch (error) { return error.code === "ESRCH" || error.code === "ENOENT"; }
   }, "fixture terminal stopped before explicit return");
   const returnComplete = await invoke("command", { command: "pi.returnFromTerminal" }, false);
   await page.getByRole("button", { name: "Return Ownership", exact: true }).click();

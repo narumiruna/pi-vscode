@@ -1,5 +1,7 @@
 # Provider authentication and session transfer validation
 
+This record describes the feature worktree at handoff. Completed integrated checks and current limits are recorded in [Native parity validation](NATIVE_PARITY_VALIDATION.md). Counts and pending items below are historical, not current integration status.
+
 ## Contract
 
 The supported reference is Pi 1.3.0, loaded from the configured executable through the public extension loader and public package root. No installed SDK path is a runtime dependency. VS Code remains at 1.106, with a Node workspace Extension Host and trusted file-backed workspace requirements.

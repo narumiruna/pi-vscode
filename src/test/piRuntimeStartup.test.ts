@@ -54,15 +54,26 @@ for (const change of ["dispose", "model", "approval"] as const) {
     await fixture(async (runtime, internal, _root, starts) => {
       let release!: (env: Record<string, string>) => void;
       let ready!: () => void;
-      const preparing = new Promise<void>((resolve) => { ready = resolve; });
-      internal.bridgeEnvironment = () => new Promise<Record<string, string>>((resolve) => { release = resolve; ready(); });
+      const preparing = new Promise<void>((resolve) => {
+        ready = resolve;
+      });
+      internal.bridgeEnvironment = () =>
+        new Promise<Record<string, string>>((resolve) => {
+          release = resolve;
+          ready();
+        });
       const startup = internal.createAndStartClient(undefined);
       await preparing;
       if (change === "dispose") runtime.dispose();
-      else mock.workspace.getConfiguration = () => ({
-        get: (key: string, fallback: unknown) => key === (change === "model" ? "model" : "approveProjectResources")
-          ? (change === "model" ? "changed-model" : true) : fallback,
-      });
+      else
+        mock.workspace.getConfiguration = () => ({
+          get: (key: string, fallback: unknown) =>
+            key === (change === "model" ? "model" : "approveProjectResources")
+              ? change === "model"
+                ? "changed-model"
+                : true
+              : fallback,
+        });
       release({});
       await assert.rejects(startup, /disposed|launch settings changed/);
       assert.equal(starts(), 0);

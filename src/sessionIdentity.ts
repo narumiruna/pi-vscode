@@ -20,10 +20,13 @@ export async function assertAssignedSessionWorkspace(sessionFile: string, cwd: s
     await assertSessionWorkspace(sessionFile, cwd);
   } catch (error) {
     if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ENOENT") throw error;
-    const missing = await lstat(sessionFile).then(() => false, (failure: NodeJS.ErrnoException) => {
-      if (failure.code === "ENOENT") return true;
-      throw failure;
-    });
+    const missing = await lstat(sessionFile).then(
+      () => false,
+      (failure: NodeJS.ErrnoException) => {
+        if (failure.code === "ENOENT") return true;
+        throw failure;
+      },
+    );
     if (!missing) throw error; // An existing header with a missing cwd is not an unsaved session.
     await canonicalAssignedSessionPath(sessionFile);
     await realpath(cwd);

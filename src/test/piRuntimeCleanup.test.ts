@@ -106,19 +106,11 @@ for (const mode of ["trash", "permanent", "stop-failure"] as const) {
         await deletion;
         assert.deepEqual(client.order, ["stop", "warning", "stop-settled", "delete", "replacement"]);
       }
-      assert.deepEqual(
-        events,
-        [cleanupWarning],
-        "old-client exit must not enter the detached runtime event stream",
-      );
+      assert.deepEqual(events, [cleanupWarning], "old-client exit must not enter the detached runtime event stream");
       assert.equal(client.listeners.size, 0, "cleanup subscriptions must be released on success and failure");
       client.emit(cleanupWarning);
       client.emit({ type: "process_exit", code: 7, signal: null, expected: false });
-      assert.deepEqual(
-        events,
-        [cleanupWarning],
-        "late detached-client events must not reach a replacement session",
-      );
+      assert.deepEqual(events, [cleanupWarning], "late detached-client events must not reach a replacement session");
     } finally {
       runtime.dispose();
       rmSync(root, { recursive: true, force: true });

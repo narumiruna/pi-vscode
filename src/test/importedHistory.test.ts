@@ -32,8 +32,14 @@ test("verified import history is applied while only the runtime operation owner 
     }
     let finish!: (messages: unknown[]) => void;
     let started!: () => void;
-    const ready = new Promise<void>((resolve) => { started = resolve; });
-    runtime.getMessages = () => new Promise<unknown[]>((resolve) => { finish = resolve; started(); });
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    runtime.getMessages = () =>
+      new Promise<unknown[]>((resolve) => {
+        finish = resolve;
+        started();
+      });
     const history = provider.syncMessagesFromPi(true);
     await ready;
     provider.handleRuntimeEvent({ type: "agent_start" });

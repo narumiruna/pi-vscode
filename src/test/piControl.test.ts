@@ -624,7 +624,11 @@ test("unverified stop cannot launch terminal without separate inspection approva
 
 test("restart rejects a stale cached session before stopping the actual writer", async () => {
   const f = await fixture();
-  f.client.getState = async () => ({ sessionId: "different", sessionFile: f.host.state.sessionFile, isStreaming: false });
+  f.client.getState = async () => ({
+    sessionId: "different",
+    sessionFile: f.host.state.sessionFile,
+    isStreaming: false,
+  });
   try {
     await assert.rejects(f.control.restartResources(), /session changed before restart/);
     assert.equal(f.calls.includes("stop"), false);

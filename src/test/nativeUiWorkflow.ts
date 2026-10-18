@@ -142,9 +142,19 @@ export async function run(): Promise<void> {
             assert.ok(vscode.window.tabGroups.activeTabGroup.activeTab);
             result = await vscode.window.tabGroups.close(vscode.window.tabGroups.activeTabGroup.activeTab);
             break;
-          case "closePiTerminal":
-            for (const terminal of vscode.window.terminals) if (terminal.name === "Pi") terminal.dispose();
+          case "closePiTerminal": {
+            const terminals = await Promise.all(
+              vscode.window.terminals.map(async (terminal) => ({
+                terminal,
+                name: terminal.name,
+                pid: await terminal.processId,
+              })),
+            );
+            const owned = terminals.filter((item) => item.pid === request.pid);
+            for (const item of owned) item.terminal.dispose();
+            result = { closed: owned.length, terminals: terminals.map(({ name, pid }) => ({ name, pid })) };
             break;
+          }
           case "nativeSettingsDirty": {
             const document = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(root, ".pi", "settings.json"));
             const editor = await vscode.window.showTextDocument(document);

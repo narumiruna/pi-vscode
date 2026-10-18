@@ -56,7 +56,12 @@ export async function assertAuthTransferDialogs({ page, directory, workspace, in
     const input = page.locator(".quick-input-widget input[type=text]");
     await input.waitFor({ state: "visible" });
     await input.fill(filename);
-    await page.keyboard.press("Enter");
+    // Alias paths can first navigate to a directory. Confirm only this file input, never a later approval.
+    for (let attempt = 0; attempt < 3 && await input.isVisible(); attempt++) {
+      if ((await page.locator(".quick-input-widget").innerText()).includes("already exists")) break;
+      await input.press("Enter");
+      await page.waitForTimeout(250);
+    }
     // SimpleFileDialog can first navigate to a typed full path, then need confirmation.
     await until(
       async () =>

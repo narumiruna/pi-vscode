@@ -1,6 +1,5 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
-import { type PiSessionTree, parseSessionTree, validId } from "./piControl";
 import {
   cleanShellText,
   maxShellOutputCharacters,
@@ -10,6 +9,7 @@ import {
   shellExecutionDeadlineMs,
   validateShellCommand,
 } from "./directShell";
+import { type PiSessionTree, parseSessionTree, validId } from "./piControl";
 import { PiProcessOwner } from "./piProcess";
 import { buildPiProcessEnvironment, planPiSpawn } from "./piSpawn";
 

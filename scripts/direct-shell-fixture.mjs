@@ -4,6 +4,16 @@ export async function assertNativeDirectShell(frame, page, executionCount) {
   const before = await executionCount();
   let panel = await frame();
   await panel.locator("#input").fill("!printf pi-shell-fixture");
+  const attachments = panel.locator("#attachments [data-remove-attachment]");
+  if (await attachments.count()) {
+    assert.equal(await panel.locator("#send").isDisabled(), true, "shell must reject retained draft attachments");
+    for (let index = 0; index < 8 && await attachments.count(); index++) {
+      const id = await attachments.first().getAttribute("data-remove-attachment");
+      await attachments.first().click();
+      await panel.locator(`#attachments [data-remove-attachment=${JSON.stringify(id)}]`).waitFor({ state: "detached" });
+    }
+    assert.equal(await attachments.count(), 0, "explicit removal prepares the attachment-free shell fixture");
+  }
   await panel.locator("#send").click();
   await page.getByRole("button", { name: "Run Shell", exact: true }).waitFor();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -14,8 +24,8 @@ export async function assertNativeDirectShell(frame, page, executionCount) {
     await panel.locator("#input").fill(`${prefix}printf pi-shell-fixture`);
     await panel.locator("#send").click();
     await page.getByRole("button", { name: "Run Shell", exact: true }).click();
-    await panel.locator(".shell-output").last().filter({ hasText: "Exit: 0" }).waitFor();
     const expected = prefix === "!!" ? "Excluded from model context; retained in Pi history" : "Included in model context on the next prompt";
+    await panel.locator(".shell-output").last().filter({ hasText: expected }).filter({ hasText: "Exit: 0" }).waitFor();
     assert.match(await panel.locator(".shell-output").last().textContent(), new RegExp(expected));
     assert.equal(await panel.locator(".message.shell img, .message.shell a, .message.shell script").count(), 0);
     assert.doesNotMatch(await panel.locator(".shell-output").last().textContent(), /DO_NOT_RENDER/);

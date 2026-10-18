@@ -1,5 +1,7 @@
 # Native Extension Dialog Validation
 
+This record describes the feature worktree at handoff. Completed integrated checks and current limits are recorded in [Native parity validation](NATIVE_PARITY_VALIDATION.md). Counts and pending items below are historical, not current integration status.
+
 ## Contract
 
 The native multiline editor is for non-secret text only. VS Code can retain untitled text in hot-exit backups. Per-use confirmation precedes document creation. Save is not Submit. Cleanup uses the stable tab-close API; choose Don't Save to discard dirty text. Cancelling that close leaves an inactive document. No backup-deletion guarantee is made.

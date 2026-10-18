@@ -62,13 +62,13 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
           await action();
         } catch (error) {
           if (error instanceof NativeRuntimeControlAppliedError) {
-            await vscode.window.showErrorMessage(
+            void vscode.window.showErrorMessage(
               "Pi acknowledged the runtime change, but current-state verification failed. Global persistence is unverified. Check the active runtime and file before retrying.",
             );
             return;
           }
           // Do not display filesystem, JSON-parser, server or credential-command output.
-          await vscode.window.showErrorMessage(
+          void vscode.window.showErrorMessage(
             "Native Pi operation did not complete. The target may have changed, be read-only, or be unsupported. Reload the native surface before retrying; check the file after a write error.",
           );
         }
@@ -484,7 +484,7 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
         "Resource reload completed. Startup defaults and scoped-model patterns are not live-applied.",
       );
     } catch {
-      await vscode.window.showErrorMessage(
+      void vscode.window.showErrorMessage(
         "Saved files are retained, but runtime apply failed. The active configuration is not verified. Retry Apply explicitly; do not restore old files over newer edits.",
       );
     }

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Deterministic stdin/stdout fixture. No model, provider, server, or credential store.
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const protocol = "pi-vscode-isolated-v1";
@@ -53,7 +53,7 @@ const onLine = (line) => {
       assert.ok(bytes.length <= 32 * 1024 * 1024 && bytes.at(-1) === 10);
       const [header, ...entries] = bytes.toString("utf8").slice(0, -1).split("\n").map(JSON.parse);
       assert.equal(header.version, 3);
-      assert.equal(header.cwd, value.cwd);
+      assert.equal(realpathSync(header.cwd), realpathSync(value.cwd), "workspace-root aliases name the same cwd");
       assert.ok(entries.length <= 50_000);
       const byId = new Map();
       for (const entry of entries) {

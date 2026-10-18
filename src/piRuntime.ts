@@ -4,7 +4,6 @@ import path from "node:path";
 import * as vscode from "vscode";
 import { piConfiguration } from "./configuration";
 import { ConversationResponseCapture, ExclusiveOperationGate } from "./conversationController";
-import { type ExtensionDialogRequest, ExtensionDialogRequests } from "./extensionDialogRequests";
 import {
   maxShellPolicyMessageCharacters,
   type ShellResult,
@@ -14,6 +13,7 @@ import {
   shellPolicyTitle,
   validateShellCommand,
 } from "./directShell";
+import { type ExtensionDialogRequest, ExtensionDialogRequests } from "./extensionDialogRequests";
 import {
   PiRpcClient,
   type PiRpcClientOptions,
@@ -539,8 +539,11 @@ export class PiRuntimeManager implements vscode.Disposable {
             if (this.client === client) await this.stopClient();
             else await this.stopDetachedClient(client);
           } catch (cleanupError) {
-            this.eventEmitter.fire({ type: "runtime_warning", warningCode: "cleanup-unverified",
-              message: `Shell cleanup failed after an uncertain execution. ${formatError(cleanupError)}` });
+            this.eventEmitter.fire({
+              type: "runtime_warning",
+              warningCode: "cleanup-unverified",
+              message: `Shell cleanup failed after an uncertain execution. ${formatError(cleanupError)}`,
+            });
           } finally {
             if (!this.client) this.updateState({ connected: false, busy: false, queueable: false });
           }
@@ -1046,7 +1049,8 @@ export class PiRuntimeManager implements vscode.Disposable {
 
   public async getMessages(): Promise<unknown[]> {
     await this.ensureStarted(this.resource);
-    if (this.state.busy || this.promptActive || this.shellActive) throw new Error("Wait for Pi execution before reading history.");
+    if (this.state.busy || this.promptActive || this.shellActive)
+      throw new Error("Wait for Pi execution before reading history.");
     const client = this.requireClient();
     const sessionId = this.state.sessionId;
     const sessionFile = this.state.sessionFile;
@@ -1056,7 +1060,9 @@ export class PiRuntimeManager implements vscode.Disposable {
       !client.isRunning ||
       sessionId !== this.state.sessionId ||
       sessionFile !== this.state.sessionFile ||
-      this.state.busy || this.promptActive || this.shellActive
+      this.state.busy ||
+      this.promptActive ||
+      this.shellActive
     )
       throw new Error("Pi history belongs to an expired client or session, or active execution.");
     return messages;
@@ -1211,20 +1217,25 @@ export class PiRuntimeManager implements vscode.Disposable {
     }
   }
 
-  private async createAndStartClient(sessionPath: string | undefined, allowUnsaved = false, expectedRoot?: string): Promise<void> {
+  private async createAndStartClient(
+    sessionPath: string | undefined,
+    allowUnsaved = false,
+    expectedRoot?: string,
+  ): Promise<void> {
     if (this.disposed) throw new Error("Pi startup was disposed.");
     const launch = JSON.stringify(this.buildClientOptions(sessionPath, {}));
-    const root = expectedRoot ?? await realpath(this.currentCwd);
-    if (await realpath(this.currentCwd) !== root) throw new Error("Pi workspace changed during startup.");
+    const root = expectedRoot ?? (await realpath(this.currentCwd));
+    if ((await realpath(this.currentCwd)) !== root) throw new Error("Pi workspace changed during startup.");
     if (sessionPath) {
       if (allowUnsaved) await assertAssignedSessionWorkspace(sessionPath, this.currentCwd);
       else await assertSessionWorkspace(sessionPath, this.currentCwd);
     }
     const bridgeEnvironment = await this.bridgeEnvironment();
-    if (await realpath(this.currentCwd) !== root) throw new Error("Pi workspace changed during startup.");
+    if ((await realpath(this.currentCwd)) !== root) throw new Error("Pi workspace changed during startup.");
     if (this.disposed) throw new Error("Pi startup was disposed.");
     if (!vscode.workspace.isTrusted) throw new Error("Pi startup requires a trusted workspace.");
-    if (JSON.stringify(this.buildClientOptions(sessionPath, {})) !== launch) throw new Error("Pi launch settings changed during startup.");
+    if (JSON.stringify(this.buildClientOptions(sessionPath, {})) !== launch)
+      throw new Error("Pi launch settings changed during startup.");
     const options = { ...this.buildClientOptions(sessionPath, bridgeEnvironment), cwd: root };
     const client = new PiRpcClient(options);
     this.invalidateExtensionDialogs();
@@ -1487,8 +1498,13 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   private handleEvent(event: PiRpcEvent): void {
-    if (event.type === "extension_ui_request" && event.method === "notify" &&
-      typeof event.message === "string" && event.message.startsWith("PI_VSCODE_CONTROL_RESULT:")) return;
+    if (
+      event.type === "extension_ui_request" &&
+      event.method === "notify" &&
+      typeof event.message === "string" &&
+      event.message.startsWith("PI_VSCODE_CONTROL_RESULT:")
+    )
+      return;
     if (event.type === "process_exit") this.invalidateExtensionDialogs();
     if (event.type === "extension_ui_request") {
       const client = this.client;

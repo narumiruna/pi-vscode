@@ -1,5 +1,7 @@
 # Foreground Control Validation
 
+This record describes the feature worktree at handoff. Completed integrated checks and current limits are recorded in [Native parity validation](NATIVE_PARITY_VALIDATION.md). Counts and pending items below are historical, not current integration status.
+
 ## Checked contract
 
 The external Pi reference is `@earendil-works/pi-coding-agent` 1.3.0. The Extension Host does not import Pi or depend on a second runtime. Runtime resources use public `ExtensionAPI`, `ExtensionCommandContext.reload()`, `navigateTree()`, read-only session APIs, and the documented input/UI protocols. Public declaration and implementation discovery confirmed:

@@ -14,8 +14,8 @@ import { VscodeBridgeServer } from "../vscodeBridge";
 import { vscodeBridgePortEnvironmentKey, vscodeBridgeTokenEnvironmentKey } from "../vscodeBridgeProtocol";
 import { verifyNativeAuthTransfer } from "./nativeAuthTransfer";
 import { verifyDiagnosticEncodings } from "./nativeDiagnosticEncoding";
-import { verifyNativePiControl } from "./nativePiControl";
 import { verifyNativeDirectShell } from "./nativeDirectShell";
+import { verifyNativePiControl } from "./nativePiControl";
 import { verifyNativeSettings } from "./nativeSettings";
 
 export async function run(): Promise<void> {

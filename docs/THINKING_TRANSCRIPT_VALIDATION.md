@@ -1,5 +1,7 @@
 # Thinking transcript validation
 
+This record describes the feature worktree at handoff. Completed integrated checks and current limits are recorded in [Native parity validation](NATIVE_PARITY_VALIDATION.md). Counts and pending items below are historical, not current integration status.
+
 ## Protocol and boundaries
 
 The reference is the installed Pi 1.3.0 public `docs/json.md`, `docs/message-types.md`, `docs/rpc.md`, `docs/rpc-commands.md`, and the matching exported declarations. This is reference evidence, not a new Pi minimum or runtime dependency. No Pi package is imported into the Extension Host.

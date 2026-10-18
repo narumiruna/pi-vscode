@@ -26,8 +26,8 @@ import type { PiRpcEvent, PiRpcImage } from "./piRpcClient";
 import { deleteConversationWithTrashFallback, type PiRuntimeManager, runtimeSessionIdentityChanged } from "./piRuntime";
 import { type AgentRequestPolicy, buildAgentPrompt, type ChatReferenceContext } from "./prompts";
 import { listRecentPiSessions, type PiSessionSummary, piSessionKey } from "./sessionHistory";
-import { SidebarAssistantStream } from "./sidebarAssistantStream";
 import { registerSessionTransfer } from "./sessionTransferController";
+import { SidebarAssistantStream } from "./sidebarAssistantStream";
 import {
   resolveSidebarQueueSubmission,
   resolveSidebarSubmissionText,
@@ -1752,7 +1752,11 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     const revision = ++this.historySyncRevision;
     try {
       const values = await this.runtime.getMessages();
-      if (revision !== this.historySyncRevision || (verifiedImport ? this.requestGate.isPending : this.runtime.currentState.busy)) return;
+      if (
+        revision !== this.historySyncRevision ||
+        (verifiedImport ? this.requestGate.isPending : this.runtime.currentState.busy)
+      )
+        return;
       const messages = convertPiMessages(values, {
         imageAssets: this.imageAssets,
         knownMessages: this.messages,

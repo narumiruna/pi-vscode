@@ -1,5 +1,7 @@
 # Read-only session snapshot validation
 
+This record describes the feature worktree at handoff. Completed integrated checks and current limits are recorded in [Native parity validation](NATIVE_PARITY_VALIDATION.md). Counts and pending items below are historical, not current integration status.
+
 This change extends the control foundation at `40ee22d6117812b032172fa3cabf14fff8b2e351`. It adds only the `session-location` action, its typed host adapter and regression tests. It does not add a general query endpoint, bridge mutation route, transcript response, UI reset, generation change, or resources-reloaded event.
 
 ## Passing checks

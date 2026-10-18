@@ -7,7 +7,7 @@ import { acquireOperation } from "./operationLocks";
 import { controlCommand, controlResultPrefix, type PiSessionTree, verifyPackagedCommands } from "./piControl";
 import { buildRpcArguments, type PiRpcClient, type PiRpcClientOptions, type PiRpcEvent } from "./piRpcClient";
 import type { PiRuntimeState } from "./piRuntime";
-import { canonicalAssignedSessionPath, assertSessionWorkspace } from "./sessionIdentity";
+import { assertSessionWorkspace, canonicalAssignedSessionPath } from "./sessionIdentity";
 import { readPiInvocationOptions } from "./vscodePi";
 
 export interface RuntimeControlHost {
@@ -331,7 +331,13 @@ export class PiRuntimeControl {
         throw new Error("Pi restart origin changed. Recover ownership explicitly before retrying.");
       this.terminal = undefined;
       try {
-        await this.host.startSession(sessionFile, this.persistedOwnership !== undefined && this.persistedOwnership !== "invalid" && this.persistedOwnership.sessionId === undefined, root);
+        await this.host.startSession(
+          sessionFile,
+          this.persistedOwnership !== undefined &&
+            this.persistedOwnership !== "invalid" &&
+            this.persistedOwnership.sessionId === undefined,
+          root,
+        );
         await verifyPackagedCommands(
           await this.requireActiveClient().getCommands(),
           path.join(this.host.context.extensionUri.fsPath, "resources"),

@@ -208,7 +208,12 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
       } catch {
         continue;
       }
-    } else if (!hasMessageText(value.content) && !(value.role === "assistant" && hasMessageThinking(value.content)) && (value.role !== "user" || !hasMessageImages(value.content))) continue;
+    } else if (
+      !hasMessageText(value.content) &&
+      !(value.role === "assistant" && hasMessageThinking(value.content)) &&
+      (value.role !== "user" || !hasMessageImages(value.content))
+    )
+      continue;
     retainedEntries.push({ index, value });
   }
   retainedEntries.reverse();
