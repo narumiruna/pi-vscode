@@ -468,7 +468,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           await this.attachments.pickContext();
           break;
         case "showMoreActions":
-          await this.showMoreActions(message.text, message.revision);
+          await this.showMoreActions(message.text, message.revision, message.codeWrapping);
           break;
         case "pickModel":
           await this.pickModel();
@@ -638,12 +638,13 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.postState();
   }
 
-  private async showMoreActions(composerText: string, composerRevision: number): Promise<void> {
+  private async showMoreActions(composerText: string, composerRevision: number, codeWrapping = false): Promise<void> {
     const origin = () => {
       const state = this.runtime.currentState;
       return JSON.stringify([this.runtime.currentCwd, state.sessionId, state.sessionFile, state.connected]);
     };
     const expectedOrigin = origin();
+    const expectedView = this.view;
     let stale = false;
     const subscription = this.runtime.onDidChangeState(() => {
       if (origin() !== expectedOrigin) stale = true;
@@ -670,6 +671,12 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         label: "$(debug-disconnect) Return Pi from Terminal",
         description: "Recover ownership after checking terminal processes",
         action: "returnTerminal",
+      },
+      { label: "Conversation display", kind: vscode.QuickPickItemKind.Separator },
+      {
+        label: "Word wrap",
+        description: `${codeWrapping ? "On" : "Off"} · Wrap long code lines for display only`,
+        action: "wordWrap",
       },
       { label: "Review and repair", kind: vscode.QuickPickItemKind.Separator },
       {
@@ -752,7 +759,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     try {
       selected = await vscode.window.showQuickPick(items, {
         title: "Pi Session Actions",
-        placeHolder: "Search session, review, background, or configuration actions",
+        placeHolder: "Search session, display, review, background, or configuration actions",
         matchOnDescription: true,
       });
     } finally {
@@ -760,7 +767,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       lifecycleSubscription.dispose();
     }
     if (!selected || selected.kind === vscode.QuickPickItemKind.Separator || !selected.action) return;
-    if (stale || origin() !== expectedOrigin) {
+    if (stale || origin() !== expectedOrigin || this.view !== expectedView) {
       throw new Error("Pi session changed while choosing an action. Open More again.");
     }
     if (selected.action === "checkpoints") {
@@ -777,7 +784,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         release();
         this.postState();
       }
-    } else if (selected.action === "review") await vscode.commands.executeCommand("pi.reviewChanges");
+    } else if (selected.action === "wordWrap") this.postMessage({ type: "toggleCodeWrapping" });
+    else if (selected.action === "review") await vscode.commands.executeCommand("pi.reviewChanges");
     else if (selected.action === "findings") await vscode.commands.executeCommand("pi.showReviewFindings");
     else if (selected.action === "diagnostics") await vscode.commands.executeCommand("pi.fixWorkspaceDiagnostics");
     else if (selected.action === "staged") await vscode.commands.executeCommand("pi.reviewStagedChanges");

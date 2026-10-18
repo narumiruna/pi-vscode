@@ -22,7 +22,7 @@ export async function assertSessionActions({ page, frame, until }) {
 
   try {
     const grouped = await open();
-    const groupLabels = ["Session management", "Review and repair", "Background work", "Pi configuration"];
+    const groupLabels = ["Session management", "Conversation display", "Review and repair", "Background work", "Pi configuration"];
     const seen = new Set();
     for (let step = 0; step < 30 && seen.size < groupLabels.length; step += 1) {
       const text = await grouped.innerText();
@@ -33,6 +33,7 @@ export async function assertSessionActions({ page, frame, until }) {
     await close();
     for (const [group, query, label] of [
       ["Session management", "JSONL file", "Resume Session"],
+      ["Conversation display", "long code lines", "Word wrap"],
       ["Review and repair", "Git index", "Review Staged Changes"],
       ["Background work", "isolated Git worktree agent", "Run Message in Worktree"],
       ["Pi configuration", "terminal-only UI", "Extension UI Compatibility"],
@@ -59,7 +60,7 @@ export async function assertSessionActions({ page, frame, until }) {
     await until(async () => (await widget().innerText()).includes("Name Pi Session"), "keyboard action dispatch");
     await close();
     console.log(
-      "PI_NATIVE_SESSION_ACTIONS four separators, description filtering, keyboard dispatch, and cancellation passed",
+      "PI_NATIVE_SESSION_ACTIONS five separators, description filtering, keyboard dispatch, and cancellation passed",
     );
   } finally {
     await composer.fill(originalDraft);
