@@ -172,7 +172,7 @@ Final runners isolate Git configuration and VS Code's shared application-data di
 
 ### PR #36 review follow-up
 
-All three submitted findings were independently reproduced and fixed; the [review ledger](reviews/2026-09-21_pr-36-review.md) records scope, severity and outcomes. Semantic lookup no longer disables otherwise attributable checkpoints. Semantic source/target/excerpt and diagnostic paths now use the selected folder's URI spelling while retaining canonical filesystem checks. Multi-file proposals bind that spelling to the captured canonical root, keep canonical operation locking, and reject retargeting before or during asynchronous Apply preflight. Nested file/directory symlinks remain excluded.
+All three submitted findings were independently reproduced and fixed; the [review ledger](https://github.com/narumiruna/pi-vscode/blob/ef2acdc79ec2f40ae02d700adf814d8d234aec39/docs/reviews/2026-09-21_pr-36-review.md) records scope, severity and outcomes. Semantic lookup no longer disables otherwise attributable checkpoints. Semantic source/target/excerpt and diagnostic paths now use the selected folder's URI spelling while retaining canonical filesystem checks. Multi-file proposals bind that spelling to the captured canonical root, keep canonical operation locking, and reject retargeting before or during asynchronous Apply preflight. Nested file/directory symlinks remain excluded.
 
 Four regression assertions failed against the reviewed production code, then passed after the fixes. A collector-only diagnostic fix still failed proposal creation, proving the adapter change was necessary. Focused validation passes 15 tests; normal, Git-hook-environment and package suites pass **217 tests / 41 files**. Biome passes with zero errors (380 warnings / 9 infos), production audit reports zero vulnerabilities, and `git diff --check` passes. The inspected VSIX (`0603bf82cbe7641840f2566263631676004a1c3ecaaeb2a64a7255b2b191f22c`) retains 63 entries / 50 runtime modules and all prior exclusions; the existing ignored artifact is unchanged.
 
@@ -184,7 +184,7 @@ The next review reproduced a separate canonical document bypassing unsaved conte
 
 The original URI bug fails a distinct-buffer regression and an actual VS Code 1.106.0 alias run. The writable-check race independently fails all three ordinary/alias/subfolder fixtures. After both fixes, **23 focused tests / 6 files** and **219 full-suite tests / 41 files** pass, including Git-hook-environment and package runs. Biome reports zero errors (374 warnings / 9 infos), production audit reports zero vulnerabilities, and `git diff --check` passes. The inspected 63-entry / 50-runtime-module VSIX (`800dd5d3c5dfa3c2be8faea6d936fb64705b7e359352c9b1d7eed2975a5889cb`) contains both fixes and retains all prior exclusions; the original ignored artifact is checksum-verified unchanged.
 
-On Linux **1.106.0 and 1.138.0**, ordinary and alias native UI runs now verify dirty finding buffers are Ask-only and direct Fix commands reject without a prompt. After Undo, actual Problems Fix → Preview → Apply changes the workspace document, and one native Undo restores it. The existing semantic, four review scopes, partial-hunk diagnostic repair, cancellation and reload assertions still pass with exactly seven approved read-only fixture prompts. This round does not newly claim Windows/SSH alias, live-provider or human accessibility coverage. The [review ledger](reviews/2026-09-21_pr-36-review.md) records all four submitted findings plus the independently discovered race and their evidence.
+On Linux **1.106.0 and 1.138.0**, ordinary and alias native UI runs now verify dirty finding buffers are Ask-only and direct Fix commands reject without a prompt. After Undo, actual Problems Fix → Preview → Apply changes the workspace document, and one native Undo restores it. The existing semantic, four review scopes, partial-hunk diagnostic repair, cancellation and reload assertions still pass with exactly seven approved read-only fixture prompts. This round does not newly claim Windows/SSH alias, live-provider or human accessibility coverage. The [review ledger](https://github.com/narumiruna/pi-vscode/blob/ef2acdc79ec2f40ae02d700adf814d8d234aec39/docs/reviews/2026-09-21_pr-36-review.md) records all four submitted findings plus the independently discovered race and their evidence.
 
 ### PR #36 semantic ordering follow-up
 
@@ -192,7 +192,7 @@ Semantic ranges now sort numerically by start line/column and end line/column af
 
 Validation passes **24 focused tests / 4 files** and **221 full-suite tests / 41 files**, including normal, Git-hook-environment and package runs. Biome has zero errors (374 warnings / 9 infos); production audit has zero vulnerabilities; `git diff --check` passes. Native Linux Extension Host API smoke tests pass on **1.106.0 and 1.138.0**. The deterministic fixtures prove numeric ordering; the native runs separately verify real provider/bridge/API compatibility. Native UI walkthroughs, Windows/SSH and live-provider quality were not rerun for this comparator-only change.
 
-The inspected VSIX (`8c3391db976f9fa3260e51fc5561a59a03458c39eb69f63f818478d85b818f81`) contains the numeric comparisons and unchanged deduplication/limit paths, retains 63 entries / 50 runtime modules and all prior exclusions. The original ignored VSIX is checksum-verified unchanged. All five submitted findings and the independently discovered writable-check race have evidence-backed outcomes in the [review ledger](reviews/2026-09-21_pr-36-review.md).
+The inspected VSIX (`8c3391db976f9fa3260e51fc5561a59a03458c39eb69f63f818478d85b818f81`) contains the numeric comparisons and unchanged deduplication/limit paths, retains 63 entries / 50 runtime modules and all prior exclusions. The original ignored VSIX is checksum-verified unchanged. All five submitted findings and the independently discovered writable-check race have evidence-backed outcomes in the [review ledger](https://github.com/narumiruna/pi-vscode/blob/ef2acdc79ec2f40ae02d700adf814d8d234aec39/docs/reviews/2026-09-21_pr-36-review.md).
 
 ### PR #36 worktree containment follow-up
 
@@ -202,7 +202,7 @@ Ten real-filesystem swap cases span five interleavings in both scopes; four fail
 
 An isolated Windows Node 24.18.1 runner executes 13 of the same compiled filesystem fixtures against native Windows Git and NTFS junctions. Six junction-swap variants execute and are rejected by the capture guards; Windows denies the other four after-open/during-read rename variants. All retain zero foreign descriptor reads and balanced closes. Two canonical/alias controls and opened-size rejection also pass. The test-owned descriptor cleanup was corrected after an initial denied-rename attempt; final runner/workspace cleanup succeeds. This is not a new Windows Extension Host UI claim; the POSIX FIFO case runs only on Linux. SSH/macOS/live-provider paths were not rerun. Other processes still prevent any filesystem-wide atomicity guarantee.
 
-The inspected VSIX (`8c038d7644d57ef926f62d9c1311b3400cae4c19a595f2ffda9f158a6f4f8bec`) contains the containment, ancestor, opened-file and nonblocking checks, retains 63 entries / 50 runtime modules and prior exclusions, and leaves the original ignored VSIX checksum unchanged. All six submitted findings plus the independently discovered writable-check race have evidence-backed outcomes in the [review ledger](reviews/2026-09-21_pr-36-review.md).
+The inspected VSIX (`8c038d7644d57ef926f62d9c1311b3400cae4c19a595f2ffda9f158a6f4f8bec`) contains the containment, ancestor, opened-file and nonblocking checks, retains 63 entries / 50 runtime modules and prior exclusions, and leaves the original ignored VSIX checksum unchanged. All six submitted findings plus the independently discovered writable-check race have evidence-backed outcomes in the [review ledger](https://github.com/narumiruna/pi-vscode/blob/ef2acdc79ec2f40ae02d700adf814d8d234aec39/docs/reviews/2026-09-21_pr-36-review.md).
 
 ### PR #36 diagnostic capture follow-up (after merge)
 
@@ -214,7 +214,7 @@ Four pre-fix disclosure fixtures fail; the expanded **29 capture tests** now pas
 
 An isolated Windows Node **24.18.1** run passes **40 compiled filesystem fixtures**: 13 shared-reader/worktree cases and 27 diagnostic cases. The two diagnostic leaf-symlink variants cannot execute because this account's native `symlink` returns `EPERM`; both pass on Linux. All six diagnostic parent-junction/restoration/new-dirty variants execute on Windows and reject foreign context. The earlier four worktree rename variants remain OS-denied, not newly exercised races. Owned fixture cleanup succeeds. This is not Windows Extension Host UI evidence; SSH/macOS/live-provider paths were not rerun.
 
-The inspected VSIX (`1b9ab1087c4cf008e7279c0dce461c786de701ad09103ae794bacbbf8c13510b`) has **64 entries / 51 runtime modules**, includes the new shared reader and retains all prior exclusions. The original ignored VSIX is checksum-verified unchanged. The [review ledger](reviews/2026-09-21_pr-36-review.md) records all seven submitted findings and the independent writable-check race; no deferred feedback or clarification remains. A patch Changeset is included without a version bump, package publication, tag or release dispatch.
+The inspected VSIX (`1b9ab1087c4cf008e7279c0dce461c786de701ad09103ae794bacbbf8c13510b`) has **64 entries / 51 runtime modules**, includes the new shared reader and retains all prior exclusions. The original ignored VSIX is checksum-verified unchanged. The [review ledger](https://github.com/narumiruna/pi-vscode/blob/ef2acdc79ec2f40ae02d700adf814d8d234aec39/docs/reviews/2026-09-21_pr-36-review.md) records all seven submitted findings and the independent writable-check race; no deferred feedback or clarification remains. A patch Changeset is included without a version bump, package publication, tag or release dispatch.
 
 ### PR #37 diagnostic encoding follow-up (after merge)
 
@@ -222,7 +222,7 @@ The new diagnostic disk verifier rejected eight valid VS Code setting names beca
 
 **119 focused tests / 5 files** and **329 full-suite tests / 42 files** pass in normal, Git-hook-environment and package runs. Linux VS Code **1.106.0 and 1.138.0** native API runs each verify all **41 real encoded editor files** against safely captured bytes, and both complete alias UI walkthroughs pass Preview/Apply/Undo and lifecycle checks. The disposable workspace's encoding setting is restored. Short CJK UTF-16 fixtures use BOMs because VS Code's binary detector rejects their BOM-less form. Actual Windows Node **24.18.1** passes all **65 new encoding capture fixtures** with real temporary files; this is not Windows Extension Host UI evidence. No Windows symlink, SSH, macOS or live-provider rerun is claimed.
 
-Biome has zero errors (396 warnings / 9 infos), production audit has zero vulnerabilities, and diff checks pass. The inspected VSIX (`ea22b409486e1d66b60efc7bbfe89a494eae651f796014c327270a2592f2d111`) has **65 entries / 52 runtime modules**, contains the pure decoder and retains all prior exclusions; the original ignored artifact is checksum-verified unchanged. The [PR #37 review ledger](reviews/2026-09-21_pr-37-review.md) records the sole feedback item, reproduction, scope and limitations. A patch Changeset is included; no release action is performed.
+Biome has zero errors (396 warnings / 9 infos), production audit has zero vulnerabilities, and diff checks pass. The inspected VSIX (`ea22b409486e1d66b60efc7bbfe89a494eae651f796014c327270a2592f2d111`) has **65 entries / 52 runtime modules**, contains the pure decoder and retains all prior exclusions; the original ignored artifact is checksum-verified unchanged. The [PR #37 review ledger](https://github.com/narumiruna/pi-vscode/blob/ef2acdc79ec2f40ae02d700adf814d8d234aec39/docs/reviews/2026-09-21_pr-37-review.md) records the sole feedback item, reproduction, scope and limitations. A patch Changeset is included; no release action is performed.
 
 ## Panel rich content — 2026-10-16
 
@@ -246,9 +246,52 @@ The original 100-message cache reproduction parsed all 100 messages again on its
 
 SVG copies now update IDs, CSS selectors, and local URL/ARIA references through DOM and CSS APIs. Text nodes, titles, descriptions, and CSS string values remain unchanged. The real fixture keeps `piDiagram1` and `piDiagram10` in visible labels. Browser tests check first/cached copies, distinct IDs, markers, hrefs, inline styles, nested rules, CSS URLs, and ARIA references.
 
-`npm run package` passes **357 tests / 43 files** and creates a valid 130-file VSIX. `npm run test:rich-content` and `xvfb-run -a npm run test:native-ui -- 1.106.0 packaged` pass with the added cases. Full Biome, diff checks, and production audit pass with the same existing warnings. Host placement, minimum VS Code version, source storage, RPC, trust, and CSP are unchanged. See [the PR #50 review ledger](reviews/pr-50-review.md) for both findings, reproductions, outcomes, and validation limits.
+`npm run package` passes **357 tests / 43 files** and creates a valid 130-file VSIX. `npm run test:rich-content` and `xvfb-run -a npm run test:native-ui -- 1.106.0 packaged` pass with the added cases. Full Biome, diff checks, and production audit pass with the same existing warnings. Host placement, minimum VS Code version, source storage, RPC, trust, and CSP are unchanged. See [the PR #50 review ledger](https://github.com/narumiruna/pi-vscode/blob/ef2acdc79ec2f40ae02d700adf814d8d234aec39/docs/reviews/pr-50-review.md) for both findings, reproductions, outcomes, and validation limits.
 
 The subsequent hosted merge check uses Node.js 22 and fails the unchanged `iso885916` diagnostic fixture. Local Node.js 22.23.3 reproduces `ERR_ENCODING_NOT_SUPPORTED` for `TextDecoder("iso-8859-16")`; 93 other tests in that file pass. The encoding source/fixtures are unchanged from the PR base and current main. This is a separate test-portability issue, not a panel regression. The hosted check is not green. The review ledger records the evidence and recommends a separate encoding-test PR.
+
+## Windows Pi process launch repair — 2026-10-17
+
+This section preserves historical evidence from the retired Windows process-launch plan, following merged [PR #73](https://github.com/narumiruna/pi-vscode/pull/73). No checks were rerun during plan removal.
+
+### Baseline and repair
+
+The reviewed head was `62d5f5c97ad2d42758d475ca7de3c60162b9d847`, compared with merge base `ec6dfe8465e7b0a96c18d28270164622fec91a89`. The merged baseline was `d263ed22bc5a2f0ea340463c181ea4c74dd5a623`; the repair was rebased onto `a58127a469a8013bf2b5ecd4817e11c1daac7f3c` after PR #75 merged.
+
+Isolated Windows fixtures reproduced argument expansion, harmless injected `echo` execution, and a surviving runtime after RPC stop. The initial review recorded `spawn EINVAL` on base shim launches and successful but unsafe launches on the reviewed head. A later deterministic baseline harness also confirmed different parent/child PATH selections, duplicate mixed-case PATH entries after unset, and incorrect directory-qualified relative resolution. Fixtures never executed the installed Pi binary; owned processes and temporary baseline copies were removed.
+
+The repair uses one final normalized child environment and launch working directory for executable resolution and spawning. Windows launches use `shell: false`: native executables run directly, and complete standard npm Node shim templates resolve to a Node executable and script without evaluating batch text. Custom wrappers fail before execution. Prompts and context remain on stdin.
+
+Both clients share bounded process cleanup. The actual runtime is the owned child; POSIX retains process-group cleanup. Windows descendant containment is not claimed, even after root exit. Cleanup waits at most one second for graceful root exit and one further second for pipe closure after forced termination. RPC settlement occurs once after cleanup; restart guards and retained background warning subscriptions preserve cleanup uncertainty. README and Security retain the support contract.
+
+### Recorded verification
+
+| Check | Environment | Result |
+| --- | --- | --- |
+| Native Windows launch/lifecycle suite | Windows 10.0.26300.9711, Node.js 22.23.3 and 26.6.0 | 35 tests passed across four files; verified argv, stdin, executable identity, root liveness, bounded uncertainty, and restart guards |
+| Full unit/process suite | WSL Linux, Node.js 22.23.3 | 412 passed, three Windows-only tests skipped, 49 files passed |
+| Biome 2.5.13 | Documented repository command | Exit 0; existing warnings remained |
+| Minimum/current Extension Host smoke | Linux under Xvfb, VS Code 1.106.0 and 1.142.0 | Passed host, bridge, settings, edit/Undo, semantic, and encoding checks |
+| VSIX | `npm run package` | Passed; the inspected 139-file archive included both clients, resolver, and process owner |
+| Existing npm installation template | Windows, planner only | Recognized as a shell-free Node/script plan; Pi was not started |
+
+Native Windows checks compiled first, then ran:
+
+```bash
+npm exec -- vitest run out/test/piSpawn.test.js out/test/piClient.test.js out/test/piRpcClient.test.js out/test/piProcess.test.js
+```
+
+Linux checks used `npm ci`, `npm test`, the documented Biome command, and `npm run package`. Native smoke checks compiled first, then ran `xvfb-run -a node scripts/test-native.mjs 1.106.0` and the same command with `stable`. Fixtures used disposable profiles or temporary directories. Focused Windows launch/lifecycle CI was added in `.github/workflows/ci.yml`.
+
+### Existing failures and validation limits
+
+- The initial Windows review recorded 15 focused passes and a full-suite result of 362 passed, 27 failed, and one skipped. It was not a clean Windows baseline.
+- After rebase, the full Windows suite on Node.js 26.6.0 recorded 392 passed, 22 failed, and one skipped. The unchanged original baseline reproduced the same 21 platform/permission failures and intermittent semantic-bridge timeout. Earlier repair runs passed the timeout case; it recurred in the final full run. Failures included symlink permissions, POSIX-only filenames/path assertions, line endings, and shell-based installer fixtures. A restricted PATH prevented fallback to an installed editor or Pi command.
+- Linux Node.js 22.22.0 failed the Windows-1252 diagnostic fixture on both baseline and repair because byte `0x80` decoded differently from the fixture expectation. The final suite passed on Node.js 22.23.3; unrelated encoding code was not changed.
+- Browser and remote workflows were not run for this repair. Native Windows Extension Host and packaged-install behavior were not tested. Native Windows evidence came from real Node process fixtures, not a simulated platform flag.
+- No live provider, publication, version tag, installed-extension replacement, or release workflow dispatch was used. Custom wrappers remain unsupported. A root-process exit does not prove that tool descendants stopped.
+
+The user approved plan removal. This does not convert failed or unverified checks into passes. If a regression occurs, use a targeted correction or an explicit launch error; do not restore the unsafe shell path.
 
 ## Deferred usage checks from earlier plans
 
