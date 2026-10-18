@@ -52,6 +52,7 @@ function visibleValue(value: unknown): string {
 export function registerNativePiManagement(context: vscode.ExtensionContext, runtime: PiRuntimeManager): void {
   let disposed = false;
   let lastDiagnostic: McpDiagnostic | undefined;
+  let lastDiagnosticOrigin: string | undefined;
   const controllers = new Set<AbortController>();
   const register = (id: string, action: () => Promise<void>) =>
     context.subscriptions.push(
@@ -79,6 +80,7 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
       for (const controller of controllers) controller.abort();
       controllers.clear();
       lastDiagnostic = undefined;
+      lastDiagnosticOrigin = undefined;
     },
   });
 
@@ -235,6 +237,14 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
     let terminalOrigin: (() => Promise<void>) | undefined;
     await runtime.withWorkspaceOperation("managing native MCP configuration", async (assertCurrent) => {
       const state = await files("mcp");
+      const diagnosticOrigin = JSON.stringify([
+        state.root,
+        state.agentDir,
+        state.global.revision,
+        state.project.revision,
+        state.approved,
+      ]);
+      const diagnosticIsCurrent = lastDiagnosticOrigin === diagnosticOrigin;
       const metadata = effectiveMcpMetadata(state.global.value, state.project.value, state.approved);
       const action = await choose(
         [
@@ -259,7 +269,7 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
           {
             label: "Last explicit CLI diagnostic",
             detail: lastDiagnostic
-              ? `${lastDiagnostic.checkedAt}: ${lastDiagnostic.outcome}. Not current-session evidence.`
+              ? `${lastDiagnostic.checkedAt}: ${lastDiagnostic.outcome}. ${diagnosticIsCurrent ? "Matching captured file revisions." : "Stale: workspace/configuration changed."} Not current-session evidence.`
               : "No diagnostic has run.",
             action: "last",
           },
@@ -295,6 +305,12 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
         return;
       }
       if (action === "last") {
+        if (lastDiagnostic && !diagnosticIsCurrent) {
+          await vscode.window.showInformationMessage(
+            "The last MCP CLI diagnostic belongs to a different workspace or file revision. Run a fresh explicit diagnostic; current-session state is still unknown.",
+          );
+          return;
+        }
         const diagnostic = lastDiagnostic;
         if (diagnostic)
           await vscode.window.showQuickPick(
@@ -347,7 +363,15 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
             },
           );
           await assertCurrent();
-          if (!disposed) lastDiagnostic = result;
+          if (
+            (await readNativeFile(state.global.target)).revision !== state.global.revision ||
+            (await readNativeFile(state.project.target)).revision !== state.project.revision
+          )
+            throw new Error("MCP files changed during diagnostic.");
+          if (!disposed) {
+            lastDiagnostic = result;
+            lastDiagnosticOrigin = diagnosticOrigin;
+          }
           await vscode.window.showInformationMessage(
             `Separate MCP CLI diagnostic: ${result.outcome}; ${result.servers.length} servers reported. Current-session state remains unknown. ${result.cleanup}`,
           );

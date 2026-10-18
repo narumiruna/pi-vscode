@@ -76,6 +76,9 @@ test("native bounded file writes preserve bytes and reject conflicts, links, inv
     const target = await nativeFileTarget(path.join(root, "agent"), "global", "settings");
     const missing = await readNativeFile(target);
     assert.equal(missing.exists, false);
+    const resetMissing = await saveNativeFile(missing, ["defaultModel"], undefined, guard);
+    assert.equal(resetMissing.exists, false, "Reset must not create a missing native file");
+    await assert.rejects(readFile(path.join(root, "agent/settings.json")), { code: "ENOENT" });
     const first = await saveNativeFile(missing, ["defaultModel"], "model", guard);
     assert.equal(first.value.defaultModel, "model");
     assert.equal(first.exists, true);
@@ -357,6 +360,32 @@ test("native settings and MCP surfaces use passive host dialogs, explicit target
     await vscode.registrations.get("pi.openNativeMcp")();
     assert.deepEqual(JSON.parse(await readFile(path.join(root, ".pi/mcp.json"), "utf8")), { mcpServers: {} });
     assert.equal(await readFile(path.join(root, "agent/mcp.json"), "utf8"), globalMcp);
+    if (process.platform !== "win32") {
+      // This explicit diagnostic runs only a static fixture CLI, never an MCP server.
+      await rm(path.join(root, ".pi/mcp.json"));
+      const fixture = path.join(root, "mcp-cli-fixture");
+      await writeFile(
+        fixture,
+        `#!${process.execPath}\nconsole.log(JSON.stringify({servers:[{name:"docs",state:"connected",tools:["read"],error:"secret-token"}],errors:[]}));\n`,
+        { mode: 0o700 },
+      );
+      vscode.workspace.getConfiguration = () => ({
+        get: (key: string, fallback: unknown) => (key === "executablePath" ? fixture : fallback),
+      });
+      const notices: string[] = [];
+      vscode.window.showInformationMessage = async (message: string) => {
+        notices.push(message);
+      };
+      picks.push("check");
+      await vscode.registrations.get("pi.openNativeMcp")();
+      assert.ok(notices.some((message) => message.includes("diagnostic: completed")));
+      await writeFile(path.join(root, "agent/mcp.json"), globalMcp.replace('"unknown":true', '"unknown":false'));
+      picks.push("last");
+      await vscode.registrations.get("pi.openNativeMcp")();
+      assert.ok(notices.some((message) => message.includes("different workspace or file revision")));
+      assert.ok(!JSON.stringify(notices).includes("secret-token"));
+      await writeFile(path.join(root, "agent/mcp.json"), globalMcp);
+    }
     // A workspace opened through an alias must not bypass the dirty native editor.
     const alias = path.join(root, "workspace-alias");
     await symlink(root, alias, "junction");

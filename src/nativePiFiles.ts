@@ -90,6 +90,8 @@ export async function saveNativeFile(
     await assertOrigin();
     const current = await readNativeFile(snapshot.target);
     if (current.revision !== snapshot.revision) throw new Error("Native configuration changed. Reload before saving.");
+    // Resetting a missing override must not create a file or a project trust resource.
+    if (text === snapshot.text) return current;
     let parent = snapshot.target.root;
     for (const part of snapshot.target.relative.split("/").slice(0, -1)) {
       parent = path.join(parent, part);

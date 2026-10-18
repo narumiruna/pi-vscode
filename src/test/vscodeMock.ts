@@ -66,6 +66,7 @@ export function installVscodeMock(): any {
         this.events.removeAllListeners();
       }
     },
+    ProgressLocation: { Notification: 15 },
     env: {},
     panels,
     configurationEvents,
@@ -166,6 +167,8 @@ export function installVscodeMock(): any {
         close: async () => true,
       },
       createStatusBarItem: () => ({ text: "", command: "", tooltip: "", show() {}, hide() {}, dispose() {} }),
+      withProgress: async (_options: unknown, task: (progress: unknown, token: unknown) => Promise<unknown>) =>
+        task({ report() {} }, { isCancellationRequested: false, onCancellationRequested: disposable }),
       createWebviewPanel: (viewType: string, title: string, column: unknown, options: unknown) => {
         const events = new NodeEmitter();
         const panel = {
