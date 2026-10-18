@@ -1,11 +1,14 @@
 import path from "node:path";
 import * as vscode from "vscode";
 import { isSupportedImageMimeType } from "./attachmentUtils";
+import { type FileCompletionMessage, isFileCompletionMessage } from "./composerFileToken";
+import { formatBashExecutionText, maxShellCommandCharacters, parseBashResultView } from "./directShell";
 import { type ImageAssetCache, unavailableImageAssetId } from "./imageAssets";
-import { piMessageContentText } from "./piMessages";
+import { piMessageContentText, piMessageThinking } from "./piMessages";
 import { extractReplacement, parseAgentPrompt } from "./prompts";
 import {
   contextTranscriptAttachment,
+  limitSidebarMessages,
   maxTranscriptAttachments,
   maxTranscriptImages,
   restoreSidebarMessages,
@@ -17,6 +20,7 @@ import {
 } from "./sidebarState";
 
 export type WebviewMessage =
+  | FileCompletionMessage
   | {
       readonly type:
         | "ready"
@@ -82,6 +86,7 @@ export type WebviewMessage =
 
 export function isWebviewMessage(value: unknown, maxImageBytes: number): value is WebviewMessage {
   if (!isRecord(value) || typeof value.type !== "string") return false;
+  if (value.type.startsWith("fileCompletion")) return isFileCompletionMessage(value);
   if (value.type === "send" || value.type === "sendNewSession")
     return typeof value.text === "string" && isComposerRevision(value.revision);
   if (value.type === "switchRecentSession") return typeof value.id === "string" && /^[a-f0-9]{24}$/.test(value.id);
@@ -184,6 +189,7 @@ export interface ConvertPiMessagesOptions {
   readonly imageAssets: ImageAssetCache;
   readonly knownMessages?: readonly SidebarMessage[];
   readonly maxMessages?: number;
+  readonly maxCharacters?: number;
 }
 
 export function convertPiMessages(values: readonly unknown[], options: ConvertPiMessagesOptions): SidebarMessage[] {
@@ -194,8 +200,20 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
   const retainedEntries: Array<{ readonly index: number; readonly value: Record<string, unknown> }> = [];
   for (let index = values.length - 1; index >= 0 && retainedEntries.length < retainedCount; index -= 1) {
     const value = values[index];
-    if (!isRecord(value) || (value.role !== "user" && value.role !== "assistant")) continue;
-    if (!hasMessageText(value.content) && (value.role !== "user" || !hasMessageImages(value.content))) continue;
+    if (!isRecord(value) || !["user", "assistant", "bashExecution"].includes(String(value.role))) continue;
+    if (value.role === "bashExecution") {
+      if (typeof value.command !== "string") continue;
+      try {
+        parseBashResultView(value);
+      } catch {
+        continue;
+      }
+    } else if (
+      !hasMessageText(value.content) &&
+      !(value.role === "assistant" && hasMessageThinking(value.content)) &&
+      (value.role !== "user" || !hasMessageImages(value.content))
+    )
+      continue;
     retainedEntries.push({ index, value });
   }
   retainedEntries.reverse();
@@ -212,8 +230,21 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
     }
   }
 
-  const messages: SidebarMessage[] = [];
+  let messages: SidebarMessage[] = [];
+  const assistantOccurrences = new Map<number, number>();
   for (const { index, value } of retainedEntries) {
+    if (value.role === "bashExecution") {
+      messages.push({
+        id: `pi-shell-${String(value.timestamp ?? index)}-${index}`,
+        role: "shell",
+        content: formatBashExecutionText(
+          String(value.command).slice(0, maxShellCommandCharacters),
+          value.excludeFromContext === true,
+          parseBashResultView(value),
+        ),
+      });
+      continue;
+    }
     const text = piMessageContentText(value.content);
     if (value.role === "user") {
       const imageAttachments = imageAttachmentsByIndex.get(index) ?? [];
@@ -230,14 +261,21 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
         ...(attachments.length ? { attachments } : {}),
       });
     } else {
-      if (!text) continue;
+      const thinking = piMessageThinking(value.content);
+      if (!text && !thinking.length) continue;
       const replacement = extractReplacement(text);
+      const timestamp =
+        typeof value.timestamp === "number" && Number.isSafeInteger(value.timestamp) ? value.timestamp : index;
+      const occurrence = assistantOccurrences.get(timestamp) ?? 0;
+      assistantOccurrences.set(timestamp, occurrence + 1);
       messages.push({
-        id: `pi-assistant-${String(value.timestamp ?? index)}-${index}`,
+        id: `pi-assistant-${timestamp}-${occurrence}`,
         role: "assistant",
         content: replacement === undefined ? text : `Prepared an edit proposal.\n\n\`\`\`\n${replacement}\n\`\`\``,
+        ...(thinking.length ? { thinking } : {}),
       });
     }
+    messages = limitSidebarMessages(messages, retainedCount, options.maxCharacters ?? 250_000);
   }
   const availableMessages = sidebarMessagesForWebview(messages, (id) => options.imageAssets.has(id));
   return mergeKnownImageLabels(availableMessages, options.knownMessages ?? []);
@@ -355,6 +393,18 @@ function hasMessageText(content: unknown): boolean {
         content.some(
           (part) => isRecord(part) && part.type === "text" && typeof part.text === "string" && part.text.length > 0,
         );
+}
+
+function hasMessageThinking(content: unknown): boolean {
+  return (
+    Array.isArray(content) &&
+    content.some(
+      (part) =>
+        isRecord(part) &&
+        part.type === "thinking" &&
+        (part.redacted === true || (typeof part.thinking === "string" && part.thinking.length > 0)),
+    )
+  );
 }
 
 function hasMessageImages(content: unknown): boolean {

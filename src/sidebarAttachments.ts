@@ -16,10 +16,12 @@ import {
   contextWarnings,
   inspectContext,
 } from "./contextInspector";
+import { diagnosticDiskText } from "./diagnosticEncoding";
 import type { ImageAssetCache } from "./imageAssets";
 import type { PiRpcImage } from "./piRpcClient";
 import { buildAgentPrompt, type ChatReferenceContext, limitReferenceContent } from "./prompts";
 import { type CodeContextOperation, queryCodeContext, semanticAttachmentText } from "./semanticContext";
+import type { CompletionCandidate } from "./sidebarFileCompletion";
 import { relativeDocumentPath, type WebviewMessage } from "./sidebarHelpers";
 import {
   contextTranscriptAttachment,
@@ -28,6 +30,7 @@ import {
   type TranscriptImageAttachment,
 } from "./sidebarState";
 import { WorkflowDocuments } from "./workflowUi";
+import { readWorkspaceFile } from "./workspaceFiles";
 
 export interface AttachedContext {
   readonly id: string;
@@ -323,6 +326,11 @@ export class SidebarAttachmentManager {
     };
   }
 
+  public clearPins(): void {
+    this.attachments = this.attachments.filter((item) => !item.metadata?.pinned);
+    this.options.onChange();
+  }
+
   public clear(): void {
     this.attachments = [];
     this.options.onChange();
@@ -406,6 +414,50 @@ export class SidebarAttachmentManager {
       content: document.getText(),
       metadata: contextMetadata(document.getText(), undefined, 1, { sourceVersion: document.version }),
     });
+  }
+
+  /** Capture only a host-owned, revalidated workspace candidate. No model request is made. */
+  public async attachCompletion(candidate: CompletionCandidate, validate: () => Promise<void>): Promise<void> {
+    await validate();
+    const existingDocument = vscode.workspace.textDocuments.find(
+      (item) => item.uri.toString() === candidate.uri.toString(),
+    );
+    const dirty = existingDocument?.isDirty
+      ? { document: existingDocument, version: existingDocument.version, text: existingDocument.getText() }
+      : undefined;
+    const maxBytes = this.options.maxAttachedCharacters * 4 + 3;
+    const before = await readWorkspaceFile(candidate.root, candidate.path, maxBytes);
+    if (!before) throw new Error("The completion file no longer exists.");
+    const document = dirty?.document ?? (await vscode.workspace.openTextDocument(candidate.uri));
+    const content = dirty?.text ?? document.getText();
+    const version = document.version;
+    const after = await readWorkspaceFile(candidate.root, candidate.path, maxBytes);
+    await validate();
+    if (
+      !after ||
+      !before.equals(after) ||
+      document.isClosed ||
+      (dirty && document.version !== dirty.version) ||
+      document.version !== version ||
+      content.length > this.options.maxAttachedCharacters ||
+      content.includes("\0") ||
+      (!dirty &&
+        diagnosticDiskText(
+          after,
+          vscode.workspace.getConfiguration("files", candidate.uri).get("encoding", "utf8"),
+          document.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n",
+        ) !== content)
+    )
+      throw new Error("The completion file changed, is binary, or exceeds the attachment limit.");
+    if (
+      !this.addText({
+        uri: candidate.uri,
+        label: candidate.path,
+        content,
+        metadata: contextMetadata(content, content.length, 1, { sourceVersion: version }),
+      })
+    )
+      throw new Error("The attachment limit has been reached.");
   }
 
   public async attachFile(): Promise<void> {
@@ -595,17 +647,17 @@ export class SidebarAttachmentManager {
     this.addText({ label: "Terminal selection", content: selection });
   }
 
-  private addText(context: Omit<AttachedContext, "id"> & { content: string }): void {
+  private addText(context: Omit<AttachedContext, "id"> & { content: string }): boolean {
     const existing = this.attachments.filter((item) => item.label !== context.label);
     if (existing.length >= this.options.maxAttachments) {
       this.options.onNotice(`A maximum of ${this.options.maxAttachments} context items can be attached.`, "warning");
-      return;
+      return false;
     }
     const usedCharacters = existing.reduce((total, item) => total + (item.content?.length ?? 0), 0);
     const remainingCharacters = this.options.maxTotalContextCharacters - usedCharacters;
     if (remainingCharacters <= 0) {
       this.options.onNotice("The context attachment limit has been reached.", "warning");
-      return;
+      return false;
     }
     const content = limitReferenceContent(context.content, remainingCharacters, this.options.maxAttachedCharacters);
     this.attachments = [
@@ -636,6 +688,7 @@ export class SidebarAttachmentManager {
       this.options.onNotice("The attached context was truncated to fit the context limit.", "warning");
     }
     this.options.onChange();
+    return true;
   }
 
   private canAddImage(): boolean {

@@ -11,6 +11,68 @@ function gif(width: number, height: number, marker = 0): Buffer {
   return bytes;
 }
 
+test("history retains thinking-only and redacted assistants without interpreting thinking as an edit", () => {
+  const vscode = installVscodeMock();
+  try {
+    const { convertPiMessages } = require("../sidebarHelpers") as typeof import("../sidebarHelpers");
+    const converted = convertPiMessages(
+      [
+        {
+          role: "user",
+          content: [
+            { type: "thinking", thinking: "not user context" },
+            { type: "text", text: "request" },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "<script>bad()</script>", thinkingSignature: "opaque-secret" },
+            { type: "thinking", redacted: true, thinkingSignature: "encrypted-secret" },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "<<<PI_VSCODE_REPLACEMENT_START>>>not an edit" },
+            { type: "text", text: "answer" },
+          ],
+        },
+        { role: "assistant", content: [{ type: "toolCall", name: "read", thoughtSignature: "tool-secret" }] },
+        { role: "assistant", content: [{ type: "text", text: "no thinking runtime" }] },
+      ],
+      { imageAssets: imageCache() },
+    );
+    assert.equal(converted.length, 4);
+    assert.equal(converted[0]?.thinking, undefined);
+    assert.equal(converted[1]?.content, "");
+    assert.equal(converted[1]?.thinking?.length, 2);
+    assert.equal(converted[1]?.thinking?.[1]?.redacted, true);
+    assert.equal(converted[2]?.content, "answer");
+    assert.equal(converted[3]?.thinking, undefined);
+    assert.doesNotMatch(
+      JSON.stringify(converted),
+      /Signature|opaque-secret|encrypted-secret|tool-secret|Prepared an edit/,
+    );
+    const bounded = convertPiMessages(
+      [
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "x".repeat(300_000) },
+            { type: "text", text: "answer" },
+          ],
+        },
+      ],
+      { imageAssets: imageCache(), maxCharacters: 20 },
+    );
+    assert.equal(bounded[0]?.thinking?.[0]?.text.length, 14);
+    assert.equal(bounded[0]?.thinking?.[0]?.truncated, true);
+  } finally {
+    vscode.restore();
+  }
+});
+
 function imageCache(maxTotalBytes = 1024): ImageAssetCache {
   return new ImageAssetCache({ maxImageBytes: 100, maxTotalBytes, maxAssets: 10 });
 }

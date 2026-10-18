@@ -1,5 +1,15 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
+import {
+  type BashResultView,
+  cleanShellText,
+  maxShellOutputCharacters,
+  parseBashResultView,
+  shellAbortDeadlineMs,
+  shellExecutionDeadlineMs,
+  validateShellCommand,
+} from "./directShell";
+import { type PiSessionTree, parseSessionTree, validId } from "./piControl";
 import { PiProcessOwner } from "./piProcess";
 import { buildPiProcessEnvironment, planPiSpawn } from "./piSpawn";
 
@@ -288,6 +298,44 @@ export class PiRpcClient {
     }
   }
 
+  public async bash(
+    command: string,
+    excludeFromContext: boolean,
+    onUpdate: (result: BashResultView) => void,
+  ): Promise<BashResultView> {
+    validateShellCommand(command);
+    const id = `vscode_shell_${++this.requestId}`;
+    let rawOutput = "";
+    let truncated = false;
+    const subscription = this.onEvent((event) => {
+      if (event.type !== "bash_execution_update" || event.id !== id) return;
+      if (typeof event.delta !== "string") {
+        this.failProcess(new Error("Invalid correlated shell output; execution is uncertain."));
+        return;
+      }
+      truncated ||= rawOutput.length + event.delta.length > maxShellOutputCharacters;
+      rawOutput = (rawOutput + event.delta).slice(-maxShellOutputCharacters);
+      onUpdate({ output: cleanShellText(rawOutput), cancelled: false, truncated });
+    });
+    try {
+      const response = await this.command(
+        "bash",
+        { command, excludeFromContext },
+        { id, timeoutMs: shellExecutionDeadlineMs + 2 * shellAbortDeadlineMs },
+      );
+      // The authoritative final output replaces streaming data. Never append it.
+      const result = parseBashResultView(response.data);
+      onUpdate(result);
+      return result;
+    } finally {
+      subscription.dispose();
+    }
+  }
+
+  public async abortBash(): Promise<void> {
+    await this.command("abort_bash", {}, { timeoutMs: shellAbortDeadlineMs });
+  }
+
   public async newSession(): Promise<unknown> {
     return this.commandData("new_session");
   }
@@ -323,6 +371,27 @@ export class PiRpcClient {
     await this.command("set_thinking_level", { level });
   }
 
+  /** These public Pi setters also request persistence to GLOBAL Pi settings. */
+  public async setSteeringMode(mode: "all" | "one-at-a-time"): Promise<void> {
+    if (mode !== "all" && mode !== "one-at-a-time") throw new Error("Invalid queue mode.");
+    await this.command("set_steering_mode", { mode });
+  }
+
+  public async setFollowUpMode(mode: "all" | "one-at-a-time"): Promise<void> {
+    if (mode !== "all" && mode !== "one-at-a-time") throw new Error("Invalid queue mode.");
+    await this.command("set_follow_up_mode", { mode });
+  }
+
+  public async setAutoCompaction(enabled: boolean): Promise<void> {
+    if (typeof enabled !== "boolean") throw new Error("Invalid compaction value.");
+    await this.command("set_auto_compaction", { enabled });
+  }
+
+  public async setAutoRetry(enabled: boolean): Promise<void> {
+    if (typeof enabled !== "boolean") throw new Error("Invalid retry value.");
+    await this.command("set_auto_retry", { enabled });
+  }
+
   public async setSessionName(name: string): Promise<void> {
     await this.command("set_session_name", { name });
   }
@@ -333,6 +402,37 @@ export class PiRpcClient {
 
   public async switchSession(sessionPath: string): Promise<unknown> {
     return this.commandData("switch_session", { sessionPath });
+  }
+
+  public async getTree(): Promise<PiSessionTree> {
+    return parseSessionTree(await this.commandData("get_tree"));
+  }
+
+  public async getForkMessages(): Promise<readonly { entryId: string; text: string }[]> {
+    const data = await this.commandData("get_fork_messages");
+    if (!Array.isArray(data.messages) || data.messages.length > 2_000)
+      throw new Error("Invalid or oversized Pi fork-message list.");
+    return data.messages.map((item: unknown) => {
+      if (!isRecord(item) || !validId(item.entryId) || typeof item.text !== "string" || item.text.length > 50_000)
+        throw new Error("Invalid Pi fork message.");
+      return { entryId: item.entryId, text: item.text };
+    });
+  }
+
+  public async fork(entryId: string): Promise<{ cancelled: boolean; text?: string }> {
+    if (!validId(entryId)) throw new Error("Invalid fork entry ID.");
+    const data = await this.commandData("fork", { entryId });
+    if (typeof data.cancelled !== "boolean" || (data.text !== undefined && typeof data.text !== "string"))
+      throw new Error("Invalid Pi fork acknowledgement; outcome is uncertain.");
+    if (typeof data.text === "string" && data.text.length > 50_000)
+      throw new Error("Fork draft exceeds 50,000 characters; outcome is uncertain.");
+    return { cancelled: data.cancelled, text: data.text as string | undefined };
+  }
+
+  public async clone(): Promise<{ cancelled: boolean }> {
+    const data = await this.commandData("clone");
+    if (typeof data.cancelled !== "boolean") throw new Error("Invalid Pi clone acknowledgement; outcome is uncertain.");
+    return { cancelled: data.cancelled };
   }
 
   public async exportHtml(outputPath?: string): Promise<string> {
@@ -357,19 +457,26 @@ export class PiRpcClient {
     return isRecord(response.data) ? response.data : {};
   }
 
-  private command(type: string, fields: Record<string, unknown> = {}): Promise<PiRpcResponse> {
+  private command(
+    type: string,
+    fields: Record<string, unknown> = {},
+    options: { readonly id?: string; readonly timeoutMs?: number } = {},
+  ): Promise<PiRpcResponse> {
     const child = this.process;
     if (!child || child.exitCode !== null || child.stdin.destroyed || !child.stdin.writable) {
       return Promise.reject(new Error(`Pi RPC is not running.${formatDiagnostics(this.stderr)}`));
     }
 
-    const id = `vscode_${++this.requestId}`;
+    const id = options.id ?? `vscode_${++this.requestId}`;
     const request = { ...fields, id, type };
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`Timed out waiting for Pi RPC command '${type}'.${formatDiagnostics(this.stderr)}`));
-      }, this.options.requestTimeoutMs ?? defaultRequestTimeoutMs);
+      const timer = setTimeout(
+        () => {
+          this.pending.delete(id);
+          reject(new Error(`Timed out waiting for Pi RPC command '${type}'.${formatDiagnostics(this.stderr)}`));
+        },
+        options.timeoutMs ?? this.options.requestTimeoutMs ?? defaultRequestTimeoutMs,
+      );
       this.pending.set(id, { command: type, timer, resolve, reject });
       try {
         this.writeRecord(request);

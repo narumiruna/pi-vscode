@@ -124,6 +124,39 @@ test("PiRpcClient correlates responses and streams events", async () => {
   });
 });
 
+test("native runtime setters send typed public commands without prompting or queue mutation", async () => {
+  await withFakePi(async (options) => {
+    const client = new PiRpcClient(options);
+    const events: PiRpcEvent[] = [];
+    client.onEvent((event) => events.push(event));
+    await client.start();
+    try {
+      await client.setSteeringMode("all");
+      await client.setFollowUpMode("one-at-a-time");
+      await client.setAutoCompaction(false);
+      await client.setAutoRetry(true);
+      await waitForEvent(events, "native_control_received");
+      assert.deepEqual(
+        events.filter((event) => event.type === "native_control_received").map((event) => event.command),
+        [
+          { type: "set_steering_mode", mode: "all" },
+          { type: "set_follow_up_mode", mode: "one-at-a-time" },
+          { type: "set_auto_compaction", enabled: false },
+          { type: "set_auto_retry", enabled: true },
+        ],
+      );
+      assert.equal(
+        events.some((event) => event.type === "agent_start" || event.type === "queue_update"),
+        false,
+      );
+      await assert.rejects(client.setSteeringMode("invalid" as "all"), /Invalid/);
+      await assert.rejects(client.setAutoRetry("true" as unknown as boolean), /Invalid/);
+    } finally {
+      await client.stop();
+    }
+  });
+});
+
 test("PiRpcClient prompt resolves after acceptance and before task settlement", async () => {
   await withFakePi(async (options) => {
     const client = new PiRpcClient(options);
@@ -436,6 +469,25 @@ test("RPC spawn failures do not emit a duplicate exit or leave pending requests"
   }
 });
 
+test("typed session RPC wrappers validate shapes, cancellation and unsupported acknowledgements", async () => {
+  await withFakePi(async (options) => {
+    const client = new PiRpcClient(options);
+    try {
+      await client.start();
+      assert.equal((await client.getTree()).leafId, "user");
+      assert.deepEqual(await client.getForkMessages(), [{ entryId: "user", text: "Prompt" }]);
+      assert.deepEqual(await client.fork("user"), { cancelled: false, text: "Prompt" });
+      assert.deepEqual(await client.fork("cancel"), { cancelled: true, text: undefined });
+      assert.deepEqual(await client.clone(), { cancelled: false });
+      await assert.rejects(client.fork("bad"), /Invalid Pi fork acknowledgement/);
+      await assert.rejects(client.fork("unsupported"), /Unknown command/);
+      await assert.rejects(client.fork("invalid id"), /Invalid fork entry ID/);
+    } finally {
+      await client.stop();
+    }
+  });
+});
+
 async function withFakePi(
   run: (options: ConstructorParameters<typeof PiRpcClient>[0]) => Promise<void>,
 ): Promise<void> {
@@ -487,12 +539,25 @@ process.stdin.on("data", chunk => {
       success: true,
       data,
     }) + "\n");
+    if (["set_steering_mode", "set_follow_up_mode", "set_auto_compaction", "set_auto_retry"].includes(request.type)) {
+      const { id, ...command } = request;
+      process.stdout.write(JSON.stringify({ type: "native_control_received", command }) + "\n");
+    }
     if (request.type === "prompt" && request.message === "/handled-command") {
       respond({ disposition: "handled" });
       continue;
     }
     if (request.type === "get_state") {
       respond({ sessionId: "fake-session", sessionFile: "/tmp/fake.jsonl", model: { provider: "fake", id: "model" } });
+    } else if (request.type === "get_tree") {
+      respond({ tree: [{ entry: { id: "user", parentId: null, type: "message", message: { role: "user", content: "Prompt" } }, children: [] }], leafId: "user" });
+    } else if (request.type === "get_fork_messages") {
+      respond({ messages: [{ entryId: "user", text: "Prompt" }] });
+    } else if (request.type === "fork") {
+      if (request.entryId === "unsupported") process.stdout.write(JSON.stringify({ type: "response", id: request.id, command: "fork", success: false, error: "Unknown command: fork" }) + "\n");
+      else respond(request.entryId === "bad" ? {} : request.entryId === "cancel" ? { cancelled: true } : { cancelled: false, text: "Prompt" });
+    } else if (request.type === "clone") {
+      respond({ cancelled: false });
     } else if (request.type === "get_messages") {
       respond({ messages: [] });
     } else {

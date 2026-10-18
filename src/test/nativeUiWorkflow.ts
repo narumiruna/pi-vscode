@@ -29,6 +29,9 @@ export async function run(): Promise<void> {
   await vscode.commands.executeCommand("pi.openChat");
   await vscode.extensions.getExtension("vscode.typescript-language-features")?.activate();
   // Do not replay the reload command from the previous Extension Host.
+  let extensionEditor: vscode.TextDocument | undefined;
+  let extensionConfirmation: vscode.TextDocument | undefined;
+  const commands = new Map<number, { complete: boolean; error?: string }>();
   let lastId = await readFile(path.join(directory, "request.json"), "utf8")
     .then((text) => JSON.parse(text).id as number)
     .catch(() => 0);
@@ -56,6 +59,116 @@ export async function run(): Promise<void> {
           case "command":
             result = await vscode.commands.executeCommand(request.command);
             break;
+          case "startCommand": {
+            const id = request.id as number;
+            commands.set(id, { complete: false });
+            void Promise.resolve(vscode.commands.executeCommand(request.command)).then(
+              () => commands.set(id, { complete: true }),
+              (failure) => commands.set(id, { complete: true, error: String(failure) }),
+            );
+            result = id;
+            break;
+          }
+          case "commandResult":
+            result = commands.get(request.commandId);
+            break;
+          case "extensionConfirmationState": {
+            const editor = vscode.window.activeTextEditor;
+            assert.ok(editor);
+            assert.equal(editor.document.uri.scheme, "pi-extension-confirmation");
+            extensionConfirmation = editor.document;
+            const before = editor.document.getText();
+            result = {
+              text: before,
+              editAccepted: await editor.edit((edit) => edit.insert(new vscode.Position(0, 0), "forbidden")),
+              unchanged: editor.document.getText() === before,
+            };
+            break;
+          }
+          case "extensionConfirmationRefocus":
+            assert.ok(extensionConfirmation);
+            await vscode.window.showTextDocument(extensionConfirmation);
+            break;
+          case "extensionEditorState": {
+            const active = vscode.window.activeTextEditor?.document;
+            if (active?.uri.scheme === "untitled") extensionEditor = active;
+            result = {
+              text: active?.getText(),
+              scheme: active?.uri.scheme,
+              eol: active?.eol,
+              confirmationTabs: vscode.window.tabGroups.all
+                .flatMap((group) => group.tabs)
+                .filter(
+                  (tab) =>
+                    tab.input instanceof vscode.TabInputText && tab.input.uri.scheme === "pi-extension-confirmation",
+                ).length,
+              ownedTabs: extensionEditor
+                ? vscode.window.tabGroups.all
+                    .flatMap((group) => group.tabs)
+                    .filter(
+                      (tab) =>
+                        tab.input instanceof vscode.TabInputText &&
+                        tab.input.uri.toString() === extensionEditor?.uri.toString(),
+                    ).length
+                : 0,
+            };
+            break;
+          }
+          case "extensionEditorEdit": {
+            const editor = vscode.window.activeTextEditor;
+            assert.equal(editor?.document.uri.scheme, "untitled");
+            assert.ok(editor);
+            const document = editor.document;
+            assert.ok(
+              await editor.edit((edit) =>
+                edit.replace(
+                  new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)),
+                  request.text,
+                ),
+              ),
+            );
+            break;
+          }
+          case "extensionEditorOtherDocument":
+            await vscode.window.showTextDocument(source);
+            await vscode.commands.executeCommand("pi.extensionEditor.submit");
+            await vscode.commands.executeCommand("pi.extensionEditor.cancel");
+            break;
+          case "extensionEditorRefocus":
+            assert.ok(extensionEditor);
+            await vscode.window.showTextDocument(extensionEditor);
+            break;
+          case "extensionEditorClose":
+            assert.ok(vscode.window.tabGroups.activeTabGroup.activeTab);
+            result = await vscode.window.tabGroups.close(vscode.window.tabGroups.activeTabGroup.activeTab);
+            break;
+          case "closePiTerminal": {
+            const terminals = await Promise.all(
+              vscode.window.terminals.map(async (terminal) => ({
+                terminal,
+                name: terminal.name,
+                pid: await terminal.processId,
+              })),
+            );
+            const owned = terminals.filter((item) => item.pid === request.pid);
+            for (const item of owned) item.terminal.dispose();
+            result = { closed: owned.length, terminals: terminals.map(({ name, pid }) => ({ name, pid })) };
+            break;
+          }
+          case "nativeSettingsDirty": {
+            const document = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(root, ".pi", "settings.json"));
+            const editor = await vscode.window.showTextDocument(document);
+            await editor.edit((edit) =>
+              edit.replace(new vscode.Range(0, 0, document.lineCount, 0), '{"userDraft":"retained"}\n'),
+            );
+            result = { dirty: document.isDirty, path: document.uri.fsPath };
+            break;
+          }
+          case "nativeSettingsSave": {
+            const document = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(root, ".pi", "settings.json"));
+            result = { saved: await document.save(), text: document.getText() };
+            break;
+          }
           case "settingsState":
             result = {
               model: vscode.workspace.getConfiguration("pi").inspect("model"),
@@ -74,6 +187,51 @@ export async function run(): Promise<void> {
                 editor.selection.active,
               )
             )?.length;
+            break;
+          }
+          case "completionExclusions":
+            await vscode.workspace
+              .getConfiguration("search")
+              .update(
+                "exclude",
+                { "**/{completion-excluded,completion-other-excluded}/**": true },
+                vscode.ConfigurationTarget.Workspace,
+              );
+            break;
+          case "completionDirty": {
+            const document: vscode.TextDocument = await vscode.workspace.openTextDocument(
+              vscode.Uri.joinPath(root, "completion-capture.txt"),
+            );
+            const editor: vscode.TextEditor = await vscode.window.showTextDocument(document);
+            assert.ok(
+              await editor.edit((edit) =>
+                edit.replace(new vscode.Range(0, 0, document.lineCount, 0), "completion dirty snapshot\n"),
+              ),
+            );
+            assert.ok(document.isDirty);
+            break;
+          }
+          case "completionInspection":
+            result = vscode.window.activeTextEditor?.document.getText() ?? "";
+            break;
+          case "transferInspection": {
+            let editor: vscode.TextEditor | undefined;
+            for (let attempt = 0; attempt < 100 && !editor; attempt++) {
+              editor = vscode.window.visibleTextEditors.find(
+                (candidate) =>
+                  candidate.document.uri.scheme === "pi-session-inspection" &&
+                  candidate.document.uri.path.endsWith(`-${request.revision}.jsonl`),
+              );
+              if (!editor) await new Promise((resolve) => setTimeout(resolve, 50));
+            }
+            assert.equal(editor?.document.uri.scheme, "pi-session-inspection");
+            assert.ok(editor);
+            const text = editor.document.getText();
+            result = {
+              text,
+              editAccepted: await editor.edit((edit) => edit.insert(new vscode.Position(0, 0), "forbidden")),
+              unchanged: editor.document.getText() === text,
+            };
             break;
           }
           case "theme":

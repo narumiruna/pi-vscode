@@ -23,6 +23,7 @@ test("packaged read-only gate blocks mutating default and extension tools and re
   const handlers = new Map<string, (event?: unknown) => unknown>();
   let tools = ["read", "vscode_code_context", "bash", "write", "edit", "custom_mutation"];
   readOnlyGate({
+    registerCommand: () => {},
     on: (name: string, callback: (event?: unknown) => unknown) => handlers.set(name, callback),
     getActiveTools: () => tools,
     setActiveTools: (value: string[]) => {
@@ -55,19 +56,9 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
   const activeFolder = { uri: MockUri.file(activeRoot) };
   const otherFolder = { uri: MockUri.file(otherRoot) };
   const replacements = new Map<string, string>();
-  let terminalOptions: Record<string, unknown> | undefined;
-  let terminalShown = false;
   vscode.workspace.workspaceFolders = [activeFolder, otherFolder];
   vscode.workspace.getWorkspaceFolder = (resource: MockUri) =>
     resource.fsPath.startsWith(otherRoot) ? otherFolder : activeFolder;
-  vscode.window.createTerminal = (options: Record<string, unknown>) => {
-    terminalOptions = options;
-    return {
-      show: () => {
-        terminalShown = true;
-      },
-    };
-  };
   const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
   const context: any = {
     workspaceState: { get: () => undefined, update: async () => {} },
@@ -99,7 +90,7 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
   assert.equal("mode" in runtime.currentState, false);
   assert.deepEqual(
     foregroundOptions.extensions.map((value: string) => path.basename(value)),
-    ["pi-bridge.ts", "pi-permission-gate.ts", "pi-read-only-gate.ts"],
+    ["pi-bridge.ts", "pi-permission-gate.ts", "pi-read-only-gate.ts", "pi-control.ts"],
   );
   assert.equal(foregroundOptions.extensions[0], path.join("/extension path", "resources", "pi-bridge.ts"));
   const calls: string[] = [];
@@ -145,24 +136,6 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
   };
   internal.client = client;
   internal.updateState({ connected: true, sessionId: "s", sessionFile: "/tmp/session.jsonl" });
-  await runtime.openInTerminal();
-  assert.equal(terminalShown, true);
-  assert.deepEqual(terminalOptions, {
-    name: "Pi",
-    cwd: activeRoot,
-    shellPath: "pi",
-    shellArgs: [
-      "--extension",
-      path.join("/extension path", "resources", "pi-bridge.ts"),
-      "--session",
-      "/tmp/session.jsonl",
-    ],
-    env: {
-      [vscodeBridgePortEnvironmentKey]: replacements.get(vscodeBridgePortEnvironmentKey),
-      [vscodeBridgeTokenEnvironmentKey]: replacements.get(vscodeBridgeTokenEnvironmentKey),
-      [vscodeBridgeExtensionEnvironmentKey]: path.join("/extension path", "resources", "pi-bridge.ts"),
-    },
-  });
   try {
     let completeSwitch: (() => void) | undefined;
     client.newSession = () =>
@@ -655,6 +628,122 @@ test("process exit recovers only the undelivered queue suffix with its attachmen
   }
 });
 
+test("extension UI is foreground-generation scoped, fire-and-forget and restored only within panel re-resolution", async () => {
+  const vscode = installVscodeMock();
+  const folder = { uri: MockUri.file(process.cwd()) };
+  vscode.workspace.workspaceFolders = [folder];
+  vscode.workspace.getWorkspaceFolder = () => folder;
+  vscode.workspace.isTrusted = true;
+  vscode.window.registerWebviewViewProvider = () => ({ dispose() {} });
+  const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
+  const { PiRpcClient } = require("../piRpcClient") as typeof import("../piRpcClient");
+  const { registerPiSidebar } = require("../sidebar") as typeof import("../sidebar");
+  const context: any = {
+    workspaceState: { get: () => undefined, update: async () => {} },
+    environmentVariableCollection: { clear() {} },
+    extensionUri: MockUri.file("/extension"),
+    subscriptions: [],
+  };
+  const runtime = new PiRuntimeManager(context);
+  const host = runtime as any;
+  host.bridgeEnvironment = async () => ({});
+  host.buildClientOptions = () => ({ executablePath: process.execPath, cwd: process.cwd() });
+  Object.defineProperty(host, "currentCwd", { get: () => process.cwd() });
+  host.refreshState = async () => {};
+  host.ensureStarted = async () => {};
+  const callbacks: Array<(event: any) => void> = [];
+  const onEvent = PiRpcClient.prototype.onEvent;
+  const eventSpy = vi.spyOn(PiRpcClient.prototype, "onEvent").mockImplementation(function (this: any, listener) {
+    callbacks.push(listener);
+    return onEvent.call(this, listener);
+  });
+  const start = vi.spyOn(PiRpcClient.prototype, "start").mockResolvedValue(undefined);
+  const stop = vi.spyOn(PiRpcClient.prototype, "stop").mockResolvedValue(undefined);
+  const response = vi.spyOn(PiRpcClient.prototype, "sendExtensionUiResponse");
+  const internal = registerPiSidebar(context, runtime) as any;
+  internal.initializeRuntime = async () => {};
+  const posted: any[] = [];
+  const resolveView = () =>
+    internal.resolveWebviewView({
+      webview: {
+        cspSource: "resource:",
+        asWebviewUri: (uri: any) => uri,
+        onDidReceiveMessage: () => ({ dispose() {} }),
+        postMessage: async (message: any) => {
+          posted.push(message);
+          return true;
+        },
+      },
+      onDidDispose: () => ({ dispose() {} }),
+    });
+  const status = (text: string) => ({
+    type: "extension_ui_request",
+    id: "status",
+    method: "setStatus",
+    statusKey: "key",
+    statusText: text,
+  });
+  try {
+    await host.createAndStartClient(undefined);
+    const first = callbacks[0]!;
+    first(status("old"));
+    first({
+      type: "extension_ui_request",
+      id: "widget",
+      method: "setWidget",
+      widgetKey: "widget",
+      widgetLines: ["old widget"],
+    });
+    resolveView();
+    assert.equal(posted.at(-1).extensionUi.statuses[0].text, "old");
+    resolveView();
+    assert.equal(
+      posted.at(-1).extensionUi.widgets[0].lines[0],
+      "old widget",
+      "panel re-resolution retains only current memory state",
+    );
+    Object.defineProperty(host.client, "isRunning", { value: true });
+    host.client.newSession = async () => {
+      first(status("new session"));
+      return {};
+    };
+    await runtime.newSession();
+    internal.postState();
+    assert.deepEqual(
+      posted.at(-1).extensionUi,
+      { statuses: [{ key: "key", text: "new session" }], widgets: [] },
+      "reset precedes new session_start events",
+    );
+    await host.createAndStartClient(undefined);
+    first(status("late replaced client"));
+    internal.postState();
+    assert.deepEqual(posted.at(-1).extensionUi, { statuses: [], widgets: [] });
+    const second = callbacks[1]!;
+    second(status("replacement"));
+    runtime.resetExtensionUi(); // Shared lifecycle hook for reload/fork/clone integrations.
+    internal.postState();
+    assert.deepEqual(posted.at(-1).extensionUi, { statuses: [], widgets: [] });
+    second(status("re-emitted"));
+    second({ type: "process_exit" });
+    second(status("late disconnected client"));
+    internal.postState();
+    assert.deepEqual(posted.at(-1).extensionUi, { statuses: [], widgets: [] });
+    assert.equal(response.mock.calls.length, 0, "status and widget updates never receive dialog responses");
+    assert.deepEqual(context.workspaceState.get(), undefined, "extension UI has no persistent snapshot");
+    internal.dispose();
+    assert.deepEqual(internal.extensionUi.state, { statuses: [], widgets: [] });
+  } finally {
+    for (const disposable of context.subscriptions) disposable.dispose();
+    runtime.dispose();
+    eventSpy.mockRestore();
+    start.mockRestore();
+    stop.mockRestore();
+    response.mockRestore();
+    delete require.cache[require.resolve("../sidebar")];
+    vscode.restore();
+  }
+});
+
 test("Open Sessions focuses the sidebar and restores its list layer", async () => {
   const vscode = installVscodeMock();
   vscode.window.registerWebviewViewProvider = () => ({ dispose() {} });
@@ -941,6 +1030,7 @@ for (const command of ["/handled-command", "/compact"]) {
     let failure = "getState";
     const runtime = new PiRuntimeManager({
       workspaceState: {
+        get: () => undefined,
         update: async () => {
           if (failure === "persistence") throw new Error("persistence failed");
         },
@@ -1244,7 +1334,10 @@ test("sidebar rejects an empty queued snapshot and forwards an attachment resour
       "delivery appends one live user bubble with its captured attachment labels",
     );
     runtimeListener?.({ type: "message_start", message: { role: "assistant", content: [] } });
-    runtimeListener?.({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "continuing" } });
+    runtimeListener?.({
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "continuing" },
+    });
     assert.deepEqual(
       internal.messages.map((message: any) => message.role),
       ["user", "assistant"],

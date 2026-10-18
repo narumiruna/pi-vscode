@@ -113,6 +113,26 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
     this.latest = undefined;
   }
 
+  /** Direct shell has no deterministic file attribution or restorable coverage. */
+  public recordShellRequest(
+    cwd: string,
+    sessionId = "unknown",
+    status: RequestCheckpoint["status"] = "completed",
+  ): void {
+    this.previews.clear();
+    this.latest = this.history.add({
+      repository: cwd,
+      sessionId,
+      startedAt: Date.now(),
+      completedAt: Date.now(),
+      status,
+      files: [],
+      exclusions: [
+        "Direct shell: all file, process, and external effects are non-restorable. Inspect Source Control and processes.",
+      ],
+    });
+  }
+
   public captureToolEvent(event: PiRpcEvent): void {
     const request = this.current;
     if (!request) return;
@@ -353,11 +373,14 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
   public provideTextDocumentContent(uri: vscode.Uri): string {
     return this.previews.get(uri.toString()) ?? "Checkpoint preview expired.";
   }
-  public dispose(): void {
+  public resetSession(): void {
     this.current = undefined;
     this.latest = undefined;
     this.history.clear();
     this.previews.clear();
+  }
+  public dispose(): void {
+    this.resetSession();
   }
 }
 function dirty(absolute: string): boolean {

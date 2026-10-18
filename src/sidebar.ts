@@ -17,19 +17,24 @@ import {
   type PiConversationController,
   shouldTrackConversationChanges,
 } from "./conversationController";
+import { formatBashExecutionText, parseBashResultView, parseComposerInput } from "./directShell";
 import { EditProposalStore } from "./editProposals";
 import { ImageAssetCache, ImageAssetDeliveryTracker } from "./imageAssets";
-import { MarkdownRenderer } from "./markdown";
+import { escapeHtml, MarkdownRenderer } from "./markdown";
 import { acquireOperation } from "./operationLocks";
 import type { PiRpcEvent, PiRpcImage } from "./piRpcClient";
 import { deleteConversationWithTrashFallback, type PiRuntimeManager, runtimeSessionIdentityChanged } from "./piRuntime";
 import { type AgentRequestPolicy, buildAgentPrompt, type ChatReferenceContext } from "./prompts";
 import { listRecentPiSessions, type PiSessionSummary, piSessionKey } from "./sessionHistory";
+import { registerSessionTransfer } from "./sessionTransferController";
+import { SidebarAssistantStream } from "./sidebarAssistantStream";
 import {
   resolveSidebarQueueSubmission,
   resolveSidebarSubmissionText,
   SidebarAttachmentManager,
 } from "./sidebarAttachments";
+import { SidebarExtensionUi } from "./sidebarExtensionUi";
+import { SidebarFileCompletion } from "./sidebarFileCompletion";
 import {
   boundToolText,
   convertPiMessages,
@@ -95,6 +100,7 @@ export function registerPiSidebar(
   const backgroundAgents = new BackgroundAgentManager(context);
   const changeTracker = new WorkspaceChangeTracker();
   const provider = new PiChatViewProvider(context, runtime, changeTracker, backgroundAgents);
+  registerSessionTransfer(context, runtime);
   context.subscriptions.push(
     backgroundAgents,
     changeTracker,
@@ -104,6 +110,10 @@ export function registerPiSidebar(
       webviewOptions: { retainContextWhenHidden: true },
     }),
     vscode.commands.registerCommand("pi.openChat", () => provider.showSessions()),
+    vscode.commands.registerCommand("pi.reloadResources", () => provider.reloadResources()),
+    vscode.commands.registerCommand("pi.restartResources", () => provider.restartSessionProcess()),
+    vscode.commands.registerCommand("pi.browseSessionTree", () => provider.browseSessionTree()),
+    vscode.commands.registerCommand("pi.returnFromTerminal", () => provider.returnFromTerminal()),
   );
   return provider;
 }
@@ -114,6 +124,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   private view: vscode.WebviewView | undefined;
   private messages: SidebarMessage[];
   private tools: ToolActivity[] = [];
+  private readonly extensionUi = new SidebarExtensionUi();
   private changes: TrackedFileChange[] = [];
   private readonly proposals: EditProposalStore;
   private readonly imageAssets = new ImageAssetCache({
@@ -123,6 +134,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   });
   private readonly imageAssetDelivery = new ImageAssetDeliveryTracker();
   private readonly attachments: SidebarAttachmentManager;
+  private readonly fileCompletion: SidebarFileCompletion;
   private readonly requestGate = new ConversationRequestGate();
   private readonly backgroundSubmissionGate = new ExclusiveOperationGate(
     "A background or worktree agent is already starting. Wait for it to finish starting before submitting another one.",
@@ -143,7 +155,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         readonly transcriptAttachments: readonly TranscriptAttachment[];
       }
     | undefined;
-  private streamingAssistantId: string | undefined;
+  private assistantStream: SidebarAssistantStream | undefined;
+  private streamSessionIdentity: string;
+  private historySyncRevision = 0;
   private readonly queuedTranscriptPresentations = new Map<string, QueuedTranscriptPresentation>();
   private renderTimer: NodeJS.Timeout | undefined;
   private foregroundCancellable = false;
@@ -172,10 +186,27 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       onChange: () => this.postState(),
       onNotice: (message, level) => this.postNotice(message, level),
     });
+    this.fileCompletion = new SidebarFileCompletion({
+      cwd: () => this.runtime.currentCwd,
+      session: () => `${this.runtime.currentState.sessionId ?? ""}:${this.runtime.currentState.sessionFile ?? ""}`,
+      attachments: this.attachments,
+      post: (message) => this.postMessage(message),
+    });
     this.messages = restoreMessages(context.workspaceState.get<unknown>(storageKey), maxMessages, maxStoredCharacters);
+    this.streamSessionIdentity = JSON.stringify([runtime.currentState.sessionFile, runtime.currentState.sessionId]);
     this.disposables.push(
       runtime.onEvent((event) => this.handleRuntimeEvent(event)),
-      runtime.onDidChangeState(() => this.scheduleState()),
+      runtime.onDidChangeState(() => {
+        const identity = JSON.stringify([runtime.currentState.sessionFile, runtime.currentState.sessionId]);
+        if (identity !== this.streamSessionIdentity) {
+          if (this.assistantStream)
+            this.messages = this.messages.filter((message) => message.id !== this.assistantStream?.id);
+          this.assistantStream = undefined;
+          this.historySyncRevision += 1;
+          this.streamSessionIdentity = identity;
+        }
+        this.scheduleState();
+      }),
       backgroundAgents.onDidChange(() => this.scheduleState()),
     );
   }
@@ -201,6 +232,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       messageListener.dispose();
       viewListener.dispose();
       if (this.view === webviewView) {
+        this.fileCompletion.cancel();
         this.view = undefined;
       }
     });
@@ -219,6 +251,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     }
     this.proposals.clear();
     this.queuedTranscriptPresentations.clear();
+    this.extensionUi.clear();
+    this.fileCompletion.dispose();
     this.attachments.dispose();
     this.imageAssets.clear();
   }
@@ -282,6 +316,16 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       return;
     }
 
+    if (
+      message.type === "fileCompletionQuery" ||
+      message.type === "fileCompletionSelect" ||
+      message.type === "fileCompletionCancel"
+    ) {
+      await this.fileCompletion.handle(message);
+      return;
+    }
+    // Every other action can change the session, attachments, or composer draft.
+    this.fileCompletion.cancel();
     const noticeRevision = this.noticeRevision;
     try {
       switch (message.type) {
@@ -346,7 +390,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           this.requestLifecycle.cancel();
           await this.runtime.abort();
           this.queuedTranscriptPresentations.clear();
-          this.status = "Cancelled · Ready to retry";
+          this.status = "Stopped · Check history and effects before sending again";
           this.postState();
           break;
         case "reconnect":
@@ -557,7 +601,16 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         { label: "$(lightbulb) Change Thinking Level", action: "thinking" },
         { label: "$(list-selection) Commands and Skills", action: "commands" },
         { label: "$(fold) Compact Context", action: "compact" },
+        { label: "$(refresh) Reload Pi Resources", action: "reload" },
+        { label: "$(debug-restart) Restart Pi (Current Launch Policy)", action: "restart" },
+        { label: "$(git-branch) Browse Session Tree / Fork / Clone", action: "branches" },
+        { label: "$(question) Extension UI Compatibility", action: "compatibility" },
+        { label: "$(debug-disconnect) Return Pi from Terminal", action: "returnTerminal" },
         { label: "$(export) Export Session", action: "export" },
+        { label: "$(import) Import Session Copy", action: "import" },
+        { label: "$(share) Share Session", action: "share" },
+        { label: "$(sign-in) Sign In to Provider", action: "login" },
+        { label: "$(sign-out) Sign Out of Provider", action: "logout" },
         { label: "$(terminal) Open in Terminal", action: "terminal" },
         { label: "$(run) Run Message in Background", action: "background" },
         { label: "$(workspace-trusted) Run Message in Worktree", action: "worktree" },
@@ -591,7 +644,16 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     else if (selected.action === "thinking") await this.pickThinkingLevel();
     else if (selected.action === "commands") await this.pickPiCommand();
     else if (selected.action === "compact") await this.compact();
+    else if (selected.action === "reload") await this.reloadResources();
+    else if (selected.action === "restart") await this.restartSessionProcess();
+    else if (selected.action === "branches") await this.browseSessionTree(composerRevision);
+    else if (selected.action === "compatibility") await vscode.commands.executeCommand("pi.extensionUiCompatibility");
+    else if (selected.action === "returnTerminal") await this.returnFromTerminal();
     else if (selected.action === "export") await this.exportSession();
+    else if (selected.action === "import") await vscode.commands.executeCommand("pi.importSession");
+    else if (selected.action === "share") await vscode.commands.executeCommand("pi.shareSession");
+    else if (selected.action === "login") await vscode.commands.executeCommand("pi.signInProvider");
+    else if (selected.action === "logout") await vscode.commands.executeCommand("pi.signOutProvider");
     else if (selected.action === "terminal") await this.runtime.openInTerminal();
     else if (selected.action === "background") await this.runBackground(composerText, false, composerRevision);
     else await this.runBackground(composerText, true, composerRevision);
@@ -656,8 +718,10 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async queue(kind: "steer" | "followUp", rawText: string, revision: number): Promise<void> {
+    const input = parseComposerInput(rawText);
+    if (input.kind === "shell") throw new Error("Direct shell cannot be queued. Wait for an idle session.");
     const submission = this.attachments.captureSubmission();
-    const resolved = resolveSidebarQueueSubmission(rawText, submission);
+    const resolved = resolveSidebarQueueSubmission(input.text, submission);
     if (!resolved) {
       this.postMessage({ type: "sendRejected" });
       return;
@@ -696,9 +760,11 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async sendInNewSession(rawText: string, revision: number): Promise<void> {
+    const input = parseComposerInput(rawText);
+    if (input.kind === "shell") throw new Error("Open a session before running direct shell from its idle composer.");
     if (await this.sendCompactCommand(rawText, revision)) return;
     const submission = this.attachments.captureSubmission();
-    const text = resolveSidebarSubmissionText(rawText, submission);
+    const text = resolveSidebarSubmissionText(input.text, submission);
     if (text.startsWith("/") && (submission.textContexts.length || submission.images.length)) {
       throw new Error("Remove attachments before running a slash command.");
     }
@@ -749,6 +815,12 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async sendCompactCommand(rawText: string, revision: number): Promise<boolean> {
+    if (/^\/reload\s*$/.test(rawText.trim())) {
+      if (await this.reloadResources())
+        this.postMessage({ type: "clearInput", expectedText: rawText, expectedRevision: revision });
+      return true;
+    }
+    if (/^\/vscode-pi-/.test(rawText.trim())) throw new Error("Internal Pi controls must use their host action.");
     const match = /^\/compact(?:\s+([\s\S]*))?$/.exec(rawText.trim());
     if (!match) return false;
     if (this.attachments.summaries.length) throw new Error("Remove attachments before running a slash command.");
@@ -760,9 +832,14 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async send(rawText: string, revision: number): Promise<void> {
+    const input = parseComposerInput(rawText);
+    if (input.kind === "shell") {
+      await this.sendShell(input.command, input.excludeFromContext, rawText, revision);
+      return;
+    }
     if (await this.sendCompactCommand(rawText, revision)) return;
     const submission = this.attachments.captureSubmission();
-    const text = resolveSidebarSubmissionText(rawText, submission);
+    const text = resolveSidebarSubmissionText(input.text, submission);
     if (!text) {
       this.postMessage({ type: "sendRejected" });
       return;
@@ -788,6 +865,81 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       undefined,
       submission.transcriptAttachments,
     );
+  }
+
+  private async sendShell(
+    command: string,
+    excludeFromContext: boolean,
+    rawText: string,
+    revision: number,
+  ): Promise<void> {
+    if (this.attachments.summaries.length) throw new Error("Remove all attachments before running direct shell.");
+    if (this.isForegroundRequestActive() || this.backgroundSubmissionGate.isPending)
+      throw new Error("Direct shell requires an idle composer with no conflicting work.");
+    const release = this.requestGate.acquire();
+    this.retryRequest = undefined;
+    this.foregroundCancellable = true;
+    this.tools = [];
+    this.status = "Awaiting shell approval…";
+    this.postState();
+    let submitted = false;
+    let checkpointCwd = this.runtime.currentCwd;
+    let checkpointSessionId: string | undefined;
+    let status: "completed" | "cancelled" | "process-exit" = "process-exit";
+    try {
+      checkpointCwd = await realpath(checkpointCwd);
+      const result = await this.runtime.executeBash(
+        command,
+        excludeFromContext,
+        () => {
+          submitted = true;
+          checkpointSessionId = this.runtime.currentState.sessionId;
+          this.postMessage({ type: "clearInput", expectedText: rawText, expectedRevision: revision });
+        },
+        async (history) => {
+          this.messages = limitSidebarMessages(
+            convertPiMessages(history, {
+              imageAssets: this.imageAssets,
+              knownMessages: this.messages,
+              maxMessages,
+            }),
+            maxMessages,
+            maxStoredCharacters,
+          );
+          await this.persistMessages();
+        },
+      );
+      if (!result) {
+        this.status = "Shell not started";
+        this.postMessage({ type: "sendRejected" });
+        return;
+      }
+      status = result.cancelled ? "cancelled" : "completed";
+      this.status = result.cancelled
+        ? "Shell cancelled · Inspect effects"
+        : `Shell finished · Exit ${result.exitCode ?? "unknown"}`;
+      await this.persistMessages();
+    } catch (error) {
+      this.status = "Shell execution uncertain · Inspect effects; no automatic retry";
+      await this.persistMessages();
+      this.postNotice(
+        "Shell did not complete reliably. Check history and effects; do not repeat it automatically.",
+        "error",
+        formatError(error),
+      );
+      throw error;
+    } finally {
+      try {
+        if (submitted) {
+          this.changeTracker.recordShellRequest(checkpointCwd, checkpointSessionId, status);
+          this.changes = this.changeTracker.changes;
+        }
+      } finally {
+        this.foregroundCancellable = false;
+        release();
+        this.postState();
+      }
+    }
   }
 
   private async runRequest(
@@ -882,7 +1034,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         maxStoredCharacters,
       );
       this.tools = [];
-      this.streamingAssistantId = undefined;
+      this.assistantStream = undefined;
       this.status = "Sending to Pi…";
       await this.persistMessages();
       if (shouldTrackConversationChanges(policy)) this.changes = [];
@@ -1004,7 +1156,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async runBackground(rawText: string, isolated: boolean, composerRevision: number): Promise<void> {
-    const text = rawText.trim();
+    const input = parseComposerInput(rawText);
+    if (input.kind === "shell") throw new Error("Direct shell is available only in the idle session composer.");
+    const text = input.text.trim();
     if (!text) {
       throw new Error("Enter a message before starting a background or worktree agent.");
     }
@@ -1055,15 +1209,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     }
     const sessionFile = await this.backgroundAgents.openSession(id);
     await this.runtime.switchSession(sessionFile);
-    this.queuedTranscriptPresentations.clear();
-    this.attachments.clear();
-    this.proposals.clear();
-    this.retryRequest = undefined;
-    await this.syncMessagesFromPi();
-    await this.refreshRecentSessions(false);
-    this.status = "Background Pi session resumed";
-    this.postState();
-    this.postMessage({ type: "showSessionDetail" });
+    await this.finishSessionTransition("Background Pi session resumed");
   }
 
   private async newSession(): Promise<void> {
@@ -1142,17 +1288,106 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async resetConversation(status: string, preserveAttachments = false): Promise<void> {
+    this.historySyncRevision += 1;
+    this.changeTracker.resetSession();
     this.queuedTranscriptPresentations.clear();
+    this.assistantStream = undefined;
     this.messages = [];
     this.tools = [];
     this.changes = [];
     this.proposals.clear();
     this.retryRequest = undefined;
     this.historyRecoveryAvailable = false;
+    this.trackCurrentRequestChanges = false;
     if (!preserveAttachments) this.attachments.clear();
     await this.persistMessages();
     this.status = status;
     this.postState();
+  }
+
+  public async reloadResources(): Promise<boolean> {
+    if (this.attachments.summaries.length) throw new Error("Remove attachments before reloading Pi resources.");
+    if (this.isForegroundRequestActive()) throw new Error("Wait for Pi before reloading resources.");
+    const reloaded = await this.runtime.reloadResources();
+    if (reloaded) {
+      this.attachments.clearPins();
+      this.proposals.clear();
+      this.tools = [];
+      this.retryRequest = undefined;
+      this.status = "Pi resources reloaded";
+      this.postState();
+    }
+    return reloaded;
+  }
+
+  public async restartSessionProcess(): Promise<void> {
+    if (this.isForegroundRequestActive()) throw new Error("Wait for Pi before restarting.");
+    if (await this.runtime.restartSessionProcess()) {
+      this.proposals.clear();
+      this.tools = [];
+      this.retryRequest = undefined;
+      this.attachments.clearPins();
+      await this.syncMessagesFromPi();
+      this.status = "Pi restarted · No requests replayed";
+      this.postState();
+    }
+  }
+
+  public async returnFromTerminal(): Promise<void> {
+    if (await this.runtime.returnFromTerminal()) {
+      this.attachments.clearPins();
+      await this.finishSessionTransition("Pi returned from terminal", true);
+    }
+  }
+
+  public async browseSessionTree(revision?: number): Promise<void> {
+    if (this.isForegroundRequestActive()) throw new Error("Wait for Pi before branching.");
+    const result = await this.runtime.chooseSessionBranch(async (tree) => {
+      const selection = await vscode.window.showQuickPick(
+        [
+          { label: "Clone active branch into a new session", entryId: undefined, clone: true },
+          ...tree.entries.map((entry) => ({
+            label: `${"  ".repeat(Math.min(entry.depth, 12))}${entry.id === tree.leafId ? "● " : ""}${entry.role ?? entry.type}: ${entry.text.slice(0, 160) || "(no text)"}`,
+            description: entry.label,
+            detail: entry.id,
+            entryId: entry.id,
+            clone: false,
+          })),
+        ],
+        { title: "Pi session tree · Does not restore workspace files or Git state", matchOnDescription: true },
+      );
+      if (!selection) return undefined;
+      const action = selection.clone
+        ? "clone"
+        : await vscode.window.showQuickPick(["Navigate without summary", "Fork from user message"], {
+            title: "Branch operation · No model request or branch summary",
+          });
+      if (!action) return undefined;
+      return {
+        action: action === "clone" ? "clone" : action === "Fork from user message" ? "fork" : "navigate",
+        targetId: selection.entryId,
+      };
+    });
+    if (result.cancelled) return;
+    await this.finishSessionTransition("Pi branch selected · Workspace files unchanged");
+    if (result.text) this.postMessage({ type: "restoreBranchDraft", text: result.text, expectedRevision: revision });
+  }
+
+  private async finishSessionTransition(status: string, preserveAttachments = false): Promise<void> {
+    await this.resetConversation(status, preserveAttachments);
+    try {
+      await this.syncMessagesFromPi();
+      await this.refreshRecentSessions(false);
+    } catch (error) {
+      this.historyRecoveryAvailable = this.runtime.currentState.connected;
+      this.postNotice(
+        "Session changed, but history could not refresh. Do not repeat the operation.",
+        "warning",
+        formatError(error),
+      );
+    }
+    this.postState();
+    this.postMessage({ type: "showSessionDetail" });
   }
 
   private async compact(customInstructions?: string, onAccepted?: () => void): Promise<void> {
@@ -1239,17 +1474,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
 
   private async switchToSession(sessionFile: string, status: string): Promise<void> {
     await this.runtime.switchSession(sessionFile);
-    this.queuedTranscriptPresentations.clear();
-    this.attachments.clear();
-    this.proposals.clear();
-    this.retryRequest = undefined;
-    await this.syncMessagesFromPi();
-    this.tools = [];
-    this.changes = [];
-    await this.refreshRecentSessions(false);
-    this.status = status;
-    this.postState();
-    this.postMessage({ type: "showSessionDetail" });
+    await this.finishSessionTransition(status);
   }
 
   private async resumeSession(): Promise<void> {
@@ -1275,6 +1500,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
 
   private async pickPiCommand(): Promise<void> {
     const commands = this.runtime.currentState.commands
+      .filter((command) => typeof command.name === "string" && !command.name.startsWith("vscode-pi-"))
       .map((command) => ({
         name: typeof command.name === "string" ? command.name : undefined,
         description: typeof command.description === "string" ? command.description : undefined,
@@ -1302,28 +1528,59 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async exportSession(): Promise<void> {
-    const defaultName = `${this.runtime.currentState.sessionName ?? "pi-session"}.html`;
-    const target = await vscode.window.showSaveDialog({
-      title: "Export Pi Session",
-      defaultUri: vscode.Uri.joinPath(
-        vscode.workspace.workspaceFolders?.[0]?.uri ?? vscode.Uri.file(homedir()),
-        defaultName,
-      ),
-      filters: { HTML: ["html"] },
-      saveLabel: "Export",
-    });
-    if (!target) {
-      return;
-    }
-    const exportedPath = await this.runtime.exportSession(target.fsPath);
-    const action = await vscode.window.showInformationMessage(`Pi session exported to ${exportedPath}.`, "Open Export");
-    if (action === "Open Export") {
-      await vscode.env.openExternal(vscode.Uri.file(exportedPath));
-    }
+    await vscode.commands.executeCommand("pi.exportSession");
+  }
+
+  private async refreshImportedSession(): Promise<void> {
+    await this.resetConversation("Pi session imported");
+    await this.syncMessagesFromPi(true);
+    await this.refreshRecentSessions(false);
+    this.status = "Pi session imported";
+    this.postState();
+    this.postMessage({ type: "showSessionDetail" });
   }
 
   private handleRuntimeEvent(event: PiRpcEvent): void {
-    if (event.type === "queue_instruction_delivered") {
+    if (event.type === "session_imported") {
+      void this.refreshImportedSession().catch(() => {
+        this.postNotice(
+          "The imported session is active, but history could not be refreshed. Refresh Pi before sending.",
+          "warning",
+        );
+      });
+      return;
+    }
+    if (event.type === "resources_reloaded" && (event.action === "reload" || event.action === "restart")) {
+      this.attachments.clearPins();
+      this.proposals.clear();
+      this.tools = [];
+      this.retryRequest = undefined;
+      this.assistantStream = undefined;
+      this.historySyncRevision += 1;
+    } else if (
+      event.type === "shell_execution" &&
+      typeof event.id === "string" &&
+      typeof event.command === "string" &&
+      typeof event.excludeFromContext === "boolean"
+    ) {
+      const content = formatBashExecutionText(
+        event.command,
+        event.excludeFromContext,
+        parseBashResultView(event.result),
+        event.state === "running" ? "running" : event.state === "uncertain" ? "uncertain" : "finished",
+      );
+      const message: SidebarMessage = { id: `shell-${event.id}`, role: "shell", content };
+      const existing = this.messages.findIndex((candidate) => candidate.id === message.id);
+      if (existing >= 0) this.messages[existing] = message;
+      else this.messages.push(message);
+      this.messages = limitSidebarMessages(this.messages, maxMessages, maxStoredCharacters);
+      this.status =
+        event.state === "running"
+          ? "Running shell…"
+          : event.state === "uncertain"
+            ? "Shell execution uncertain · Inspect effects"
+            : "Shell finished";
+    } else if (event.type === "queue_instruction_delivered") {
       const instruction = isRecord(event.instruction) ? event.instruction : undefined;
       const id = instruction ? stringValue(instruction.id) : undefined;
       const text = instruction ? stringValue(instruction.text) : undefined;
@@ -1337,22 +1594,25 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         }
       }
     } else if (event.type === "agent_start") {
+      this.historySyncRevision += 1;
       this.status = "Pi is working…";
       this.tools = [];
     } else if (event.type === "message_start") {
       const message = isRecord(event.message) ? event.message : undefined;
-      if (message?.role === "assistant") {
-        this.streamingAssistantId = undefined;
-      }
+      this.historySyncRevision += 1;
+      this.assistantStream = message?.role === "assistant" ? this.createAssistantStream(message) : undefined;
     } else if (event.type === "message_update") {
       const update = isRecord(event.assistantMessageEvent) ? event.assistantMessageEvent : undefined;
-      if (update?.type === "text_delta" && typeof update.delta === "string") {
-        this.appendAssistantText(update.delta);
-      } else if (update?.type === "thinking_delta") {
-        this.status = "Pi is thinking…";
-      }
+      const message = this.assistantStream?.update(update);
+      if (message) this.upsertAssistantMessage(message);
+      if (update?.type === "thinking_delta") this.status = "Pi is thinking…";
     } else if (event.type === "message_end") {
-      this.streamingAssistantId = undefined;
+      const message = isRecord(event.message) ? event.message : undefined;
+      if (message?.role === "assistant") {
+        const stream = this.assistantStream ?? this.createAssistantStream(message);
+        this.upsertAssistantMessage(stream.complete(message.content));
+        this.assistantStream = undefined;
+      }
     } else if (event.type === "tool_execution_start") {
       const toolName = stringValue(event.toolName) ?? "tool";
       if (this.trackCurrentRequestChanges) {
@@ -1385,16 +1645,21 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     } else if (event.type === "compaction_start") {
       this.status = "Compacting Pi context…";
     } else if (event.type === "auto_retry_start") {
+      this.assistantStream = undefined;
       this.status = "Retrying Pi request…";
     } else if (event.type === "agent_settled") {
       this.status = this.requestLifecycle.wasCancelled ? "Cancelling Pi request…" : "Finishing Pi response…";
-      this.streamingAssistantId = undefined;
+      this.assistantStream = undefined;
       this.queuedTranscriptPresentations.clear();
       if (this.trackCurrentRequestChanges) {
         this.changes = this.changeTracker.finishRequest(this.requestLifecycle.wasCancelled ? "cancelled" : "completed");
         this.trackCurrentRequestChanges = false;
       }
+    } else if (event.type === "extension_ui_reset") {
+      this.extensionUi.clear();
     } else if (event.type === "process_exit") {
+      this.extensionUi.clear();
+      this.assistantStream = undefined;
       this.queuedTranscriptPresentations.clear();
       if (this.trackCurrentRequestChanges) {
         this.changes = this.changeTracker.finishRequest("process-exit");
@@ -1419,28 +1684,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       return;
     }
 
-    if (method === "select") {
-      const options = Array.isArray(event.options) ? event.options.filter((value) => typeof value === "string") : [];
-      const value = await vscode.window.showQuickPick(options, {
-        title: stringValue(event.title) ?? "Pi",
-        ignoreFocusOut: true,
-      });
-      this.runtime.sendExtensionUiResponse(id, value === undefined ? { cancelled: true } : { value });
-    } else if (method === "confirm") {
-      const choice = await vscode.window.showWarningMessage(
-        stringValue(event.message) ?? stringValue(event.title) ?? "Confirm Pi action?",
-        { modal: true },
-        "Allow",
-      );
-      this.runtime.sendExtensionUiResponse(id, { confirmed: choice === "Allow" });
-    } else if (method === "input" || method === "editor") {
-      const value = await vscode.window.showInputBox({
-        title: stringValue(event.title) ?? "Pi Input",
-        prompt: stringValue(event.placeholder),
-        value: stringValue(event.prefill),
-        ignoreFocusOut: true,
-      });
-      this.runtime.sendExtensionUiResponse(id, value === undefined ? { cancelled: true } : { value });
+    // Dialogs use origin-bound ExtensionUiDialogs; keyed updates expect no response.
+    if (method === "setStatus" || method === "setWidget") {
+      if (this.extensionUi.update(event)) this.scheduleState();
     } else if (method === "notify") {
       const message = stringValue(event.message) ?? "Pi notification";
       const notifyType = stringValue(event.notifyType);
@@ -1460,22 +1706,28 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     }
   }
 
-  private appendAssistantText(delta: string): void {
-    let id = this.streamingAssistantId;
-    if (!id) {
-      id = randomUUID();
-      this.streamingAssistantId = id;
-      this.messages = limitSidebarMessages(
-        [...this.messages, { id, role: "assistant", content: delta }],
-        maxMessages,
-        maxStoredCharacters,
-      );
-    } else {
-      this.messages = this.messages.map((message) =>
-        message.id === id ? { ...message, content: message.content + delta } : message,
-      );
-    }
-    this.scheduleState();
+  private createAssistantStream(message: Record<string, unknown>): SidebarAssistantStream {
+    const timestamp = message.timestamp;
+    const prefix =
+      typeof timestamp === "number" && Number.isSafeInteger(timestamp) ? `pi-assistant-${timestamp}-` : undefined;
+    const occurrence = this.messages.reduce((next, candidate) => {
+      if (!prefix || !candidate.id.startsWith(prefix)) return next;
+      const previous = Number(candidate.id.slice(prefix.length));
+      return Number.isSafeInteger(previous) ? Math.max(next, previous + 1) : next;
+    }, 0);
+    return new SidebarAssistantStream(prefix ? `${prefix}${occurrence}` : randomUUID(), maxStoredCharacters);
+  }
+
+  private upsertAssistantMessage(message: SidebarMessage): void {
+    const existing = this.messages.some((candidate) => candidate.id === message.id);
+    const messages = existing
+      ? this.messages.flatMap((candidate) =>
+          candidate.id === message.id ? (message.content || message.thinking?.length ? [message] : []) : [candidate],
+        )
+      : message.content || message.thinking?.length
+        ? [...this.messages, message]
+        : this.messages;
+    this.messages = limitSidebarMessages(messages, maxMessages, maxStoredCharacters);
   }
 
   private upsertTool(activity: ToolActivity): void {
@@ -1486,7 +1738,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.tools = this.tools.map((tool) => (tool.id === id ? { ...tool, ...changes } : tool));
   }
 
-  private async syncMessagesFromPi(): Promise<void> {
+  private async syncMessagesFromPi(verifiedImport = false): Promise<void> {
     if (!this.runtime.currentState.connected) {
       const failure = historySyncFailureState(false);
       this.status = failure.status;
@@ -1494,14 +1746,22 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.postState();
       throw new Error("Pi disconnected before conversation history could be synchronized.");
     }
-    if (this.runtime.currentState.busy) {
+    if (verifiedImport ? this.requestGate.isPending : this.runtime.currentState.busy) {
       throw new Error("Wait for Pi to finish before refreshing conversation history.");
     }
+    const revision = ++this.historySyncRevision;
     try {
-      const messages = convertPiMessages(await this.runtime.getMessages(), {
+      const values = await this.runtime.getMessages();
+      if (
+        revision !== this.historySyncRevision ||
+        (verifiedImport ? this.requestGate.isPending : this.runtime.currentState.busy)
+      )
+        return;
+      const messages = convertPiMessages(values, {
         imageAssets: this.imageAssets,
         knownMessages: this.messages,
         maxMessages,
+        maxCharacters: maxStoredCharacters,
       });
       if (messages.length > 0 || this.runtime.currentState.sessionId) {
         this.messages = limitSidebarMessages(messages, maxMessages, maxStoredCharacters);
@@ -1510,6 +1770,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.historyRecoveryAvailable = false;
       this.postState();
     } catch (error) {
+      if (revision !== this.historySyncRevision) return;
       const failure = historySyncFailureState(this.runtime.currentState.connected);
       this.status = failure.status;
       this.historyRecoveryAvailable = failure.historyRecoveryAvailable;
@@ -1581,12 +1842,18 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.messages,
       (assetId) => this.imageAssets.has(assetId) || this.imageAssetDelivery.has(assetId),
     );
-    const html = this.markdownRenderer.renderBatch(visibleMessages.map((message) => message.content));
-    const messages = visibleMessages.map((message, index) => ({ ...message, html: html[index] }));
+    const html = this.markdownRenderer.renderBatch(
+      visibleMessages.map((message) => (message.role === "shell" ? "" : message.content)),
+    );
+    const messages = visibleMessages.map((message, index) => ({
+      ...message,
+      html: message.role === "shell" ? `<pre class="shell-output">${escapeHtml(message.content)}</pre>` : html[index],
+    }));
     this.postMessage({
       type: "state",
       messages,
       tools: this.tools,
+      extensionUi: this.extensionUi.state,
       changes: this.changes,
       proposals: this.proposals.states,
       backgroundTasks: this.backgroundAgents.states,

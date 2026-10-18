@@ -47,6 +47,26 @@ export function installVscodeMock(): any {
     Uri: MockUri,
     ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
     ViewColumn: { Active: -1 },
+    StatusBarAlignment: { Left: 1, Right: 2 },
+    TabInputText: class {
+      constructor(public uri: MockUri) {}
+    },
+    CancellationTokenSource: class {
+      private events = new NodeEmitter();
+      public token = {
+        isCancellationRequested: false,
+        onCancellationRequested: (listener: () => void) => listen(this.events, "cancel", listener),
+      };
+      public cancel() {
+        if (this.token.isCancellationRequested) return;
+        this.token.isCancellationRequested = true;
+        this.events.emit("cancel");
+      }
+      public dispose() {
+        this.events.removeAllListeners();
+      }
+    },
+    ProgressLocation: { Notification: 15 },
     env: {},
     panels,
     configurationEvents,
@@ -126,6 +146,8 @@ export function installVscodeMock(): any {
       onDidChangeConfiguration: (listener: (...args: any[]) => void) => listen(configurationEvents, "change", listener),
       onDidChangeWorkspaceFolders: (listener: (...args: any[]) => void) => listen(workspaceEvents, "folders", listener),
       onDidGrantWorkspaceTrust: (listener: (...args: any[]) => void) => listen(workspaceEvents, "trust", listener),
+      onDidCloseTextDocument: (listener: (...args: any[]) => void) =>
+        listen(workspaceEvents, "closeDocument", listener),
       textDocuments: [],
       workspaceFolders: [],
       registerTextDocumentContentProvider: disposable,
@@ -137,6 +159,16 @@ export function installVscodeMock(): any {
       getWorkspaceFolder: () => undefined,
     },
     window: {
+      onDidChangeActiveTextEditor: (listener: (...args: any[]) => void) =>
+        listen(workspaceEvents, "activeEditor", listener),
+      tabGroups: {
+        all: [],
+        onDidChangeTabs: (listener: (...args: any[]) => void) => listen(workspaceEvents, "tabs", listener),
+        close: async () => true,
+      },
+      createStatusBarItem: () => ({ text: "", command: "", tooltip: "", show() {}, hide() {}, dispose() {} }),
+      withProgress: async (_options: unknown, task: (progress: unknown, token: unknown) => Promise<unknown>) =>
+        task({ report() {} }, { isCancellationRequested: false, onCancellationRequested: disposable }),
       createWebviewPanel: (viewType: string, title: string, column: unknown, options: unknown) => {
         const events = new NodeEmitter();
         const panel = {

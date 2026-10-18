@@ -1,15 +1,22 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { downloadAndUnzipVSCode } from "@vscode/test-electron";
 import { chromium } from "playwright-core";
+import extensionUiFixture from "./fixtures/extension-ui.cjs";
+import { assertExtensionEditorDialogs } from "./editor-dialog-fixture.mjs";
 import toolFixture from "./fixtures/tool-activity.cjs";
 import { assertRichContent, richFixture } from "./rich-content-fixture.mjs";
 import { assertToolActivity } from "./tool-activity-fixture.mjs";
+import { assertNativeFileCompletion } from "./completion-native-fixture.mjs";
+import thinkingFixture from "./fixtures/thinking.cjs";
+import { assertThinkingDisclosure } from "./thinking-fixture.mjs";
+import { assertNativeDirectShell } from "./direct-shell-fixture.mjs";
+import { assertAuthTransferDialogs, seedTransferSession } from "./auth-transfer-native-fixture.mjs";
 
 // Actual Quick Picks, modals, Problems, code actions and webview clicks; only Pi is simulated.
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -18,7 +25,7 @@ const workspaceAlias = process.argv[3] === "alias";
 const packaged = process.argv.includes("packaged");
 const evidenceLabel = `${version}${workspaceAlias ? "-alias" : ""}${packaged ? "-packaged" : ""}`;
 if (process.platform !== "linux") throw new Error("The native UI runner currently supports Linux only.");
-const directory = await mkdtemp(path.join(tmpdir(), "pi-native-ui-"));
+const directory = await realpath(await mkdtemp(path.join(tmpdir(), "pi-native-ui-")));
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(fn, description, timeout = 20_000) {
   const end = Date.now() + timeout;
@@ -65,9 +72,17 @@ try {
   if (workspaceAlias) await symlink(workspace, openedWorkspace, "junction");
   await mkdir(path.join(userData, "User"), { recursive: true });
   const executableFixture = path.join(directory, "pi-fixture");
-  await copyFile(path.join(repository, "scripts", "fixtures", "native-pi.cjs"), executableFixture);
+  const fixtureModule = pathToFileURL(path.join(repository, "src/test/fixtures/isolated-pi-fixture.mjs")).href;
+  const fixtureSource = await readFile(path.join(repository, "scripts/fixtures/native-pi.cjs"), "utf8");
+  await writeFile(executableFixture, fixtureSource.replace('import("../../src/test/fixtures/isolated-pi-fixture.mjs")', `import(${JSON.stringify(fixtureModule)})`));
   await chmod(executableFixture, 0o700);
+  await seedTransferSession(directory, workspace);
+  const fixtureBin = path.join(directory, "bin");
+  await mkdir(fixtureBin);
+  // Fail closed even if an upload approval regression invokes gh. Never delegates to real gh.
+  await writeFile(path.join(fixtureBin, "gh"), `#!/bin/sh\nprintf invoked >> '${path.join(directory, "gh-invoked")}'\nexit 91\n`, { mode: 0o700 });
   await respond("Native fixture explanation.");
+  await writeFile(path.join(directory, "extension-ui.json"), JSON.stringify(extensionUiFixture));
   await writeFile(
     path.join(userData, "User", "settings.json"),
     JSON.stringify({
@@ -77,6 +92,7 @@ try {
       "pi.executablePath": executableFixture,
       "workbench.startupEditor": "none",
       "window.dialogStyle": "custom",
+      "files.simpleDialog.enable": true,
       "window.zoomLevel": 0,
       "git.openRepositoryInParentFolders": "never",
       "extensions.ignoreRecommendations": true,
@@ -180,7 +196,7 @@ try {
     ],
     {
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, PI_VSCODE_UI_FIXTURE: directory, PI_CODING_AGENT_DIR: path.join(directory, "pi") },
+      env: { ...process.env, PATH: `${fixtureBin}:${process.env.PATH}`, PI_VSCODE_UI_FIXTURE: directory, PI_CODING_AGENT_DIR: path.join(directory, "pi") },
     },
   );
   child.stdout.on("data", (chunk) => {
@@ -240,13 +256,20 @@ try {
     await page.locator(".quick-input-list .monaco-list-row").filter({ hasText: text }).first().click();
     // Current VS Code can reuse the input without a hidden frame between chained Quick Picks.
     await until(
-      async () => !(await input.isVisible()) || (await input.getAttribute("aria-label")) !== label,
+      () => page.evaluate(({ label, text }) => {
+        const element = document.querySelector('.quick-input-widget input[type=text]');
+        return !element || !element.checkVisibility() || element.getAttribute("aria-label") !== label || element.value !== text;
+      }, { label, text }),
       "Quick Pick accepted or advanced",
     );
   };
   // Start a session detail pane, then capture all five provider-backed attachment types.
   let pi = await frame();
   await until(async () => (await pi.locator("body").innerText()).includes("Ready"), "Pi runtime ready");
+  if (!process.argv.includes("editor")) {
+    await assertAuthTransferDialogs({ page, directory, workspace, invoke, pick, until, frame });
+  }
+  if (!process.argv.includes("editor") && !process.argv.includes("transfer")) {
   const initial = await invoke("state");
   // Settings uses the real Extension Host configuration API and packaged webview.
   const settingsFrame = () =>
@@ -316,6 +339,62 @@ try {
   await invoke("command", { command: "workbench.action.closeActiveEditor" });
   await invoke("source");
   console.log("PI_NATIVE_UI settings gear, singleton, scopes, reset, drafts and no Pi side effects passed");
+  // Native file controls are separate host dialogs. Passive opens and saves must not launch Pi.
+  const nativeSettingsDone = await invoke("command", { command: "pi.openNativeSettings" }, false);
+  await pick("Project Pi");
+  for (const label of ["Steering mode", "Follow-up mode", "Startup thinking level", "Scoped model patterns"]) {
+    const filter = page.locator(".quick-input-widget input[type=text]");
+    await filter.evaluate((element, value) => {
+      element.focus();
+      element.value = value;
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+    }, label);
+    await page.locator(".quick-input-list .monaco-list-row").filter({ hasText: label }).first().waitFor();
+  }
+  await pick("Startup model");
+  await pick("Edit selected override");
+  const nativeInput = page.locator(".quick-input-widget input[type=text]");
+  await nativeInput.waitFor({ state: "visible" });
+  await nativeInput.fill("native-file-fixture");
+  await nativeInput.press("Enter");
+  await page.getByRole("button", { name: "Save only", exact: true }).click();
+  await nativeSettingsDone();
+  assert.equal(JSON.parse(await readFile(path.join(workspace, ".pi/settings.json"), "utf8")).defaultModel, "native-file-fixture");
+  const nativeResetDone = await invoke("command", { command: "pi.openNativeSettings" }, false);
+  await pick("Project Pi");
+  await pick("Startup model");
+  await pick("Reset selected override only");
+  await page.getByRole("button", { name: "Save only", exact: true }).click();
+  await nativeResetDone();
+  assert.deepEqual(JSON.parse(await readFile(path.join(workspace, ".pi/settings.json"), "utf8")), {});
+  assert.equal((await invoke("nativeSettingsDirty")).dirty, true);
+  const nativeBlockedDone = await invoke("command", { command: "pi.openNativeSettings" }, false);
+  await pick("Project Pi");
+  await pick("Startup model");
+  await pick("Edit selected override");
+  await nativeInput.waitFor({ state: "visible" });
+  await nativeInput.fill("must-not-write-behind-dirty-buffer");
+  await nativeInput.press("Enter");
+  await page.getByRole("button", { name: "Save only", exact: true }).click();
+  await nativeBlockedDone();
+  assert.deepEqual(JSON.parse(await readFile(path.join(workspace, ".pi/settings.json"), "utf8")), {}, "Dirty native editor, including workspace aliases, blocks disk writes");
+  const ordinarySave = await invoke("nativeSettingsSave");
+  assert.equal(ordinarySave.saved, true);
+  assert.deepEqual(JSON.parse(ordinarySave.text), { userDraft: "retained" });
+  assert.deepEqual(JSON.parse(await readFile(path.join(workspace, ".pi/settings.json"), "utf8")), { userDraft: "retained" });
+  await invoke("command", { command: "workbench.action.closeActiveEditor" });
+  await mkdir(path.join(directory, "pi"), { recursive: true });
+  await writeFile(path.join(directory, "pi/mcp.json"), JSON.stringify({ mcpServers: { fixture: { command: process.execPath, enabled: false, env: { KEY: "native-fixture-secret" }, exposure: "hidden" } } }));
+  const nativeMcpDone = await invoke("command", { command: "pi.openNativeMcp" }, false);
+  await page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "fixture" }).first().waitFor();
+  assert.ok(!(await page.locator(".quick-input-widget").innerText()).includes("native-fixture-secret"));
+  await page.keyboard.press("Escape");
+  await nativeMcpDone();
+  assert.equal(await readFile(path.join(directory, "pids.jsonl"), "utf8"), pidsBeforeSettings, "Native file surfaces and saves must not start Pi");
+  assert.equal(await readFile(path.join(directory, "prompts.jsonl"), "utf8").catch(() => ""), promptsBeforeSettings, "Native management must not send model prompts");
+  await rm(path.join(workspace, ".pi/settings.json"));
+  await rm(path.join(directory, "pi/mcp.json"));
+  console.log("PI_NATIVE_UI native settings targets, save/reset and passive secret-free MCP overview passed");
   for (const label of ["Definition", "References", "Callers", "Callees", "Document Symbols"]) {
     await invoke("source");
     pi = await frame();
@@ -421,6 +500,10 @@ try {
   console.log("PI_NATIVE_TOOL_ACTIVITY", JSON.stringify(toolEvidence));
   const richEvidence = await assertRichContent(await frame());
   console.log("PI_NATIVE_RICH_CONTENT", JSON.stringify({ packaged, ...richEvidence }));
+  const shellEvidence = await assertNativeDirectShell(frame, page, async () =>
+    readFile(path.join(directory, "shell.jsonl"), "utf8").then((text) => text.trim().split("\n").filter(Boolean).length).catch(() => 0),
+  );
+  console.log("PI_NATIVE_SHELL", JSON.stringify({ packaged, shellEvidence }));
   pi = await frame();
   const imagePreview = pi.locator(".transcript-image").first();
   await imagePreview.waitFor();
@@ -433,10 +516,10 @@ try {
   await pi.locator("#session-details summary").focus();
   await page.keyboard.press("Enter");
   await page.keyboard.press("Tab");
-  assert.equal(await pi.locator("#session").inputValue(), "native-ui-session");
+  assert.equal(await pi.locator("#session").inputValue(), "native-import-authoritative");
   assert.equal(await pi.locator("#session").evaluate((element) => document.activeElement === element), true);
   await pi.locator("#session").selectText();
-  assert.equal(await pi.locator("#session").evaluate((input) => input.selectionEnd - input.selectionStart), 17);
+  assert.equal(await pi.locator("#session").evaluate((input) => input.selectionEnd - input.selectionStart), "native-import-authoritative".length);
   await pi.locator("#session-details summary").click();
   console.log(
     "PI_NATIVE_INTERFACE image keyboard preview, Escape/focus restoration and copyable session details passed",
@@ -527,6 +610,12 @@ try {
   assert.equal(state.findings.length, 0);
   pi = await frame();
   assert.equal(await pi.locator(".proposal").count(), 0);
+  assert.equal(
+    await pi.locator("#extension-ui-above").isVisible(),
+    false,
+    "reload must not restore stale extension UI",
+  );
+  assert.equal(await pi.locator("#extension-ui-below").isVisible(), false);
   const pids = (await readFile(path.join(directory, "pids.jsonl"), "utf8")).trim().split("\n").map(Number);
   await until(() => {
     try {
@@ -539,6 +628,7 @@ try {
   const prompts = (await readFile(path.join(directory, "prompts.jsonl"), "utf8")).trim().split("\n").map(JSON.parse);
   assert.equal(prompts.length, 7);
   assert.ok(prompts.every((prompt) => /read.only/i.test(prompt.message)));
+  await assertNativeFileCompletion({ pi, page, invoke, pick, until, directory, workspace });
   // Ordinary composer requests, unlike callback-owned review requests, accept both queue actions.
   await writeFile(path.join(directory, "interface-hold"), "hold");
   pi = await frame();
@@ -547,6 +637,11 @@ try {
   await pi.locator("#after-this").waitFor();
   assert.equal(await pi.locator("#cancel").isVisible(), true);
   assert.match(await pi.locator("#status").innerText(), /working|Sending/i);
+  await pi.locator("#extension-ui-above").waitFor();
+  assert.match(await pi.locator("#extension-ui-above").innerText(), /second: Updated status/);
+  assert.equal(await pi.locator(".extension-ui-block script, .extension-ui-block a").count(), 0);
+  assert.equal(await pi.evaluate(() => window.extensionInjected), undefined);
+  assert.equal(await pi.locator("#extension-ui-below > p").textContent(), "below");
   for (const [selector, text] of [
     ["#send", "Next native instruction"],
     ["#after-this", "After this native instruction"],
@@ -572,7 +667,17 @@ try {
     await invoke("zoom", { level: Math.log(2) / Math.log(1.2) });
     await delay(500);
     assert.equal(await pi.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    for (const id of ["input", "add-context", "cancel", "after-this", "send", "status", "usage"]) {
+    for (const id of [
+      "input",
+      "add-context",
+      "cancel",
+      "after-this",
+      "send",
+      "status",
+      "usage",
+      "extension-ui-above",
+      "extension-ui-below",
+    ]) {
       const geometry = await pi.locator(`#${id}`).evaluate((element) => ({
         rect: element.getBoundingClientRect().toJSON(),
         viewport: [innerWidth, innerHeight],
@@ -621,12 +726,117 @@ try {
   await until(async () => !(await pi.locator("#cancel").isVisible()), "native Stop settlement");
   assert.equal(await pi.locator("#recover-queue").isVisible(), true);
   await rm(path.join(directory, "interface-hold"));
+  await until(async () => await pi.locator("#send").isEnabled(), "foreground request owner released after Stop");
   // Merely choosing Delete must still require the native modal; cancellation keeps the session file.
   await pi.locator("#delete-session").click();
   await page.getByRole("button", { name: "Delete Session", exact: true }).waitFor();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   assert.ok((await readFile(path.join(directory, "session.jsonl"), "utf8")).includes("native-ui-session"));
+  // Host control commands have native dialogs, preserve drafts, and never enter the model fixture.
+  const retainedDraft = await pi.locator("#input").inputValue();
+  for (let index = 0; index < 3; index++) {
+    const complete = await invoke("command", { command: "pi.reloadResources" }, false);
+    await page.getByRole("button", { name: "Reload Resources", exact: true }).click();
+    await complete();
+    assert.equal(await pi.locator("#input").inputValue(), retainedDraft);
+  }
+  let branchComplete = await invoke("command", { command: "pi.browseSessionTree" }, false);
+  await pick("Clone active branch into a new session");
+  await branchComplete();
+  branchComplete = await invoke("command", { command: "pi.browseSessionTree" }, false);
+  await pick("Hold this deterministic response");
+  await pick("Navigate without summary");
+  await branchComplete();
+  assert.equal(await pi.locator("#input").inputValue(), retainedDraft, "A native branch selection must not overwrite a nonempty draft");
+  branchComplete = await invoke("command", { command: "pi.browseSessionTree" }, false);
+  await pick("Hold this deterministic response");
+  await pick("Fork from user message");
+  await branchComplete();
+  const controlRecords = (await readFile(path.join(directory, "controls.jsonl"), "utf8")).trim().split("\n").map(JSON.parse);
+  assert.deepEqual(controlRecords.filter((record) => record.action !== "session-location").map((record) => record.action), ["reload", "reload", "reload", "navigate"]);
+  assert.equal((await readFile(path.join(directory, "prompts.jsonl"), "utf8")).trim().split("\n").length, prompts.length + 2, "only completion Send and the held ordinary request add model prompts");
+  // Integrated terminals survive EH reload. Persistent ownership must block automatic RPC startup.
+  const handoffComplete = await invoke("command", { command: "pi.extensionUiCompatibility" }, false);
+  await page.getByRole("button", { name: "Hand Off to Terminal", exact: true }).click();
+  await page.getByText(/Hand this session to Pi in a terminal/).waitFor();
+  await page.getByRole("button", { name: "Hand Off to Terminal", exact: true }).click();
+  await handoffComplete();
+  const terminalPids = await until(async () => {
+    const rows = (await readFile(path.join(directory, "pids.jsonl"), "utf8")).trim().split("\n").map(Number);
+    return rows.length >= pids.length + 1 ? rows : undefined;
+  }, "fixture terminal writer started");
+  const previousBoot = (await json("ready.json")).boot;
+  await invoke("command", { command: "workbench.action.reloadWindow" }, false);
+  await until(async () => { const next = await json("ready.json"); return next && next.boot !== previousBoot; }, "ownership-preserving window reload", 40_000);
+  pi = await frame();
+  await until(async () => (await pi.locator("body").innerText()).includes("Reconnect"), "blocked sidebar after terminal handoff");
+  await delay(500);
+  assert.equal((await readFile(path.join(directory, "pids.jsonl"), "utf8")).trim().split("\n").length, terminalPids.length, "EH reload must not start a second session writer");
+  const closedTerminal = await invoke("closePiTerminal", { pid: terminalPids.at(-1) });
+  // Terminal restoration can replace its API handle with a default shell. Simulate the required
+  // manual inspection/stop of this known fixture writer, never an arbitrary process.
+  if (process.platform === "linux") {
+    try {
+      const commandLine = await readFile(`/proc/${terminalPids.at(-1)}/cmdline`, "utf8");
+      if (commandLine) {
+        assert.ok(commandLine.split("\0").includes(executableFixture), "only the captured disposable fixture may be stopped");
+        process.kill(terminalPids.at(-1), "SIGTERM");
+      }
+    } catch (error) {
+      if (error.code !== "ENOENT" && error.code !== "ESRCH") throw error;
+    }
+  } else assert.equal(closedTerminal.closed, 1, JSON.stringify(closedTerminal));
+  await until(async () => {
+    try {
+      process.kill(terminalPids.at(-1), 0);
+      // Container init can retain an exited terminal root as a zombie; it cannot write session data.
+      if (process.platform === "linux") {
+        const stat = await readFile(`/proc/${terminalPids.at(-1)}/stat`, "utf8");
+        return stat.slice(stat.lastIndexOf(")") + 1).trimStart().startsWith("Z");
+      }
+      return false;
+    } catch (error) { return error.code === "ESRCH" || error.code === "ENOENT"; }
+  }, "fixture terminal stopped before explicit return");
+  const returnComplete = await invoke("command", { command: "pi.returnFromTerminal" }, false);
+  await page.getByRole("button", { name: "Return Ownership", exact: true }).click();
+  await returnComplete();
+  assert.equal((await readFile(path.join(directory, "pids.jsonl"), "utf8")).trim().split("\n").length, terminalPids.length + 1);
+  console.log("PI_NATIVE_CONTROL repeated reload, clone, no-summary navigation, fork, draft preservation and persistent terminal ownership passed");
   console.log("PI_NATIVE_INTERFACE both queue buttons, pending labels, Stop/recovery and deletion confirmation passed");
+  await writeFile(path.join(directory, "thinking.json"), JSON.stringify(thinkingFixture));
+  await pi.locator("#input").fill("Show the deterministic thinking transcript.");
+  await pi.locator("#send").click();
+  await pi.locator(".thinking-transcript").waitFor();
+  const thinkingSummary = pi.locator(".thinking-transcript summary");
+  assert.equal(await pi.locator(".thinking-transcript").evaluate((element) => element.open), false);
+  await thinkingSummary.focus();
+  await thinkingSummary.press("Enter");
+  assert.ok((await pi.locator(".thinking-transcript").innerText()).includes("Authoritative visible thinking."));
+  await thinkingSummary.press("Space");
+  await writeFile(path.join(directory, "thinking-release"), "settle");
+  await until(async () => !(await pi.locator("#cancel").isVisible()), "thinking history replacement");
+  const thinkingEvidence = await assertThinkingDisclosure(pi);
+  assert.equal(await pi.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  const thinkingBoot = (await json("ready.json")).boot;
+  await invoke("command", { command: "workbench.action.reloadWindow" }, false);
+  await until(
+    async () => {
+      const next = await json("ready.json");
+      return next && next.boot !== thinkingBoot;
+    },
+    "thinking reload",
+    40_000,
+  );
+  pi = await frame();
+  await until(
+    async () => (await pi.locator(".thinking-transcript").count()) === 2,
+    "thinking restored from Pi after reconnect",
+  );
+  if (!(await pi.locator(".thinking-transcript summary").first().isVisible())) {
+    await pi.locator("#recent-session-list .current").click();
+  }
+  await assertThinkingDisclosure(pi);
+  console.log("PI_NATIVE_THINKING", JSON.stringify({ ...thinkingEvidence, reconnect: "restored from fixture history" }));
   console.log(
     "PI_NATIVE_UI_EVIDENCE",
     JSON.stringify({
@@ -635,8 +845,10 @@ try {
       workspaceAlias,
       packaged,
       richContent: "Markdown, math fonts, flowchart and sequence SVG passed",
+      thinkingTranscript: thinkingEvidence,
       settingsPanel: "gear, singleton, User/Workspace writes, reset, hide/reveal drafts, no Pi side effects passed",
       semanticAttachmentPicker: "passed",
+      composerFileCompletion: "search, dirty snapshot, inspection, path-only Tab, failed capture, stale draft and explicit single Send passed",
       interface:
         "image preview/focus, session details, both queue actions, status/Stop, recovered drafts, deletion modal and native 200% zoom geometry in dark/light/high-contrast passed",
       fourReviewScopes: "passed",
@@ -646,10 +858,13 @@ try {
       selectedHunkBatchPreviewApplyUndo: "passed",
       cancellation: "passed",
       reloadCleanup: "passed",
+      sessionControls: "3 handled reloads, clone, no-summary navigate, fork, native dialogs, unchanged draft, and terminal ownership across EH reload passed",
       provider: "deterministic RPC fixture; no model calls",
       screenshot,
     }),
   );
+  }
+  if (!process.argv.includes("transfer")) await assertExtensionEditorDialogs({ page, directory, invoke, until, frame });
   await invoke("finish", {}, false);
 } catch (error) {
   if (page) {

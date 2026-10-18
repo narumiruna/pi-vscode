@@ -4,12 +4,20 @@ import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { build } from "esbuild";
 import { chromium } from "playwright-core";
-import { assertRichContent, richFixture } from "./rich-content-fixture.mjs";
+import { assertExtensionUi } from "./extension-ui-fixture.mjs";
 import { assertInterface } from "./interface-fixture.mjs";
+import { assertRichContent, richFixture } from "./rich-content-fixture.mjs";
+import { assertComposerFileCompletion } from "./completion-fixture.mjs";
+import { assertThinkingBrowser } from "./thinking-fixture.mjs";
+import thinkingFixture from "./fixtures/thinking.cjs";
 
 const require = createRequire(import.meta.url);
 const { getSidebarHtml } = require("../out/sidebarHtml.js");
-const { renderSafeMarkdown } = require("../out/markdown.js");
+const { renderSafeMarkdown, escapeHtml } = require("../out/markdown.js");
+const { piMessageThinking } = require("../out/piMessages.js");
+
+import { assertDirectShellInterface } from "./direct-shell-fixture.mjs";
+const { formatBashExecutionText } = require("../out/directShell.js");
 const server = createServer(async (request, response) => {
   try {
     const name = request.url?.slice(1) ?? "";
@@ -35,6 +43,9 @@ try {
     "PI_INTERFACE_BROWSER_EVIDENCE",
     JSON.stringify(await assertInterface(browser, getSidebarHtml, renderSafeMarkdown)),
   );
+  console.log("PI_EXTENSION_UI_BROWSER_EVIDENCE", JSON.stringify(await assertExtensionUi(browser, getSidebarHtml)));
+  console.log("PI_COMPLETION_BROWSER_EVIDENCE", JSON.stringify(await assertComposerFileCompletion(browser, getSidebarHtml)));
+  console.log("PI_SHELL_BROWSER_EVIDENCE", JSON.stringify(await assertDirectShellInterface(browser, getSidebarHtml, formatBashExecutionText, escapeHtml)));
   const page = await browser.newPage({ viewport: { width: 600, height: 800 } });
   const errors = [];
   const external = [];
@@ -51,6 +62,9 @@ try {
     script: `${origin}/rich-content.js`,
     style: `${origin}/rich-content.css`,
   });
+  console.log("PI_THINKING_BROWSER_EVIDENCE", JSON.stringify(await assertThinkingBrowser(
+    browser, html, renderSafeMarkdown, piMessageThinking, thinkingFixture,
+  )));
   // The browser runner uses the real sidebar document and renderer; only VS Code IPC is simulated.
   await page.addInitScript(() => {
     window.acquireVsCodeApi = () => ({ postMessage() {} });

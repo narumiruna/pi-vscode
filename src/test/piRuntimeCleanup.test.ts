@@ -62,7 +62,7 @@ class CleanupClient {
 function createRuntime(): PiRuntimeManager {
   const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
   return new PiRuntimeManager({
-    workspaceState: { update: async () => {} },
+    workspaceState: { get: () => undefined, update: async () => {} },
     environmentVariableCollection: { clear() {} },
   } as unknown as vscode.ExtensionContext);
 }
@@ -77,7 +77,7 @@ for (const mode of ["trash", "permanent", "stop-failure"] as const) {
     const client = new CleanupClient(mode === "stop-failure");
     const events: PiRpcEvent[] = [];
     runtime.onEvent((event) => {
-      events.push(event);
+      if (event.type !== "extension_ui_reset") events.push(event);
       if (event.type === "runtime_warning") client.order.push("warning");
     });
     internal.state = { ...runtime.currentState, connected: true, sessionFile: session };
@@ -122,7 +122,9 @@ for (const phase of ["refresh", "start-exit"]) {
   test(`foreground ${phase} failure reports cleanup and releases its subscription`, async () => {
     const { PiRpcClient } = require("../piRpcClient") as typeof import("../piRpcClient");
     const startupExit: PiRpcEvent = { type: "process_exit", code: 1, signal: null, expected: true };
-    const expectedEvents = phase === "start-exit" ? [startupExit, cleanupWarning] : [cleanupWarning];
+    const reset: PiRpcEvent = { type: "extension_ui_reset" };
+    const expectedEvents =
+      phase === "start-exit" ? [reset, startupExit, cleanupWarning] : [reset, reset, cleanupWarning];
     const start = vi.spyOn(PiRpcClient.prototype, "start").mockImplementation(async function (this: PiRpcClient) {
       if (phase === "start-exit") {
         (this as unknown as { emit: (event: PiRpcEvent) => void }).emit(startupExit);

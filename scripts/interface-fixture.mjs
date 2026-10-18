@@ -430,6 +430,21 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
   await page.waitForTimeout(100);
   assert.equal(await page.locator("#conversation").evaluate((element) => element.scrollTop), 40);
 
+  // Control catalog and branch drafts use only host-owned, revision-bound browser messages.
+  await state({ runtime: { ...runtime, commands: [
+    { name: "vscode-pi-control", description: "Internal" }, { name: "reload", description: "Shadowed" },
+  ] } });
+  await page.locator("#input").fill("/reload");
+  assert.equal(await page.locator("#slash-commands button").count(), 1);
+  assert.equal(await page.locator("#slash-commands").innerText().then((text) => text.includes("Shadowed")), false);
+  await page.locator("#input").fill("");
+  await post({ type: "restoreBranchDraft", text: "Selected user prompt" });
+  assert.equal(await page.locator("#input").inputValue(), "Selected user prompt");
+  await page.locator("#input").fill("Newer draft");
+  await post({ type: "restoreBranchDraft", text: "Must not replace", expectedRevision: -1 });
+  assert.equal(await page.locator("#input").inputValue(), "Newer draft");
+  assert.match(await page.locator("#notice").innerText(), /draft changed/);
+
   // Theme screenshots are temporary review evidence, not committed assets. Native UI tests cover zoom.
   for (const name of Object.keys(themes)) {
     await theme(name);

@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { composerFileCompletionHtml } from "./composerFileCompletionHtml";
 
 // Static, theme-colored icons need no font, resource URI, or broader CSP.
 const iconPaths = {
@@ -138,6 +139,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .role { display: flex; align-items: center; gap: 6px; margin: 0 0 6px 2px; color: var(--vscode-descriptionForeground); font-size: .85em; font-weight: 500; }
     .assistant .role { color: var(--vscode-foreground); }
     .assistant .role::before { content: 'π'; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; background: var(--vscode-input-background); color: var(--pi-accent); font: 15px Georgia, serif; }
+    .thinking-transcript { min-width: 0; margin: 8px 2px; padding: 8px; border: 1px solid var(--pi-border); border-radius: 7px; color: var(--vscode-descriptionForeground); }
+    .thinking-transcript > summary { cursor: pointer; }
+    .thinking-transcript > summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 3px; }
+    .thinking-transcript pre { max-width: 78ch; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.6; }
+    .thinking-truncated { font-size: .85em; }
     .content { min-width: 0; padding: 0 2px; overflow-wrap: anywhere; line-height: 1.6; }
     .content p { margin: 0 0 10px; }
     .assistant .content > :is(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote) { max-width: 78ch; }
@@ -203,13 +209,21 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     button.attachment-remove:hover:not(:disabled) { background: var(--vscode-toolbar-hoverBackground); }
     button.composer-image:focus-visible, button.attachment-remove:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--vscode-focusBorder); }
     #composer { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding-top: 12px; }
+    .extension-ui-block { flex: 0 1 auto; min-width: 0; min-height: 0; max-height: 8vh; overflow-y: auto; scrollbar-width: thin; padding: 3px 4px; border: 1px solid var(--vscode-contrastBorder, var(--pi-border)); color: var(--vscode-descriptionForeground); font-size: .8em; overflow-wrap: anywhere; }
+    .extension-ui-block[hidden] { display: none; }
+    .extension-ui-block h2, .extension-ui-block p { margin: 0; font: inherit; }
+    .extension-ui-block h2 { font-weight: 600; }
+    .extension-ui-block pre { margin: 0 0 3px; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+    #file-completions { position: absolute; bottom: calc(100% - 6px); left: 0; right: 0; z-index: 11; max-height: min(260px, 40vh); overflow: auto; padding: 4px; border: 1px solid var(--vscode-editorSuggestWidget-border, var(--pi-border)); border-radius: 8px; color: var(--vscode-editorSuggestWidget-foreground, var(--vscode-foreground)); background: var(--vscode-editorSuggestWidget-background, var(--vscode-editor-background)); box-shadow: 0 4px 16px var(--vscode-widget-shadow); }
+    #file-completions button { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; border: 0; padding: 6px 8px; color: inherit; background: transparent; }
+    #file-completions button[aria-selected="true"] { color: var(--vscode-list-activeSelectionForeground); background: var(--vscode-list-activeSelectionBackground); }
     #slash-commands { position: absolute; bottom: calc(100% - 6px); left: 0; right: 0; z-index: 10; max-height: min(260px, 40vh); overflow-y: auto; padding: 4px; border: 1px solid var(--vscode-editorSuggestWidget-border, var(--pi-border)); border-radius: 8px; color: var(--vscode-editorSuggestWidget-foreground, var(--vscode-foreground)); background: var(--vscode-editorSuggestWidget-background, var(--vscode-editor-background)); box-shadow: 0 4px 16px var(--vscode-widget-shadow); }
     #slash-commands button { display: flex; width: 100%; justify-content: flex-start; gap: 12px; border: 0; padding: 6px 8px; text-align: left; color: inherit; background: transparent; }
     #slash-commands button[aria-selected="true"] { color: var(--vscode-editorSuggestWidget-selectedForeground, var(--vscode-list-activeSelectionForeground)); background: var(--vscode-editorSuggestWidget-selectedBackground, var(--vscode-list-activeSelectionBackground)); }
     .slash-name { flex: 0 0 auto; font-family: var(--vscode-editor-font-family); }
     .slash-description { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .75; }
     /* Reserve short/zoomed view space for the session header, help, notices and runtime footer. */
-    .composer-box { position: relative; display: flex; flex-direction: column; min-height: 0; max-height: 60vh; overflow: hidden; background: var(--pi-composer-background); border: 1px solid var(--vscode-input-border, var(--pi-border)); border-radius: 14px; box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, .2)); }
+    .composer-box { position: relative; display: flex; flex: 0 0 auto; flex-direction: column; min-height: 0; max-height: 60vh; overflow: hidden; background: var(--pi-composer-background); border: 1px solid var(--vscode-input-border, var(--pi-border)); border-radius: 14px; box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, .2)); }
     .composer-box:focus-within { border-color: var(--vscode-focusBorder); box-shadow: 0 6px 20px var(--vscode-widget-shadow, rgba(0, 0, 0, .24)); }
     textarea { display: block; width: 100%; height: 42px; min-height: 42px; max-height: min(220px, 28vh); resize: none; padding: 11px 13px 7px; color: var(--vscode-input-foreground); background: transparent; border: 0; border-radius: 14px 14px 6px 6px; font: inherit; line-height: 1.5; scrollbar-width: thin; }
     textarea:focus-visible { outline: none; }
@@ -294,12 +308,14 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     </section>
     <section id="composer" aria-label="Message composer">
       <div id="slash-commands" role="listbox" aria-label="Slash commands" hidden></div>
+      <section id="extension-ui-above" class="extension-ui-block" tabindex="0" aria-label="Pi extension status and widgets above editor" hidden></section>
+      <div id="file-completions" role="listbox" aria-label="Workspace files" hidden></div>
       <div class="composer-box">
         <div id="attachments" aria-label="Attachments for the next message" hidden></div>
         <div id="attachment-estimate" class="proposal-meta"></div>
         <div id="pending-queue" role="list" aria-label="Pending Pi messages" hidden></div>
         <label for="input" class="sr-only">Message Pi</label>
-        <textarea id="input" rows="1" maxlength="${maxInputCharacters}" placeholder="Ask Pi anything…" aria-describedby="composer-hint" aria-autocomplete="list" aria-controls="slash-commands" aria-expanded="false"></textarea>
+        <textarea id="input" rows="1" maxlength="${maxInputCharacters}" placeholder="Ask Pi anything…" aria-describedby="composer-hint" aria-autocomplete="list" aria-controls="slash-commands file-completions" aria-expanded="false"></textarea>
         <div id="queue-status" class="proposal-meta" role="status"></div>
         <div class="proposal-actions">
           <button id="recover-queue" class="secondary" type="button" hidden>Restore drafts</button>
@@ -317,8 +333,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           <button id="send" type="button" aria-label="Send message" title="Send message" disabled>${icon("send")}<span id="submission-label">Next</span></button>
         </div>
       </div>
+      <section id="extension-ui-below" class="extension-ui-block" tabindex="0" aria-label="Pi extension widgets below editor" hidden></section>
       <p id="settings-description" class="sr-only"></p>
-      <details id="composer-help"><summary>Submission help</summary><div id="composer-hint">Enter to send · Shift+Enter for a new line</div></details>
+      <details id="composer-help"><summary>Submission help</summary><div id="composer-hint">Enter to send · Shift+Enter for a new line</div><p>Idle session only: !command includes model context; !!command excludes model context, not history. Remove attachments. Every command needs approval. Prefix ! with a backslash to send literal text.</p></details>
     </section>
     <div id="notice" role="status" aria-live="polite"></div>
     <div id="runtime"><span class="status-dot" aria-hidden="true"></span><span id="status" role="status" aria-live="polite">Connecting…</span><details id="session-details" hidden><summary>Session details</summary><div class="session-details-content"><label for="session">Session ID (select to copy)</label><input id="session" readonly></div></details><span id="usage"></span><button id="retry" class="secondary" type="button" hidden>Retry</button><button id="refresh-history" class="secondary" type="button" hidden>Refresh history</button><button id="reconnect" class="secondary" type="button" hidden>Reconnect</button></div>
@@ -381,6 +398,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let submissionPending = false;
     let backgroundSubmissionPending = false;
     let composerRevision = 0;
+    let fileCompletion;
     let updatingControls = false;
     let thinkingSelectable = false;
     let thinkingUnavailableReason = '';
@@ -450,6 +468,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     }
 
     function submit(kind = 'steer') {
+      if (fileCompletion?.busy) return;
+      fileCompletion?.cancel();
       const text = input.value.trim();
       if ((!text && !attachedItems) || !connected || submissionPending || backgroundSubmissionPending || recoveredDraftPending) return;
       if (pendingImageReads > 0 || (attachedImages && !imageSupported)) return;
@@ -495,24 +515,64 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       if (conversationPinnedToBottom) scrollConversationToBottom();
     });
 
+    function renderThinking(wrapper, blocks) {
+      const thinking = Array.isArray(blocks) ? blocks : [];
+      let details = wrapper.thinkingDisclosure;
+      if (!thinking.length && !details) return;
+      if (!details) {
+        details = document.createElement('details');
+        details.className = 'thinking-transcript';
+        const summary = document.createElement('summary');
+        summary.textContent = 'Thinking';
+        const body = document.createElement('div');
+        details.append(summary, body);
+        wrapper.appendChild(details);
+        wrapper.thinkingDisclosure = details;
+      }
+      details.hidden = !thinking.length;
+      const signature = JSON.stringify(thinking);
+      if (details.thinkingKey === signature) return;
+      details.thinkingKey = signature;
+      const body = details.children[1];
+      body.replaceChildren();
+      for (const block of thinking) {
+        const text = document.createElement('pre');
+        text.textContent = block.redacted ? 'Provider redacted this thinking block. Hidden content is unavailable.' : block.text;
+        body.appendChild(text);
+        if (block.truncated) {
+          const notice = document.createElement('div');
+          notice.className = 'thinking-truncated';
+          notice.textContent = 'Thinking truncated; only retained content is shown.';
+          body.appendChild(notice);
+        }
+      }
+    }
+
     function renderMessages(messages) {
       const followConversation = conversationPinnedToBottom;
-      const visibleMessages = messages.filter(message => message.role !== 'assistant' || Boolean(message.html));
+      const readingTop = conversationElement.scrollTop;
+      const visibleMessages = messages.filter(message => message.role !== 'assistant' || Boolean(message.html) || message.thinking?.length);
       const structure = JSON.stringify(visibleMessages.map((message, index) => [message.id || index, message.role, message.attachments || [], Boolean(message.truncated)]));
-      const html = visibleMessages.map(message => message.html || (message.role === 'assistant' ? '…' : ''));
+      const html = visibleMessages.map(message => message.html || '');
       messagesElement.classList.toggle('is-empty', visibleMessages.length === 0);
 
       const expectedChildren = visibleMessages.length || 1;
       if (structure === renderedMessageStructure && messagesElement.children.length === expectedChildren) {
         for (let index = 0; index < html.length; index += 1) {
-          if (html[index] === renderedMessageHtml[index]) continue;
-          const content = messagesElement.children[index]?.children[1];
-          if (content) setMessageContent(content, html[index]);
+          const wrapper = messagesElement.children[index];
+          const content = wrapper?.children[1];
+          if (content && html[index] !== renderedMessageHtml[index]) setMessageContent(content, html[index]);
+          if (wrapper) renderThinking(wrapper, visibleMessages[index].thinking);
         }
         renderedMessageHtml = html;
+        if (!followConversation) setConversationScrollTop(readingTop);
         return visibleMessages.length > 0 && followConversation;
       }
 
+      const disclosures = new Map(Array.from(messagesElement.children, wrapper => [wrapper.messageId, {
+        open: wrapper.thinkingDisclosure?.open,
+        focused: Boolean(wrapper.thinkingDisclosure && wrapper.thinkingDisclosure.children[0] === document.activeElement),
+      }]));
       messagesElement.replaceChildren();
       forgetImageTargets(false);
       emptyActionButtons.length = 0;
@@ -544,14 +604,19 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           const message = visibleMessages[index];
           const wrapper = document.createElement('article');
           wrapper.className = 'message ' + message.role;
+          wrapper.messageId = message.id;
           const role = document.createElement('div');
           role.className = 'role';
-          role.textContent = message.role === 'user' ? 'You' : 'Pi';
+          role.textContent = message.role === 'user' ? 'You' : message.role === 'shell' ? 'Shell' : 'Pi';
           const content = document.createElement('div');
           content.className = 'content';
           setMessageContent(content, html[index]);
           wrapper.append(role, content);
+          renderThinking(wrapper, message.thinking);
+          const disclosure = disclosures.get(message.id);
+          if (wrapper.thinkingDisclosure && disclosure) wrapper.thinkingDisclosure.open = Boolean(disclosure.open);
           messagesElement.appendChild(wrapper);
+          if (wrapper.thinkingDisclosure && disclosure?.focused) wrapper.thinkingDisclosure.children[0].focus();
           const attachments = Array.isArray(message.attachments) ? message.attachments : [];
           const contexts = attachments.filter(attachment => attachment.type === 'context');
           if (contexts.length) {
@@ -598,7 +663,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       if (visibleMessages.length === 0) {
         setConversationScrollTop(0);
         conversationPinnedToBottom = true;
-      }
+      } else if (!followConversation) setConversationScrollTop(readingTop);
       return visibleMessages.length > 0 && followConversation;
     }
 
@@ -1055,6 +1120,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     }
 
     function setComposerInput(text) {
+      fileCompletion?.cancel();
       input.value = text;
       slashDismissed = false;
       closeSlashCommands();
@@ -1258,12 +1324,14 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('add-context').disabled = Boolean(recoveredDraftPending);
       for (const button of emptyActionButtons) button.disabled = interactionLocked;
       const canQueue = busy && queueable && !sessionsLayerVisible;
-      const queueBlocked = canQueue && (input.value.trimStart().startsWith('/') || pendingQueueCount >= 10);
+      const shellInput = input.value.startsWith('!');
+      const shellBlocked = shellInput && (attachedItems > 0 || canQueue || sessionsLayerVisible);
+      const queueBlocked = canQueue && (input.value.trimStart().startsWith('/') || shellInput || pendingQueueCount >= 10);
       sendButton.hidden = busy && !canQueue;
       sendButton.classList.toggle('queue-action', canQueue);
       sendButton.setAttribute('aria-label', canQueue ? 'Next: send after the current tool finishes' : 'Send message');
       $('after-this').hidden = !canQueue;
-      sendButton.disabled = (busy && !canQueue) || queueBlocked || submissionPending || backgroundSubmissionPending || imageLoading || Boolean(recoveredDraftPending) || sessionStartBlocked || !connected || (!input.value.trim() && !attachedItems) || imageBlocked;
+      sendButton.disabled = Boolean(fileCompletion?.busy) || (busy && !canQueue) || queueBlocked || shellBlocked || submissionPending || backgroundSubmissionPending || imageLoading || Boolean(recoveredDraftPending) || sessionStartBlocked || !connected || (!input.value.trim() && !attachedItems) || imageBlocked;
       $('after-this').disabled = sendButton.disabled;
       $('after-this').title = 'Send when Pi finishes responding (' + followUpShortcutLabel + ')';
       const settingsReason = !connected ? 'Reconnect to change settings.' : interactionLocked ? 'Settings are locked during active work.' : '';
@@ -1272,7 +1340,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('model-picker').parentElement?.setAttribute('title', settingsReason);
       thinkingLevel.setAttribute('aria-describedby', 'settings-description');
       thinkingLevel.title = (thinkingLevel.value ? 'Pi thinking level: ' + formatThinkingLevel(thinkingLevel.value) : 'Pi thinking level unavailable for this model.') + (settingsReason ? ' ' + settingsReason : '');
-      sendButton.title = queueBlocked
+      sendButton.title = shellBlocked
+        ? 'Direct shell requires an idle session composer without attachments.'
+        : queueBlocked
         ? input.value.trimStart().startsWith('/') ? 'Slash commands cannot be queued.' : 'The queue is full (10 messages).'
         : imageLoading
         ? 'Wait for pasted images to finish loading.'
@@ -1300,16 +1370,63 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
                 ? 'Next: after the current tool · After this: after the response · Enter / ' + followUpShortcutLabel + ' · Shift+Enter for a new line'
                 : busy
                   ? 'Wait for Pi to finish before sending'
-                  : 'Enter to send · Shift+Enter for a new line';
+                  : shellInput ? 'Direct shell: ! includes model context · !! excludes model context, not history · Approval required' : 'Enter to send · Shift+Enter for a new line';
       updateRuntimeStatus();
       renderSlashCommands();
+      fileCompletion?.refresh();
+    }
+
+    let renderedExtensionUi = '';
+    function renderExtensionUi(state) {
+      const ui = state || { statuses: [], widgets: [] };
+      const serialized = JSON.stringify(ui);
+      if (serialized === renderedExtensionUi) return;
+      renderedExtensionUi = serialized;
+      const above = $('extension-ui-above');
+      const below = $('extension-ui-below');
+      above.replaceChildren();
+      below.replaceChildren();
+      function heading(parent, text) {
+        const node = document.createElement('h2');
+        node.textContent = text;
+        parent.append(node);
+      }
+      if ((ui.statuses || []).length) {
+        heading(above, 'Extension status');
+        for (const entry of ui.statuses) {
+          const row = document.createElement('p');
+          row.textContent = entry.key + ': ' + entry.text;
+          above.append(row);
+        }
+      }
+      for (const placement of ['aboveEditor', 'belowEditor']) {
+        const parent = placement === 'aboveEditor' ? above : below;
+        const widgets = (ui.widgets || []).filter(widget => widget.placement === placement);
+        if (widgets.length) heading(parent, 'Extension widgets · ' + (placement === 'aboveEditor' ? 'above editor' : 'below editor'));
+        for (const widget of widgets) {
+          const label = document.createElement('p');
+          label.textContent = widget.key;
+          const text = document.createElement('pre');
+          text.textContent = widget.lines.join('\\n');
+          parent.append(label, text);
+        }
+      }
+      if (ui.diagnostic) {
+        const diagnostic = document.createElement('p');
+        diagnostic.textContent = ui.diagnostic;
+        above.append(diagnostic);
+      }
+      above.hidden = !above.children.length;
+      below.hidden = !below.children.length;
     }
 
     function render(state) {
-      const catalog = [{ name: 'compact', description: 'Manually compact the session context' }, ...(state.runtime.commands || [])];
+      renderExtensionUi(state.extensionUi);
+      const catalog = [{ name: 'compact', description: 'Manually compact the session context' }, { name: 'reload', description: 'Reload approved Pi resources without a model request' }, ...(state.runtime.commands || []).filter((command) => typeof command.name === 'string' && command.name !== 'reload' && !command.name.startsWith('vscode-pi-'))];
       const names = new Set();
       slashCommands = catalog.filter(command => {
         if (!command || typeof command.name !== 'string' || !/^[^\\s/]+$/.test(command.name) || names.has(command.name)) return false;
+        if (command.name === 'vscode-pi-permission-ready' || command.name === 'vscode-pi-read-only-ready') return false;
         names.add(command.name);
         return true;
       });
@@ -1447,9 +1564,12 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     $('preview-image').addEventListener('error', () => { if (previewAssetId) rejectImageAsset(previewAssetId); });
     $('preview-close').addEventListener('click', closeImagePreview);
 
+    ${composerFileCompletionHtml()}
     window.addEventListener('message', event => {
       const message = event.data;
       if (!message || typeof message.type !== 'string') return;
+      fileCompletion.receive(message);
+      if (['setInput', 'clearInput', 'appendDraft', 'commitRecoveredDraft', 'showSessionDetail', 'showSessionsLayer'].includes(message.type)) fileCompletion.cancel();
       if (message.type === 'state') render(message);
       else if (message.type === 'showSessionDetail') showSessionDetail();
       else if (message.type === 'showSessionsLayer') showSessionsLayer();
@@ -1480,6 +1600,13 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           recoveredDraftPending = undefined;
           updateSendState(); input.focus();
         }
+      }
+      else if (message.type === 'restoreBranchDraft') {
+        const unchanged = message.expectedRevision === undefined ? !input.value : composerRevision === message.expectedRevision;
+        if (unchanged && input.value.length + message.text.length + (input.value ? 2 : 0) <= ${maxInputCharacters}) {
+          input.value += (input.value ? '\\n\\n' : '') + message.text;
+          composerRevision += 1; resizeInput(); updateSendState(); input.focus();
+        } else { showNotice('Your draft changed or is full. Browse the session tree again to recover the selected message.', 'warning'); }
       }
       else if (message.type === 'setInput') {
         setComposerInput(message.text);
@@ -1558,6 +1685,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     input.addEventListener('paste', attachPastedImages);
     input.addEventListener('keydown', event => {
       if (event.isComposing) return;
+      if (fileCompletion.keydown(event)) return;
       if (!slashMenu.hidden && slashMatches.length && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
           event.preventDefault();

@@ -11,6 +11,11 @@ const responseLimitBytes = 1024 * 1024;
 const requestTimeoutMilliseconds = 10_000;
 
 export default function (pi: ExtensionAPI) {
+  pi.registerCommand("vscode-pi-bridge-ready", {
+    handler: async () => {
+      throw new Error("This capability marker is discovery-only.");
+    },
+  });
   let subscription: net.Socket | undefined;
 
   pi.events.on("vscode:request", (value: unknown) => {

@@ -22,6 +22,61 @@ test("rich assets preserve nonce-only scripts, offline resource restrictions and
   assert.match(html, /else content\.innerHTML = html/);
 });
 
+test("extension status and widgets render as inert ordered text without changing host warning or Stop", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "showSessionDetail" });
+  sidebar.receive({ type: "notice", level: "warning", message: "Queued delivery is uncertain. Check history." });
+  const text = "<script>unsafe()</script> [run](command:run)";
+  const state = {
+    type: "state",
+    runtime: { connected: true, busy: true, cancellable: true },
+    status: "Pi is working…",
+    extensionUi: {
+      statuses: [
+        { key: "second", text },
+        { key: "first", text: "one" },
+      ],
+      widgets: [
+        { key: "above", lines: [text, "line two"], placement: "aboveEditor" },
+        { key: "below", lines: ["below text"], placement: "belowEditor" },
+      ],
+      diagnostic: "An extension update was ignored.",
+    },
+  };
+  sidebar.receive(state);
+  const above = sidebar.element("extension-ui-above");
+  const below = sidebar.element("extension-ui-below");
+  assert.deepEqual(
+    above.children.map((child) => child.textContent),
+    [
+      "Extension status",
+      `second: ${text}`,
+      "first: one",
+      "Extension widgets · above editor",
+      "above",
+      `${text}\nline two`,
+      "An extension update was ignored.",
+    ],
+  );
+  assert.deepEqual(
+    below.children.map((child) => child.textContent),
+    ["Extension widgets · below editor", "below", "below text"],
+  );
+  assert.equal(above.innerHTML, "");
+  assert.equal(below.innerHTML, "");
+  assert.equal(sidebar.element("cancel").hidden, false);
+  assert.equal(sidebar.element("notice").textContent, "Queued delivery is uncertain. Check history.");
+  assert.equal(sidebar.element("status").textContent, "Pi is working…");
+  const retained = above.children[0];
+  sidebar.receive(state);
+  assert.equal(above.children[0], retained, "identical updates preserve keyboard/scroll targets");
+  sidebar.receive({ ...state, extensionUi: { statuses: [], widgets: [] } });
+  assert.equal(above.hidden, true);
+  assert.equal(below.hidden, true);
+  assert.equal(above.children.length, 0);
+  assert.equal(below.children.length, 0);
+});
+
 test("follow-up shortcut selection uses the webview client OS", () => {
   const windows = createSidebarScriptHarness("Win32");
   assert.equal(windows.run("useCtrlQForFollowUp"), true);
@@ -149,7 +204,10 @@ test("sidebar places model and thinking controls before submission and exposes r
   );
   assert.match(html, /const interactionLocked = isInteractionLocked\(\)/);
   assert.match(html, /Starting background agent/);
-  assert.match(html, /messages\.filter\(message => message\.role !== 'assistant' \|\| Boolean\(message\.html\)\)/);
+  assert.match(
+    html,
+    /messages\.filter\(message => message\.role !== 'assistant' \|\| Boolean\(message\.html\) \|\| message\.thinking\?\.length\)/,
+  );
   assert.match(html, /for \(let index = 0; index < visibleMessages\.length; index \+= 1\)/);
   assert.match(html, /structure === renderedMessageStructure/);
   assert.match(html, /setMessageContent\(content, html\[index\]\)/);
@@ -308,8 +366,8 @@ test("slash suggestions filter command names by substring and complete without s
   };
   type("/");
   assert.equal(menu.hidden, false);
-  assert.equal(menu.children.length, 4, "the catalog deduplicates names");
-  assert.equal(menu.children[3]?.children[1]?.textContent, "<img src=x>", "descriptions are text, not HTML");
+  assert.equal(menu.children.length, 5, "the catalog deduplicates names and includes the local reload alias");
+  assert.equal(menu.children[4]?.children[1]?.textContent, "<img src=x>", "descriptions are text, not HTML");
   type("/COM");
   assert.deepEqual(
     menu.children.map((row) => row.children[0]?.textContent),
@@ -560,6 +618,46 @@ test("model identity and session details expose full runtime values without pers
   assert.equal(sidebar.element("model-picker").title, "provider/full-model-id");
   assert.equal((sidebar.element("model-picker") as any)["aria-label"], "Pi model: Runtime display name");
   assert.match(sidebar.element("settings-description").textContent, /unavailable for this model/);
+});
+
+test("thinking-only messages use collapsed inert disclosures and retain user state during updates", () => {
+  const sidebar = createSidebarScriptHarness();
+  const send = (text: string, truncated = false) =>
+    sidebar.receive({
+      type: "state",
+      runtime: { connected: true, busy: true },
+      messages: [
+        {
+          id: "assistant",
+          role: "assistant",
+          html: "",
+          thinking: [
+            { contentIndex: 0, text, truncated },
+            { contentIndex: 2, text: "must not display", redacted: true },
+          ],
+        },
+      ],
+    });
+  send("<script>bad()</script>");
+  const wrapper = sidebar.element("messages").children[0]!;
+  const details = wrapper.children[2]!;
+  assert.equal(details.className, "thinking-transcript");
+  assert.equal(details.open, false);
+  assert.equal(details.children[0]?.textContent, "Thinking");
+  assert.equal(details.children[1]?.children[0]?.textContent, "<script>bad()</script>");
+  assert.equal(details.children[1]?.children[0]?.innerHTML, "");
+  assert.match(details.children[1]?.children[1]?.textContent ?? "", /Provider redacted.*unavailable/);
+  assert.equal(wrapper.children[1]?.innerHTML, "", "thinking is not answer HTML");
+  details.open = true;
+  send("completed text", true);
+  assert.equal(sidebar.element("messages").children[0], wrapper);
+  assert.equal(details.open, true);
+  assert.match(details.children[1]?.children[1]?.textContent ?? "", /Thinking truncated/);
+  details.open = false;
+  send("more output");
+  assert.equal(details.open, false);
+  assert.equal(details.children[0]?.focusCount, 0);
+  assert.doesNotMatch(getSidebarHtml(100, 100), /thinkingSignature|thoughtSignature/);
 });
 
 class SidebarTestElement {

@@ -3,7 +3,15 @@ import * as vscode from "vscode";
 
 export async function verifyNativeSettings(): Promise<void> {
   await vscode.extensions.getExtension("narumi.narumi-pi")?.activate();
-  assert.ok((await vscode.commands.getCommands(true)).includes("pi.openSettings"));
+  const commands = await vscode.commands.getCommands(true);
+  for (const command of [
+    "pi.openSettings",
+    "pi.openNativeSettings",
+    "pi.openNativeMcp",
+    "pi.nativeRuntimeControls",
+    "pi.applyNativeConfiguration",
+  ])
+    assert.ok(commands.includes(command), `${command} must be registered independently`);
   const tabs = () =>
     vscode.window.tabGroups.all.flatMap((group) => group.tabs).filter((tab) => tab.label === "Pi Settings");
   const waitForTab = async () => {
