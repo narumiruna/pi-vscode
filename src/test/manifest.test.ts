@@ -60,6 +60,7 @@ test("extension identity stays consistent across packaging, settings, and docume
     "resources/pi-bridge.ts",
     "resources/pi-permission-gate.ts",
     "resources/pi-read-only-gate.ts",
+    "resources/pi-control.ts",
     "scripts/remove-legacy-pi-extension.mjs",
   ]) {
     assert.equal(existsSync(path), true, `missing Pi asset: ${path}`);

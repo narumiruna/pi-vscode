@@ -4,15 +4,34 @@ const fs = require("node:fs");
 const path = require("node:path");
 const directory = process.env.PI_VSCODE_UI_FIXTURE;
 if (!directory) throw new Error("An isolated native UI fixture is required");
-const sessionFile = path.join(directory, "session.jsonl");
-const sessionId = "native-ui-session";
-fs.writeFileSync(
+const sessionArgument = process.argv.indexOf("--session");
+let sessionFile = sessionArgument >= 0 ? process.argv[sessionArgument + 1] : path.join(directory, "session.jsonl");
+let sessionId = fs.existsSync(sessionFile) ? JSON.parse(fs.readFileSync(sessionFile, "utf8").split("\n")[0]).id : "native-ui-session";
+if (!fs.existsSync(sessionFile)) fs.writeFileSync(
   sessionFile,
   `${JSON.stringify({ type: "session", version: 3, id: sessionId, cwd: process.cwd(), timestamp: new Date().toISOString() })}\n`,
 );
 fs.appendFileSync(path.join(directory, "pids.jsonl"), `${process.pid}\n`);
 const thinkingHistoryFile = path.join(directory, "thinking-history.json");
 const messages = fs.existsSync(thinkingHistoryFile) ? JSON.parse(fs.readFileSync(thinkingHistoryFile, "utf8")) : [];
+const entries = [];
+let leafId = null;
+const extensionPaths = process.argv.flatMap((argument, index) => argument === "--extension" ? [process.argv[index + 1]] : []);
+const markerNames = {
+  "pi-control.ts": "vscode-pi-control",
+  "pi-bridge.ts": "vscode-pi-bridge-ready",
+  "pi-permission-gate.ts": "vscode-pi-permission-ready",
+  "pi-read-only-gate.ts": "vscode-pi-read-only-ready",
+};
+const tree = () => {
+  const nodes = new Map(entries.map((entry) => [entry.id, { entry, children: [] }]));
+  const roots = [];
+  for (const node of nodes.values()) {
+    const parent = nodes.get(node.entry.parentId);
+    if (parent) parent.children.push(node); else roots.push(node);
+  }
+  return roots;
+};
 let queue = { steering: [], followUp: [] };
 let heldTimer;
 const emit = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
@@ -32,6 +51,19 @@ const onLine = (line) => {
     return;
   }
   let data = {};
+  if (request.type === "prompt" && request.message.startsWith("/vscode-pi-control ")) {
+    const payload = JSON.parse(request.message.slice(request.message.indexOf(" ") + 1));
+    if (payload.sessionId !== sessionId || payload.leafId !== leafId) throw new Error("Stale native control fixture");
+    if (payload.action === "navigate") {
+      const target = entries.find((entry) => entry.id === payload.targetId);
+      if (!target) throw new Error("Unknown native entry");
+      leafId = target.message?.role === "user" ? target.parentId : target.id;
+      emit({ type: "extension_ui_request", id: "control-result", method: "notify", message: `PI_VSCODE_CONTROL_RESULT:${JSON.stringify({ token: payload.token, cancelled: false })}` });
+    }
+    fs.appendFileSync(path.join(directory, "controls.jsonl"), `${JSON.stringify(payload)}\n`);
+    emit({ type: "response", id: request.id, command: request.type, success: true, data: { disposition: "handled" } });
+    return;
+  }
   if (request.type === "get_state")
     data = {
       sessionFile,
@@ -43,7 +75,20 @@ const onLine = (line) => {
   if (request.type === "get_session_stats") data = { contextUsage: { percent: 12 } };
   if (request.type === "get_available_models") data = { models: [] };
   if (request.type === "get_available_thinking_levels") data = { levels: [] };
-  if (request.type === "get_commands") data = { commands: [] };
+  if (request.type === "get_commands") data = { commands: extensionPaths.flatMap((resource) => {
+    const name = markerNames[path.basename(resource)];
+    return name ? [{ name, source: "extension", sourceInfo: { path: resource } }] : [];
+  }) };
+  if (request.type === "get_tree") data = { tree: tree(), leafId };
+  if (request.type === "get_fork_messages") data = { messages: entries.filter((entry) => entry.message?.role === "user").map((entry) => ({ entryId: entry.id, text: entry.message.content[0].text })) };
+  if (request.type === "fork" || request.type === "clone") {
+    const selected = entries.find((entry) => entry.id === request.entryId);
+    sessionId = `native-branch-${Date.now()}`;
+    sessionFile = path.join(directory, `${sessionId}.jsonl`);
+    fs.writeFileSync(sessionFile, `${JSON.stringify({ type: "session", version: 3, id: sessionId, cwd: process.cwd() })}\n`);
+    data = { cancelled: false, ...(selected ? { text: selected.message.content[0].text } : {}) };
+    if (request.type === "fork" && selected) leafId = selected.parentId;
+  }
   if (request.type === "steer" || request.type === "follow_up") {
     queue[request.type === "steer" ? "steering" : "followUp"].push(request.message);
     fs.appendFileSync(path.join(directory, "queued.jsonl"), `${JSON.stringify(request)}\n`);
@@ -104,6 +149,10 @@ const onLine = (line) => {
       stopReason: "stop",
       timestamp: Date.now(),
     };
+    const userId = `user-${entries.length}`;
+    entries.push({ id: userId, parentId: leafId, type: "message", message: user });
+    leafId = `assistant-${entries.length}`;
+    entries.push({ id: leafId, parentId: userId, type: "message", message: assistant });
     messages.push(user, assistant);
     emit({ type: "agent_start" });
     emit({ type: "message_end", message: user });

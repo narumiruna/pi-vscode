@@ -1418,7 +1418,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
 
     function render(state) {
       renderExtensionUi(state.extensionUi);
-      const catalog = [{ name: 'compact', description: 'Manually compact the session context' }, ...(state.runtime.commands || [])];
+      const catalog = [{ name: 'compact', description: 'Manually compact the session context' }, { name: 'reload', description: 'Reload approved Pi resources without a model request' }, ...(state.runtime.commands || []).filter((command) => typeof command.name === 'string' && command.name !== 'reload' && !command.name.startsWith('vscode-pi-'))];
       const names = new Set();
       slashCommands = catalog.filter(command => {
         if (!command || typeof command.name !== 'string' || !/^[^\\s/]+$/.test(command.name) || names.has(command.name)) return false;
@@ -1595,6 +1595,13 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           recoveredDraftPending = undefined;
           updateSendState(); input.focus();
         }
+      }
+      else if (message.type === 'restoreBranchDraft') {
+        const unchanged = message.expectedRevision === undefined ? !input.value : composerRevision === message.expectedRevision;
+        if (unchanged && input.value.length + message.text.length + (input.value ? 2 : 0) <= ${maxInputCharacters}) {
+          input.value += (input.value ? '\\n\\n' : '') + message.text;
+          composerRevision += 1; resizeInput(); updateSendState(); input.focus();
+        } else { showNotice('Your draft changed or is full. Browse the session tree again to recover the selected message.', 'warning'); }
       }
       else if (message.type === 'setInput') {
         setComposerInput(message.text);

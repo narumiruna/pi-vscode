@@ -23,6 +23,7 @@ test("packaged read-only gate blocks mutating default and extension tools and re
   const handlers = new Map<string, (event?: unknown) => unknown>();
   let tools = ["read", "vscode_code_context", "bash", "write", "edit", "custom_mutation"];
   readOnlyGate({
+    registerCommand: () => {},
     on: (name: string, callback: (event?: unknown) => unknown) => handlers.set(name, callback),
     getActiveTools: () => tools,
     setActiveTools: (value: string[]) => {
@@ -55,19 +56,9 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
   const activeFolder = { uri: MockUri.file(activeRoot) };
   const otherFolder = { uri: MockUri.file(otherRoot) };
   const replacements = new Map<string, string>();
-  let terminalOptions: Record<string, unknown> | undefined;
-  let terminalShown = false;
   vscode.workspace.workspaceFolders = [activeFolder, otherFolder];
   vscode.workspace.getWorkspaceFolder = (resource: MockUri) =>
     resource.fsPath.startsWith(otherRoot) ? otherFolder : activeFolder;
-  vscode.window.createTerminal = (options: Record<string, unknown>) => {
-    terminalOptions = options;
-    return {
-      show: () => {
-        terminalShown = true;
-      },
-    };
-  };
   const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
   const context: any = {
     workspaceState: { get: () => undefined, update: async () => {} },
@@ -99,7 +90,7 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
   assert.equal("mode" in runtime.currentState, false);
   assert.deepEqual(
     foregroundOptions.extensions.map((value: string) => path.basename(value)),
-    ["pi-bridge.ts", "pi-permission-gate.ts", "pi-read-only-gate.ts"],
+    ["pi-bridge.ts", "pi-permission-gate.ts", "pi-read-only-gate.ts", "pi-control.ts"],
   );
   assert.equal(foregroundOptions.extensions[0], path.join("/extension path", "resources", "pi-bridge.ts"));
   const calls: string[] = [];
@@ -145,24 +136,6 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
   };
   internal.client = client;
   internal.updateState({ connected: true, sessionId: "s", sessionFile: "/tmp/session.jsonl" });
-  await runtime.openInTerminal();
-  assert.equal(terminalShown, true);
-  assert.deepEqual(terminalOptions, {
-    name: "Pi",
-    cwd: activeRoot,
-    shellPath: "pi",
-    shellArgs: [
-      "--extension",
-      path.join("/extension path", "resources", "pi-bridge.ts"),
-      "--session",
-      "/tmp/session.jsonl",
-    ],
-    env: {
-      [vscodeBridgePortEnvironmentKey]: replacements.get(vscodeBridgePortEnvironmentKey),
-      [vscodeBridgeTokenEnvironmentKey]: replacements.get(vscodeBridgeTokenEnvironmentKey),
-      [vscodeBridgeExtensionEnvironmentKey]: path.join("/extension path", "resources", "pi-bridge.ts"),
-    },
-  });
   try {
     let completeSwitch: (() => void) | undefined;
     client.newSession = () =>
@@ -1052,6 +1025,7 @@ for (const command of ["/handled-command", "/compact"]) {
     let failure = "getState";
     const runtime = new PiRuntimeManager({
       workspaceState: {
+        get: () => undefined,
         update: async () => {
           if (failure === "persistence") throw new Error("persistence failed");
         },

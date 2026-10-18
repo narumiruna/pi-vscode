@@ -10,6 +10,11 @@ const dangerousCommandPatterns = [
 ];
 
 export default function (pi: ExtensionAPI) {
+  pi.registerCommand("vscode-pi-permission-ready", {
+    handler: async () => {
+      throw new Error("This capability marker is discovery-only.");
+    },
+  });
   pi.on("tool_call", async (event, ctx) => {
     const mode = process.env.PI_VSCODE_PERMISSION_MODE ?? "dangerous";
     if (mode === "off") {

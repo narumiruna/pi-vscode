@@ -75,7 +75,7 @@ test("conversation deletion releases unreachable recovered attachment handles", 
   try {
     const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
     const runtime = new PiRuntimeManager({
-      workspaceState: { update: async () => {} },
+      workspaceState: { get: () => undefined, update: async () => {} },
       environmentVariableCollection: { clear() {} },
     } as any);
     const internal = runtime as any;

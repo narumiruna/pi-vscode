@@ -100,6 +100,35 @@
         "enablement": "isWorkspaceTrusted && pi.extensionEditorActive"
       },
       {
+        "command": "pi.reloadResources",
+        "title": "Reload Pi Resources",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "pi.restartResources",
+        "title": "Restart Pi (Current Launch Policy)",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "pi.browseSessionTree",
+        "title": "Browse Session Tree / Fork / Clone",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "pi.returnFromTerminal",
+        "title": "Return Pi from Terminal / Recover Ownership",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "pi.extensionUiCompatibility",
+        "title": "Extension UI Compatibility",
+        "category": "Pi"
+      },
+      {
         "command": "pi.openSettings",
         "title": "Open Settings",
         "category": "Pi",

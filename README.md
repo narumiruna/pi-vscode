@@ -122,6 +122,8 @@ This release also changes the identifier contract. Rename existing `picode.*` se
 | **Failed-test repair** | Run **Pi: Repair Failed Test (Preview)**, approve a command or provide an existing UTF-8 log, inspect the evidence, then preview and apply the repair. |
 | **Request checkpoints** | Choose **More… → Request Checkpoints** to inspect coverage, preview a restore, and revert covered changes. Checkpoints are memory-only file recovery, not a Git or conversation rewind. |
 | **Composer files** | Type `@` to find workspace files. Up/Down selects a result; Enter, Tab, or a click captures an attachment snapshot and removes only that token. For a path only, type `./src/` or a filename with an extension, then use Tab or click a visible result. Path insertion does not open or attach the file. Escape closes suggestions; Tab without results keeps normal focus navigation. Quoted tokens support spaces. Shell input (`!` / `!!`), slash commands, email addresses, and selected text do not trigger file completion. |
+| **Resource reload** | Choose **More… → Reload Pi Resources** or run local `/reload` without attachments. This reloads the approved foreground resources without a model request. **Restart Pi (Current Launch Policy)** is separate and explicitly applies changed executable, launch overrides, permission settings, or project-resource approval. Reconnect does not restart a running process. |
+| **Session branches** | Choose **More… → Browse Session Tree / Fork / Clone**. Stable entry IDs and indentation distinguish branches and duplicate labels. Fork accepts user entries, including abandoned branches; clone copies the active branch. Navigation never requests a summary or submits a draft. These actions do not restore files, Git state, or external effects. |
 | **Slash commands** | Type `/` in the composer to list Pi extension commands, prompt templates, skills, and `/compact`. Type `/com` to find command names that contain `com`. Use Up/Down to select, Enter or Tab to complete, then Enter to run. Click to complete or press Escape to close. `/compact` accepts optional instructions and acts on the current session. Remove attachments before running commands. TUI-only commands are not listed. |
 | **In-flight instructions** | While an ordinary request is running, choose **Next** (Enter) to submit after the current tool finishes, or **After this** to submit after the response finishes. The alternate shortcut is Alt+Enter on macOS and Linux, or Ctrl+Q on Windows (including remote WSL sessions). **Submission help** explains the actions; **Stop** stays separate. Pending text stays visible under these labels, then moves into the transcript as soon as Pi starts that user message. Locked requests cannot accept queued messages. |
 | **Debug questions** | Pause a Node.js debugger and run **Pi: Ask Debug Context**. Approve capture, choose local variables, inspect or redact the snapshot, and ask a read-only question. |
@@ -129,6 +131,42 @@ This release also changes the identifier contract. Rename existing `picode.*` se
 File completion is local and requires a trusted, file-backed workspace matching the active Pi working directory. It does not start Pi or send a model request. Discovery checks at most 2,000 names, sorts up to 30 matching results, and has a two-second deadline. Queries allow 256 characters; candidate paths allow 1,024. Search uses enabled `files.exclude` and `search.exclude` patterns plus `.git`, `node_modules`, `out`, `dist`, `build`, `coverage`, `.next`, `.cache`, and `vendor` directories. It does not read `.gitignore`; add private or ignored paths to those VS Code exclusions. Results are bounded suggestions, not a complete repository search. Nested symlinks and non-file resources are excluded; a workspace-root alias is supported. Dirty editor text is captured at selection time. Inspect or redact it through **Attach → View attachments** before explicit Send. Existing attachment limits and sensitive-name warnings still apply.
 
 Process-launching and mutation workflows require a trusted, file-backed workspace. A Pi session's working directory must match the active workspace. Open an isolated worktree in its own VS Code window before resuming its session.
+
+## Pi resources, branches, and terminal ownership
+
+Resource reload and tree navigation use a packaged public extension command, verified against its canonical `get_commands` ownership metadata. Pi 1.3.0 is the checked reference. Missing metadata, command conflicts, unsupported APIs, and oversized trees produce an error, not a normal model prompt. A separate policy consumes the reserved control input if the command disappears between discovery and dispatch. Extension errors, missing handled acknowledgements, or failed authoritative refresh disconnect Pi without replay. Use **Restart Pi (Current Launch Policy)** for explicit recovery; inspect history before repeating any uncertain operation.
+
+Controls require an idle, trusted, file-backed workspace matching the session's canonical cwd. Active queues, extension dialogs, and conflicting Apply/import/restore operations block them. Reload retains the process's project-resource decision; it cannot adopt a changed approval setting. A separately confirmed restart uses the current launch policy, preserves the persistent session and composer, and never replays a request. Reload clears transient extension UI and pinned context. It does not change VS Code themes or sidebar keybindings.
+
+The tree permits 2,000 entries and 100 levels within the existing 5 MiB RPC frame and 30-second command deadline. It rejects malformed relationships instead of silently dropping branches. Selected user text is limited to 50,000 characters; images are not restored into the composer. A fork or navigation draft is inserted only after success and never overwrites a newer draft. Unsummarized navigation alone does not persist the selected leaf across process restart in Pi 1.3.0; submit a new branch message or use a separate fork/clone when persistence is needed. No summary-generation action is provided here. Empty-session reload does not require a model call. Before Pi saves a session header, its assigned file path can be reopened but its temporary session ID can change.
+
+**Extension UI Compatibility** explains the terminal boundary. **Open in Terminal** is an explicit ownership handoff, not a second writer: it stops foreground RPC, passes the same packaged bridge/policies and approval flags, and holds the canonical operation lock. If stop cleanup is unverified, another inspection confirmation is required before launch. Cancellation or a terminal launch failure can leave ownership held; use **Return Pi from Terminal / Recover Ownership** after checking remaining processes. Closing a terminal is not proof that tools or descendants stopped. A bounded workspace ownership record survives window/Extension Host reload and blocks automatic RPC startup. It stores only the canonical root and session identity/path, not bridge credentials. The Return action requires confirmation and resumes the same persistent session with the current approved launch policy. An invalid record requires explicit recovery and does not resume a guessed session. Ordinary attachments and typed drafts remain available during handoff. A terminal process can receive the foreground bridge token; independent background/worktree agents do not.
+
+The terminal and Pi executable run in the workspace Extension Host: remote SSH, WSL, and container windows use that environment's executable and filesystem. Argument arrays preserve paths with spaces. Remote and non-Linux handoff behavior still require separate validation.
+
+### Extension-author compatibility
+
+Use `ctx.hasUI` for standard dialogs; it is true in RPC. Use `ctx.mode === "tui"` for terminal components:
+
+```typescript
+if (ctx.mode === "tui") {
+  // Use ctx.ui.custom() or terminal components here.
+} else if (ctx.hasUI) {
+  const value = await ctx.ui.input("Choose a value");
+}
+```
+
+| Pi API | Sidebar/RPC behavior |
+| --- | --- |
+| `select`, `confirm`, `input`, `editor` | Standard RPC dialogs; host support is separate from terminal rendering. |
+| `notify`, `setStatus`, text-array `setWidget` | RPC records; component-factory widgets are not forwarded. |
+| `setTitle`, `setEditorText`, `pasteToEditor` | Host-dependent requests; paste has no terminal paste semantics. |
+| `custom`, `onTerminalInput` | `custom` returns undefined; terminal input subscription is a no-op. |
+| Header/footer/editor factories, autocomplete providers, working/thinking indicators, tool expansion | Terminal-only; RPC setters are no-ops. Editor getters return empty/undefined; tool expansion reads false. |
+| Tool/entry renderers, terminal focus/mouse/overlays/keybindings | Not a browser component protocol; use terminal handoff. |
+| Pi themes | Theme lookup/listing is empty/undefined and switching fails in RPC. VS Code supplies sidebar colors. |
+
+Unsupported calls can be discarded before an RPC event exists. No automatic detector or arbitrary in-panel TUI rendering is promised. A new serializable component protocol or PTY design requires upstream support and separate design approval. This task explicitly accepts that boundary; no PTY or component protocol is added.
 
 ## Panel content
 

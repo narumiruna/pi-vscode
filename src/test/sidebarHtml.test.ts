@@ -366,8 +366,8 @@ test("slash suggestions filter command names by substring and complete without s
   };
   type("/");
   assert.equal(menu.hidden, false);
-  assert.equal(menu.children.length, 4, "the catalog deduplicates names");
-  assert.equal(menu.children[3]?.children[1]?.textContent, "<img src=x>", "descriptions are text, not HTML");
+  assert.equal(menu.children.length, 5, "the catalog deduplicates names and includes the local reload alias");
+  assert.equal(menu.children[4]?.children[1]?.textContent, "<img src=x>", "descriptions are text, not HTML");
   type("/COM");
   assert.deepEqual(
     menu.children.map((row) => row.children[0]?.textContent),

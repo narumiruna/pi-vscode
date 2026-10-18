@@ -62,7 +62,7 @@ class CleanupClient {
 function createRuntime(): PiRuntimeManager {
   const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
   return new PiRuntimeManager({
-    workspaceState: { update: async () => {} },
+    workspaceState: { get: () => undefined, update: async () => {} },
     environmentVariableCollection: { clear() {} },
   } as unknown as vscode.ExtensionContext);
 }
@@ -77,7 +77,7 @@ for (const mode of ["trash", "permanent", "stop-failure"] as const) {
     const client = new CleanupClient(mode === "stop-failure");
     const events: PiRpcEvent[] = [];
     runtime.onEvent((event) => {
-      events.push(event);
+      if (event.type !== "extension_ui_reset") events.push(event);
       if (event.type === "runtime_warning") client.order.push("warning");
     });
     internal.state = { ...runtime.currentState, connected: true, sessionFile: session };
@@ -108,7 +108,7 @@ for (const mode of ["trash", "permanent", "stop-failure"] as const) {
       }
       assert.deepEqual(
         events,
-        [{ type: "extension_ui_reset" }, cleanupWarning],
+        [cleanupWarning],
         "old-client exit must not enter the detached runtime event stream",
       );
       assert.equal(client.listeners.size, 0, "cleanup subscriptions must be released on success and failure");
@@ -116,7 +116,7 @@ for (const mode of ["trash", "permanent", "stop-failure"] as const) {
       client.emit({ type: "process_exit", code: 7, signal: null, expected: false });
       assert.deepEqual(
         events,
-        [{ type: "extension_ui_reset" }, cleanupWarning],
+        [cleanupWarning],
         "late detached-client events must not reach a replacement session",
       );
     } finally {

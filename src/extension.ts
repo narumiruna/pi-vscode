@@ -6,6 +6,7 @@ import { registerExtensionUiDialogs } from "./extensionUiDialogs";
 import { registerGitReview } from "./gitReviewController";
 import { registerInlineCompletions } from "./inlineCompletion";
 import { removeLegacyGlobalBridgeExtensions } from "./legacyBridge";
+import { registerPiCompatibility } from "./piCompatibility";
 import { PiRuntimeManager } from "./piRuntime";
 import { registerSettingsPanel } from "./settingsPanel";
 import { registerPiSidebar } from "./sidebar";
@@ -25,9 +26,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<PiVsco
   }
   const runtime = new PiRuntimeManager(context);
   context.subscriptions.push(runtime);
+  await runtime.initializeControlOwnership();
   await runtime.initializeBridge();
   registerExtensionUiDialogs(context, runtime);
   const conversation = registerPiSidebar(context, runtime);
+  registerPiCompatibility(context, runtime);
   registerSettingsPanel(context);
   registerPiChat(context);
   registerEditorActions(context, conversation);

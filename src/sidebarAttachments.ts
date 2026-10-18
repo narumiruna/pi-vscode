@@ -326,6 +326,11 @@ export class SidebarAttachmentManager {
     };
   }
 
+  public clearPins(): void {
+    this.attachments = this.attachments.filter((item) => !item.metadata?.pinned);
+    this.options.onChange();
+  }
+
   public clear(): void {
     this.attachments = [];
     this.options.onChange();

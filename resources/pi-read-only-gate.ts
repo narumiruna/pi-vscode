@@ -4,6 +4,19 @@ const readOnlyPolicyMarker = "<<<PI_VSCODE_POLICY: read-only>>>";
 const readOnlyTools = new Set(["read", "grep", "find", "ls", "vscode_context", "vscode_code_context"]);
 
 export default function (pi: ExtensionAPI) {
+  pi.registerCommand("vscode-pi-read-only-ready", {
+    handler: async () => {
+      throw new Error("This capability marker is discovery-only.");
+    },
+  });
+  // Pi dispatches extension commands before input handlers. An absent control command must
+  // never become model input, including a catalog/dispatch race during resource replacement.
+  pi.on("input", (event, ctx) => {
+    if (/^\/vscode-pi-control(?:\s|$)/.test(event.text)) {
+      ctx.ui.notify("The packaged VS Code control command is unavailable. Input was blocked.", "error");
+      return { action: "handled" };
+    }
+  });
   let policyActive = false;
   let previousTools: string[] | undefined;
 

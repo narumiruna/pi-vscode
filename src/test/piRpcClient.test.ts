@@ -436,6 +436,25 @@ test("RPC spawn failures do not emit a duplicate exit or leave pending requests"
   }
 });
 
+test("typed session RPC wrappers validate shapes, cancellation and unsupported acknowledgements", async () => {
+  await withFakePi(async (options) => {
+    const client = new PiRpcClient(options);
+    try {
+      await client.start();
+      assert.equal((await client.getTree()).leafId, "user");
+      assert.deepEqual(await client.getForkMessages(), [{ entryId: "user", text: "Prompt" }]);
+      assert.deepEqual(await client.fork("user"), { cancelled: false, text: "Prompt" });
+      assert.deepEqual(await client.fork("cancel"), { cancelled: true, text: undefined });
+      assert.deepEqual(await client.clone(), { cancelled: false });
+      await assert.rejects(client.fork("bad"), /Invalid Pi fork acknowledgement/);
+      await assert.rejects(client.fork("unsupported"), /Unknown command/);
+      await assert.rejects(client.fork("invalid id"), /Invalid fork entry ID/);
+    } finally {
+      await client.stop();
+    }
+  });
+});
+
 async function withFakePi(
   run: (options: ConstructorParameters<typeof PiRpcClient>[0]) => Promise<void>,
 ): Promise<void> {
@@ -493,6 +512,15 @@ process.stdin.on("data", chunk => {
     }
     if (request.type === "get_state") {
       respond({ sessionId: "fake-session", sessionFile: "/tmp/fake.jsonl", model: { provider: "fake", id: "model" } });
+    } else if (request.type === "get_tree") {
+      respond({ tree: [{ entry: { id: "user", parentId: null, type: "message", message: { role: "user", content: "Prompt" } }, children: [] }], leafId: "user" });
+    } else if (request.type === "get_fork_messages") {
+      respond({ messages: [{ entryId: "user", text: "Prompt" }] });
+    } else if (request.type === "fork") {
+      if (request.entryId === "unsupported") process.stdout.write(JSON.stringify({ type: "response", id: request.id, command: "fork", success: false, error: "Unknown command: fork" }) + "\n");
+      else respond(request.entryId === "bad" ? {} : request.entryId === "cancel" ? { cancelled: true } : { cancelled: false, text: "Prompt" });
+    } else if (request.type === "clone") {
+      respond({ cancelled: false });
     } else if (request.type === "get_messages") {
       respond({ messages: [] });
     } else {

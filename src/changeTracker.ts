@@ -353,11 +353,14 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
   public provideTextDocumentContent(uri: vscode.Uri): string {
     return this.previews.get(uri.toString()) ?? "Checkpoint preview expired.";
   }
-  public dispose(): void {
+  public resetSession(): void {
     this.current = undefined;
     this.latest = undefined;
     this.history.clear();
     this.previews.clear();
+  }
+  public dispose(): void {
+    this.resetSession();
   }
 }
 function dirty(absolute: string): boolean {

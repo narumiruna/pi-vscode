@@ -128,6 +128,9 @@ export async function run(): Promise<void> {
             assert.ok(vscode.window.tabGroups.activeTabGroup.activeTab);
             result = await vscode.window.tabGroups.close(vscode.window.tabGroups.activeTabGroup.activeTab);
             break;
+          case "closePiTerminal":
+            for (const terminal of vscode.window.terminals) if (terminal.name === "Pi") terminal.dispose();
+            break;
           case "settingsState":
             result = {
               model: vscode.workspace.getConfiguration("pi").inspect("model"),

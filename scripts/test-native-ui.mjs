@@ -655,6 +655,55 @@ try {
   await page.getByRole("button", { name: "Delete Session", exact: true }).waitFor();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   assert.ok((await readFile(path.join(directory, "session.jsonl"), "utf8")).includes("native-ui-session"));
+  // Host control commands have native dialogs, preserve drafts, and never enter the model fixture.
+  const retainedDraft = await pi.locator("#input").inputValue();
+  for (let index = 0; index < 3; index++) {
+    const complete = await invoke("command", { command: "pi.reloadResources" }, false);
+    await page.getByRole("button", { name: "Reload Resources", exact: true }).click();
+    await complete();
+    assert.equal(await pi.locator("#input").inputValue(), retainedDraft);
+  }
+  let branchComplete = await invoke("command", { command: "pi.browseSessionTree" }, false);
+  await pick("Clone active branch into a new session");
+  await branchComplete();
+  branchComplete = await invoke("command", { command: "pi.browseSessionTree" }, false);
+  await pick("user: Hold this deterministic response");
+  await pick("Navigate without summary");
+  await branchComplete();
+  assert.equal(await pi.locator("#input").inputValue(), retainedDraft, "A native branch selection must not overwrite a nonempty draft");
+  branchComplete = await invoke("command", { command: "pi.browseSessionTree" }, false);
+  await pick("user: Hold this deterministic response");
+  await pick("Fork from user message");
+  await branchComplete();
+  const controlRecords = (await readFile(path.join(directory, "controls.jsonl"), "utf8")).trim().split("\n").map(JSON.parse);
+  assert.deepEqual(controlRecords.map((record) => record.action), ["reload", "reload", "reload", "navigate"]);
+  assert.equal((await readFile(path.join(directory, "prompts.jsonl"), "utf8")).trim().split("\n").length, prompts.length + 1);
+  // Integrated terminals survive EH reload. Persistent ownership must block automatic RPC startup.
+  const handoffComplete = await invoke("command", { command: "pi.extensionUiCompatibility" }, false);
+  await page.getByRole("button", { name: "Hand Off to Terminal", exact: true }).click();
+  await page.getByText(/Hand this session to Pi in a terminal/).waitFor();
+  await page.getByRole("button", { name: "Hand Off to Terminal", exact: true }).click();
+  await handoffComplete();
+  const terminalPids = await until(async () => {
+    const rows = (await readFile(path.join(directory, "pids.jsonl"), "utf8")).trim().split("\n").map(Number);
+    return rows.length >= pids.length + 1 ? rows : undefined;
+  }, "fixture terminal writer started");
+  const previousBoot = (await json("ready.json")).boot;
+  await invoke("command", { command: "workbench.action.reloadWindow" }, false);
+  await until(async () => { const next = await json("ready.json"); return next && next.boot !== previousBoot; }, "ownership-preserving window reload", 40_000);
+  pi = await frame();
+  await until(async () => (await pi.locator("body").innerText()).includes("Reconnect"), "blocked sidebar after terminal handoff");
+  await delay(500);
+  assert.equal((await readFile(path.join(directory, "pids.jsonl"), "utf8")).trim().split("\n").length, terminalPids.length, "EH reload must not start a second session writer");
+  await invoke("closePiTerminal");
+  await until(() => {
+    try { process.kill(terminalPids.at(-1), 0); return false; } catch (error) { return error.code === "ESRCH"; }
+  }, "fixture terminal stopped before explicit return");
+  const returnComplete = await invoke("command", { command: "pi.returnFromTerminal" }, false);
+  await page.getByRole("button", { name: "Return Ownership", exact: true }).click();
+  await returnComplete();
+  assert.equal((await readFile(path.join(directory, "pids.jsonl"), "utf8")).trim().split("\n").length, terminalPids.length + 1);
+  console.log("PI_NATIVE_CONTROL repeated reload, clone, no-summary navigation, fork, draft preservation and persistent terminal ownership passed");
   console.log("PI_NATIVE_INTERFACE both queue buttons, pending labels, Stop/recovery and deletion confirmation passed");
   await writeFile(path.join(directory, "thinking.json"), JSON.stringify(thinkingFixture));
   await pi.locator("#input").fill("Show the deterministic thinking transcript.");
@@ -711,6 +760,7 @@ try {
       selectedHunkBatchPreviewApplyUndo: "passed",
       cancellation: "passed",
       reloadCleanup: "passed",
+      sessionControls: "3 handled reloads, clone, no-summary navigate, fork, native dialogs, unchanged draft, and terminal ownership across EH reload passed",
       provider: "deterministic RPC fixture; no model calls",
       screenshot,
     }),

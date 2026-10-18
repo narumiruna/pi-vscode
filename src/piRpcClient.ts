@@ -1,5 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
+import { type PiSessionTree, parseSessionTree, validId } from "./piControl";
 import { PiProcessOwner } from "./piProcess";
 import { buildPiProcessEnvironment, planPiSpawn } from "./piSpawn";
 
@@ -333,6 +334,37 @@ export class PiRpcClient {
 
   public async switchSession(sessionPath: string): Promise<unknown> {
     return this.commandData("switch_session", { sessionPath });
+  }
+
+  public async getTree(): Promise<PiSessionTree> {
+    return parseSessionTree(await this.commandData("get_tree"));
+  }
+
+  public async getForkMessages(): Promise<readonly { entryId: string; text: string }[]> {
+    const data = await this.commandData("get_fork_messages");
+    if (!Array.isArray(data.messages) || data.messages.length > 2_000)
+      throw new Error("Invalid or oversized Pi fork-message list.");
+    return data.messages.map((item: unknown) => {
+      if (!isRecord(item) || !validId(item.entryId) || typeof item.text !== "string" || item.text.length > 50_000)
+        throw new Error("Invalid Pi fork message.");
+      return { entryId: item.entryId, text: item.text };
+    });
+  }
+
+  public async fork(entryId: string): Promise<{ cancelled: boolean; text?: string }> {
+    if (!validId(entryId)) throw new Error("Invalid fork entry ID.");
+    const data = await this.commandData("fork", { entryId });
+    if (typeof data.cancelled !== "boolean" || (data.text !== undefined && typeof data.text !== "string"))
+      throw new Error("Invalid Pi fork acknowledgement; outcome is uncertain.");
+    if (typeof data.text === "string" && data.text.length > 50_000)
+      throw new Error("Fork draft exceeds 50,000 characters; outcome is uncertain.");
+    return { cancelled: data.cancelled, text: data.text as string | undefined };
+  }
+
+  public async clone(): Promise<{ cancelled: boolean }> {
+    const data = await this.commandData("clone");
+    if (typeof data.cancelled !== "boolean") throw new Error("Invalid Pi clone acknowledgement; outcome is uncertain.");
+    return { cancelled: data.cancelled };
   }
 
   public async exportHtml(outputPath?: string): Promise<string> {

@@ -13,6 +13,7 @@ import {
   type PiRpcQueue,
   parseRpcQueue,
 } from "./piRpcClient";
+import { PiRuntimeControl } from "./piRuntimeControl";
 import { assertSessionWorkspace } from "./sessionIdentity";
 import { VscodeBridgeServer } from "./vscodeBridge";
 import {
@@ -157,6 +158,7 @@ export class PiRuntimeManager implements vscode.Disposable {
   private readonly queueGate = new ExclusiveOperationGate("Wait for the current queue operation.");
   private readonly ownership = new ExclusiveOperationGate("Wait for the current Pi request or session operation.");
   private refreshRevision = 0;
+  private readonly control: PiRuntimeControl;
   private queueStopping = false;
   private promptActive = false;
   private queueRevision = 0;
@@ -175,6 +177,44 @@ export class PiRuntimeManager implements vscode.Disposable {
 
   public constructor(private readonly context: vscode.ExtensionContext) {
     this.state = emptyState();
+    const runtime = this;
+    this.control = new PiRuntimeControl({
+      context,
+      get cwd() {
+        return runtime.currentCwd;
+      },
+      get resource() {
+        return runtime.resource;
+      },
+      get state() {
+        return runtime.state;
+      },
+      get client() {
+        return runtime.client;
+      },
+      get hasPendingDialogs() {
+        return runtime.hasPendingExtensionDialogs;
+      },
+      get queuePending() {
+        return (
+          runtime.queueGate.isPending ||
+          Boolean(
+            runtime.state.queue?.steering.length ||
+              runtime.state.queue?.followUp.length ||
+              runtime.awaitingQueueStarts.length,
+          )
+        );
+      },
+      owned: (action) => runtime.owned(action),
+      start: () => runtime.ensureStarted(runtime.resource),
+      startSession: (sessionFile) => runtime.createAndStartClient(sessionFile),
+      stop: () => runtime.stopClient(),
+      refresh: () => runtime.refreshState(true, true),
+      emit: (event) => runtime.eventEmitter.fire(event),
+      resetUi: () => runtime.resetExtensionUi(),
+      terminalOptions: async () =>
+        runtime.buildClientOptions(runtime.state.sessionFile, await runtime.bridgeEnvironment()),
+    });
   }
 
   public get currentState(): PiRuntimeState {
@@ -207,6 +247,10 @@ export class PiRuntimeManager implements vscode.Disposable {
     };
   }
 
+  public initializeControlOwnership(): Promise<void> {
+    return this.control.initializeOwnership();
+  }
+
   public async initializeBridge(): Promise<void> {
     const environment = await this.bridgeEnvironment();
     this.context.environmentVariableCollection.description =
@@ -225,6 +269,8 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   public async ensureStarted(resource?: vscode.Uri): Promise<void> {
+    await this.control.initializeOwnership();
+    this.control.assertSidebarOwnership();
     if (!vscode.workspace.isTrusted) throw new Error("Pi requires a trusted workspace.");
     if (resource && !["file", "untitled"].includes(resource.scheme))
       throw new Error("Pi requires file-backed resources (or an untitled editor in a file-backed workspace).");
@@ -262,6 +308,8 @@ export class PiRuntimeManager implements vscode.Disposable {
     beforeSubmit?: () => void,
     allowQueue = false,
   ): Promise<string | { disposition: "handled" } | undefined> {
+    if (/^\/vscode-pi-/i.test(message.trimStart()))
+      throw new Error("The vscode-pi-* namespace is reserved for verified host controls.");
     return this.owned(async () => {
       await this.ensureStarted(resource);
       if (resource) await this.assertResourceMatchesActiveWorkspace(resource);
@@ -498,6 +546,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       if (this.state.busy) throw new Error("Stop or wait for Pi before starting a session.");
       if (this.hasPendingExtensionDialogs) throw new Error("Finish or cancel the Pi extension dialog first.");
       this.invalidateExtensionDialogs();
+      this.control.invalidate();
       this.resetExtensionUi();
       const result = await this.requireClient().newSession();
       if (isRecord(result) && result.cancelled) throw new Error("Pi cancelled the session switch.");
@@ -589,6 +638,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       await assertSessionWorkspace(sessionPath, this.currentCwd);
       if (this.hasPendingExtensionDialogs) throw new Error("Finish or cancel the Pi extension dialog first.");
       this.invalidateExtensionDialogs();
+      this.control.invalidate();
       this.resetExtensionUi();
       const result = await this.requireClient().switchSession(sessionPath);
       if (isRecord(result) && result.cancelled) throw new Error("Pi cancelled the session switch.");
@@ -652,37 +702,57 @@ export class PiRuntimeManager implements vscode.Disposable {
     return request?.isActive ? request : undefined;
   }
 
+  public withWorkspaceOperation<T>(
+    label: string,
+    action: (assertCurrent: () => Promise<void>) => Promise<T>,
+  ): Promise<T> {
+    return this.control.withWorkspaceOperation(label, action);
+  }
+
+  public withForegroundOperation<T>(
+    label: string,
+    action: (client: PiRpcClient, assertCurrent: () => Promise<void>) => Promise<T>,
+  ): Promise<T> {
+    return this.control.withForegroundOperation(label, action);
+  }
+
+  public reloadResources(): Promise<boolean> {
+    return this.control.reloadResources();
+  }
+  public restartResources(): Promise<boolean> {
+    return this.control.restartResources();
+  }
+  public getSessionTree() {
+    return this.control.getSessionTree();
+  }
+  public branchSession(action: "fork" | "clone" | "navigate", origin: string, targetId?: string) {
+    return this.control.branchSession(action, origin, targetId);
+  }
+  public chooseSessionBranch(select: Parameters<PiRuntimeControl["chooseSessionBranch"]>[0]) {
+    return this.control.chooseSessionBranch(select);
+  }
+  public returnFromTerminal(): Promise<boolean> {
+    return this.control.returnFromTerminal();
+  }
+
   public async exportSession(outputPath?: string): Promise<string> {
     await this.ensureStarted(this.resource);
     return this.requireClient().exportHtml(outputPath);
   }
 
-  public async openInTerminal(): Promise<void> {
-    await this.ensureStarted(this.resource);
-    const sessionFile = this.state.sessionFile;
-    const invocation = readPiInvocationOptions(this.resource);
-    const bridgeEnvironment = await this.bridgeEnvironment();
-    const shellArgs = ["--extension", this.bridgeExtensionPath];
-    if (sessionFile) {
-      shellArgs.push("--session", sessionFile);
-    }
-    const terminal = vscode.window.createTerminal({
-      name: "Pi",
-      cwd: invocation.cwd,
-      shellPath: invocation.executablePath,
-      shellArgs,
-      env: bridgeEnvironment,
-    });
-    terminal.show();
+  public openInTerminal(expectedOrigin?: () => Promise<void>): Promise<void> {
+    return this.control.openInTerminal(expectedOrigin);
   }
 
   /** Clear before replacing resources/session so only newly emitted Pi UI is retained. */
   public resetExtensionUi(): void {
+    this.invalidateExtensionDialogs();
     this.eventEmitter.fire({ type: "extension_ui_reset" });
   }
 
   public dispose(): void {
     this.resetExtensionUi();
+    this.control.dispose();
     this.clientSubscription?.dispose();
     this.clientSubscription = undefined;
     void this.stopClient();
@@ -723,6 +793,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     this.clientSubscription = subscription;
     this.client = client;
     this.resetExtensionUi();
+    this.control.clientStarted();
     try {
       await client.start();
       await this.refreshState(true);
@@ -755,6 +826,7 @@ export class PiRuntimeManager implements vscode.Disposable {
         this.bridgeExtensionPath,
         path.join(this.context.extensionUri.fsPath, "resources", "pi-permission-gate.ts"),
         path.join(this.context.extensionUri.fsPath, "resources", "pi-read-only-gate.ts"),
+        path.join(this.context.extensionUri.fsPath, "resources", "pi-control.ts"),
       ],
       sessionPath,
       approveProjectResources: configuration.get<boolean>("approveProjectResources", false),
@@ -777,17 +849,27 @@ export class PiRuntimeManager implements vscode.Disposable {
     }
   }
 
-  private async refreshState(includeCatalogs: boolean): Promise<void> {
+  private async refreshState(includeCatalogs: boolean, strict = false): Promise<void> {
     const client = this.requireClient();
     const revision = ++this.refreshRevision;
     const [rpcState, stats, models, thinkingLevels, commands] = await Promise.all([
       client.getState(),
       client.getSessionStats().catch(() => undefined),
-      includeCatalogs ? client.getAvailableModels().catch(() => []) : Promise.resolve(this.state.availableModels),
       includeCatalogs
-        ? client.getAvailableThinkingLevels().catch(() => [])
+        ? strict
+          ? client.getAvailableModels()
+          : client.getAvailableModels().catch(() => [])
+        : Promise.resolve(this.state.availableModels),
+      includeCatalogs
+        ? strict
+          ? client.getAvailableThinkingLevels()
+          : client.getAvailableThinkingLevels().catch(() => [])
         : Promise.resolve(this.state.availableThinkingLevels),
-      includeCatalogs ? client.getCommands().catch(() => []) : Promise.resolve(this.state.commands),
+      includeCatalogs
+        ? strict
+          ? client.getCommands()
+          : client.getCommands().catch(() => [])
+        : Promise.resolve(this.state.commands),
     ]);
     if (revision !== this.refreshRevision || this.client !== client) return;
     const sessionFile = stringField(rpcState, "sessionFile");
@@ -812,7 +894,9 @@ export class PiRuntimeManager implements vscode.Disposable {
       sessionName: stringField(rpcState, "sessionName"),
       availableModels: models.filter(isRecord),
       availableThinkingLevels: thinkingLevels,
-      commands: commands.filter(isRecord),
+      commands: commands
+        .filter(isRecord)
+        .filter((command) => typeof command.name !== "string" || !/^vscode-pi-/i.test(command.name)),
       stats,
       queue: this.state.queue,
       pendingQueue: this.state.pendingQueue,
@@ -938,6 +1022,8 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   private handleEvent(event: PiRpcEvent): void {
+    if (event.type === "extension_ui_request" && event.method === "notify" &&
+      typeof event.message === "string" && event.message.startsWith("PI_VSCODE_CONTROL_RESULT:")) return;
     if (event.type === "process_exit") this.invalidateExtensionDialogs();
     if (event.type === "extension_ui_request") {
       const client = this.client;
