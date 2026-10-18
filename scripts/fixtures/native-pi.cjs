@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Deterministic RPC subprocess for native UI tests. Never invokes a provider or tool.
 if (process.argv.some((value) => value.endsWith("pi-isolated-helper.ts"))) {
+  // The native runner embeds an absolute test-module URL in its disposable copy.
   void import("../../src/test/fixtures/isolated-pi-fixture.mjs");
   return;
 }
@@ -16,10 +17,45 @@ if (!fs.existsSync(sessionFile)) fs.writeFileSync(
   `${JSON.stringify({ type: "session", version: 3, id: sessionId, cwd: process.cwd(), timestamp: new Date().toISOString() })}\n`,
 );
 fs.appendFileSync(path.join(directory, "pids.jsonl"), `${process.pid}\n`);
-const thinkingHistoryFile = path.join(directory, "thinking-history.json");
-const messages = fs.existsSync(thinkingHistoryFile) ? JSON.parse(fs.readFileSync(thinkingHistoryFile, "utf8")) : [];
-const entries = [];
+const sessionDir = path.join(directory, "configured-sessions");
+fs.mkdirSync(sessionDir, { recursive: true });
+let entries = [];
+let messages = [];
 let leafId = null;
+const branch = (leaf = leafId) => {
+  const result = [];
+  while (leaf !== null) {
+    const entry = entries.find((item) => item.id === leaf);
+    if (!entry) throw new Error("Unknown fixture branch entry");
+    result.unshift(entry);
+    leaf = entry.parentId;
+  }
+  return result;
+};
+const refresh = () => { messages = branch().filter((entry) => entry.type === "message").map((entry) => entry.message); };
+const load = () => {
+  const [header, ...saved] = fs.readFileSync(sessionFile, "utf8").trimEnd().split("\n").map(JSON.parse);
+  sessionId = header.id;
+  entries = saved;
+  leafId = entries.at(-1)?.id ?? null;
+  refresh();
+};
+const persist = () => fs.writeFileSync(sessionFile, [
+  { type: "session", version: 3, id: sessionId, cwd: fs.realpathSync(process.cwd()), timestamp: new Date().toISOString() },
+  ...entries,
+].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+const append = (message) => {
+  if (message.role === "assistant") Object.assign(message, {
+    api: "fixture", provider: "fixture", model: "fixture",
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+  });
+  const id = `${message.role}-${require("node:crypto").randomUUID()}`;
+  entries.push({ type: "message", id, parentId: leafId, timestamp: new Date().toISOString(), message });
+  leafId = id;
+  refresh();
+  persist();
+};
+load();
 const extensionPaths = process.argv.flatMap((argument, index) => argument === "--extension" ? [process.argv[index + 1]] : []);
 const markerNames = {
   "pi-control.ts": "vscode-pi-control",
@@ -72,7 +108,7 @@ const onLine = (line) => {
     const result = { output: "pi-shell-fixture\n<img src=x>\n", exitCode: 0, cancelled: false, truncated: false };
     emit({ type: "bash_execution_update", id: "stale-shell-command", delta: "DO_NOT_RENDER" });
     emit({ type: "bash_execution_update", id: shell.id, delta: result.output });
-    messages.push({ role: "bashExecution", command: shell.command, excludeFromContext: shell.excludeFromContext, timestamp: Date.now(), ...result });
+    append({ role: "bashExecution", command: shell.command, excludeFromContext: shell.excludeFromContext, timestamp: Date.now(), ...result });
     emit({ type: "response", id: shell.id, command: "bash", success: true, data: result });
     return;
   }
@@ -83,13 +119,18 @@ const onLine = (line) => {
   let data = {};
   if (request.type === "prompt" && request.message.startsWith("/vscode-pi-control ")) {
     const payload = JSON.parse(request.message.slice(request.message.indexOf(" ") + 1));
-    if (payload.sessionId !== sessionId || payload.leafId !== leafId) throw new Error("Stale native control fixture");
-    if (payload.action === "navigate") {
+    if (payload.sessionId !== sessionId || (payload.leafId !== undefined && payload.leafId !== leafId) || payload.cwd !== fs.realpathSync(process.cwd())) throw new Error("Stale native control fixture");
+    if (payload.action === "session-location") {
+      const hash = require("node:crypto").createHash("sha256");
+      for (const entry of entries) hash.update(JSON.stringify(entry)).update("\n");
+      emit({ type: "extension_ui_request", id: "location-result", method: "notify", message: `PI_VSCODE_CONTROL_RESULT:${JSON.stringify({ token: payload.token, sessionId, sessionFile: fs.realpathSync(sessionFile), sessionDir: fs.realpathSync(sessionDir), leafId, entriesHash: hash.digest("hex") })}` });
+    } else if (payload.action === "navigate") {
       const target = entries.find((entry) => entry.id === payload.targetId);
       if (!target) throw new Error("Unknown native entry");
       leafId = target.message?.role === "user" ? target.parentId : target.id;
+      refresh();
       emit({ type: "extension_ui_request", id: "control-result", method: "notify", message: `PI_VSCODE_CONTROL_RESULT:${JSON.stringify({ token: payload.token, cancelled: false })}` });
-    }
+    } else if (payload.action !== "reload") throw new Error("Unsupported fixture control");
     fs.appendFileSync(path.join(directory, "controls.jsonl"), `${JSON.stringify(payload)}\n`);
     emit({ type: "response", id: request.id, command: request.type, success: true, data: { disposition: "handled" } });
     return;
@@ -112,13 +153,26 @@ const onLine = (line) => {
   }) };
   if (request.type === "get_tree") data = { tree: tree(), leafId };
   if (request.type === "get_fork_messages") data = { messages: entries.filter((entry) => entry.message?.role === "user").map((entry) => ({ entryId: entry.id, text: entry.message.content[0].text })) };
+  if (request.type === "switch_session") {
+    sessionFile = request.sessionPath;
+    load();
+    data = { cancelled: false };
+    fs.appendFileSync(path.join(directory, "switches.jsonl"), `${JSON.stringify({ sessionFile, sessionId })}\n`);
+  }
+  if (request.type === "export_html") {
+    fs.writeFileSync(request.outputPath, `<html><body>${JSON.stringify(entries).replaceAll("<", "&lt;")}</body></html>`);
+    data = { path: request.outputPath };
+  }
   if (request.type === "fork" || request.type === "clone") {
     const selected = entries.find((entry) => entry.id === request.entryId);
+    if (request.type === "fork" && !selected) throw new Error("Unknown fork entry");
+    entries = branch(request.type === "fork" ? selected.parentId : leafId);
+    leafId = entries.at(-1)?.id ?? null;
     sessionId = `native-branch-${Date.now()}`;
-    sessionFile = path.join(directory, `${sessionId}.jsonl`);
-    fs.writeFileSync(sessionFile, `${JSON.stringify({ type: "session", version: 3, id: sessionId, cwd: process.cwd() })}\n`);
+    sessionFile = path.join(sessionDir, `${sessionId}.jsonl`);
+    refresh();
+    persist();
     data = { cancelled: false, ...(selected ? { text: selected.message.content[0].text } : {}) };
-    if (request.type === "fork" && selected) leafId = selected.parentId;
   }
   if (request.type === "steer" || request.type === "follow_up") {
     queue[request.type === "steer" ? "steering" : "followUp"].push(request.message);
@@ -156,7 +210,7 @@ const onLine = (line) => {
         stopReason: "stop",
         timestamp: Date.now() + 1,
       };
-      messages.push(user);
+      append(user);
       emit({ type: "agent_start" });
       emit({ type: "message_end", message: user });
       emit({ type: "message_start", message: { role: "assistant", content: [], timestamp: assistant.timestamp } });
@@ -164,8 +218,8 @@ const onLine = (line) => {
       heldTimer = setInterval(() => {
         if (!fs.existsSync(path.join(directory, "thinking-release"))) return;
         clearInterval(heldTimer);
-        messages.push(assistant, thinkingOnly);
-        fs.writeFileSync(thinkingHistoryFile, JSON.stringify(messages));
+        append(assistant);
+        append(thinkingOnly);
         emit({ type: "message_end", message: assistant });
         emit({ type: "message_start", message: { role: "assistant", content: [], timestamp: thinkingOnly.timestamp } });
         emit({ type: "message_end", message: thinkingOnly });
@@ -180,11 +234,8 @@ const onLine = (line) => {
       stopReason: "stop",
       timestamp: Date.now(),
     };
-    const userId = `user-${entries.length}`;
-    entries.push({ id: userId, parentId: leafId, type: "message", message: user });
-    leafId = `assistant-${entries.length}`;
-    entries.push({ id: leafId, parentId: userId, type: "message", message: assistant });
-    messages.push(user, assistant);
+    append(user);
+    append(assistant);
     emit({ type: "agent_start" });
     emit({ type: "message_end", message: user });
     const toolsFile = path.join(directory, "tools.json");

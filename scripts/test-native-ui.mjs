@@ -4,7 +4,7 @@ import { chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFi
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { downloadAndUnzipVSCode } from "@vscode/test-electron";
 import { chromium } from "playwright-core";
 import extensionUiFixture from "./fixtures/extension-ui.cjs";
@@ -16,6 +16,7 @@ import { assertNativeFileCompletion } from "./completion-native-fixture.mjs";
 import thinkingFixture from "./fixtures/thinking.cjs";
 import { assertThinkingDisclosure } from "./thinking-fixture.mjs";
 import { assertNativeDirectShell } from "./direct-shell-fixture.mjs";
+import { assertAuthTransferDialogs, seedTransferSession } from "./auth-transfer-native-fixture.mjs";
 
 // Actual Quick Picks, modals, Problems, code actions and webview clicks; only Pi is simulated.
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -71,8 +72,15 @@ try {
   if (workspaceAlias) await symlink(workspace, openedWorkspace, "junction");
   await mkdir(path.join(userData, "User"), { recursive: true });
   const executableFixture = path.join(directory, "pi-fixture");
-  await copyFile(path.join(repository, "scripts", "fixtures", "native-pi.cjs"), executableFixture);
+  const fixtureModule = pathToFileURL(path.join(repository, "src/test/fixtures/isolated-pi-fixture.mjs")).href;
+  const fixtureSource = await readFile(path.join(repository, "scripts/fixtures/native-pi.cjs"), "utf8");
+  await writeFile(executableFixture, fixtureSource.replace('import("../../src/test/fixtures/isolated-pi-fixture.mjs")', `import(${JSON.stringify(fixtureModule)})`));
   await chmod(executableFixture, 0o700);
+  await seedTransferSession(directory, workspace);
+  const fixtureBin = path.join(directory, "bin");
+  await mkdir(fixtureBin);
+  // Fail closed even if an upload approval regression invokes gh. Never delegates to real gh.
+  await writeFile(path.join(fixtureBin, "gh"), `#!/bin/sh\nprintf invoked >> '${path.join(directory, "gh-invoked")}'\nexit 91\n`, { mode: 0o700 });
   await respond("Native fixture explanation.");
   await writeFile(path.join(directory, "extension-ui.json"), JSON.stringify(extensionUiFixture));
   await writeFile(
@@ -84,6 +92,7 @@ try {
       "pi.executablePath": executableFixture,
       "workbench.startupEditor": "none",
       "window.dialogStyle": "custom",
+      "files.simpleDialog.enable": true,
       "window.zoomLevel": 0,
       "git.openRepositoryInParentFolders": "never",
       "extensions.ignoreRecommendations": true,
@@ -187,7 +196,7 @@ try {
     ],
     {
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, PI_VSCODE_UI_FIXTURE: directory, PI_CODING_AGENT_DIR: path.join(directory, "pi") },
+      env: { ...process.env, PATH: `${fixtureBin}:${process.env.PATH}`, PI_VSCODE_UI_FIXTURE: directory, PI_CODING_AGENT_DIR: path.join(directory, "pi") },
     },
   );
   child.stdout.on("data", (chunk) => {
@@ -247,7 +256,10 @@ try {
     await page.locator(".quick-input-list .monaco-list-row").filter({ hasText: text }).first().click();
     // Current VS Code can reuse the input without a hidden frame between chained Quick Picks.
     await until(
-      async () => !(await input.isVisible()) || (await input.getAttribute("aria-label")) !== label,
+      () => page.evaluate(({ label, text }) => {
+        const element = document.querySelector('.quick-input-widget input[type=text]');
+        return !element || !element.checkVisibility() || element.getAttribute("aria-label") !== label || element.value !== text;
+      }, { label, text }),
       "Quick Pick accepted or advanced",
     );
   };
@@ -255,6 +267,9 @@ try {
   let pi = await frame();
   await until(async () => (await pi.locator("body").innerText()).includes("Ready"), "Pi runtime ready");
   if (!process.argv.includes("editor")) {
+    await assertAuthTransferDialogs({ page, directory, workspace, invoke, pick, until, frame });
+  }
+  if (!process.argv.includes("editor") && !process.argv.includes("transfer")) {
   const initial = await invoke("state");
   // Settings uses the real Extension Host configuration API and packaged webview.
   const settingsFrame = () =>
@@ -492,10 +507,10 @@ try {
   await pi.locator("#session-details summary").focus();
   await page.keyboard.press("Enter");
   await page.keyboard.press("Tab");
-  assert.equal(await pi.locator("#session").inputValue(), "native-ui-session");
+  assert.equal(await pi.locator("#session").inputValue(), "native-import-authoritative");
   assert.equal(await pi.locator("#session").evaluate((element) => document.activeElement === element), true);
   await pi.locator("#session").selectText();
-  assert.equal(await pi.locator("#session").evaluate((input) => input.selectionEnd - input.selectionStart), 17);
+  assert.equal(await pi.locator("#session").evaluate((input) => input.selectionEnd - input.selectionStart), "native-import-authoritative".length);
   await pi.locator("#session-details summary").click();
   console.log(
     "PI_NATIVE_INTERFACE image keyboard preview, Escape/focus restoration and copyable session details passed",
@@ -818,7 +833,7 @@ try {
     }),
   );
   }
-  await assertExtensionEditorDialogs({ page, directory, invoke, until, frame });
+  if (!process.argv.includes("transfer")) await assertExtensionEditorDialogs({ page, directory, invoke, until, frame });
   await invoke("finish", {}, false);
 } catch (error) {
   if (page) {

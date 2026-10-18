@@ -31,6 +31,7 @@ export async function run(): Promise<void> {
   // Do not replay the reload command from the previous Extension Host.
   let extensionEditor: vscode.TextDocument | undefined;
   let extensionConfirmation: vscode.TextDocument | undefined;
+  const commands = new Map<number, { complete: boolean; error?: string }>();
   let lastId = await readFile(path.join(directory, "request.json"), "utf8")
     .then((text) => JSON.parse(text).id as number)
     .catch(() => 0);
@@ -57,6 +58,19 @@ export async function run(): Promise<void> {
         switch (request.action) {
           case "command":
             result = await vscode.commands.executeCommand(request.command);
+            break;
+          case "startCommand": {
+            const id = request.id as number;
+            commands.set(id, { complete: false });
+            void Promise.resolve(vscode.commands.executeCommand(request.command)).then(
+              () => commands.set(id, { complete: true }),
+              (failure) => commands.set(id, { complete: true, error: String(failure) }),
+            );
+            result = id;
+            break;
+          }
+          case "commandResult":
+            result = commands.get(request.commandId);
             break;
           case "extensionConfirmationState": {
             const editor = vscode.window.activeTextEditor;
@@ -190,6 +204,24 @@ export async function run(): Promise<void> {
           case "completionInspection":
             result = vscode.window.activeTextEditor?.document.getText() ?? "";
             break;
+          case "transferInspection": {
+            let editor: vscode.TextEditor | undefined;
+            for (let attempt = 0; attempt < 100 && !editor; attempt++) {
+              editor = vscode.window.visibleTextEditors.find(
+                (candidate) => candidate.document.uri.scheme === "pi-session-inspection",
+              );
+              if (!editor) await new Promise((resolve) => setTimeout(resolve, 50));
+            }
+            assert.equal(editor?.document.uri.scheme, "pi-session-inspection");
+            assert.ok(editor);
+            const text = editor.document.getText();
+            result = {
+              text,
+              editAccepted: await editor.edit((edit) => edit.insert(new vscode.Position(0, 0), "forbidden")),
+              unchanged: editor.document.getText() === text,
+            };
+            break;
+          }
           case "theme":
             await vscode.workspace
               .getConfiguration("workbench")
