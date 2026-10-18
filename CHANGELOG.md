@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1
+
+### Patch Changes
+
+- e78c52c: Reduce CPU work for fragmented RPC and bridge frames. Avoid rebuilding hidden session lists during streamed responses. Keep frame limits, session controls, and security checks unchanged.
+- 1ab54de: Fix the Pi editor-title button appearing black on dark themes. Use separate light and dark SVG icons with explicit foreground colors.
+
 ## 0.5.0
 
 ### Minor Changes
