@@ -204,7 +204,10 @@ test("sidebar places model and thinking controls before submission and exposes r
   );
   assert.match(html, /const interactionLocked = isInteractionLocked\(\)/);
   assert.match(html, /Starting background agent/);
-  assert.match(html, /messages\.filter\(message => message\.role !== 'assistant' \|\| Boolean\(message\.html\)\)/);
+  assert.match(
+    html,
+    /messages\.filter\(message => message\.role !== 'assistant' \|\| Boolean\(message\.html\) \|\| message\.thinking\?\.length\)/,
+  );
   assert.match(html, /for \(let index = 0; index < visibleMessages\.length; index \+= 1\)/);
   assert.match(html, /structure === renderedMessageStructure/);
   assert.match(html, /setMessageContent\(content, html\[index\]\)/);
@@ -615,6 +618,46 @@ test("model identity and session details expose full runtime values without pers
   assert.equal(sidebar.element("model-picker").title, "provider/full-model-id");
   assert.equal((sidebar.element("model-picker") as any)["aria-label"], "Pi model: Runtime display name");
   assert.match(sidebar.element("settings-description").textContent, /unavailable for this model/);
+});
+
+test("thinking-only messages use collapsed inert disclosures and retain user state during updates", () => {
+  const sidebar = createSidebarScriptHarness();
+  const send = (text: string, truncated = false) =>
+    sidebar.receive({
+      type: "state",
+      runtime: { connected: true, busy: true },
+      messages: [
+        {
+          id: "assistant",
+          role: "assistant",
+          html: "",
+          thinking: [
+            { contentIndex: 0, text, truncated },
+            { contentIndex: 2, text: "must not display", redacted: true },
+          ],
+        },
+      ],
+    });
+  send("<script>bad()</script>");
+  const wrapper = sidebar.element("messages").children[0]!;
+  const details = wrapper.children[2]!;
+  assert.equal(details.className, "thinking-transcript");
+  assert.equal(details.open, false);
+  assert.equal(details.children[0]?.textContent, "Provider thinking");
+  assert.equal(details.children[1]?.children[0]?.textContent, "<script>bad()</script>");
+  assert.equal(details.children[1]?.children[0]?.innerHTML, "");
+  assert.match(details.children[1]?.children[1]?.textContent ?? "", /Provider redacted.*unavailable/);
+  assert.equal(wrapper.children[1]?.innerHTML, "", "thinking is not answer HTML");
+  details.open = true;
+  send("completed text", true);
+  assert.equal(sidebar.element("messages").children[0], wrapper);
+  assert.equal(details.open, true);
+  assert.match(details.children[1]?.children[1]?.textContent ?? "", /Thinking truncated/);
+  details.open = false;
+  send("more output");
+  assert.equal(details.open, false);
+  assert.equal(details.children[0]?.focusCount, 0);
+  assert.doesNotMatch(getSidebarHtml(100, 100), /thinkingSignature|thoughtSignature/);
 });
 
 class SidebarTestElement {

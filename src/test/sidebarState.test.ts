@@ -179,6 +179,27 @@ test("limitSidebarMessages bounds total content and preserves metadata", () => {
   ]);
 });
 
+test("thinking shares the retained text budget but never enters workspace persistence or restore", () => {
+  const limited = limitSidebarMessages(
+    [
+      { id: "old", role: "user", content: "older" },
+      { id: "assistant", role: "assistant", content: "answer", thinking: [{ contentIndex: 0, text: "reasoning" }] },
+    ],
+    100,
+    10,
+  );
+  assert.equal(limited.length, 1);
+  assert.equal(limited[0]?.content, "answer");
+  assert.deepEqual(limited[0]?.thinking, [{ contentIndex: 0, text: "reas", truncated: true }]);
+  const persisted = persistableSidebarMessages(limited);
+  assert.doesNotMatch(JSON.stringify(persisted), /thinking|reas|contentIndex/);
+  // Untrusted cache fields, including signatures and visible thinking, are never restored.
+  const restored = restoreSidebarMessages([{ ...limited[0], thinkingSignature: "secret" }], 100, 100);
+  assert.equal(restored[0]?.thinking, undefined);
+  assert.doesNotMatch(JSON.stringify(restored), /secret|reas/);
+  assert.deepEqual(sidebarMessagesForWebview(limited, () => false)[0]?.thinking, limited[0]?.thinking);
+});
+
 test("limitSidebarMessages handles disabled limits", () => {
   assert.deepEqual(limitSidebarMessages(messages, 0, 100), []);
   assert.deepEqual(limitSidebarMessages(messages, 10, 0), []);

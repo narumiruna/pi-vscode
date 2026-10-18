@@ -8,10 +8,13 @@ import { assertExtensionUi } from "./extension-ui-fixture.mjs";
 import { assertInterface } from "./interface-fixture.mjs";
 import { assertRichContent, richFixture } from "./rich-content-fixture.mjs";
 import { assertComposerFileCompletion } from "./completion-fixture.mjs";
+import { assertThinkingBrowser } from "./thinking-fixture.mjs";
+import thinkingFixture from "./fixtures/thinking.cjs";
 
 const require = createRequire(import.meta.url);
 const { getSidebarHtml } = require("../out/sidebarHtml.js");
 const { renderSafeMarkdown } = require("../out/markdown.js");
+const { piMessageThinking } = require("../out/piMessages.js");
 const server = createServer(async (request, response) => {
   try {
     const name = request.url?.slice(1) ?? "";
@@ -55,6 +58,9 @@ try {
     script: `${origin}/rich-content.js`,
     style: `${origin}/rich-content.css`,
   });
+  console.log("PI_THINKING_BROWSER_EVIDENCE", JSON.stringify(await assertThinkingBrowser(
+    browser, html, renderSafeMarkdown, piMessageThinking, thinkingFixture,
+  )));
   // The browser runner uses the real sidebar document and renderer; only VS Code IPC is simulated.
   await page.addInitScript(() => {
     window.acquireVsCodeApi = () => ({ postMessage() {} });

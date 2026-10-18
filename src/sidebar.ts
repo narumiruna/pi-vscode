@@ -25,6 +25,7 @@ import type { PiRpcEvent, PiRpcImage } from "./piRpcClient";
 import { deleteConversationWithTrashFallback, type PiRuntimeManager, runtimeSessionIdentityChanged } from "./piRuntime";
 import { type AgentRequestPolicy, buildAgentPrompt, type ChatReferenceContext } from "./prompts";
 import { listRecentPiSessions, type PiSessionSummary, piSessionKey } from "./sessionHistory";
+import { SidebarAssistantStream } from "./sidebarAssistantStream";
 import {
   resolveSidebarQueueSubmission,
   resolveSidebarSubmissionText,
@@ -147,7 +148,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         readonly transcriptAttachments: readonly TranscriptAttachment[];
       }
     | undefined;
-  private streamingAssistantId: string | undefined;
+  private assistantStream: SidebarAssistantStream | undefined;
+  private streamSessionIdentity: string;
+  private historySyncRevision = 0;
   private readonly queuedTranscriptPresentations = new Map<string, QueuedTranscriptPresentation>();
   private renderTimer: NodeJS.Timeout | undefined;
   private foregroundCancellable = false;
@@ -183,9 +186,20 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       post: (message) => this.postMessage(message),
     });
     this.messages = restoreMessages(context.workspaceState.get<unknown>(storageKey), maxMessages, maxStoredCharacters);
+    this.streamSessionIdentity = JSON.stringify([runtime.currentState.sessionFile, runtime.currentState.sessionId]);
     this.disposables.push(
       runtime.onEvent((event) => this.handleRuntimeEvent(event)),
-      runtime.onDidChangeState(() => this.scheduleState()),
+      runtime.onDidChangeState(() => {
+        const identity = JSON.stringify([runtime.currentState.sessionFile, runtime.currentState.sessionId]);
+        if (identity !== this.streamSessionIdentity) {
+          if (this.assistantStream)
+            this.messages = this.messages.filter((message) => message.id !== this.assistantStream?.id);
+          this.assistantStream = undefined;
+          this.historySyncRevision += 1;
+          this.streamSessionIdentity = identity;
+        }
+        this.scheduleState();
+      }),
       backgroundAgents.onDidChange(() => this.scheduleState()),
     );
   }
@@ -905,7 +919,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         maxStoredCharacters,
       );
       this.tools = [];
-      this.streamingAssistantId = undefined;
+      this.assistantStream = undefined;
       this.status = "Sending to Pi…";
       await this.persistMessages();
       if (shouldTrackConversationChanges(policy)) this.changes = [];
@@ -1166,6 +1180,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
 
   private async resetConversation(status: string, preserveAttachments = false): Promise<void> {
     this.queuedTranscriptPresentations.clear();
+    this.assistantStream = undefined;
     this.messages = [];
     this.tools = [];
     this.changes = [];
@@ -1364,18 +1379,20 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.tools = [];
     } else if (event.type === "message_start") {
       const message = isRecord(event.message) ? event.message : undefined;
-      if (message?.role === "assistant") {
-        this.streamingAssistantId = undefined;
-      }
+      this.historySyncRevision += 1;
+      this.assistantStream = message?.role === "assistant" ? this.createAssistantStream(message) : undefined;
     } else if (event.type === "message_update") {
       const update = isRecord(event.assistantMessageEvent) ? event.assistantMessageEvent : undefined;
-      if (update?.type === "text_delta" && typeof update.delta === "string") {
-        this.appendAssistantText(update.delta);
-      } else if (update?.type === "thinking_delta") {
-        this.status = "Pi is thinking…";
-      }
+      const message = this.assistantStream?.update(update);
+      if (message) this.upsertAssistantMessage(message);
+      if (update?.type === "thinking_delta") this.status = "Pi is thinking…";
     } else if (event.type === "message_end") {
-      this.streamingAssistantId = undefined;
+      const message = isRecord(event.message) ? event.message : undefined;
+      if (message?.role === "assistant") {
+        const stream = this.assistantStream ?? this.createAssistantStream(message);
+        this.upsertAssistantMessage(stream.complete(message.content));
+        this.assistantStream = undefined;
+      }
     } else if (event.type === "tool_execution_start") {
       const toolName = stringValue(event.toolName) ?? "tool";
       if (this.trackCurrentRequestChanges) {
@@ -1408,10 +1425,11 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     } else if (event.type === "compaction_start") {
       this.status = "Compacting Pi context…";
     } else if (event.type === "auto_retry_start") {
+      this.assistantStream = undefined;
       this.status = "Retrying Pi request…";
     } else if (event.type === "agent_settled") {
       this.status = this.requestLifecycle.wasCancelled ? "Cancelling Pi request…" : "Finishing Pi response…";
-      this.streamingAssistantId = undefined;
+      this.assistantStream = undefined;
       this.queuedTranscriptPresentations.clear();
       if (this.trackCurrentRequestChanges) {
         this.changes = this.changeTracker.finishRequest(this.requestLifecycle.wasCancelled ? "cancelled" : "completed");
@@ -1421,6 +1439,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.extensionUi.clear();
     } else if (event.type === "process_exit") {
       this.extensionUi.clear();
+      this.assistantStream = undefined;
       this.queuedTranscriptPresentations.clear();
       if (this.trackCurrentRequestChanges) {
         this.changes = this.changeTracker.finishRequest("process-exit");
@@ -1488,22 +1507,28 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     }
   }
 
-  private appendAssistantText(delta: string): void {
-    let id = this.streamingAssistantId;
-    if (!id) {
-      id = randomUUID();
-      this.streamingAssistantId = id;
-      this.messages = limitSidebarMessages(
-        [...this.messages, { id, role: "assistant", content: delta }],
-        maxMessages,
-        maxStoredCharacters,
-      );
-    } else {
-      this.messages = this.messages.map((message) =>
-        message.id === id ? { ...message, content: message.content + delta } : message,
-      );
-    }
-    this.scheduleState();
+  private createAssistantStream(message: Record<string, unknown>): SidebarAssistantStream {
+    const timestamp = message.timestamp;
+    const prefix =
+      typeof timestamp === "number" && Number.isSafeInteger(timestamp) ? `pi-assistant-${timestamp}-` : undefined;
+    const occurrence = this.messages.reduce((next, candidate) => {
+      if (!prefix || !candidate.id.startsWith(prefix)) return next;
+      const previous = Number(candidate.id.slice(prefix.length));
+      return Number.isSafeInteger(previous) ? Math.max(next, previous + 1) : next;
+    }, 0);
+    return new SidebarAssistantStream(prefix ? `${prefix}${occurrence}` : randomUUID(), maxStoredCharacters);
+  }
+
+  private upsertAssistantMessage(message: SidebarMessage): void {
+    const existing = this.messages.some((candidate) => candidate.id === message.id);
+    const messages = existing
+      ? this.messages.flatMap((candidate) =>
+          candidate.id === message.id ? (message.content || message.thinking?.length ? [message] : []) : [candidate],
+        )
+      : message.content || message.thinking?.length
+        ? [...this.messages, message]
+        : this.messages;
+    this.messages = limitSidebarMessages(messages, maxMessages, maxStoredCharacters);
   }
 
   private upsertTool(activity: ToolActivity): void {
@@ -1525,11 +1550,15 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     if (this.runtime.currentState.busy) {
       throw new Error("Wait for Pi to finish before refreshing conversation history.");
     }
+    const revision = ++this.historySyncRevision;
     try {
-      const messages = convertPiMessages(await this.runtime.getMessages(), {
+      const values = await this.runtime.getMessages();
+      if (revision !== this.historySyncRevision || this.runtime.currentState.busy) return;
+      const messages = convertPiMessages(values, {
         imageAssets: this.imageAssets,
         knownMessages: this.messages,
         maxMessages,
+        maxCharacters: maxStoredCharacters,
       });
       if (messages.length > 0 || this.runtime.currentState.sessionId) {
         this.messages = limitSidebarMessages(messages, maxMessages, maxStoredCharacters);
@@ -1538,6 +1567,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.historyRecoveryAvailable = false;
       this.postState();
     } catch (error) {
+      if (revision !== this.historySyncRevision) return;
       const failure = historySyncFailureState(this.runtime.currentState.connected);
       this.status = failure.status;
       this.historyRecoveryAvailable = failure.historyRecoveryAvailable;

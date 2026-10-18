@@ -1,5 +1,6 @@
 import { isSupportedImageMimeType } from "./attachmentUtils";
 import { transcriptImageAssetIdPattern } from "./imageAssets";
+import type { VisibleThinkingBlock } from "./piMessages";
 
 export const maxTranscriptAttachments = 8;
 export const maxTranscriptImages = 5;
@@ -62,6 +63,8 @@ export interface SidebarMessage {
   readonly id: string;
   readonly role: "user" | "assistant";
   readonly content: string;
+  /** Memory-only visible provider content, restored from Pi rather than workspace storage. */
+  readonly thinking?: readonly VisibleThinkingBlock[];
   readonly attachments?: readonly TranscriptAttachment[];
   /** Legacy v1 field. New records use attachments. */
   readonly contextLabel?: string;
@@ -93,8 +96,28 @@ export function limitSidebarMessages(
     if (remainingCharacters <= 0) break;
     const content = message.content.slice(-remainingCharacters);
     const truncated = message.truncated || content.length < message.content.length;
-    limited.unshift(truncated ? { ...message, content, truncated: true } : { ...message, content });
     remainingCharacters -= content.length;
+    const thinking =
+      message.role === "assistant"
+        ? message.thinking?.map((block) => {
+            const text = block.redacted ? "" : block.text.slice(0, remainingCharacters);
+            remainingCharacters -= text.length;
+            return {
+              contentIndex: block.contentIndex,
+              text,
+              ...(block.redacted ? { redacted: true as const } : {}),
+              ...(block.truncated || (!block.redacted && text.length < block.text.length)
+                ? { truncated: true as const }
+                : {}),
+            };
+          })
+        : undefined;
+    limited.unshift({
+      ...message,
+      content,
+      ...(thinking ? { thinking } : {}),
+      ...(truncated ? { truncated: true } : {}),
+    });
   }
   return limited;
 }

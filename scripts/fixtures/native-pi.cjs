@@ -12,7 +12,8 @@ fs.writeFileSync(
   `${JSON.stringify({ type: "session", version: 3, id: sessionId, cwd: process.cwd(), timestamp: new Date().toISOString() })}\n`,
 );
 fs.appendFileSync(path.join(directory, "pids.jsonl"), `${process.pid}\n`);
-const messages = [];
+const thinkingHistoryFile = path.join(directory, "thinking-history.json");
+const messages = fs.existsSync(thinkingHistoryFile) ? JSON.parse(fs.readFileSync(thinkingHistoryFile, "utf8")) : [];
 let queue = { steering: [], followUp: [] };
 let heldTimer;
 const emit = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
@@ -56,6 +57,35 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     const images = fs.existsSync(imageFile) ? JSON.parse(fs.readFileSync(imageFile, "utf8")) : [];
     if (images.length) fs.unlinkSync(imageFile);
     const user = { role: "user", content: [{ type: "text", text: request.message }, ...images], timestamp: Date.now() };
+    const thinkingFile = path.join(directory, "thinking.json");
+    if (fs.existsSync(thinkingFile)) {
+      const thinking = JSON.parse(fs.readFileSync(thinkingFile, "utf8"));
+      fs.unlinkSync(thinkingFile);
+      const assistant = { role: "assistant", content: thinking.content, stopReason: "stop", timestamp: Date.now() };
+      const thinkingOnly = {
+        role: "assistant",
+        content: [{ type: "thinking", thinking: "Thinking-only response." }],
+        stopReason: "stop",
+        timestamp: Date.now() + 1,
+      };
+      messages.push(user);
+      emit({ type: "agent_start" });
+      emit({ type: "message_end", message: user });
+      emit({ type: "message_start", message: { role: "assistant", content: [], timestamp: assistant.timestamp } });
+      for (const update of thinking.updates) emit({ type: "message_update", assistantMessageEvent: update });
+      heldTimer = setInterval(() => {
+        if (!fs.existsSync(path.join(directory, "thinking-release"))) return;
+        clearInterval(heldTimer);
+        messages.push(assistant, thinkingOnly);
+        fs.writeFileSync(thinkingHistoryFile, JSON.stringify(messages));
+        emit({ type: "message_end", message: assistant });
+        emit({ type: "message_start", message: { role: "assistant", content: [], timestamp: thinkingOnly.timestamp } });
+        emit({ type: "message_end", message: thinkingOnly });
+        emit({ type: "agent_end", messages });
+        emit({ type: "agent_settled" });
+      }, 50);
+      return;
+    }
     const assistant = {
       role: "assistant",
       content: [{ type: "text", text }],
@@ -74,7 +104,10 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       emit({ type: "tool_execution_update", toolCallId, partialResult: result });
       if (index < calls.length - 1) emit({ type: "tool_execution_end", toolCallId, result, isError: !!isError });
     });
-    if (calls.length) emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: text } });
+    if (calls.length) {
+      emit({ type: "message_start", message: { role: "assistant", content: [] } });
+      emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: text } });
+    }
     emit({ type: "message_end", message: assistant });
     const finish = () => {
       if (calls.length)

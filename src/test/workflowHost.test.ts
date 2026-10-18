@@ -1355,7 +1355,10 @@ test("sidebar rejects an empty queued snapshot and forwards an attachment resour
       "delivery appends one live user bubble with its captured attachment labels",
     );
     runtimeListener?.({ type: "message_start", message: { role: "assistant", content: [] } });
-    runtimeListener?.({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "continuing" } });
+    runtimeListener?.({
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "continuing" },
+    });
     assert.deepEqual(
       internal.messages.map((message: any) => message.role),
       ["user", "assistant"],

@@ -139,6 +139,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .role { display: flex; align-items: center; gap: 6px; margin: 0 0 6px 2px; color: var(--vscode-descriptionForeground); font-size: .85em; font-weight: 500; }
     .assistant .role { color: var(--vscode-foreground); }
     .assistant .role::before { content: 'π'; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; background: var(--vscode-input-background); color: var(--pi-accent); font: 15px Georgia, serif; }
+    .thinking-transcript { min-width: 0; margin: 8px 2px; padding: 8px; border: 1px solid var(--pi-border); border-radius: 7px; color: var(--vscode-descriptionForeground); }
+    .thinking-transcript > summary { cursor: pointer; }
+    .thinking-transcript > summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 3px; }
+    .thinking-transcript pre { max-width: 78ch; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.6; }
+    .thinking-truncated { font-size: .85em; }
     .content { min-width: 0; padding: 0 2px; overflow-wrap: anywhere; line-height: 1.6; }
     .content p { margin: 0 0 10px; }
     .assistant .content > :is(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote) { max-width: 78ch; }
@@ -511,24 +516,64 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       if (conversationPinnedToBottom) scrollConversationToBottom();
     });
 
+    function renderThinking(wrapper, blocks) {
+      const thinking = Array.isArray(blocks) ? blocks : [];
+      let details = wrapper.thinkingDisclosure;
+      if (!thinking.length && !details) return;
+      if (!details) {
+        details = document.createElement('details');
+        details.className = 'thinking-transcript';
+        const summary = document.createElement('summary');
+        summary.textContent = 'Provider thinking';
+        const body = document.createElement('div');
+        details.append(summary, body);
+        wrapper.appendChild(details);
+        wrapper.thinkingDisclosure = details;
+      }
+      details.hidden = !thinking.length;
+      const signature = JSON.stringify(thinking);
+      if (details.thinkingKey === signature) return;
+      details.thinkingKey = signature;
+      const body = details.children[1];
+      body.replaceChildren();
+      for (const block of thinking) {
+        const text = document.createElement('pre');
+        text.textContent = block.redacted ? 'Provider redacted this thinking block. Hidden content is unavailable.' : block.text;
+        body.appendChild(text);
+        if (block.truncated) {
+          const notice = document.createElement('div');
+          notice.className = 'thinking-truncated';
+          notice.textContent = 'Thinking truncated; only retained content is shown.';
+          body.appendChild(notice);
+        }
+      }
+    }
+
     function renderMessages(messages) {
       const followConversation = conversationPinnedToBottom;
-      const visibleMessages = messages.filter(message => message.role !== 'assistant' || Boolean(message.html));
+      const readingTop = conversationElement.scrollTop;
+      const visibleMessages = messages.filter(message => message.role !== 'assistant' || Boolean(message.html) || message.thinking?.length);
       const structure = JSON.stringify(visibleMessages.map((message, index) => [message.id || index, message.role, message.attachments || [], Boolean(message.truncated)]));
-      const html = visibleMessages.map(message => message.html || (message.role === 'assistant' ? '…' : ''));
+      const html = visibleMessages.map(message => message.html || '');
       messagesElement.classList.toggle('is-empty', visibleMessages.length === 0);
 
       const expectedChildren = visibleMessages.length || 1;
       if (structure === renderedMessageStructure && messagesElement.children.length === expectedChildren) {
         for (let index = 0; index < html.length; index += 1) {
-          if (html[index] === renderedMessageHtml[index]) continue;
-          const content = messagesElement.children[index]?.children[1];
-          if (content) setMessageContent(content, html[index]);
+          const wrapper = messagesElement.children[index];
+          const content = wrapper?.children[1];
+          if (content && html[index] !== renderedMessageHtml[index]) setMessageContent(content, html[index]);
+          if (wrapper) renderThinking(wrapper, visibleMessages[index].thinking);
         }
         renderedMessageHtml = html;
+        if (!followConversation) setConversationScrollTop(readingTop);
         return visibleMessages.length > 0 && followConversation;
       }
 
+      const disclosures = new Map(Array.from(messagesElement.children, wrapper => [wrapper.messageId, {
+        open: wrapper.thinkingDisclosure?.open,
+        focused: Boolean(wrapper.thinkingDisclosure && wrapper.thinkingDisclosure.children[0] === document.activeElement),
+      }]));
       messagesElement.replaceChildren();
       forgetImageTargets(false);
       emptyActionButtons.length = 0;
@@ -560,6 +605,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           const message = visibleMessages[index];
           const wrapper = document.createElement('article');
           wrapper.className = 'message ' + message.role;
+          wrapper.messageId = message.id;
           const role = document.createElement('div');
           role.className = 'role';
           role.textContent = message.role === 'user' ? 'You' : 'Pi';
@@ -567,7 +613,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           content.className = 'content';
           setMessageContent(content, html[index]);
           wrapper.append(role, content);
+          renderThinking(wrapper, message.thinking);
+          const disclosure = disclosures.get(message.id);
+          if (wrapper.thinkingDisclosure && disclosure) wrapper.thinkingDisclosure.open = Boolean(disclosure.open);
           messagesElement.appendChild(wrapper);
+          if (wrapper.thinkingDisclosure && disclosure?.focused) wrapper.thinkingDisclosure.children[0].focus();
           const attachments = Array.isArray(message.attachments) ? message.attachments : [];
           const contexts = attachments.filter(attachment => attachment.type === 'context');
           if (contexts.length) {
@@ -614,7 +664,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       if (visibleMessages.length === 0) {
         setConversationScrollTop(0);
         conversationPinnedToBottom = true;
-      }
+      } else if (!followConversation) setConversationScrollTop(readingTop);
       return visibleMessages.length > 0 && followConversation;
     }
 

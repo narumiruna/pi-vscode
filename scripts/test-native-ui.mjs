@@ -12,6 +12,8 @@ import toolFixture from "./fixtures/tool-activity.cjs";
 import { assertRichContent, richFixture } from "./rich-content-fixture.mjs";
 import { assertToolActivity } from "./tool-activity-fixture.mjs";
 import { assertNativeFileCompletion } from "./completion-native-fixture.mjs";
+import thinkingFixture from "./fixtures/thinking.cjs";
+import { assertThinkingDisclosure } from "./thinking-fixture.mjs";
 
 // Actual Quick Picks, modals, Problems, code actions and webview clicks; only Pi is simulated.
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -652,6 +654,40 @@ try {
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   assert.ok((await readFile(path.join(directory, "session.jsonl"), "utf8")).includes("native-ui-session"));
   console.log("PI_NATIVE_INTERFACE both queue buttons, pending labels, Stop/recovery and deletion confirmation passed");
+  await writeFile(path.join(directory, "thinking.json"), JSON.stringify(thinkingFixture));
+  await pi.locator("#input").fill("Show the deterministic thinking transcript.");
+  await pi.locator("#send").click();
+  await pi.locator(".thinking-transcript").waitFor();
+  const thinkingSummary = pi.locator(".thinking-transcript summary");
+  assert.equal(await pi.locator(".thinking-transcript").evaluate((element) => element.open), false);
+  await thinkingSummary.focus();
+  await thinkingSummary.press("Enter");
+  assert.ok((await pi.locator(".thinking-transcript").innerText()).includes("Authoritative visible thinking."));
+  await thinkingSummary.press("Space");
+  await writeFile(path.join(directory, "thinking-release"), "settle");
+  await until(async () => !(await pi.locator("#cancel").isVisible()), "thinking history replacement");
+  const thinkingEvidence = await assertThinkingDisclosure(pi);
+  assert.equal(await pi.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  const thinkingBoot = (await json("ready.json")).boot;
+  await invoke("command", { command: "workbench.action.reloadWindow" }, false);
+  await until(
+    async () => {
+      const next = await json("ready.json");
+      return next && next.boot !== thinkingBoot;
+    },
+    "thinking reload",
+    40_000,
+  );
+  pi = await frame();
+  await until(
+    async () => (await pi.locator(".thinking-transcript").count()) === 2,
+    "thinking restored from Pi after reconnect",
+  );
+  if (!(await pi.locator(".thinking-transcript summary").first().isVisible())) {
+    await pi.locator("#recent-session-list .current").click();
+  }
+  await assertThinkingDisclosure(pi);
+  console.log("PI_NATIVE_THINKING", JSON.stringify({ ...thinkingEvidence, reconnect: "restored from fixture history" }));
   console.log(
     "PI_NATIVE_UI_EVIDENCE",
     JSON.stringify({
@@ -660,6 +696,7 @@ try {
       workspaceAlias,
       packaged,
       richContent: "Markdown, math fonts, flowchart and sequence SVG passed",
+      thinkingTranscript: thinkingEvidence,
       settingsPanel: "gear, singleton, User/Workspace writes, reset, hide/reveal drafts, no Pi side effects passed",
       semanticAttachmentPicker: "passed",
       composerFileCompletion: "search, dirty snapshot, inspection, path-only Tab, failed capture, stale draft and explicit single Send passed",
