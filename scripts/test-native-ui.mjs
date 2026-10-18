@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -25,7 +25,7 @@ const workspaceAlias = process.argv[3] === "alias";
 const packaged = process.argv.includes("packaged");
 const evidenceLabel = `${version}${workspaceAlias ? "-alias" : ""}${packaged ? "-packaged" : ""}`;
 if (process.platform !== "linux") throw new Error("The native UI runner currently supports Linux only.");
-const directory = await mkdtemp(path.join(tmpdir(), "pi-native-ui-"));
+const directory = await realpath(await mkdtemp(path.join(tmpdir(), "pi-native-ui-")));
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(fn, description, timeout = 20_000) {
   const end = Date.now() + timeout;

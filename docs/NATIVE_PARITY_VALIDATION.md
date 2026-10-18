@@ -1,5 +1,7 @@
 # Native Pi parity validation
 
+This document records the initial integration at `d2c42ca`. The later PR review checks are listed in **PR #77 review fixes** below.
+
 ## Checked environment
 
 Integrated checks ran on Linux on 2026-10-18 with Node.js 26.8.2 and npm 11.19.1. `npm ci` installed the locked dependencies with Husky enabled. Dependency manifests and lockfiles are unchanged.
@@ -70,7 +72,7 @@ The local CLI reference was `/home/narumi/.bun/install/global/node_modules/@eare
 3. Isolated SDK discovery/export/import passed with an empty isolated store, active leaf export excluding an abandoned branch, complete-tree import and unchanged source bytes. An external same-cwd source proves `getSessionDir()` is independent of its parent; its digest matches persisted entries.
 4. Native MCP reference passed actual local stdio tools/resources with direct, deferred/search, codemode, hidden and per-tool exposure; disabled/replacement ownership; malformed connection errors; two reloads; focused read-only mutation denial; and exit of all 11 fixture processes. Provider responses are fixed in-process, not live model responses. No external server is used.
 
-## Final regression review
+## Initial integration review
 
 Independent read-only review checked all 13 matched plans and found no remaining blocking P1/P2 defect. Integration fixes have focused regression coverage for:
 
@@ -85,7 +87,7 @@ The original feature-worktree validation documents retain historical counts. Thi
 
 ## VSIX
 
-`npm run package` passed and produced `pi.vsix`: 163 files, approximately 2.74 MB. Contents inspection confirmed all packaged bridge/policy/control/helper resources, host controllers and bundled renderer/settings assets. Source tests, fixture scripts, plans, skills and `node_modules` are excluded. The final documentation-only rebuild matches all 156 runtime/resource/manifest files from the VSIX used by the passing packaged UI run. The archive and temporary screenshots are not committed.
+`npm run package` passed and produced `pi.vsix`: 163 files, approximately 2.74 MB. Contents inspection confirmed all packaged bridge/policy/control/helper resources, host controllers and bundled renderer/settings assets. Source tests, fixture scripts, plans, skills and `node_modules` are excluded. At initial integration, the documentation-only rebuild matched all 156 runtime/resource/manifest files from the VSIX used by the passing packaged UI run. The archive and temporary screenshots are not committed.
 
 ## Unverified and unsupported boundaries
 
@@ -95,6 +97,29 @@ The original feature-worktree validation documents retain historical counts. Thi
 - Arbitrary terminal components/themes remain in Pi's terminal. No PTY/browser component protocol was added.
 - Radius sharing, authoritative live MCP state, retry-enabled reads, general live scoped-model application and verified setter disk durability remain unavailable without public upstream contracts.
 - Unknown execution, authentication, switching and upload outcomes never trigger automatic replay. Cleanup does not establish that escaped or Windows descendants stopped.
+
+## PR #77 review fixes
+
+The later PR review found three P2 defects that the initial fixtures did not cover. Each defect was reproduced before the fix:
+
+1. An aliased `TMPDIR` made owned transfer paths fail canonical-file checks. Staging now uses its canonical directory. Export/import/share and failed-export tests verify cleanup. The native UI and SDK fixtures also canonicalize their own temporary roots.
+2. An unrelated missing editor file blocked native Settings/MCP controls. Only proved missing non-target paths are now allowed. Missing targets, dirty/version-changed buffers, retargeted or dangling aliases, and non-ENOENT failures still reject. Target-name variants also fail closed on Windows/macOS; platform-name tests are simulations, not native platform checks.
+3. A valid 4 MiB image exhausted the regex stack. The validator now scans for invalid base64 characters without a repeated group. Decode/re-encode equality and byte limits are unchanged. Tests accept canonical 4/5 MiB images and reject malformed, noncanonical and oversized values.
+
+Review validation on Linux:
+
+| Check | Result |
+| --- | --- |
+| `npm test` and package tests | Passed: 71 files, 648 tests passed, 3 platform-specific skips. |
+| Pinned Biome check | Passed with no errors, 662 warnings and 24 informational diagnostics. |
+| Rich-content browser suite | Passed, including the separate `Thinking` label change retained from `7bd93ca`. |
+| Trusted native Extension Host, 1.106.0 and stable 1.142.0 | Passed. |
+| Focused native transfer/auth dialogs, 1.106.0 and 1.142.0, with a symlinked `TMPDIR` | Passed. Ordinary model prompts remained 0 → 0. No browser, auth or upload action ran. |
+| Complete packaged native UI, 1.106.0, with a symlinked `TMPDIR` | Passed, including native settings, MCP metadata, transfer, shell, ownership recovery, editor dialogs and thinking history. |
+| Actual Pi 1.3.0 public SDK check with a symlinked `TMPDIR` | Passed discovery, export, complete-tree import, unchanged source and command-context snapshot checks. No model or network call. |
+| `npm run package`, contents, changed script syntax and `git diff --check` | Passed. Development/test files remain outside the VSIX. |
+
+The initial full matrix above is retained as historical evidence. Unchanged checks were not repeated. Remote hosts, native Windows/macOS UI, live providers, real authorization and external uploads remain unverified. The existing dependency advisories below are unchanged.
 
 ## Existing dependency advisories
 

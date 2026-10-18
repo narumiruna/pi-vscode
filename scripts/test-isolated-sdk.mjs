@@ -1,6 +1,6 @@
 // Network-free public-SDK compatibility check. Supply the configured Pi executable explicitly.
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -77,7 +77,7 @@ async function verifySessionLocation(invocation, directory, input) {
 }
 const executablePath = process.argv[2];
 if (!executablePath) throw new Error("Usage: node scripts/test-isolated-sdk.mjs <configured-pi-executable>");
-const directory = await mkdtemp(path.join(tmpdir(), "pi-public-sdk-fixture-"));
+const directory = await realpath(await mkdtemp(path.join(tmpdir(), "pi-public-sdk-fixture-")));
 try {
   const store = path.join(directory, "selected-store");
   await mkdir(store);

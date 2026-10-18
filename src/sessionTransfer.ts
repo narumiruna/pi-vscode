@@ -97,7 +97,7 @@ export function validateSessionJsonl(bytes: Buffer): ValidatedSession {
           typeof data !== "string" ||
           !["image/png", "image/jpeg", "image/gif", "image/webp"].includes(String(mimeType)) ||
           data.length > 6_990_508 ||
-          !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data)
+          /[^A-Za-z0-9+/=]/.test(data)
         )
           throw new Error("Invalid or oversized session image.");
         const decoded = Buffer.from(data, "base64");

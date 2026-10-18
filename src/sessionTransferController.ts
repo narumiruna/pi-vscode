@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import * as vscode from "vscode";
@@ -77,8 +77,9 @@ export function registerSessionTransfer(context: vscode.ExtensionContext, runtim
     );
   };
   const stage = async <T>(action: (directory: string) => Promise<T>): Promise<T> => {
-    const directory = await mkdtemp(path.join(tmpdir(), "pi-transfer-"));
+    let directory = await mkdtemp(path.join(tmpdir(), "pi-transfer-"));
     try {
+      directory = await realpath(directory);
       return await action(directory);
     } finally {
       await rm(directory, { recursive: true, force: true });

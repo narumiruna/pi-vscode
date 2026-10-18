@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type * as vscode from "vscode";
@@ -357,6 +357,86 @@ test("local active-branch export is exact and collision-safe; HTML keeps Pi's ow
     await f.cleanup();
   }
 });
+for (const operation of ["html", "jsonl", "import", "share", "failed-html"] as const) {
+  test(`${operation} canonicalizes owned staging under an aliased TMPDIR and cleans it`, async () => {
+    const f = await fixture();
+    try {
+      const physical = await realpath(f.root);
+      const temporary = path.join(physical, "temporary");
+      const alias = path.join(physical, "temporary-alias");
+      await mkdir(temporary);
+      await symlink(temporary, alias, "junction");
+      vi.stubEnv(process.platform === "win32" ? "TEMP" : "TMPDIR", alias);
+      const staged: string[] = [];
+      vi.spyOn(f.client, "exportHtml").mockImplementation(async (output) => {
+        staged.push(output);
+        assert.equal(await realpath(path.dirname(output)), path.dirname(output));
+        if (operation === "failed-html") throw new Error("fixture HTML failure");
+        await writeFile(output, "<p>HTML fixture</p>");
+        return output;
+      });
+      let inspected = "";
+      let provider: vscode.TextDocumentContentProvider | undefined;
+      mock.workspace.registerTextDocumentContentProvider = (
+        _scheme: string,
+        value: vscode.TextDocumentContentProvider,
+      ) => {
+        provider = value;
+        return { dispose() {} };
+      };
+      mock.workspace.openTextDocument = async (uri: vscode.Uri) => ({
+        uri,
+        getText: () => provider?.provideTextDocumentContent(uri, {} as vscode.CancellationToken),
+      });
+      mock.window.showTextDocument = async (document: vscode.TextDocument) => {
+        inspected = document.getText();
+      };
+      registerSessionTransfer(f.context, f.runtime);
+      const output = path.join(
+        physical,
+        operation === "html" || operation === "failed-html" ? "export.html" : "export.jsonl",
+      );
+      mock.window.showSaveDialog = async () => mock.Uri.file(output);
+      mock.window.showOpenDialog = async () => [mock.Uri.file(f.source)];
+      let step = 0;
+      mock.window.showQuickPick = async (items: any[]) =>
+        operation === "share" ? (step++ < 2 ? items[0] : undefined) : items[operation === "jsonl" ? 1 : 0];
+      mock.window.showWarningMessage = async (message: string) => {
+        f.notices.push(message);
+        return "Import Copy";
+      };
+      const upload = vi.spyOn(share, "uploadSessionGist");
+      await mock.registrations.get(
+        operation === "import" ? "pi.importSession" : operation === "share" ? "pi.shareSession" : "pi.exportSession",
+      )();
+      for (const request of f.requests) {
+        if (request.operation === "export" || request.operation === "import")
+          staged.push(request.input, request.output);
+      }
+      assert.ok(staged.length > 0, "the operation must reach its staging callback");
+      for (const filename of staged) assert.ok(filename.startsWith(temporary + path.sep), filename);
+      assert.deepEqual(await readdir(temporary), [], "owned staging must be removed after success or failure");
+      assert.equal((await lstat(alias)).isSymbolicLink(), true, "cleanup must not remove the TMPDIR alias");
+      assert.deepEqual(await readFile(f.source), f.bytes);
+      if (operation === "html") assert.equal(await readFile(output, "utf8"), "<p>HTML fixture</p>");
+      if (operation === "jsonl") assert.deepEqual(await readFile(output), f.bytes);
+      if (operation === "import") {
+        assert.equal(f.switched(), 1);
+        assert.equal((await readdir(f.root)).filter((name) => name.startsWith("import-")).length, 1);
+      }
+      if (operation === "share") {
+        assert.equal(inspected, f.bytes.toString());
+        assert.equal(upload.mock.calls.length, 0);
+      }
+      if (operation === "failed-html") {
+        assert.ok(f.notices.some((value) => value.includes("fixture HTML failure")));
+        await assert.rejects(readFile(output), { code: "ENOENT" });
+      }
+    } finally {
+      await f.cleanup();
+    }
+  });
+}
 test("cancelled import activation retains a unique copy and source, without clearing the old draft/history", async () => {
   const f = await fixture();
   try {

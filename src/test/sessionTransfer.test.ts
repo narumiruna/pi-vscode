@@ -168,6 +168,45 @@ test("image, depth and reference bounds apply to the complete file, not only vis
   );
   assert.ok(JSON.stringify(valid.entries).includes("opaque-sensitive-replay-data"));
 });
+for (const size of [4, 5]) {
+  test(`canonical ${size} MiB session images do not exhaust the regex stack`, () => {
+    const data = Buffer.alloc(size * 1024 * 1024).toString("base64");
+    const bytes = mutate((values) => {
+      values[1]!.message.content = [{ type: "image", mimeType: "image/png", data }];
+    });
+    const validated = validateSessionJsonl(bytes);
+    const message = validated.entries[0]?.message as { content: { data: string }[] };
+    assert.equal(message.content[0]?.data, data);
+  });
+}
+test("stack-safe image checks retain canonical base64 and decoded-byte limits", () => {
+  for (const data of ["AA=", "AA", "AB==", "AA==AA==", "A===", "AA==\\n", "AA-_", "AAé=", ""]) {
+    assert.throws(
+      () =>
+        validateSessionJsonl(
+          mutate((values) => {
+            values[1]!.message.content = [{ type: "image", mimeType: "image/png", data }];
+          }),
+        ),
+      /session image|Session images/,
+    );
+  }
+  assert.throws(
+    () =>
+      validateSessionJsonl(
+        mutate((values) => {
+          values[1]!.message.content = [
+            {
+              type: "image",
+              mimeType: "image/png",
+              data: Buffer.alloc(5 * 1024 * 1024 + 1).toString("base64"),
+            },
+          ];
+        }),
+      ),
+    /Session images exceed 5 MiB/,
+  );
+});
 test("multiple roots are valid Pi tree semantics, not silently joined", () => {
   assert.equal(
     validateSessionJsonl(
