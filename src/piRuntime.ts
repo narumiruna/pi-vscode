@@ -6,6 +6,14 @@ import { piConfiguration } from "./configuration";
 import { ConversationResponseCapture, ExclusiveOperationGate } from "./conversationController";
 import { type ExtensionDialogRequest, ExtensionDialogRequests } from "./extensionDialogRequests";
 import {
+  type ShellResult,
+  shellAbortDeadlineMs,
+  shellCapabilityName,
+  shellExecutionDeadlineMs,
+  shellPolicyTitle,
+  validateShellCommand,
+} from "./directShell";
+import {
   PiRpcClient,
   type PiRpcClientOptions,
   type PiRpcEvent,
@@ -161,6 +169,24 @@ export class PiRuntimeManager implements vscode.Disposable {
   private readonly control: PiRuntimeControl;
   private queueStopping = false;
   private promptActive = false;
+  private shellActive:
+    | {
+        readonly id: string;
+        readonly client: PiRpcClient;
+        readonly sessionId: string;
+        readonly sessionFile?: string;
+        readonly cwd: string;
+        readonly workspacePath: string;
+        readonly command: string;
+        readonly excludeFromContext: boolean;
+        readonly assertCurrent: () => Promise<void>;
+        approved: boolean;
+        consumed: boolean;
+        cancelled: boolean;
+        execution?: Promise<ShellResult>;
+        stopping?: Promise<void>;
+      }
+    | undefined;
   private queueRevision = 0;
   private readonly trackedQueue: Record<RuntimeQueueKind, TrackedQueueInstruction[]> = { steering: [], followUp: [] };
   private readonly awaitingQueueStarts: TrackedQueueInstruction[] = [];
@@ -354,6 +380,258 @@ export class PiRuntimeManager implements vscode.Disposable {
     });
   }
 
+  /** Only the explicit idle composer dispatch calls this mutation route. */
+  public async executeShell(
+    command: string,
+    excludeFromContext: boolean,
+    onAccepted?: () => void,
+    onHistory?: (messages: readonly unknown[]) => Promise<void>,
+  ): Promise<ShellResult | undefined> {
+    return this.withForegroundOperation("direct shell", async (client, assertCurrent) => {
+      validateShellCommand(command);
+      if (this.state.busy || this.state.queue?.steering.length || this.state.queue?.followUp.length)
+        throw new Error("Direct shell requires an idle session with no queued work.");
+      const folder = this.resource
+        ? vscode.workspace.getWorkspaceFolder(this.resource)
+        : vscode.workspace.workspaceFolders?.[0];
+      if (!folder || folder.uri.scheme !== "file") throw new Error("Direct shell requires a file-backed workspace.");
+      const cwd = await realpath(this.currentCwd);
+      if ((await realpath(folder.uri.fsPath)) !== cwd)
+        throw new Error("Direct shell workspace differs from Pi's working directory.");
+      if (this.state.sessionFile) await assertSessionWorkspace(this.state.sessionFile, cwd);
+      const commands = await client.getCommands();
+      const policyPath = path.join(this.context.extensionUri.fsPath, "resources", "pi-permission-gate.ts");
+      const readOnlyPath = path.join(this.context.extensionUri.fsPath, "resources", "pi-read-only-gate.ts");
+      const hasPolicy = (name: string, sourcePath: string, description: string) => {
+        const matches = commands.filter((value) => isRecord(value) && value.name === name);
+        const value = matches[0];
+        return (
+          matches.length === 1 &&
+          isRecord(value) &&
+          value.source === "extension" &&
+          value.description === description &&
+          isRecord(value.sourceInfo) &&
+          value.sourceInfo.path === sourcePath
+        );
+      };
+      if (
+        !hasPolicy(shellCapabilityName, policyPath, "VS Code direct-shell policy; Pi 1.3.0") ||
+        !hasPolicy("vscode-pi-read-only-ready", readOnlyPath, "VS Code read-only direct-shell policy v1")
+      )
+        throw new Error(
+          "Direct shell is unavailable: verified Pi 1.3.0 packaged policies are required. No command ran.",
+        );
+      if (!this.state.sessionId) throw new Error("Direct shell requires a verified session identity.");
+      await assertCurrent();
+      const shell = {
+        id: randomUUID(),
+        client,
+        sessionId: this.state.sessionId,
+        sessionFile: this.state.sessionFile,
+        cwd,
+        workspacePath: folder.uri.fsPath,
+        command,
+        excludeFromContext,
+        assertCurrent,
+        approved: false,
+        consumed: false,
+        cancelled: false,
+        execution: undefined as Promise<ShellResult> | undefined,
+        stopping: undefined as Promise<void> | undefined,
+      };
+      this.shellActive = shell;
+      // The shared owner projects busy while its state stays idle for assertCurrent.
+      this.updateState({ queueable: false });
+      let result: ShellResult = { output: "", cancelled: false, truncated: false };
+      let submitted = false;
+      try {
+        const choice = await vscode.window.showWarningMessage(
+          `Run this shell command with your user permissions?\n\nWorking directory: ${cwd}\n${excludeFromContext ? "Excluded from model context; command/output remain in Pi history and exports." : "Command/output enter model context on the next prompt and remain in Pi history."}\nShell effects cannot be restored by request checkpoints.\n\n${command}`,
+          { modal: true },
+          "Run Shell",
+        );
+        if (choice !== "Run Shell" || shell.cancelled) return undefined;
+        await this.assertShellOrigin(shell);
+        shell.approved = true;
+        submitted = true;
+        this.eventEmitter.fire({
+          type: "shell_execution",
+          id: shell.id,
+          command,
+          excludeFromContext,
+          result,
+          state: "running",
+        });
+        shell.execution = client.bash(command, excludeFromContext, (update) => {
+          if (
+            this.shellActive !== shell ||
+            this.client !== client ||
+            this.state.sessionId !== shell.sessionId ||
+            this.state.sessionFile !== shell.sessionFile
+          )
+            return;
+          result = update;
+          this.eventEmitter.fire({
+            type: "shell_execution",
+            id: shell.id,
+            command,
+            excludeFromContext,
+            result,
+            state: "running",
+          });
+        });
+        onAccepted?.();
+        try {
+          result = await withDeadline(
+            shell.execution,
+            shellExecutionDeadlineMs,
+            "Direct shell reached its execution deadline.",
+          );
+        } catch (error) {
+          await this.stopShell(shell);
+          throw error;
+        }
+        if (shell.stopping) await shell.stopping;
+        if (!shell.cancelled) await this.assertShellOrigin(shell);
+        const finalState = await client.getState();
+        if (finalState.sessionId !== shell.sessionId || stringField(finalState, "sessionFile") !== shell.sessionFile)
+          throw new Error("Pi session changed while shell was running; output belongs to the original session.");
+        this.eventEmitter.fire({
+          type: "shell_execution",
+          id: shell.id,
+          command,
+          excludeFromContext,
+          result,
+          state: "finished",
+        });
+        if (onHistory) {
+          const history = await client.getMessages();
+          await shell.assertCurrent();
+          await onHistory(history);
+        }
+        await this.refreshStateAfterCommand(false, "Direct shell");
+        return result;
+      } catch (error) {
+        if (submitted) {
+          if (
+            this.shellActive === shell &&
+            (!this.client || this.client === client) &&
+            this.state.sessionId === shell.sessionId &&
+            this.state.sessionFile === shell.sessionFile
+          )
+            this.eventEmitter.fire({
+              type: "shell_execution",
+              id: shell.id,
+              command,
+              excludeFromContext,
+              result,
+              state: "uncertain",
+            });
+          throw new Error(
+            `Direct shell did not complete reliably. Do not repeat it automatically. Inspect processes, Source Control, and external effects. ${formatError(error)}`,
+          );
+        }
+        throw error;
+      } finally {
+        if (this.shellActive === shell) {
+          this.shellActive = undefined;
+          if (!this.client || this.client === client) this.updateState({ busy: false, queueable: false });
+        }
+      }
+    });
+  }
+
+  private async assertShellOrigin(shell: NonNullable<PiRuntimeManager["shellActive"]>): Promise<void> {
+    await shell.assertCurrent();
+    if (
+      !vscode.workspace.isTrusted ||
+      this.shellActive !== shell ||
+      shell.cancelled ||
+      this.client !== shell.client ||
+      !shell.client.isRunning ||
+      this.state.sessionId !== shell.sessionId ||
+      this.state.sessionFile !== shell.sessionFile ||
+      (await realpath(this.currentCwd)) !== shell.cwd ||
+      (await realpath(shell.workspacePath)) !== shell.cwd
+    )
+      throw new Error("Direct shell approval is stale or belongs to another workspace/session.");
+    // Repeat synchronous identity checks after the asynchronous canonical checks.
+    if (
+      !vscode.workspace.isTrusted ||
+      this.shellActive !== shell ||
+      shell.cancelled ||
+      this.client !== shell.client ||
+      this.state.sessionId !== shell.sessionId ||
+      this.state.sessionFile !== shell.sessionFile
+    )
+      throw new Error("Direct shell origin changed during validation.");
+  }
+
+  private async authorizeShellPolicy(event: PiRpcEvent, client: PiRpcClient): Promise<void> {
+    const id = typeof event.id === "string" ? event.id : undefined;
+    if (!id) return;
+    let confirmed = false;
+    const shell = this.shellActive;
+    try {
+      if (!shell || shell.client !== client || !shell.approved || shell.consumed || event.method !== "confirm")
+        throw new Error("No direct-shell approval belongs to this request.");
+      const payload: unknown = typeof event.message === "string" ? JSON.parse(event.message) : undefined;
+      if (
+        !isRecord(payload) ||
+        payload.command !== shell.command ||
+        typeof payload.cwd !== "string" ||
+        payload.excludeFromContext !== shell.excludeFromContext ||
+        payload.sessionId !== shell.sessionId
+      )
+        throw new Error("Direct-shell policy origin mismatch.");
+      shell.consumed = true;
+      if ((await realpath(payload.cwd)) !== shell.cwd) throw new Error("Direct-shell policy directory mismatch.");
+      await this.assertShellOrigin(shell);
+      confirmed = true;
+    } catch {
+      // Fail closed. Never send the request through the generic extension UI.
+    }
+    if (this.client === client && client.isRunning) {
+      try {
+        client.sendExtensionUiResponse(id, { confirmed });
+      } catch (error) {
+        await client.stop();
+        this.eventEmitter.fire({
+          type: "runtime_warning",
+          warningCode: "cleanup-unverified",
+          message: `Shell policy acknowledgement failed; disconnected without replay. ${formatError(error)}`,
+        });
+      }
+    }
+  }
+
+  private async stopShell(shell: NonNullable<PiRuntimeManager["shellActive"]>): Promise<void> {
+    shell.cancelled = true;
+    if (!shell.execution) return;
+    if (shell.stopping) return shell.stopping;
+    shell.stopping = (async () => {
+      try {
+        await withDeadline(shell.client.abortBash(), shellAbortDeadlineMs, "Shell abort was not acknowledged.");
+        await withDeadline(shell.execution!, shellAbortDeadlineMs, "Shell did not settle after abort.");
+        this.eventEmitter.fire({
+          type: "runtime_warning",
+          warningCode: "cleanup-unverified",
+          message:
+            "The shell acknowledged cancellation and returned a final result. Escaped descendants may remain; Windows descendant cleanup is unverified. Inspect processes and effects before conflicting work.",
+        });
+      } catch (error) {
+        await shell.client.stop();
+        this.eventEmitter.fire({
+          type: "runtime_warning",
+          warningCode: "cleanup-unverified",
+          message: `Direct shell disconnected without verified settlement. Escaped or Windows descendants may remain. ${formatError(error)}`,
+        });
+        throw error;
+      }
+    })();
+    return shell.stopping;
+  }
+
   public async queueInstruction(
     kind: "steer" | "followUp",
     text: string,
@@ -506,6 +784,7 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   public async abort(): Promise<void> {
+    if (this.shellActive) return this.stopShell(this.shellActive);
     const client = this.client;
     if (!client) return;
     try {
@@ -626,6 +905,7 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   public async setSessionName(name: string): Promise<void> {
+    if (this.shellActive) throw new Error("Wait for direct shell before renaming the session.");
     await this.ensureStarted(this.resource);
     await this.requireClient().setSessionName(name);
     await this.refreshState(false);
@@ -788,7 +1068,18 @@ export class PiRuntimeManager implements vscode.Disposable {
     this.invalidateExtensionDialogs();
     this.clientSubscription?.dispose();
     const subscription = client.onEvent((event) => {
-      if (this.client === client) this.handleEvent(event);
+      if (this.client !== client) return;
+      if (event.type === "extension_ui_request" && event.title === shellPolicyTitle) {
+        void this.authorizeShellPolicy(event, client).catch((error) => {
+          this.eventEmitter.fire({
+            type: "runtime_warning",
+            warningCode: "cleanup-unverified",
+            message: `Shell policy cleanup failed. ${formatError(error)}`,
+          });
+        });
+        return;
+      }
+      this.handleEvent(event);
     });
     this.clientSubscription = subscription;
     this.client = client;
@@ -886,7 +1177,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       this.invalidateExtensionDialogs();
     this.state = {
       connected: true,
-      busy: this.promptActive || Boolean(rpcState.isStreaming),
+      busy: Boolean(this.shellActive) || this.promptActive || Boolean(rpcState.isStreaming),
       model: recordField(rpcState, "model"),
       thinkingLevel: stringField(rpcState, "thinkingLevel"),
       sessionFile,
@@ -1305,4 +1596,18 @@ function arraysEqual(left: readonly string[], right: readonly string[]): boolean
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function withDeadline<T>(operation: Promise<T>, milliseconds: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), milliseconds);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }

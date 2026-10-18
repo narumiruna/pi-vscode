@@ -1,6 +1,15 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import { type PiSessionTree, parseSessionTree, validId } from "./piControl";
+import {
+  cleanShellText,
+  maxShellOutputCharacters,
+  parseShellResult,
+  type ShellResult,
+  shellAbortDeadlineMs,
+  shellExecutionDeadlineMs,
+  validateShellCommand,
+} from "./directShell";
 import { PiProcessOwner } from "./piProcess";
 import { buildPiProcessEnvironment, planPiSpawn } from "./piSpawn";
 
@@ -289,6 +298,44 @@ export class PiRpcClient {
     }
   }
 
+  public async bash(
+    command: string,
+    excludeFromContext: boolean,
+    onUpdate: (result: ShellResult) => void,
+  ): Promise<ShellResult> {
+    validateShellCommand(command);
+    const id = `vscode_shell_${++this.requestId}`;
+    let rawOutput = "";
+    let truncated = false;
+    const subscription = this.onEvent((event) => {
+      if (event.type !== "bash_execution_update" || event.id !== id) return;
+      if (typeof event.delta !== "string") {
+        this.failProcess(new Error("Invalid correlated shell output; execution is uncertain."));
+        return;
+      }
+      truncated ||= rawOutput.length + event.delta.length > maxShellOutputCharacters;
+      rawOutput = (rawOutput + event.delta).slice(-maxShellOutputCharacters);
+      onUpdate({ output: cleanShellText(rawOutput), cancelled: false, truncated });
+    });
+    try {
+      const response = await this.command(
+        "bash",
+        { command, excludeFromContext },
+        { id, timeoutMs: shellExecutionDeadlineMs + 2 * shellAbortDeadlineMs },
+      );
+      // The authoritative final output replaces streaming data. Never append it.
+      const result = parseShellResult(response.data);
+      onUpdate(result);
+      return result;
+    } finally {
+      subscription.dispose();
+    }
+  }
+
+  public async abortBash(): Promise<void> {
+    await this.command("abort_bash", {}, { timeoutMs: shellAbortDeadlineMs });
+  }
+
   public async newSession(): Promise<unknown> {
     return this.commandData("new_session");
   }
@@ -389,19 +436,26 @@ export class PiRpcClient {
     return isRecord(response.data) ? response.data : {};
   }
 
-  private command(type: string, fields: Record<string, unknown> = {}): Promise<PiRpcResponse> {
+  private command(
+    type: string,
+    fields: Record<string, unknown> = {},
+    options: { readonly id?: string; readonly timeoutMs?: number } = {},
+  ): Promise<PiRpcResponse> {
     const child = this.process;
     if (!child || child.exitCode !== null || child.stdin.destroyed || !child.stdin.writable) {
       return Promise.reject(new Error(`Pi RPC is not running.${formatDiagnostics(this.stderr)}`));
     }
 
-    const id = `vscode_${++this.requestId}`;
+    const id = options.id ?? `vscode_${++this.requestId}`;
     const request = { ...fields, id, type };
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`Timed out waiting for Pi RPC command '${type}'.${formatDiagnostics(this.stderr)}`));
-      }, this.options.requestTimeoutMs ?? defaultRequestTimeoutMs);
+      const timer = setTimeout(
+        () => {
+          this.pending.delete(id);
+          reject(new Error(`Timed out waiting for Pi RPC command '${type}'.${formatDiagnostics(this.stderr)}`));
+        },
+        options.timeoutMs ?? this.options.requestTimeoutMs ?? defaultRequestTimeoutMs,
+      );
       this.pending.set(id, { command: type, timer, resolve, reject });
       try {
         this.writeRecord(request);

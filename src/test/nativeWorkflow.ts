@@ -14,6 +14,7 @@ import { VscodeBridgeServer } from "../vscodeBridge";
 import { vscodeBridgePortEnvironmentKey, vscodeBridgeTokenEnvironmentKey } from "../vscodeBridgeProtocol";
 import { verifyDiagnosticEncodings } from "./nativeDiagnosticEncoding";
 import { verifyNativePiControl } from "./nativePiControl";
+import { verifyNativeDirectShell } from "./nativeDirectShell";
 import { verifyNativeSettings } from "./nativeSettings";
 
 export async function run(): Promise<void> {
@@ -27,10 +28,11 @@ export async function run(): Promise<void> {
     );
   const uri = vscode.Uri.joinPath(root, "source.ts");
   const source = await vscode.workspace.openTextDocument(uri);
+  const directShell = await verifyNativeDirectShell();
   if (!vscode.workspace.isTrusted) {
     await verifyNativePiControl(root);
     await assert.rejects(queryCodeContext("definition", uri, new vscode.Position(1, 0)), /trusted/);
-    await evidence({ version: vscode.version, trusted: false, trustGuard: "passed" });
+    await evidence({ version: vscode.version, trusted: false, trustGuard: "passed", directShell });
     return;
   }
   await verifyNativeSettings();
@@ -167,6 +169,7 @@ export async function run(): Promise<void> {
     nativeDiffAndWorkspaceEdit: "passed",
     nativeUndo: "passed",
     diagnosticEncodingCases,
+    directShell,
   });
 }
 

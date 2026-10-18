@@ -15,6 +15,7 @@ import { assertToolActivity } from "./tool-activity-fixture.mjs";
 import { assertNativeFileCompletion } from "./completion-native-fixture.mjs";
 import thinkingFixture from "./fixtures/thinking.cjs";
 import { assertThinkingDisclosure } from "./thinking-fixture.mjs";
+import { assertNativeDirectShell } from "./direct-shell-fixture.mjs";
 
 // Actual Quick Picks, modals, Problems, code actions and webview clicks; only Pi is simulated.
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -428,6 +429,10 @@ try {
   console.log("PI_NATIVE_TOOL_ACTIVITY", JSON.stringify(toolEvidence));
   const richEvidence = await assertRichContent(await frame());
   console.log("PI_NATIVE_RICH_CONTENT", JSON.stringify({ packaged, ...richEvidence }));
+  const shellEvidence = await assertNativeDirectShell(frame, page, async () =>
+    readFile(path.join(directory, "shell.jsonl"), "utf8").then((text) => text.trim().split("\n").filter(Boolean).length).catch(() => 0),
+  );
+  console.log("PI_NATIVE_SHELL", JSON.stringify({ packaged, shellEvidence }));
   pi = await frame();
   const imagePreview = pi.locator(".transcript-image").first();
   await imagePreview.waitFor();

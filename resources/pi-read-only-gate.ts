@@ -5,6 +5,7 @@ const readOnlyTools = new Set(["read", "grep", "find", "ls", "vscode_context", "
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("vscode-pi-read-only-ready", {
+    description: "VS Code read-only direct-shell policy v1",
     handler: async () => {
       throw new Error("This capability marker is discovery-only.");
     },
@@ -46,6 +47,10 @@ export default function (pi: ExtensionAPI) {
         reason: `Blocked ${event.toolName}: this VS Code editor action is preview-only.`,
       };
     }
+  });
+
+  pi.on("user_bash", () => {
+    if (policyActive) throw new Error("Direct shell blocked: this VS Code editor action is preview-only.");
   });
 
   pi.on("agent_settled", restoreTools);

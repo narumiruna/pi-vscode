@@ -2,6 +2,7 @@ import path from "node:path";
 import * as vscode from "vscode";
 import { isSupportedImageMimeType } from "./attachmentUtils";
 import { type FileCompletionMessage, isFileCompletionMessage } from "./composerFileToken";
+import { maxShellCommandCharacters, parseShellResult, shellMessageText } from "./directShell";
 import { type ImageAssetCache, unavailableImageAssetId } from "./imageAssets";
 import { piMessageContentText, piMessageThinking } from "./piMessages";
 import { extractReplacement, parseAgentPrompt } from "./prompts";
@@ -199,13 +200,15 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
   const retainedEntries: Array<{ readonly index: number; readonly value: Record<string, unknown> }> = [];
   for (let index = values.length - 1; index >= 0 && retainedEntries.length < retainedCount; index -= 1) {
     const value = values[index];
-    if (!isRecord(value) || (value.role !== "user" && value.role !== "assistant")) continue;
-    if (
-      !hasMessageText(value.content) &&
-      !(value.role === "assistant" && hasMessageThinking(value.content)) &&
-      (value.role !== "user" || !hasMessageImages(value.content))
-    )
-      continue;
+    if (!isRecord(value) || !["user", "assistant", "bashExecution"].includes(String(value.role))) continue;
+    if (value.role === "bashExecution") {
+      if (typeof value.command !== "string") continue;
+      try {
+        parseShellResult(value);
+      } catch {
+        continue;
+      }
+    } else if (!hasMessageText(value.content) && !(value.role === "assistant" && hasMessageThinking(value.content)) && (value.role !== "user" || !hasMessageImages(value.content))) continue;
     retainedEntries.push({ index, value });
   }
   retainedEntries.reverse();
@@ -225,6 +228,18 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
   let messages: SidebarMessage[] = [];
   const assistantOccurrences = new Map<number, number>();
   for (const { index, value } of retainedEntries) {
+    if (value.role === "bashExecution") {
+      messages.push({
+        id: `pi-shell-${String(value.timestamp ?? index)}-${index}`,
+        role: "shell",
+        content: shellMessageText(
+          String(value.command).slice(0, maxShellCommandCharacters),
+          value.excludeFromContext === true,
+          parseShellResult(value),
+        ),
+      });
+      continue;
+    }
     const text = piMessageContentText(value.content);
     if (value.role === "user") {
       const imageAttachments = imageAttachmentsByIndex.get(index) ?? [];

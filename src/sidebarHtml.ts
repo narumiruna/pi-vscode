@@ -335,7 +335,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       </div>
       <section id="extension-ui-below" class="extension-ui-block" tabindex="0" aria-label="Pi extension widgets below editor" hidden></section>
       <p id="settings-description" class="sr-only"></p>
-      <details id="composer-help"><summary>Submission help</summary><div id="composer-hint">Enter to send · Shift+Enter for a new line</div></details>
+      <details id="composer-help"><summary>Submission help</summary><div id="composer-hint">Enter to send · Shift+Enter for a new line</div><p>Idle session only: !command includes model context; !!command excludes model context, not history. Remove attachments. Every command needs approval. Prefix ! with a backslash to send literal text.</p></details>
     </section>
     <div id="notice" role="status" aria-live="polite"></div>
     <div id="runtime"><span class="status-dot" aria-hidden="true"></span><span id="status" role="status" aria-live="polite">Connecting…</span><details id="session-details" hidden><summary>Session details</summary><div class="session-details-content"><label for="session">Session ID (select to copy)</label><input id="session" readonly></div></details><span id="usage"></span><button id="retry" class="secondary" type="button" hidden>Retry</button><button id="refresh-history" class="secondary" type="button" hidden>Refresh history</button><button id="reconnect" class="secondary" type="button" hidden>Reconnect</button></div>
@@ -607,7 +607,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           wrapper.messageId = message.id;
           const role = document.createElement('div');
           role.className = 'role';
-          role.textContent = message.role === 'user' ? 'You' : 'Pi';
+          role.textContent = message.role === 'user' ? 'You' : message.role === 'shell' ? 'Shell' : 'Pi';
           const content = document.createElement('div');
           content.className = 'content';
           setMessageContent(content, html[index]);
@@ -1324,12 +1324,14 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('add-context').disabled = Boolean(recoveredDraftPending);
       for (const button of emptyActionButtons) button.disabled = interactionLocked;
       const canQueue = busy && queueable && !sessionsLayerVisible;
-      const queueBlocked = canQueue && (input.value.trimStart().startsWith('/') || pendingQueueCount >= 10);
+      const shellInput = input.value.startsWith('!');
+      const shellBlocked = shellInput && (attachedItems > 0 || canQueue || sessionsLayerVisible);
+      const queueBlocked = canQueue && (input.value.trimStart().startsWith('/') || shellInput || pendingQueueCount >= 10);
       sendButton.hidden = busy && !canQueue;
       sendButton.classList.toggle('queue-action', canQueue);
       sendButton.setAttribute('aria-label', canQueue ? 'Next: send after the current tool finishes' : 'Send message');
       $('after-this').hidden = !canQueue;
-      sendButton.disabled = Boolean(fileCompletion?.busy) || (busy && !canQueue) || queueBlocked || submissionPending || backgroundSubmissionPending || imageLoading || Boolean(recoveredDraftPending) || sessionStartBlocked || !connected || (!input.value.trim() && !attachedItems) || imageBlocked;
+      sendButton.disabled = Boolean(fileCompletion?.busy) || (busy && !canQueue) || queueBlocked || shellBlocked || submissionPending || backgroundSubmissionPending || imageLoading || Boolean(recoveredDraftPending) || sessionStartBlocked || !connected || (!input.value.trim() && !attachedItems) || imageBlocked;
       $('after-this').disabled = sendButton.disabled;
       $('after-this').title = 'Send when Pi finishes responding (' + followUpShortcutLabel + ')';
       const settingsReason = !connected ? 'Reconnect to change settings.' : interactionLocked ? 'Settings are locked during active work.' : '';
@@ -1338,7 +1340,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('model-picker').parentElement?.setAttribute('title', settingsReason);
       thinkingLevel.setAttribute('aria-describedby', 'settings-description');
       thinkingLevel.title = (thinkingLevel.value ? 'Pi thinking level: ' + formatThinkingLevel(thinkingLevel.value) : 'Pi thinking level unavailable for this model.') + (settingsReason ? ' ' + settingsReason : '');
-      sendButton.title = queueBlocked
+      sendButton.title = shellBlocked
+        ? 'Direct shell requires an idle session composer without attachments.'
+        : queueBlocked
         ? input.value.trimStart().startsWith('/') ? 'Slash commands cannot be queued.' : 'The queue is full (10 messages).'
         : imageLoading
         ? 'Wait for pasted images to finish loading.'
@@ -1366,7 +1370,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
                 ? 'Next: after the current tool · After this: after the response · Enter / ' + followUpShortcutLabel + ' · Shift+Enter for a new line'
                 : busy
                   ? 'Wait for Pi to finish before sending'
-                  : 'Enter to send · Shift+Enter for a new line';
+                  : shellInput ? 'Direct shell: ! includes model context · !! excludes model context, not history · Approval required' : 'Enter to send · Shift+Enter for a new line';
       updateRuntimeStatus();
       renderSlashCommands();
       fileCompletion?.refresh();
@@ -1422,6 +1426,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const names = new Set();
       slashCommands = catalog.filter(command => {
         if (!command || typeof command.name !== 'string' || !/^[^\\s/]+$/.test(command.name) || names.has(command.name)) return false;
+        if (command.name === 'vscode-pi-permission-ready' || command.name === 'vscode-pi-read-only-ready') return false;
         names.add(command.name);
         return true;
       });

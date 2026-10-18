@@ -17,9 +17,10 @@ import {
   type PiConversationController,
   shouldTrackConversationChanges,
 } from "./conversationController";
+import { parseComposerInput, parseShellResult, shellMessageText } from "./directShell";
 import { EditProposalStore } from "./editProposals";
 import { ImageAssetCache, ImageAssetDeliveryTracker } from "./imageAssets";
-import { MarkdownRenderer } from "./markdown";
+import { escapeHtml, MarkdownRenderer } from "./markdown";
 import { acquireOperation } from "./operationLocks";
 import type { PiRpcEvent, PiRpcImage } from "./piRpcClient";
 import { deleteConversationWithTrashFallback, type PiRuntimeManager, runtimeSessionIdentityChanged } from "./piRuntime";
@@ -387,7 +388,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           this.requestLifecycle.cancel();
           await this.runtime.abort();
           this.queuedTranscriptPresentations.clear();
-          this.status = "Cancelled · Ready to retry";
+          this.status = "Stopped · Check history and effects before sending again";
           this.postState();
           break;
         case "reconnect":
@@ -707,8 +708,10 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async queue(kind: "steer" | "followUp", rawText: string, revision: number): Promise<void> {
+    const input = parseComposerInput(rawText);
+    if (input.kind === "shell") throw new Error("Direct shell cannot be queued. Wait for an idle session.");
     const submission = this.attachments.captureSubmission();
-    const resolved = resolveSidebarQueueSubmission(rawText, submission);
+    const resolved = resolveSidebarQueueSubmission(input.text, submission);
     if (!resolved) {
       this.postMessage({ type: "sendRejected" });
       return;
@@ -747,9 +750,11 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async sendInNewSession(rawText: string, revision: number): Promise<void> {
+    const input = parseComposerInput(rawText);
+    if (input.kind === "shell") throw new Error("Open a session before running direct shell from its idle composer.");
     if (await this.sendCompactCommand(rawText, revision)) return;
     const submission = this.attachments.captureSubmission();
-    const text = resolveSidebarSubmissionText(rawText, submission);
+    const text = resolveSidebarSubmissionText(input.text, submission);
     if (text.startsWith("/") && (submission.textContexts.length || submission.images.length)) {
       throw new Error("Remove attachments before running a slash command.");
     }
@@ -817,9 +822,14 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async send(rawText: string, revision: number): Promise<void> {
+    const input = parseComposerInput(rawText);
+    if (input.kind === "shell") {
+      await this.sendShell(input.command, input.excludeFromContext, rawText, revision);
+      return;
+    }
     if (await this.sendCompactCommand(rawText, revision)) return;
     const submission = this.attachments.captureSubmission();
-    const text = resolveSidebarSubmissionText(rawText, submission);
+    const text = resolveSidebarSubmissionText(input.text, submission);
     if (!text) {
       this.postMessage({ type: "sendRejected" });
       return;
@@ -845,6 +855,81 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       undefined,
       submission.transcriptAttachments,
     );
+  }
+
+  private async sendShell(
+    command: string,
+    excludeFromContext: boolean,
+    rawText: string,
+    revision: number,
+  ): Promise<void> {
+    if (this.attachments.summaries.length) throw new Error("Remove all attachments before running direct shell.");
+    if (this.isForegroundRequestActive() || this.backgroundSubmissionGate.isPending)
+      throw new Error("Direct shell requires an idle composer with no conflicting work.");
+    const release = this.requestGate.acquire();
+    this.retryRequest = undefined;
+    this.foregroundCancellable = true;
+    this.tools = [];
+    this.status = "Awaiting shell approval…";
+    this.postState();
+    let submitted = false;
+    let checkpointCwd = this.runtime.currentCwd;
+    let checkpointSessionId: string | undefined;
+    let status: "completed" | "cancelled" | "process-exit" = "process-exit";
+    try {
+      checkpointCwd = await realpath(checkpointCwd);
+      const result = await this.runtime.executeShell(
+        command,
+        excludeFromContext,
+        () => {
+          submitted = true;
+          checkpointSessionId = this.runtime.currentState.sessionId;
+          this.postMessage({ type: "clearInput", expectedText: rawText, expectedRevision: revision });
+        },
+        async (history) => {
+          this.messages = limitSidebarMessages(
+            convertPiMessages(history, {
+              imageAssets: this.imageAssets,
+              knownMessages: this.messages,
+              maxMessages,
+            }),
+            maxMessages,
+            maxStoredCharacters,
+          );
+          await this.persistMessages();
+        },
+      );
+      if (!result) {
+        this.status = "Shell not started";
+        this.postMessage({ type: "sendRejected" });
+        return;
+      }
+      status = result.cancelled ? "cancelled" : "completed";
+      this.status = result.cancelled
+        ? "Shell cancelled · Inspect effects"
+        : `Shell finished · Exit ${result.exitCode ?? "unknown"}`;
+      await this.persistMessages();
+    } catch (error) {
+      this.status = "Shell execution uncertain · Inspect effects; no automatic retry";
+      await this.persistMessages();
+      this.postNotice(
+        "Shell did not complete reliably. Check history and effects; do not repeat it automatically.",
+        "error",
+        formatError(error),
+      );
+      throw error;
+    } finally {
+      try {
+        if (submitted) {
+          this.changeTracker.recordShellRequest(checkpointCwd, checkpointSessionId, status);
+          this.changes = this.changeTracker.changes;
+        }
+      } finally {
+        this.foregroundCancellable = false;
+        release();
+        this.postState();
+      }
+    }
   }
 
   private async runRequest(
@@ -1061,7 +1146,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async runBackground(rawText: string, isolated: boolean, composerRevision: number): Promise<void> {
-    const text = rawText.trim();
+    const input = parseComposerInput(rawText);
+    if (input.kind === "shell") throw new Error("Direct shell is available only in the idle session composer.");
+    const text = input.text.trim();
     if (!text) {
       throw new Error("Enter a message before starting a background or worktree agent.");
     }
@@ -1459,6 +1546,29 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.retryRequest = undefined;
       this.assistantStream = undefined;
       this.historySyncRevision += 1;
+    } else if (
+      event.type === "shell_execution" &&
+      typeof event.id === "string" &&
+      typeof event.command === "string" &&
+      typeof event.excludeFromContext === "boolean"
+    ) {
+      const content = shellMessageText(
+        event.command,
+        event.excludeFromContext,
+        parseShellResult(event.result),
+        event.state === "running" ? "running" : event.state === "uncertain" ? "uncertain" : "finished",
+      );
+      const message: SidebarMessage = { id: `shell-${event.id}`, role: "shell", content };
+      const existing = this.messages.findIndex((candidate) => candidate.id === message.id);
+      if (existing >= 0) this.messages[existing] = message;
+      else this.messages.push(message);
+      this.messages = limitSidebarMessages(this.messages, maxMessages, maxStoredCharacters);
+      this.status =
+        event.state === "running"
+          ? "Running shell…"
+          : event.state === "uncertain"
+            ? "Shell execution uncertain · Inspect effects"
+            : "Shell finished";
     } else if (event.type === "queue_instruction_delivered") {
       const instruction = isRecord(event.instruction) ? event.instruction : undefined;
       const id = instruction ? stringValue(instruction.id) : undefined;
@@ -1716,8 +1826,13 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.messages,
       (assetId) => this.imageAssets.has(assetId) || this.imageAssetDelivery.has(assetId),
     );
-    const html = this.markdownRenderer.renderBatch(visibleMessages.map((message) => message.content));
-    const messages = visibleMessages.map((message, index) => ({ ...message, html: html[index] }));
+    const html = this.markdownRenderer.renderBatch(
+      visibleMessages.map((message) => (message.role === "shell" ? "" : message.content)),
+    );
+    const messages = visibleMessages.map((message, index) => ({
+      ...message,
+      html: message.role === "shell" ? `<pre class="shell-output">${escapeHtml(message.content)}</pre>` : html[index],
+    }));
     this.postMessage({
       type: "state",
       messages,

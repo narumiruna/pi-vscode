@@ -61,7 +61,7 @@ export type TranscriptAttachment = TranscriptContextAttachment | TranscriptImage
 
 export interface SidebarMessage {
   readonly id: string;
-  readonly role: "user" | "assistant";
+  readonly role: "user" | "assistant" | "shell";
   readonly content: string;
   /** Memory-only visible provider content, restored from Pi rather than workspace storage. */
   readonly thinking?: readonly VisibleThinkingBlock[];
@@ -133,7 +133,7 @@ export function restoreSidebarMessages(value: unknown, maxMessages: number, maxC
       candidate.id.length > 200
     )
       continue;
-    if ((candidate.role !== "user" && candidate.role !== "assistant") || typeof candidate.content !== "string")
+    if (!["user", "assistant", "shell"].includes(String(candidate.role)) || typeof candidate.content !== "string")
       continue;
     if (candidate.truncated !== undefined && typeof candidate.truncated !== "boolean") continue;
     const attachments = restoreTranscriptAttachments(candidate.attachments);
@@ -144,7 +144,7 @@ export function restoreSidebarMessages(value: unknown, maxMessages: number, maxC
     const restoredAttachments = attachments.length ? attachments : legacyContext ? [legacyContext] : [];
     messages.push({
       id: candidate.id,
-      role: candidate.role,
+      role: candidate.role as SidebarMessage["role"],
       content: candidate.content,
       ...(restoredAttachments.length ? { attachments: restoredAttachments } : {}),
       ...(candidate.truncated ? { truncated: true } : {}),

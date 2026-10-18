@@ -124,6 +124,7 @@ This release also changes the identifier contract. Rename existing `picode.*` se
 | **Composer files** | Type `@` to find workspace files. Up/Down selects a result; Enter, Tab, or a click captures an attachment snapshot and removes only that token. For a path only, type `./src/` or a filename with an extension, then use Tab or click a visible result. Path insertion does not open or attach the file. Escape closes suggestions; Tab without results keeps normal focus navigation. Quoted tokens support spaces. Shell input (`!` / `!!`), slash commands, email addresses, and selected text do not trigger file completion. |
 | **Resource reload** | Choose **More… → Reload Pi Resources** or run local `/reload` without attachments. This reloads the approved foreground resources without a model request. **Restart Pi (Current Launch Policy)** is separate and explicitly applies changed executable, launch overrides, permission settings, or project-resource approval. Reconnect does not restart a running process. |
 | **Session branches** | Choose **More… → Browse Session Tree / Fork / Clone**. Stable entry IDs and indentation distinguish branches and duplicate labels. Fork accepts user entries, including abandoned branches; clone copies the active branch. Navigation never requests a summary or submits a draft. These actions do not restore files, Git state, or external effects. |
+| **Direct shell** | In an idle session composer, enter `!command` to include its output in the next model prompt, or `!!command` to exclude it from model context. Both remain in Pi history and exports. Every execution shows the full command, canonical working directory, and context mode for modal approval. Remove attachments; commands cannot be queued or run from the Sessions-level composer. Prefix a leading `!` with a backslash (`\!text`) to send literal prompt text. Requires the verified Pi 1.3.0 packaged policy contract; other versions leave this feature unavailable without an execution probe. |
 | **Slash commands** | Type `/` in the composer to list Pi extension commands, prompt templates, skills, and `/compact`. Type `/com` to find command names that contain `com`. Use Up/Down to select, Enter or Tab to complete, then Enter to run. Click to complete or press Escape to close. `/compact` accepts optional instructions and acts on the current session. Remove attachments before running commands. TUI-only commands are not listed. |
 | **In-flight instructions** | While an ordinary request is running, choose **Next** (Enter) to submit after the current tool finishes, or **After this** to submit after the response finishes. The alternate shortcut is Alt+Enter on macOS and Linux, or Ctrl+Q on Windows (including remote WSL sessions). **Submission help** explains the actions; **Stop** stays separate. Pending text stays visible under these labels, then moves into the transcript as soon as Pi starts that user message. Locked requests cannot accept queued messages. |
 | **Debug questions** | Pause a Node.js debugger and run **Pi: Ask Debug Context**. Approve capture, choose local variables, inspect or redact the snapshot, and ask a read-only question. |
@@ -228,7 +229,8 @@ Key operational limits:
 - Semantic lookups return at most 50 locations with a five-second provider deadline. Attachments include at most 20 excerpts of 4,000 characters each, within the existing attachment limits. Language providers can activate third-party extensions and require workspace trust.
 - Workspace diagnostic repair selects at most 100 errors/warnings in 20 files, 100,000 characters per file and 400,000 serialized characters per request/response. Existing dirty buffers are included; other document text must match safely captured disk bytes. Unknown paths, symlinks, stale/read-only targets and unverifiable text encodings are rejected. One workspace edit supports native Undo.
 - Failed-test repair accepts an executable and argument array, not a shell expression. Runs stop after 60 seconds, output is capped at 256 KiB, and repair is limited to two attempts. Apply asks for save/rerun approval and revalidates the source before changing its buffer; cancellation or rejected workspace aliases leave no repair to save later.
-- Checkpoints keep up to 20 requests in memory and restore only deterministically observed edits to captured regular text files.
+- Checkpoints keep up to 20 requests in memory and restore only deterministically observed edits to captured regular text files. Direct-shell effects are non-restorable.
+- Direct shell accepts up to 8,000 command characters and retains up to 64,000 output characters per card. Output is plain text with terminal controls removed. Commands have a 60-second execution deadline. Stop/deadline sends `abort_bash` and requires both its acknowledgement and a final result within bounded waits; otherwise Pi disconnects with cleanup uncertainty. An acknowledgement or process exit does not prove that escaped or Windows descendants stopped. Never repeat an uncertain command automatically.
 - In-flight instructions are limited to 10 messages and 50,000 characters. **Next** and **After this** messages can include captured text attachments and up to 5 images; slash commands cannot be queued. Pending transcript presentation is memory-only, public pending previews are capped at 1,000 characters per message, and pending/recovered attachment snapshots are memory-only and capped at 30 MiB.
 - Debug capture supports paused `node` and `pwa-node` js-debug sessions only; it does not evaluate expressions or mutate debugger state.
 
@@ -312,6 +314,8 @@ Composer completion fixtures cover attachment capture, path-only insertion, fail
 
 Thinking fixtures check thinking-only and redacted responses, disclosure keyboard access, live focus and scroll preservation, and authoritative history replacement without a provider.
 
+Direct-shell fixtures check explicit composer guards, context labels, inert cards, and terminal-control removal.
+
 ### Native VS Code checks
 
 | Command | Purpose |
@@ -328,6 +332,16 @@ On headless Linux, also prefix `test:native` with `xvfb-run -a`. Replace `1.106.
 Append `editor` to `test:native-ui` for the isolated multiline-editor and timed-confirmation fixtures only. They cover exact text, keyboard Submit/Cancel, close/discard, privacy decline, read-only review, timeouts, and process replacement.
 
 Native checks download a VS Code test build into the system temporary cache and use disposable profiles and workspaces. UI checks use a deterministic Pi RPC fixture; Playwright connects only to the disposable profile's loopback debugging endpoint. These checks do not use a live model, your VS Code profile, or your workspace.
+
+### Direct-shell public contract check
+
+After compiling, run the reference check with an explicit Pi 1.3.0 CLI path:
+
+```bash
+node scripts/test-shell-contract.mjs /path/to/pi-coding-agent/dist/cli.js
+```
+
+This check uses disposable HOME/config directories, offline mode, no MCP servers, no credentials, and no model calls. It verifies actual `user_bash` failure/result contracts, packaged approval, and public context conversion with harmless local `printf` commands. It is a validation reference, not another extension runtime dependency.
 
 ### Local installation and debugging
 

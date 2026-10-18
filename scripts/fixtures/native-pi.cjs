@@ -34,6 +34,7 @@ const tree = () => {
 };
 let queue = { steering: [], followUp: [] };
 let heldTimer;
+let pendingShell;
 const emit = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
 // Test-only inbound UI events; never uses a provider or the production bridge.
 setInterval(() => {
@@ -46,6 +47,31 @@ setInterval(() => {
 }, 50).unref();
 const onLine = (line) => {
   const request = JSON.parse(line);
+  if (request.type === "bash") {
+    if (request.command !== "printf pi-shell-fixture") {
+      emit({ type: "response", id: request.id, command: "bash", success: false, error: "Only the harmless native shell fixture is supported" });
+      return;
+    }
+    pendingShell = request;
+    emit({ type: "extension_ui_request", id: "native-shell-policy", method: "confirm", title: "PI_VSCODE_DIRECT_SHELL_V1", message: JSON.stringify({ command: request.command, cwd: fs.realpathSync(process.cwd()), excludeFromContext: request.excludeFromContext, sessionId }) });
+    return;
+  }
+  if (request.type === "extension_ui_response" && request.id === "native-shell-policy") {
+    const shell = pendingShell;
+    pendingShell = undefined;
+    if (!shell) return;
+    if (!request.confirmed) {
+      emit({ type: "response", id: shell.id, command: "bash", success: false, error: "Native shell policy rejected" });
+      return;
+    }
+    fs.appendFileSync(path.join(directory, "shell.jsonl"), `${JSON.stringify(shell)}\n`);
+    const result = { output: "pi-shell-fixture\n<img src=x>\n", exitCode: 0, cancelled: false, truncated: false };
+    emit({ type: "bash_execution_update", id: "stale-shell-command", delta: "DO_NOT_RENDER" });
+    emit({ type: "bash_execution_update", id: shell.id, delta: result.output });
+    messages.push({ role: "bashExecution", command: shell.command, excludeFromContext: shell.excludeFromContext, timestamp: Date.now(), ...result });
+    emit({ type: "response", id: shell.id, command: "bash", success: true, data: result });
+    return;
+  }
   if (request.type === "extension_ui_response") {
     fs.appendFileSync(path.join(directory, "extension-dialog-responses.jsonl"), `${JSON.stringify(request)}\n`);
     return;
@@ -77,7 +103,8 @@ const onLine = (line) => {
   if (request.type === "get_available_thinking_levels") data = { levels: [] };
   if (request.type === "get_commands") data = { commands: extensionPaths.flatMap((resource) => {
     const name = markerNames[path.basename(resource)];
-    return name ? [{ name, source: "extension", sourceInfo: { path: resource } }] : [];
+    const descriptions = { "pi-permission-gate.ts": "VS Code direct-shell policy; Pi 1.3.0", "pi-read-only-gate.ts": "VS Code read-only direct-shell policy v1" };
+    return name ? [{ name, description: descriptions[path.basename(resource)], source: "extension", sourceInfo: { path: resource } }] : [];
   }) };
   if (request.type === "get_tree") data = { tree: tree(), leafId };
   if (request.type === "get_fork_messages") data = { messages: entries.filter((entry) => entry.message?.role === "user").map((entry) => ({ entryId: entry.id, text: entry.message.content[0].text })) };
