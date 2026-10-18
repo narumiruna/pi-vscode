@@ -8,6 +8,7 @@ import { controlCommand, controlResultPrefix, type PiSessionTree, verifyPackaged
 import { buildRpcArguments, type PiRpcClient, type PiRpcClientOptions, type PiRpcEvent } from "./piRpcClient";
 import type { PiRuntimeState } from "./piRuntime";
 import { assertSessionWorkspace, canonicalAssignedSessionPath } from "./sessionIdentity";
+import { vscodeAnnotationTokenEnvironmentKey } from "./vscodeBridgeProtocol";
 import { readPiInvocationOptions } from "./vscodePi";
 
 export interface RuntimeControlHost {
@@ -695,7 +696,7 @@ export class PiRuntimeControl {
         cwd: options.cwd,
         shellPath: options.executablePath,
         shellArgs: buildRpcArguments(options).slice(2),
-        env: options.env,
+        env: { ...options.env, [vscodeAnnotationTokenEnvironmentKey]: null },
       });
       terminal.show();
     });

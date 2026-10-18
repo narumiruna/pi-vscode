@@ -24,11 +24,32 @@ export async function run(): Promise<void> {
       diagnostics.set(document.uri, index === 0 && document.getText() !== original[0] ? [] : [diagnostic]);
     }
   };
-  const subscription = vscode.workspace.onDidChangeTextDocument(publish);
+  const annotationsOnly = await readFile(path.join(directory, "annotations-only"), "utf8").catch(() => "");
+  const subscription = vscode.workspace.onDidChangeTextDocument(() => {
+    if (!annotationsOnly) publish();
+  });
+  const annotationUri = (file: string) => {
+    assert.ok(file === "code" || file === "markdown");
+    return vscode.Uri.joinPath(root, file === "code" ? "annotations.ts" : "annotations.md");
+  };
+  const annotationState = () => ({
+    active: vscode.window.activeTextEditor?.document.uri.toString(),
+    selections: vscode.window.activeTextEditor?.selections,
+    visibleRanges: vscode.window.activeTextEditor?.visibleRanges,
+    documents: vscode.workspace.textDocuments
+      .filter((document) => ["annotations.ts", "annotations.md"].includes(path.basename(document.uri.fsPath)))
+      .map((document) => ({
+        uri: document.uri.toString(),
+        text: document.getText(),
+        dirty: document.isDirty,
+        version: document.version,
+      })),
+    tabs: vscode.window.tabGroups.all.flatMap((group) => group.tabs.map((tab) => tab.label)),
+  });
   await vscode.extensions.getExtension("narumi.narumi-pi")?.activate();
   // The isolated selection run must let pi.askSelection resolve the sidebar for the first time.
   const selectionFirstOpen = await readFile(path.join(directory, "selection-first-open"), "utf8").catch(() => "");
-  if (!selectionFirstOpen) await vscode.commands.executeCommand("pi.openChat");
+  if (!selectionFirstOpen && !annotationsOnly) await vscode.commands.executeCommand("pi.openChat");
   await vscode.extensions.getExtension("vscode.typescript-language-features")?.activate();
   // Do not replay the reload command from the previous Extension Host.
   let extensionEditor: vscode.TextDocument | undefined;
@@ -49,7 +70,7 @@ export async function run(): Promise<void> {
   try {
     for (let attempt = 0; attempt < 6000; attempt++) {
       await new Promise((resolve) => setTimeout(resolve, 50));
-      const request = await readFile(path.join(directory, "request.json"), "utf8")
+      const request: ReturnType<typeof JSON.parse> = await readFile(path.join(directory, "request.json"), "utf8")
         .then((text) => JSON.parse(text))
         .catch(() => undefined);
       if (!request || request.id <= lastId) continue;
@@ -74,6 +95,33 @@ export async function run(): Promise<void> {
           case "commandResult":
             result = commands.get(request.commandId);
             break;
+          case "annotationsState":
+            result = annotationState();
+            break;
+          case "annotationsOpen": {
+            const document = await vscode.workspace.openTextDocument(annotationUri(request.file));
+            const editor = await vscode.window.showTextDocument(document, { preview: false });
+            editor.selections = [new vscode.Selection(30, 4, 30, 12), new vscode.Selection(32, 2, 32, 7)];
+            editor.revealRange(new vscode.Range(25, 0, 25, 0), vscode.TextEditorRevealType.AtTop);
+            break;
+          }
+          case "annotationsEdit": {
+            const editor = vscode.window.activeTextEditor;
+            assert.equal(editor?.document.uri.toString(), annotationUri(request.file).toString());
+            assert.ok(editor);
+            assert.ok(await editor.edit((edit) => edit.insert(new vscode.Position(0, 0), "// user edit\n")));
+            assert.ok(editor.document.isDirty);
+            break;
+          }
+          case "annotationsClose": {
+            const uri = annotationUri(request.file).toString();
+            const tabs = vscode.window.tabGroups.all
+              .flatMap((group) => group.tabs)
+              .filter((tab) => tab.input instanceof vscode.TabInputText && tab.input.uri.toString() === uri);
+            assert.ok(tabs.length > 0);
+            assert.ok(await vscode.window.tabGroups.close(tabs));
+            break;
+          }
           case "extensionConfirmationState": {
             const editor = vscode.window.activeTextEditor;
             assert.ok(editor);

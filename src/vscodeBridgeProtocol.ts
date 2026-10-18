@@ -4,6 +4,8 @@ export const maxBridgeLineBytes = 1024 * 1024;
 export const vscodeBridgePortEnvironmentKey = "PI_VSCODE_BRIDGE_PORT";
 export const vscodeBridgeTokenEnvironmentKey = "PI_VSCODE_BRIDGE_TOKEN";
 export const vscodeBridgeExtensionEnvironmentKey = "PI_VSCODE_BRIDGE_EXTENSION";
+/** Foreground-client credential; never add it to the integrated-terminal environment collection. */
+export const vscodeAnnotationTokenEnvironmentKey = "PI_VSCODE_ANNOTATION_TOKEN";
 
 export interface VscodeBridgeRequest {
   readonly id: string;

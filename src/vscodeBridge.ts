@@ -27,6 +27,14 @@ export class VscodeBridgeServer implements vscode.Disposable {
   private environment: NodeJS.ProcessEnv | undefined;
   private disposed = false;
 
+  public constructor(
+    private readonly annotations?: (
+      method: "annotationOrigin" | "annotate",
+      params: Record<string, unknown>,
+      isCancelled: () => boolean,
+    ) => Promise<unknown>,
+  ) {}
+
   public start(): Promise<NodeJS.ProcessEnv> {
     if (this.disposed) {
       return Promise.reject(new Error("The VS Code bridge has been disposed."));
@@ -108,7 +116,7 @@ export class VscodeBridgeServer implements vscode.Disposable {
         return;
       }
       received = true;
-      socket.pause();
+      // Keep reading so an ordinary client disconnect/AbortSignal remains observable during validation.
       void this.handleLine(socket, line);
     });
 
@@ -153,7 +161,11 @@ export class VscodeBridgeServer implements vscode.Disposable {
         socket.write(serializeVscodeBridgeEvent("bridge.connected", { connected: true }));
         return;
       }
-      const result = await this.dispatch(request.method, request.params);
+      const result = await this.dispatch(
+        request.method,
+        request.params,
+        () => socket.destroyed || socket.readableEnded || !socket.writable,
+      );
       this.writeResponse(socket, { id: request.id, ok: true, result });
     } catch (error) {
       this.writeResponse(socket, {
@@ -164,7 +176,14 @@ export class VscodeBridgeServer implements vscode.Disposable {
     }
   }
 
-  private async dispatch(method: string, params: Record<string, unknown>): Promise<unknown> {
+  private async dispatch(
+    method: string,
+    params: Record<string, unknown>,
+    isCancelled: () => boolean,
+  ): Promise<unknown> {
+    if ((method === "annotationOrigin" || method === "annotate") && this.annotations) {
+      return this.annotations(method, params, isCancelled);
+    }
     if (method === "context") {
       return this.editorContext();
     }

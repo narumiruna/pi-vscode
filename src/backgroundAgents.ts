@@ -22,6 +22,7 @@ import { acquireOperation } from "./operationLocks";
 import { PiRpcClient, type PiRpcEvent, type PiRpcImage } from "./piRpcClient";
 import { buildAgentPrompt, type ChatReferenceContext } from "./prompts";
 import {
+  vscodeAnnotationTokenEnvironmentKey,
   vscodeBridgeExtensionEnvironmentKey,
   vscodeBridgePortEnvironmentKey,
   vscodeBridgeTokenEnvironmentKey,
@@ -139,7 +140,12 @@ export class BackgroundAgentManager implements vscode.Disposable {
       env: {
         PI_VSCODE_PERMISSION_MODE: configuration.get<string>("agent.confirmToolCalls", "dangerous"),
       },
-      unsetEnv: [vscodeBridgePortEnvironmentKey, vscodeBridgeTokenEnvironmentKey, vscodeBridgeExtensionEnvironmentKey],
+      unsetEnv: [
+        vscodeBridgePortEnvironmentKey,
+        vscodeBridgeTokenEnvironmentKey,
+        vscodeBridgeExtensionEnvironmentKey,
+        vscodeAnnotationTokenEnvironmentKey,
+      ],
     });
     const subscription = client.onEvent((event) => this.handleEvent(id, event));
     let releaseOperation: () => void;

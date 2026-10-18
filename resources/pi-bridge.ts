@@ -11,6 +11,7 @@ const responseLimitBytes = 1024 * 1024;
 const requestTimeoutMilliseconds = 10_000;
 
 export default function (pi: ExtensionAPI) {
+  const annotationCredential = process.env.PI_VSCODE_ANNOTATION_TOKEN;
   pi.registerCommand("vscode-pi-bridge-ready", {
     handler: async () => {
       throw new Error("This capability marker is discovery-only.");
@@ -88,6 +89,77 @@ export default function (pi: ExtensionAPI) {
         signal,
       );
       return textResult(result);
+    },
+  });
+
+  pi.registerTool({
+    name: "vscode_annotate",
+    label: "VS Code Annotations",
+    description:
+      "Replace temporary, memory-only annotations in one already-open workspace document; an empty annotations array clears that file. Foreground sidebar only: no file writes, new tabs, or changes to focus, cursor, or scroll. Use inclusive one-based whole-line ranges and exact expectedText joined with LF, without an added trailing newline (CRLF is normalized to LF). Each call permits 20 annotations, each at most 200 lines, 10,000 expectedText characters and 1,000 message characters. Returns accepted-count and visibility metadata only. Use when passage explanations help the request, not for every inspected file.",
+    promptSnippet: "Add temporary passage explanations to an already-open VS Code document without file writes",
+    promptGuidelines: [
+      "Use vscode_annotate only when highlighting a passage helps the user's request; do not annotate every inspected file. It is foreground-only and requires an already-open workspace document.",
+      "Each call replaces that file's annotations; an empty array clears them. expectedText must match the complete current lines exactly; do not trim whitespace. Invalid or stale replacements leave existing annotations unchanged. Retained annotations are limited to 100 across 20 documents.",
+    ],
+    parameters: Type.Object({
+      path: Type.String({ description: "Absolute path or path relative to Pi's working directory" }),
+      annotations: Type.Array(
+        Type.Object({
+          startLine: Type.Integer({ minimum: 1, description: "First whole line, 1-based and inclusive" }),
+          endLine: Type.Integer({ minimum: 1, description: "Last whole line, inclusive; at most 200 lines per range" }),
+          expectedText: Type.String({
+            maxLength: 10_000,
+            description: "Exact complete lines joined with LF, without an added trailing newline; CRLF is normalized",
+          }),
+          message: Type.String({ minLength: 1, maxLength: 1_000, description: "Plain-text passage explanation" }),
+        }),
+        { maxItems: 20, description: "Replacement annotations for this file; an empty array clears the file" },
+      ),
+    }),
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      if (!annotationCredential) {
+        throw new Error("VS Code annotations require the foreground sidebar session; terminal calls are unavailable.");
+      }
+      const cwd = ctx.cwd;
+      const sessionId = ctx.sessionManager.getSessionId();
+      const target = params.path.startsWith("@") ? params.path.slice(1) : params.path;
+      const absolutePath = path.resolve(cwd, target);
+      if (params.annotations.some((item) => item.endLine < item.startLine || item.endLine - item.startLine + 1 > 200)) {
+        throw new Error("VS Code annotations require inclusive ranges of 1 to 200 whole lines.");
+      }
+      try {
+        const scope = await bridgeRequest(
+          "annotationOrigin",
+          { credential: annotationCredential, sessionId, cwd },
+          signal,
+        );
+        if (!isRecord(scope) || typeof scope.origin !== "string" || !/^[a-f0-9]{64}$/.test(scope.origin)) {
+          throw new Error("Invalid annotation scope.");
+        }
+        const result = await bridgeRequest(
+          "annotate",
+          { origin: scope.origin, path: absolutePath, annotations: params.annotations },
+          signal,
+        );
+        if (
+          !isRecord(result) ||
+          !Number.isInteger(result.count) ||
+          (result.count as number) < 0 ||
+          (result.count as number) > 20 ||
+          typeof result.visible !== "boolean"
+        ) {
+          throw new Error("Invalid annotation result.");
+        }
+        return textResult({ count: result.count, visible: result.visible });
+      } catch {
+        // Transport and host errors can contain private request fields. Never forward them to Pi.
+        throw new Error(
+          signal?.aborted
+            ? "VS Code annotation request was cancelled."
+            : "VS Code annotation request failed. Verify the foreground session and current open-document text before trying again.",
+        );
+      }
     },
   });
 

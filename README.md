@@ -108,6 +108,16 @@ The Pi button in the editor title opens Sessions and uses separate light and dar
 
 Automatic inline completions are disabled by default. Enable `pi.inlineCompletions.enabled` to request them after a typing pause.
 
+### Temporary passage annotations
+
+The foreground sidebar agent can use `vscode_annotate` to highlight whole-line passages in already-open code or text documents and attach a labelled, plain-text hover explanation. This does not write files, open tabs, move the cursor, scroll, or change focus. Inactive open tabs show their annotations when you return to them. Cached documents with no open text or diff tab are not eligible.
+
+Each call replaces the annotations for one file; an empty annotation list clears that file. The agent must supply the exact current lines. Stale text, invalid ranges and unsafe paths are rejected without replacing existing annotations. Use **Pi: Clear Annotations** to remove all annotations locally, even when Pi is disconnected.
+
+Annotations are memory-only. Editing a document or closing its last text/diff tab removes its annotations. Saving without text changes keeps them. Session or branch changes, resource reload, client replacement, disconnect, terminal handoff and window reload remove all annotations. Hiding the sidebar does not remove them. The first version requires a trusted, matching file-backed workspace and the foreground sidebar runtime; terminal and background agents cannot use it with their ordinary bridge credentials.
+
+Limits: 20 annotations per call, 200 lines and 10,000 expected-text characters per annotation, 1,000 explanation characters, and 100 retained annotations across 20 documents. The temporary editor UI is not persisted; ordinary Pi tool arguments and history have their normal retention.
+
 ## Upgrade from the old extension ID
 
 The extension ID changed from `narumi.pi-coding-agent-vscode` to `narumi.narumi-pi`. VS Code treats them as separate extensions. Do not keep both installed. The release installer and `npm run install:extension` stop if the old ID is installed. Follow these steps before using either installer, installing a VSIX manually, or installing from Marketplace:
@@ -309,7 +319,7 @@ flowchart LR
     P <-->|pi.events| E[Other Pi extensions]
 ```
 
-The bridge provides `vscode_context`, `vscode_code_context`, `vscode_open_file`, and `vscode_notify` for sidebar sessions and **Open in Terminal** handoffs.
+The bridge provides `vscode_context`, `vscode_code_context`, `vscode_open_file`, and `vscode_notify` for sidebar sessions and **Open in Terminal** handoffs. The additional `vscode_annotate` tool is restricted to the foreground sidebar session and requires separate private authorization.
 
 A new ordinary integrated terminal inherits the authenticated bridge environment and bridge path, but plain `pi` does not load the bridge. Load it explicitly when you need these tools:
 
@@ -398,6 +408,8 @@ On headless Linux, also prefix `test:native` with `xvfb-run -a`. Replace `1.106.
 3. Append `packaged` to the `test:native-ui` command to install and test the local `pi.vsix`.
 
 Append `transfer` to `test:native-ui` for native export/import/sharing/authentication dialogs only. These fixtures use fake credentials, cancel browser/upload approval, and never contact a provider or GitHub.
+
+Append `annotations` to `test:native-ui` for isolated editor-annotation checks: real code/Markdown decorations and literal hovers, inactive tabs, focus/cursor/scroll preservation, theme colors, stale-input rejection, clearing and session/client cleanup. The loopback requests originate in the fixture foreground Pi process; registered-tool execution is checked separately in unit tests.
 
 Append `selection` to `test:native-ui` to check **Ask About Selection** before the sidebar has opened. This fixture uses the real editor command and question input, then checks the visible conversation and a single read-only request without source changes.
 
