@@ -8,7 +8,7 @@ function fixture(enabled = false) {
   run(`
     let composerDraft, composerRevision = 1;
     const input = { value: '/reload', addEventListener() {} };
-    const element = () => ({ append() {}, setAttribute() {}, addEventListener() {} });
+    const element = () => ({ append() {}, insertBefore() {}, setAttribute() {}, addEventListener() {} });
     const document = { createElement: element, addEventListener() {} };
     const window = { addEventListener() {} };
     const $ = element;

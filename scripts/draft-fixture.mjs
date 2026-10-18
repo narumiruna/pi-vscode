@@ -24,14 +24,37 @@ export async function assertComposerDraftRecovery(browser, getSidebarHtml) {
       (text) => window.posted.some((item) => item.type === "draftChanged" && item.text === text),
       text,
     );
+  const openRecovery = async () => {
+    await page.locator("#more").click();
+    assert.equal((await messages("showMoreActions")).at(-1).text, await input.inputValue());
+    await post({ type: "showConversationDetails" });
+    assert.equal(await page.locator("#conversation-details").evaluate((dialog) => dialog.open), true);
+    assert.equal(
+      await page.locator("#conversation-details #text-draft-recovery").count(),
+      1,
+      "recovery controls belong to Conversation details",
+    );
+    const summary = page.locator("#text-draft-recovery > summary");
+    if (!(await page.locator("#text-draft-recovery").evaluate((panel) => panel.open))) await summary.click();
+  };
+  const closeDetails = async () => {
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(
+      () => !document.getElementById("conversation-details").open && document.activeElement.id === "more",
+    );
+  };
   await state(a, false, false);
+  assert.equal(await page.locator("#text-draft-notice").isVisible(), false);
+  assert.equal(await page.locator("#conversation-details").evaluate((dialog) => dialog.open), false);
   await input.fill("not approved");
   await page.waitForTimeout(300);
   assert.equal((await messages("draftChanged")).length, 0);
-  await page.locator("#text-draft-recovery > summary").click();
+  await openRecovery();
   await page.locator("#enable-text-drafts").click();
   assert.equal((await messages("draftEnable")).length, 1);
   assert.equal((await messages("draftChanged")).length, 0, "click alone is not host consent");
+  await page.locator("#text-draft-recovery > summary").click();
+  await closeDetails();
   await state(a, true, false, false);
   await waitUpdate("not approved");
 
@@ -53,13 +76,29 @@ export async function assertComposerDraftRecovery(browser, getSidebarHtml) {
 
   await input.fill("");
   await state(a, true, true, false);
+  assert.equal(await page.locator("#conversation-details").evaluate((dialog) => dialog.open), false);
+  assert.equal(await page.locator("#text-draft-notice").isVisible(), true);
+  assert.equal(
+    await page.locator("#text-draft-recovery").evaluate((panel) => panel.open),
+    false,
+    "retention does not expand recovery controls",
+  );
+  assert.equal(await input.inputValue(), "", "retained text is never restored automatically");
+  assert.equal((await messages("draftRestore")).length, 0);
+  await page.locator("#text-draft-notice").focus();
+  await page.keyboard.press("Enter");
+  assert.equal(await page.locator("#conversation-details").evaluate((dialog) => dialog.open), true);
+  assert.equal(await page.locator("#text-draft-recovery").evaluate((panel) => panel.open), true);
+  assert.equal((await messages("draftRestore")).length, 0, "reviewing retained text is not Restore");
   await page.locator("#restore-text-draft").click();
   const restore = (await messages("draftRestore")).at(-1);
+  await closeDetails();
   await input.fill("newer text");
   await post({ type: "draftRestored", binding: a, expectedRevision: restore.revision, text: "!never auto execute" });
   assert.equal(await input.inputValue(), "newer text");
   assert.equal(await page.locator("#restore-text-draft").isDisabled(), true);
   await input.fill("");
+  await openRecovery();
   await page.locator("#restore-text-draft").click();
   const next = (await messages("draftRestore")).at(-1);
   await post({
@@ -68,16 +107,34 @@ export async function assertComposerDraftRecovery(browser, getSidebarHtml) {
     expectedRevision: next.revision,
     text: "!never auto execute\nUnicode 日本語",
   });
+  await page.waitForFunction(
+    () => !document.getElementById("conversation-details").open && document.activeElement.id === "input",
+  );
   assert.equal(await input.inputValue(), "!never auto execute\nUnicode 日本語");
   assert.equal(await page.locator("#attachments [data-remove-attachment]").count(), 0);
   assert.equal((await messages("send")).length + (await messages("sendNewSession")).length, 0);
   await state(a, true, false, false);
+  assert.equal(await page.locator("#text-draft-notice").isVisible(), false);
 
   // showSessionDetail captures the old text. A newer edit before its binding reply must survive.
+  await state(a, true, true, false);
+  assert.equal(await page.locator("#text-draft-notice").isVisible(), true);
   await post({ type: "showSessionDetail" });
+  assert.equal(
+    await page.locator("#text-draft-notice").isVisible(),
+    false,
+    "the old recovery notice hides during handoff",
+  );
   await input.fill("typed during handoff");
   await state(b, true, false);
+  assert.equal(
+    await page.locator("#text-draft-notice").isVisible(),
+    false,
+    "the old session notice cannot survive a binding change",
+  );
   assert.equal(await input.inputValue(), "typed during handoff");
+  await post({ type: "draftRestored", binding: a, expectedRevision: next.revision, text: "old session retained text" });
+  assert.equal(await input.inputValue(), "typed during handoff", "an old binding cannot restore into the new session");
   assert.equal(await page.locator("#send").isDisabled(), true);
   await post({ type: "clearInput", expectedText: "typed during handoff", draftBinding: a });
   assert.equal(
@@ -100,10 +157,19 @@ export async function assertComposerDraftRecovery(browser, getSidebarHtml) {
   await input.fill("");
   await state(b, true, true, false);
   await input.fill("new draft beside retained text");
+  await openRecovery();
   await page.locator("#discard-text-draft").click();
+  await closeDetails();
   await state(b, true, false, false);
   await waitUpdate("new draft beside retained text");
   assert.equal(await input.inputValue(), "new draft beside retained text");
+  await openRecovery();
+  await page.locator("#disable-text-drafts").click();
+  assert.equal((await messages("draftDisable")).at(-1).binding, b);
+  await closeDetails();
+  await state(b, false, false, false);
+  assert.equal(await page.locator("#text-draft-notice").isVisible(), false);
+  assert.equal(await input.inputValue(), "new draft beside retained text", "Disable does not clear the current draft");
   assert.deepEqual(errors, []);
   const storedMessages = await messages("draftChanged");
   assert.equal(
@@ -114,6 +180,9 @@ export async function assertComposerDraftRecovery(browser, getSidebarHtml) {
   await page.close();
   const ownership = await assertDraftOwnership(browser, getSidebarHtml);
   return {
+    detailsOnlyControls: true,
+    retainedNoticeWithoutAutoRestore: true,
+    explicitDisable: true,
     explicitConsent: true,
     unicodeIme: true,
     oversized: true,

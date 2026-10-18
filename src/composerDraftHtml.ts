@@ -12,11 +12,16 @@ export function composerDraftHtml(): string {
       const discard = button('discard-text-draft', 'Discard retained text');
       const disable = button('disable-text-drafts', 'Disable and discard all');
       const body = document.createElement('div'); body.id = 'text-draft-body'; body.append(status, actions);
-      panel.append(summary, body); $('composer').append(panel);
+      panel.append(summary, body); $('conversation-details').insertBefore(panel, $('session-details'));
+      const notice = document.createElement('button'); notice.id = 'text-draft-notice'; notice.type = 'button';
+      notice.className = 'secondary'; notice.textContent = 'Retained text available · Review'; notice.hidden = true;
+      notice.setAttribute('aria-haspopup', 'dialog'); $('composer').append(notice);
+      notice.addEventListener('click', () => { panel.open = true; showConversationDetails(); });
       let binding, enabled = false, available = false, writable = false, timer, composing = false;
       let observed = -1, sent = -1, lastScope = 'sessions', pendingSend;
       let moving = false, ownershipBlocked = false;
       const renderDraft = () => {
+        notice.hidden = !available || moving;
         enable.hidden = enabled; enable.disabled = !binding || !writable;
         disable.hidden = !enabled; restore.hidden = discard.hidden = !available;
         restore.disabled = Boolean(input.value || composing || moving || ownershipBlocked || submissionPending || recoveredDraftPending || input.readOnly);
@@ -100,7 +105,6 @@ export function composerDraftHtml(): string {
           available = message.available === true; writable = message.writable === true;
           observed = -1;
           if (changedBinding || !wasEnabled && enabled || !available) sent = -1;
-          if (available) panel.open = true;
           renderDraft(); changed(); updateSendState();
         } else if (['sessionSwitchRejected', 'newSessionRejected', 'sendRejected'].includes(message.type)) {
           moving = false; pendingSend = undefined; observed = -1; changed();
@@ -109,7 +113,7 @@ export function composerDraftHtml(): string {
             showNotice('Your composer changed. Retained text was not inserted.', 'warning'); return;
           }
           fileCompletion?.cancel(); input.value = message.text; composerRevision += 1;
-          resizeInput(); updateSendState(); changed(); flush(); input.focus();
+          resizeInput(); updateSendState(); changed(); flush(); closeConversationDetails(true); input.focus();
         }
       };
       enable.addEventListener('click', () => { if (binding) vscode.postMessage({ type: 'draftEnable', binding }); });

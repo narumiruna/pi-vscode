@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { openConversationDetails } from "./composer-navigation-fixture.mjs";
 
 const require = createRequire(import.meta.url);
 const { validateSessionJsonl } = require("../out/sessionTransfer.js");
@@ -157,8 +158,11 @@ export async function assertAuthTransferDialogs({ page, directory, workspace, in
     "authoritative imported history",
   );
   assert.ok(!(await pi.locator("body").innerText()).includes("IMPORT_ABANDONED_HIDDEN"));
+  await openConversationDetails(pi, page);
   await pi.locator("#session-details summary").click();
   assert.equal(await pi.locator("#session").inputValue(), "native-import-authoritative");
+  await pi.locator("#session-details summary").click();
+  await pi.locator("#conversation-details-close").click();
   assert.equal(await optional("shell.jsonl"), "", "Imported shell-like content is never executed");
 
   done = await command("pi.shareSession");
@@ -238,7 +242,6 @@ export async function assertAuthTransferDialogs({ page, directory, workspace, in
     "imported authoritative transcript, not only recent-session title",
   );
   await writeFile(path.join(directory, "auth-mode.txt"), "secret");
-  await pi.locator("#session-details summary").click();
   console.log(
     "PI_NATIVE_AUTH_TRANSFER",
     JSON.stringify({

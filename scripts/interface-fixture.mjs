@@ -144,6 +144,62 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
   await state();
   assert.equal(await page.locator("#delete-session").isVisible(), true);
   assert.equal(await page.locator(".welcome-action").count(), 3);
+  const openDetails = async (key = "Enter") => {
+    const before = await page.evaluate(() => window.posted.length);
+    await page.locator("#more").focus();
+    await page.keyboard.press(key);
+    const requests = await page.evaluate((offset) => window.posted.slice(offset), before);
+    assert.equal(requests.length, 1, "More opens only the native action picker");
+    assert.equal(requests[0].type, "showMoreActions");
+    assert.equal(requests[0].text, await page.locator("#input").inputValue());
+    assert.ok(Number.isSafeInteger(requests[0].revision));
+    assert.equal(await page.locator("#conversation-details").evaluate((dialog) => dialog.open), false);
+    await post({ type: "showConversationDetails" });
+    assert.equal(await page.locator("#conversation-details").evaluate((dialog) => dialog.open), true);
+    assert.equal(await page.evaluate(() => document.activeElement.id), "conversation-details-close");
+    assert.equal(await page.evaluate(() => window.posted.length), before + 1, "details never restore or submit text");
+  };
+  const closeDetails = async (key = "Escape") => {
+    if (key === "Escape") await page.keyboard.press(key);
+    else {
+      await page.locator("#conversation-details-close").focus();
+      await page.keyboard.press(key);
+    }
+    await page.waitForFunction(
+      () => !document.getElementById("conversation-details").open && document.activeElement.id === "more",
+    );
+  };
+  assert.equal(await page.locator("#runtime").isVisible(), false, "Ready must not add a footer");
+  assert.equal(await page.locator("#composer-status").isVisible(), false, "an empty draft is visually neutral");
+  assert.match(await page.locator("#send").getAttribute("title"), /Enter a message or attach context/);
+  assert.match(await page.locator("#composer-status").textContent(), /Enter a message or attach context/);
+  assert.ok((await page.locator("#send").getAttribute("aria-describedby")).includes("composer-status"));
+  assert.equal(await page.locator("#thinking-level").count(), 0);
+  await page.screenshot({ path: "/tmp/pi-composer-idle.png" });
+  for (const id of [
+    "composer-help",
+    "file-discovery-hint",
+    "session-details",
+    "usage",
+    "text-draft-recovery",
+    "extension-status",
+  ]) {
+    assert.equal(
+      await page.locator(`#conversation-details #${id}`).count(),
+      1,
+      `${id} belongs to Conversation details`,
+    );
+    assert.equal(await page.locator(`#${id}`).isVisible(), false, `${id} is not persistent composer chrome`);
+  }
+  await page.locator("#input").fill("A draft survives details navigation");
+  await page.locator("#input").evaluate((input) => input.setSelectionRange(2, 8));
+  await openDetails();
+  assert.match(await page.locator("#usage").innerText(), /Context 12%/);
+  await page.locator("#composer-help summary").focus();
+  await page.keyboard.press("Space");
+  assert.equal(await page.locator("#composer-help").evaluate((panel) => panel.open), true);
+  assert.match(await page.locator("#composer-hint").innerText(), /Enter.*send/i);
+  await page.keyboard.press("Enter");
   await page.locator("#session-details summary").focus();
   await page.keyboard.press("Enter");
   await page.keyboard.press("Tab");
@@ -154,93 +210,141 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
     await page.locator("#session").evaluate((input) => input.selectionEnd - input.selectionStart),
     runtime.sessionId.length,
   );
-  await page.locator("#session-details summary").click();
+  await closeDetails("Enter");
+  assert.equal(await page.locator("#input").inputValue(), "A draft survives details navigation");
+  assert.deepEqual(
+    await page.locator("#input").evaluate((input) => [input.selectionStart, input.selectionEnd]),
+    [2, 8],
+    "details navigation preserves the composer selection",
+  );
+  await openDetails("Space");
+  await closeDetails();
+  assert.equal(await page.locator("#input").inputValue(), "A draft survives details navigation");
 
   let layoutCases = 0;
-  for (const width of [180, 220, 280, 400, 600, 960]) {
-    for (const height of [420, 800]) {
-      await page.setViewportSize({ width, height });
-      for (const mode of ["idle", "running", "multiline", "attachments", "disconnected", "uncertain"]) {
-        const running = mode === "running";
-        const disconnected = mode === "disconnected" || mode === "uncertain";
-        await state({
-          runtime: {
-            ...runtime,
-            connected: !disconnected,
-            busy: running,
-            queueable: running,
-            cancellable: running,
-            recoveredDrafts: mode === "uncertain" ? [{ id: "recovery", text: "Check history", uncertain: true }] : [],
-          },
-          retryAvailable: disconnected,
-          historyRecoveryAvailable: disconnected,
-          messages: [{ id: "long", role: "assistant", html: renderSafeMarkdown(prose) }],
-          attachments: mode === "attachments" ? descriptors : [],
-        });
-        await page.locator("#input").fill(mode === "multiline" ? "A growing draft\n".repeat(12) : "A draft");
-        await page.locator("#session-details summary").click();
-        const popup = await page.locator(".session-details-content").boundingBox();
-        assert.ok(popup.x >= 0 && popup.x + popup.width <= width, `session details popup at ${width}px`);
-        await page.locator("#session-details summary").click();
-        const geometry = await page.evaluate(() => {
-          const ids = [
-            "add-context",
-            "model-picker",
-            "thinking-level",
-            "send",
-            "cancel",
-            "after-this",
-            "runtime",
-            "input",
-            "reconnect",
-            "recover-queue",
-            "retry",
-            "refresh-history",
-          ];
-          const controls = ids
-            .map((id) => document.getElementById(id))
-            .filter((element) => element.getClientRects().length)
-            .map((element) => {
-              const rect = element.getBoundingClientRect();
-              return {
-                id: element.id,
-                left: rect.left,
-                right: rect.right,
-                top: rect.top,
-                bottom: rect.bottom,
-                width: rect.width,
-              };
-            });
-          return {
-            controls,
-            overflow: document.documentElement.scrollWidth > innerWidth,
-            conversationHeight: document.getElementById("conversation").clientHeight,
-          };
-        });
-        const label = JSON.stringify({ width, height, mode, geometry });
-        assert.equal(geometry.overflow, false, label);
-        for (const control of geometry.controls) {
-          assert.ok(control.left >= 0 && control.right <= width && control.top >= 0 && control.bottom <= height, label);
-          assert.ok(control.width >= (control.id === "model-picker" ? 30 : 23), label);
-        }
-        assert.ok(geometry.conversationHeight > 0, label);
-        const model = await page
-          .locator("#model-label")
-          .evaluate((element) => ({ client: element.clientWidth, scroll: element.scrollWidth }));
-        if (width >= 600) assert.equal(model.client, model.scroll, label);
-        const buttons = await page.locator(".composer-actions button:visible").evaluateAll((elements) =>
-          elements.map((element) => {
-            const { left, right, top, bottom } = element.getBoundingClientRect();
-            return { left, right, top, bottom };
-          }),
-        );
-        for (let i = 0; i < buttons.length; i++)
-          for (let j = i + 1; j < buttons.length; j++) {
-            const a = buttons[i];
-            const b = buttons[j];
-            assert.ok(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top, label);
+  for (const name of Object.keys(themes)) {
+    await theme(name);
+    for (const width of [159, 169, 180, 220, 280, 400, 600, 960]) {
+      for (const height of [344, 358, 420, 800]) {
+        await page.setViewportSize({ width, height });
+        for (const mode of ["idle", "running", "multiline", "attachments", "disconnected", "uncertain"]) {
+          const running = mode === "running";
+          const disconnected = mode === "disconnected" || mode === "uncertain";
+          await state({
+            runtime: {
+              ...runtime,
+              connected: !disconnected,
+              busy: running,
+              queueable: running,
+              cancellable: running,
+              recoveredDrafts: mode === "uncertain" ? [{ id: "recovery", text: "Check history", uncertain: true }] : [],
+            },
+            retryAvailable: disconnected,
+            historyRecoveryAvailable: disconnected,
+            messages: [{ id: "long", role: "assistant", html: renderSafeMarkdown(prose) }],
+            attachments: mode === "attachments" ? descriptors : [],
+          });
+          await page.locator("#input").fill(mode === "multiline" ? "A growing draft\n".repeat(12) : "A draft");
+          await openDetails();
+          const popup = await page.locator("#conversation-details").boundingBox();
+          assert.ok(
+            popup.x >= 0 && popup.x + popup.width <= width && popup.y >= 0 && popup.y + popup.height <= height,
+            `bounded details dialog at ${width}x${height} in ${name}: ${JSON.stringify(popup)}`,
+          );
+          assert.equal(
+            await page
+              .locator("#conversation-details")
+              .evaluate(
+                (dialog) =>
+                  dialog.scrollWidth <= dialog.clientWidth && /auto|scroll/.test(getComputedStyle(dialog).overflowY),
+              ),
+            true,
+            "details must scroll vertically, not overflow horizontally",
+          );
+          await closeDetails();
+          assert.equal(
+            await page.locator("#input").inputValue(),
+            mode === "multiline" ? "A growing draft\n".repeat(12) : "A draft",
+          );
+          assert.equal(
+            await page.locator("#attachments .attachment-remove").count(),
+            mode === "attachments" ? descriptors.length : 0,
+          );
+          const geometry = await page.evaluate(() => {
+            const ids = [
+              "add-context",
+              "model-picker",
+              "more",
+              "send",
+              "cancel",
+              "after-this",
+              "runtime",
+              "input",
+              "reconnect",
+              "recover-queue",
+              "retry",
+              "refresh-history",
+            ];
+            const controls = ids
+              .map((id) => document.getElementById(id))
+              .filter((element) => element.getClientRects().length)
+              .map((element) => {
+                const rect = element.getBoundingClientRect();
+                return {
+                  id: element.id,
+                  left: rect.left,
+                  right: rect.right,
+                  top: rect.top,
+                  bottom: rect.bottom,
+                  width: rect.width,
+                };
+              });
+            return {
+              controls,
+              overflow: document.documentElement.scrollWidth > innerWidth,
+              conversationHeight: document.getElementById("conversation").clientHeight,
+            };
+          });
+          const label = JSON.stringify({ name, width, height, mode, geometry });
+          assert.equal(geometry.overflow, false, label);
+          for (const control of geometry.controls) {
+            assert.ok(
+              control.left >= 0 && control.right <= width && control.top >= 0 && control.bottom <= height,
+              label,
+            );
+            assert.ok(control.width >= (control.id === "model-picker" ? 30 : 23), label);
           }
-        layoutCases++;
+          assert.ok(geometry.conversationHeight > 0, label);
+          if (!running) {
+            const row = ["add-context", "model-picker", "send"].map((id) =>
+              geometry.controls.find((control) => control.id === id),
+            );
+            assert.ok(
+              row.every((control) => Math.abs(control.top - row[0].top) <= 1),
+              `one compact idle action row: ${label}`,
+            );
+          }
+          const model = await page
+            .locator("#model-label")
+            .evaluate((element) => ({ client: element.clientWidth, scroll: element.scrollWidth }));
+          if (width >= 600) assert.equal(model.client, model.scroll, label);
+          const buttons = await page.locator(".composer-actions button:visible").evaluateAll((elements) =>
+            elements.map((element) => {
+              const { left, right, top, bottom } = element.getBoundingClientRect();
+              return { left, right, top, bottom };
+            }),
+          );
+          for (let i = 0; i < buttons.length; i++)
+            for (let j = i + 1; j < buttons.length; j++) {
+              const a = buttons[i];
+              const b = buttons[j];
+              assert.ok(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top, label);
+            }
+          if (name === "vscode-dark" && width === 220 && height === 420 && mode === "idle") {
+            await page.screenshot({ path: "/tmp/pi-composer-narrow.png" });
+          }
+          layoutCases++;
+        }
       }
     }
   }
@@ -309,6 +413,8 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
   assert.equal(await page.locator("#image-preview").evaluate((dialog) => dialog.open), false);
 
   // Both buttons and shortcuts use exactly one submission path, with captured host-owned attachments.
+  await theme("vscode-dark");
+  await page.setViewportSize({ width: 600, height: 800 });
   await state({
     runtime: { ...runtime, busy: true, queueable: true, cancellable: true },
     attachments: descriptors.slice(0, 1),
@@ -388,21 +494,46 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
     assert.equal(await page.locator("#cancel").isVisible(), foreground.cancellable);
     assert.equal(await page.locator("#after-this").isVisible(), foreground.queueable);
     assert.equal(await page.locator("#model-picker").isDisabled(), true);
+    assert.equal(await page.locator("#runtime").isVisible(), true);
+    assert.equal(await page.locator("#runtime").count(), 1, "there is only one foreground progress line");
+    assert.equal(await page.locator("#conversation #runtime").count(), 1, "progress belongs to the conversation tail");
+    assert.equal(await page.locator("#more").isEnabled(), true);
+    if (status === "Pi is thinking…") await page.screenshot({ path: "/tmp/pi-composer-working.png" });
+    const draft = await page.locator("#input").inputValue();
+    await openDetails();
+    await closeDetails();
+    assert.equal(await page.locator("#input").inputValue(), draft);
     if (!foreground.connected) assert.equal(await page.locator("#reconnect").isVisible(), true);
   }
+  // Recovery cannot disappear when the transcript is hidden by the Sessions view.
+  await post({ type: "showSessionsLayer" });
+  await state({
+    status: "Disconnected · Reconnect available",
+    runtime: { ...runtime, connected: false },
+    retryAvailable: true,
+    historyRecoveryAvailable: true,
+  });
+  for (const id of ["runtime", "reconnect", "retry", "refresh-history"]) {
+    assert.equal(await page.locator(`#${id}`).isVisible(), true, `${id} remains available in Sessions`);
+  }
+  await openDetails();
+  await closeDetails();
+  await post({ type: "showSessionDetail" });
   await post({
     type: "notice",
-    message: "Pi reported a runtime warning. View diagnostic before taking further action.",
+    message: "Pi stopped, but descendant cleanup is unverified. Check running processes before continuing.",
     level: "warning",
     detailsAvailable: true,
   });
+  assert.equal(await page.locator("#notice").getByRole("button", { name: "Dismiss" }).count(), 0);
+  await page.screenshot({ path: "/tmp/pi-composer-warning.png" });
   await page.getByRole("button", { name: "View diagnostic" }).click();
   assert.equal(await page.evaluate(() => window.posted.at(-1).type), "showNoticeDetails");
   await state({ runtime: { ...runtime, busy: true, queueable: false, cancellable: true } });
   await page.locator("#input").press("Enter");
   assert.match(await page.locator("#notice").innerText(), /does not accept queued messages/);
 
-  // Every submission blocker is visible without expanding help or hovering a disabled button.
+  // Relevant blockers remain visible; neutral empty-draft instructions stay accessible without a visible row.
   await page.setViewportSize({ width: 280, height: 420 });
   for (const [extra, text, reason] of [
     [{ runtime: { ...runtime, connected: false } }, "draft", /disconnected.*Reconnect/],
@@ -435,7 +566,6 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
     [{ attachments: descriptors.slice(0, 1) }, "!pwd", /Direct shell.*remove attachments/],
     [{ imageSupported: false, attachments: descriptors.slice(0, 1) }, "draft", /cannot use images.*Choose/],
     [{ backgroundSubmissionPending: true }, "draft", /Starting a background agent/],
-    [{}, "", /Enter a message or attach context/],
   ]) {
     await state(extra);
     await page.locator("#input").fill(text);
@@ -448,6 +578,10 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
     assert.equal(await page.locator("#composer-help").evaluate((element) => element.open), false);
   }
   await state();
+  await page.locator("#input").fill("");
+  assert.equal(await page.locator("#composer-status").isVisible(), false);
+  assert.match(await page.locator("#composer-status").textContent(), /Enter a message or attach context/);
+  assert.equal(await page.locator("#send").getAttribute("title"), await page.locator("#composer-status").textContent());
   await page.locator("#input").fill("Ready");
   assert.equal(await page.locator("#composer-status").isVisible(), false);
   await page.evaluate(() => {
@@ -607,6 +741,10 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
   assert.equal(await page.locator("#input").inputValue(), "Newer draft");
   assert.match(await page.locator("#notice").innerText(), /draft changed/);
 
+  // A non-blocking notice can be dismissed; blocking warning controls cannot disappear this way.
+  await post({ type: "notice", level: "info", message: "Resources refreshed." });
+  await page.locator("#notice").getByRole("button", { name: "Dismiss" }).click();
+  assert.equal(await page.locator("#notice").textContent(), "");
   // Theme screenshots are temporary review evidence, not committed assets. Native UI tests cover zoom.
   for (const name of Object.keys(themes)) {
     await theme(name);
@@ -623,7 +761,11 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
     imageCases: descriptors.length,
     phases: 8,
     themes: Object.keys(themes),
-    keyboard: "preview/focus restoration, submission help, session details, queue tab order",
+    keyboard: "preview/focus restoration, More/details Close/Escape, submission help, session ID copy, queue Tab order",
+    quietIdle: "no Ready footer, empty-draft hint, usage footer, or separate thinking selector",
+    details: "bounded in four themes and narrow/short layouts; no automatic restore, submission, or draft loss",
+    progress: "single conversation-tail line; Sessions recovery retained",
+    captures: ["idle", "working", "warning", "narrow"].map((state) => `/tmp/pi-composer-${state}.png`),
     announcements: "unchanged streaming status does not mutate the live region",
   };
 }

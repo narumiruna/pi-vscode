@@ -7,6 +7,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
+import { openConversationDetails } from "./composer-navigation-fixture.mjs";
 
 // Real VS Code Server + remote Node Extension Host. No live Pi provider or user profile is used.
 const server = process.argv[2];
@@ -269,6 +270,7 @@ exports.activate = async context => {
       let current = await frame();
       await current.locator("#input").waitFor();
       const expand = async () => {
+        await openConversationDetails(current, page);
         const details = current.locator("#text-draft-recovery");
         if (!(await details.evaluate((node) => node.open))) await details.locator("summary").click();
       };
@@ -321,6 +323,8 @@ exports.activate = async context => {
       await current.locator("#enable-text-drafts:not([disabled])").click();
       await page.getByRole("button", { name: "Enable Draft Recovery", exact: true }).click();
       await until(async () => await current.locator("#disable-text-drafts").isVisible(), "explicit retention approval");
+      await current.locator("#conversation-details-close").click();
+      await current.locator("#input").focus();
       await current.locator("#input").press("Tab");
       const stored = await until(async () => {
         const locations = await retained();
@@ -350,8 +354,10 @@ exports.activate = async context => {
       );
       await page.reload();
       current = await frame();
-      await current.locator("#restore-text-draft").waitFor({ state: "visible" });
+      await current.locator("#text-draft-notice").waitFor({ state: "visible" });
+      assert.equal(await current.locator("#conversation-details").evaluate((node) => node.open), false);
       assert.equal(await current.locator("#input").inputValue(), "");
+      await expand();
       await current.locator("#restore-text-draft").click();
       await until(
         async () => (await current.locator("#input").inputValue()) === marker,
@@ -362,6 +368,7 @@ exports.activate = async context => {
         "",
         "recovery must not call a model",
       );
+      await expand();
       await current.locator("#disable-text-drafts").click();
       const disabled = await until(async () => {
         const states = await page.evaluate(async (locations) => {

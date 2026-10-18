@@ -11,7 +11,7 @@ import extensionUiFixture from "./fixtures/extension-ui.cjs";
 import { assertExtensionEditorDialogs } from "./editor-dialog-fixture.mjs";
 import toolFixture from "./fixtures/tool-activity.cjs";
 import { assertRichContent, richFixture } from "./rich-content-fixture.mjs";
-import { assertComposerNavigation } from "./composer-navigation-fixture.mjs";
+import { assertComposerNavigation, openConversationDetails } from "./composer-navigation-fixture.mjs";
 import { assertDiscoveryWrap } from "./discovery-wrap-fixture.mjs";
 import { assertNativeConversationHistory, historyFixtureMessages } from "./history-fixture.mjs";
 import { assertSessionActions } from "./session-actions-fixture.mjs";
@@ -321,7 +321,7 @@ try {
   } else {
   // Start a session detail pane, then capture all five provider-backed attachment types.
   let pi = await frame();
-  await until(async () => (await pi.locator("body").innerText()).includes("Ready"), "Pi runtime ready");
+  await until(async () => (await pi.locator("#status").textContent()).includes("Ready"), "Pi runtime ready");
   if (!process.argv.includes("editor")) {
     await assertAuthTransferDialogs({ page, directory, workspace, invoke, pick, until, frame });
   }
@@ -615,6 +615,7 @@ try {
   assert.equal(await pi.locator("#image-preview").evaluate((dialog) => dialog.open), true);
   await page.keyboard.press("Escape");
   assert.equal(await imagePreview.evaluate((element) => document.activeElement === element), true);
+  await openConversationDetails(pi, page);
   await pi.locator("#session-details summary").focus();
   await page.keyboard.press("Enter");
   await page.keyboard.press("Tab");
@@ -623,6 +624,7 @@ try {
   await pi.locator("#session").selectText();
   assert.equal(await pi.locator("#session").evaluate((input) => input.selectionEnd - input.selectionStart), "native-import-authoritative".length);
   await pi.locator("#session-details summary").click();
+  await pi.locator("#conversation-details-close").click();
   console.log(
     "PI_NATIVE_INTERFACE image keyboard preview, Escape/focus restoration and copyable session details passed",
   );
@@ -740,7 +742,10 @@ try {
   assert.equal(await pi.locator("#cancel").isVisible(), true);
   assert.match(await pi.locator("#status").innerText(), /working|Sending/i);
   await pi.locator("#extension-ui-above").waitFor();
-  assert.match(await pi.locator("#extension-ui-above").innerText(), /second: Updated status/);
+  await openConversationDetails(pi, page);
+  assert.match(await pi.locator("#extension-status").innerText(), /second: Updated status/);
+  assert.match(await pi.locator("#usage").innerText(), /Context 12%/);
+  await pi.locator("#conversation-details-close").click();
   assert.equal(await pi.locator(".extension-ui-block script, .extension-ui-block a").count(), 0);
   assert.equal(await pi.evaluate(() => window.extensionInjected), undefined);
   assert.equal(await pi.locator("#extension-ui-below > p").textContent(), "below");
@@ -786,7 +791,7 @@ try {
       "after-this",
       "send",
       "status",
-      "usage",
+      "model-picker",
       "extension-ui-above",
       "extension-ui-below",
     ]) {
@@ -815,6 +820,15 @@ try {
         `${cssClass} 200% ${id} must remain inside the native webview: ${JSON.stringify(geometry)}`,
       );
     }
+    await openConversationDetails(pi, page);
+    assert.equal(await pi.locator("#conversation-details").evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight;
+    }), true, "details stay within the native 200% viewport");
+    await pi.locator("#usage").scrollIntoViewIfNeeded();
+    assert.match(await pi.locator("#usage").innerText(), /Context 12%/);
+    await page.keyboard.press("Escape");
+    await until(async () => !(await pi.locator("#conversation-details").evaluate((dialog) => dialog.open)), "details closed at native zoom");
     // Electron CDP clips iframe screenshots at incorrect coordinates under native zoom.
     // Review native DOM/styles in an isolated viewport; the geometry check above stays native.
     const snapshotBrowser = await chromium.launch({ headless: true });
@@ -959,7 +973,7 @@ try {
       return next && next.boot !== boot;
     }, "text draft actual window reload", 40_000);
     const next = await frame();
-    await until(async () => (await next.locator("#status").innerText()).includes("Ready"), "draft reload runtime ready");
+    await until(async () => (await next.locator("#status").textContent()).includes("Ready"), "draft reload runtime ready");
     return next;
   } });
   console.log(
