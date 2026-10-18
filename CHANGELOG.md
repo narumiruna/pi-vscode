@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0
+
+### Minor Changes
+
+- a58195d: Add approved idle-composer direct shell for the verified Pi 1.3.0 public contract. Show bounded inert output, context/history labels, shell-specific cancellation, and non-restorable checkpoint coverage. Reject attachments, queues, stale approval, and conflicting operations; disconnect without replay when completion is uncertain.
+- d0896c8: Add approved resource reload and controlled restart, bounded session tree browsing with fork/clone and no-summary navigation, and explicit policy-preserving terminal ownership handoff. Reject stale or conflicting controls and disconnect uncertain outcomes without replay. Document the RPC/TUI compatibility boundary.
+- 39e3286: Add isolated Pi 1.3.0 provider authentication, validated same-workspace JSONL import and active-branch export, and inspected non-public GitHub gist sharing. Keep credentials in Pi/gh, preserve full-tree HTML export, and leave Radius sharing explicitly blocked pending a public transport.
+- f298d62: Add local workspace file suggestions to the sidebar composer. Select an `@` result to capture an inspectable attachment snapshot, or use Tab on a visible path suggestion to insert a path without reading file contents. Completion is bounded, cancellable, workspace-bound, and does not send a model request.
+- f3d36f0: Add separate native Pi settings and MCP configuration controls with scoped revision-checked file edits, explicit runtime/global-save controls, and approved bounded MCP CLI diagnostics. Keep passive views process-free, authentication in Pi's controlled terminal, and saved-versus-active state separate. Document public API limits instead of claiming live scoped-model or authoritative MCP state support.
+- d4c4aa4: Show bounded Pi extension status text and keyed text-array widgets above or below the composer. Keep extension content separate from host status, warnings, and Stop controls, and clear it when its foreground runtime or session changes.
+- 9b3b6d6: Show provider-visible thinking in collapsed Thinking sidebar disclosures during streaming and history refresh. Keep redacted content labeled, signatures excluded, and thinking bounded and separate from answers, proposals, and VS Code workspace storage.
+
+### Patch Changes
+
+- 1a52a31: Support native multiline Pi extension editors with per-use non-secret privacy confirmation and owned Submit/Cancel commands. Bind dialog replies to their originating process and session, enforce bounded requests and local deadlines, and keep timed confirmations reviewable in read-only native documents.
+- adbb5fb: Fix session transfers when temporary directories use path aliases. Keep large image validation within the supported limits without regex stack errors. Let native settings and MCP controls ignore missing unrelated files while keeping configuration editor checks.
+- 2c5d2d9: Align native settings labels and internal Bash, authentication-helper and session-transfer names with Pi core terminology. Keep extension views and controllers distinct from SDK types. Preserve command IDs, settings, stored keys and protocol fields.
+
 ## 0.4.0
 
 ### Minor Changes
