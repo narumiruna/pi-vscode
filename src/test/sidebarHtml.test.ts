@@ -663,6 +663,7 @@ test("thinking-only messages use collapsed inert disclosures and retain user sta
 class SidebarTestElement {
   children: SidebarTestElement[] = [];
   dataset: Record<string, string> = {};
+  "aria-current"?: string;
   classes = new Set<string>();
   classList = {
     toggle: (name: string, force?: boolean) => {
@@ -948,6 +949,183 @@ test("Sessions is a separate layer that opens a detail view and returns with Bac
 
   sidebar.receive({ type: "sessionSwitchRejected" });
   assert.equal(sidebar.element("all-session-list").children[0]?.disabled, false);
+});
+
+test("hidden session updates refresh the detail header and rebuild current rows and locks on Back", () => {
+  const sidebar = createSidebarScriptHarness();
+  const ids = ["a", "b", "c", "d"].map((character) => character.repeat(24));
+  const sessions = ids.map((id, index) => ({
+    id,
+    title: `Session ${index + 1}`,
+    updatedAt: Date.now(),
+    current: index === 0,
+  }));
+  const state = (rows: typeof sessions, busy = false) =>
+    sidebar.receive({
+      type: "state",
+      runtime: { connected: true, busy, cancellable: busy },
+      sessions: rows,
+    });
+  state(sessions);
+  sidebar.receive({ type: "showSessionDetail" });
+  const changedCurrent = sessions[3];
+  const retainedSession = sessions[1];
+  assert.ok(changedCurrent);
+  assert.ok(retainedSession);
+  const latest = [
+    { ...changedCurrent, title: "Latest current title", current: true },
+    { ...retainedSession, title: "Renamed remaining session", current: false },
+  ];
+  state(latest, true);
+  assert.equal(sidebar.element("session-list-content").hidden, true);
+  assert.equal(sidebar.element("session-header-title").textContent, "Latest current title");
+  assert.equal(sidebar.element("session-header-title").title, "Latest current title");
+  assert.equal(sidebar.element("input").placeholder, "Write a follow-up…");
+  assert.equal(sidebar.element("cancel").hidden, false);
+
+  const back = sidebar.element("back-to-sessions").listeners.get("click");
+  assert.ok(back);
+  back();
+  const recent = sidebar.element("recent-session-list");
+  assert.deepEqual(
+    recent.children.map((row) => row.dataset.sessionId),
+    [ids[3], ids[1]],
+  );
+  assert.deepEqual(
+    recent.children.map((row) => row.title),
+    latest.map((session) => session.title),
+  );
+  assert.equal(recent.children[0]?.["aria-current"], "page");
+  assert.equal(recent.children[0]?.classList.contains("current"), true);
+  assert.equal(recent.children[1]?.classList.contains("current"), false);
+  assert.equal(sidebar.element("all-session-list").children.length, 2);
+  assert.equal(sidebar.element("view-all-sessions").textContent, "View all (2)");
+  assert.equal(sidebar.element("no-sessions").hidden, true);
+  assert.equal(sidebar.element("session-header-title").textContent, "Sessions");
+  assert.equal(sidebar.element("input").placeholder, "Start a new session…");
+  for (const row of recent.children) {
+    assert.equal(row.disabled, true);
+    assert.equal(row.focusCount, 0, "locked rows must not receive focus");
+  }
+  assert.equal(sidebar.element("view-all-sessions").focusCount, 1, "Back focuses a visible unlocked fallback");
+
+  sidebar.receive({ type: "showSessionDetail" });
+  state(latest.map((session) => ({ ...session, current: false })));
+  assert.equal(sidebar.element("session-header-title").textContent, "Session");
+  assert.equal(sidebar.element("session-header-title").title, "");
+  assert.equal(sidebar.element("input").placeholder, "Ask Pi anything…");
+  state(latest);
+  back();
+  assert.equal(recent.children[0]?.disabled, false);
+  assert.equal(recent.children[0]?.focusCount, 1, "Back focuses the latest visible current row");
+  assert.equal(recent.children[1]?.focusCount, 0);
+});
+
+test("hidden expanded Sessions retain search and reveal fresh membership, empty results and control locks", () => {
+  const sidebar = createSidebarScriptHarness();
+  const current = { id: "a".repeat(24), title: "Find current", updatedAt: Date.now(), current: true };
+  const added = { id: "b".repeat(24), title: "Find added", updatedAt: Date.now(), current: false };
+  const state = (sessions: (typeof current)[], locked = false) =>
+    sidebar.receive({
+      type: "state",
+      runtime: { connected: true, busy: false },
+      backgroundSubmissionPending: locked,
+      sessions,
+    });
+  state([current]);
+  const viewAll = sidebar.element("view-all-sessions").listeners.get("click");
+  const back = sidebar.element("back-to-sessions").listeners.get("click");
+  assert.ok(viewAll);
+  assert.ok(back);
+  viewAll();
+  const search = sidebar.element("session-search-input");
+  search.value = "find";
+  const searchInput = search.listeners.get("input");
+  assert.ok(searchInput);
+  searchInput();
+  sidebar.receive({ type: "showSessionDetail" });
+  state([{ ...current, title: "Renamed current" }]);
+  assert.equal(sidebar.element("session-header-title").textContent, "Renamed current");
+  back();
+  assert.equal(search.value, "find");
+  assert.equal(sidebar.element("sessions-browser").hidden, false);
+  assert.equal(sidebar.element("recent-session-list").hidden, true);
+  assert.equal(sidebar.element("all-session-list").children.length, 0, "removed matches do not survive Back");
+  assert.equal(sidebar.element("no-sessions").hidden, false);
+  assert.equal(search.focusCount, 2, "Back restores focus to the expanded search");
+
+  sidebar.receive({ type: "showSessionDetail" });
+  state([added, { ...current, title: "Other current" }], true);
+  back();
+  const all = sidebar.element("all-session-list");
+  assert.equal(search.value, "find");
+  assert.equal(search.focusCount, 3);
+  assert.equal(all.children.length, 1);
+  assert.equal(all.children[0]?.dataset.sessionId, added.id);
+  assert.equal(all.children[0]?.children[0]?.textContent, added.title);
+  assert.equal(all.children[0]?.disabled, true);
+  assert.equal(sidebar.element("no-sessions").hidden, true);
+  const posted = sidebar.posted.length;
+  const selectSession = all.listeners.get("click");
+  assert.ok(selectSession);
+  selectSession({ target: all.children[0] });
+  assert.equal(sidebar.posted.length, posted, "a fresh row still respects the interaction lock");
+
+  const latest = { ...added, title: "Find <script>latest</script>", current: true };
+  state([latest]);
+  assert.equal(all.children.length, 1, "visible state updates still refresh the filtered list");
+  assert.equal(all.children[0]?.disabled, false);
+  assert.equal(all.children[0]?.children[0]?.textContent, latest.title);
+  assert.equal(all.children[0]?.children[0]?.innerHTML, "", "session titles remain inert text");
+  assert.equal(all.children[0]?.["aria-current"], "page");
+  assert.equal(sidebar.element("recent-session-list").children.length, 1);
+  assert.equal(sidebar.element("view-all-sessions").textContent, "View all (1)");
+  state([]);
+  assert.equal(all.children.length, 0);
+  assert.equal(sidebar.element("recent-session-list").children.length, 0);
+  assert.equal(sidebar.element("no-sessions").hidden, false);
+});
+
+test("hidden streaming state retains session list nodes without reconstructing rows", () => {
+  const sidebar = createSidebarScriptHarness();
+  const sessions = Array.from({ length: 100 }, (_, index) => ({
+    id: index.toString(16).padStart(24, "0"),
+    title: `Session ${index}`,
+    updatedAt: Date.now(),
+    current: index === 0,
+  }));
+  const state = (tick: number) =>
+    sidebar.receive({
+      type: "state",
+      runtime: { connected: true, busy: tick > 0, cancellable: tick > 0 },
+      sessions: sessions.slice(tick).map((session, index) => ({
+        ...session,
+        title: `${session.title} update ${tick}`,
+        current: index === 0,
+      })),
+      messages: [{ id: "assistant", role: "assistant", html: `<p>Streaming ${tick}</p>` }],
+    });
+  state(0);
+  sidebar.receive({ type: "showSessionDetail" });
+  const retained = ["recent-session-list", "all-session-list"].map((id) => ({
+    list: sidebar.element(id),
+    rows: sidebar.element(id).children.map((row) => ({ row, children: [...row.children] })),
+  }));
+  assert.equal(retained[0]?.rows.length, 3);
+  assert.equal(retained[1]?.rows.length, 100);
+  for (let tick = 1; tick <= 3; tick += 1) {
+    state(tick);
+    assert.equal(sidebar.element("session-list-content").hidden, true);
+    assert.equal(sidebar.element("session-header-title").textContent, `Session ${tick} update ${tick}`);
+    for (const { list, rows } of retained) {
+      assert.equal(list.children.length, rows.length);
+      for (const [index, { row, children }] of rows.entries()) {
+        assert.equal(list.children[index], row, "hidden state must not replace session rows");
+        assert.equal(row.children[0], children[0]);
+        assert.equal(row.children[1], children[1]);
+      }
+    }
+  }
 });
 
 test("returning to collapsed Sessions focuses only a visible fallback", () => {

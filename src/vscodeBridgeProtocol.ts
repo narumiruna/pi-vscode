@@ -21,36 +21,47 @@ export interface VscodeBridgeEvent {
 export class VscodeBridgeLineDecoder {
   private readonly decoder = new StringDecoder("utf8");
   private buffer = "";
+  private bufferedBytes = 0;
+  private newlineIndex = -1;
   private failed = false;
 
   public constructor(private readonly onLine: (line: string) => void) {}
 
   public push(chunk: Buffer): void {
     this.assertUsable();
-    this.buffer += this.decoder.write(chunk);
+    const decoded = this.decoder.write(chunk);
+    // Only new text can introduce the first newline in an incomplete frame.
+    if (this.newlineIndex < 0) {
+      const newline = decoded.indexOf("\n");
+      if (newline >= 0) this.newlineIndex = this.buffer.length + newline;
+    }
+    this.buffer += decoded;
+    this.bufferedBytes += Buffer.byteLength(decoded, "utf8");
     this.drain();
-    this.assertWithinLimit(this.buffer);
+    this.assertWithinLimit(this.bufferedBytes);
   }
 
   public end(): void {
     this.assertUsable();
     this.buffer += this.decoder.end();
-    this.assertWithinLimit(this.buffer);
+    this.bufferedBytes = Buffer.byteLength(this.buffer, "utf8");
+    this.assertWithinLimit(this.bufferedBytes);
     if (this.buffer.length > 0) {
       this.onLine(stripCarriageReturn(this.buffer));
       this.buffer = "";
+      this.bufferedBytes = 0;
+      this.newlineIndex = -1;
     }
   }
 
   private drain(): void {
-    while (true) {
-      const newlineIndex = this.buffer.indexOf("\n");
-      if (newlineIndex < 0) {
-        return;
-      }
-      const line = this.buffer.slice(0, newlineIndex);
-      this.assertWithinLimit(line);
-      this.buffer = this.buffer.slice(newlineIndex + 1);
+    while (this.newlineIndex >= 0) {
+      const line = this.buffer.slice(0, this.newlineIndex);
+      const lineBytes = Buffer.byteLength(line, "utf8");
+      this.assertWithinLimit(lineBytes);
+      this.buffer = this.buffer.slice(this.newlineIndex + 1);
+      this.bufferedBytes -= lineBytes + 1;
+      this.newlineIndex = this.buffer.indexOf("\n");
       this.onLine(stripCarriageReturn(line));
     }
   }
@@ -61,12 +72,14 @@ export class VscodeBridgeLineDecoder {
     }
   }
 
-  private assertWithinLimit(value: string): void {
-    if (Buffer.byteLength(value, "utf8") <= maxBridgeLineBytes) {
+  private assertWithinLimit(bytes: number): void {
+    if (bytes <= maxBridgeLineBytes) {
       return;
     }
     this.failed = true;
     this.buffer = "";
+    this.bufferedBytes = 0;
+    this.newlineIndex = -1;
     throw new Error("VS Code bridge request exceeded 1 MiB.");
   }
 }
