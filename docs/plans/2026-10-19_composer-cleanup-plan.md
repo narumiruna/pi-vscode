@@ -78,6 +78,6 @@ All checks used locked dependencies on Linux with Node.js 26.8.2. Compile-based 
 | `npm run package` and archive inspection | Passed; changed compiled sidebar modules are present. No installation or binary commit. Previous local VSIX restored after validation; validated artifact is `/tmp/pi-composer-validated.vsix`. |
 | Diff review | Correctness, security, lifecycle, compatibility, regressions and scope reviewed. Native 159 × 344 clipping and deferred dialog-close focus races were corrected and regression-tested. |
 
-Remote, Windows/macOS, screen-reader/audio, packaged-install and live-provider checks were not run for this change. Historical evidence is not claimed as current validation. The unchanged lockfile has indirect `qs` (moderate) and `shell-quote` (critical) audit findings; no dependency update is included.
+GitHub CI passed Compile and test and Windows process launch. Remote, Windows/macOS UI, screen-reader/audio, packaged-install and live-provider checks were not run for this change. Historical evidence is not claimed as current validation. The unchanged lockfile has indirect `qs` (moderate) and `shell-quote` (critical) audit findings; no dependency update is included.
 
-Human visual acceptance is the only open plan criterion. Keep this plan and deliver a draft pull request for that review; do not declare the full plan complete.
+Human visual acceptance is the only open plan criterion. Draft pull request: https://github.com/narumiruna/pi-vscode/pull/92. Implementation commit: `b49a473`. The working tree was clean after the implementation commit; changes were pushed to `origin/narumi/feat/composer-cleanup`. Keep this plan for visual review; do not declare the full plan complete.
