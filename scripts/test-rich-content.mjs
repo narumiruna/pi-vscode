@@ -7,6 +7,7 @@ import { chromium } from "playwright-core";
 import { assertExtensionUi } from "./extension-ui-fixture.mjs";
 import { assertInterface } from "./interface-fixture.mjs";
 import { assertRichContent, richFixture } from "./rich-content-fixture.mjs";
+import { assertComposerFileCompletion } from "./completion-fixture.mjs";
 
 const require = createRequire(import.meta.url);
 const { getSidebarHtml } = require("../out/sidebarHtml.js");
@@ -37,6 +38,7 @@ try {
     JSON.stringify(await assertInterface(browser, getSidebarHtml, renderSafeMarkdown)),
   );
   console.log("PI_EXTENSION_UI_BROWSER_EVIDENCE", JSON.stringify(await assertExtensionUi(browser, getSidebarHtml)));
+  console.log("PI_COMPLETION_BROWSER_EVIDENCE", JSON.stringify(await assertComposerFileCompletion(browser, getSidebarHtml)));
   const page = await browser.newPage({ viewport: { width: 600, height: 800 } });
   const errors = [];
   const external = [];

@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { composerFileCompletionHtml } from "./composerFileCompletionHtml";
 
 // Static, theme-colored icons need no font, resource URI, or broader CSP.
 const iconPaths = {
@@ -209,6 +210,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .extension-ui-block h2 { font-weight: 600; }
     .extension-ui-block pre { margin: 0 0 3px; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
     #composer.has-extension-ui .composer-box { max-height: 44vh; }
+    #file-completions { position: absolute; bottom: calc(100% - 6px); left: 0; right: 0; z-index: 11; max-height: min(260px, 40vh); overflow: auto; padding: 4px; border: 1px solid var(--vscode-editorSuggestWidget-border, var(--pi-border)); border-radius: 8px; color: var(--vscode-editorSuggestWidget-foreground, var(--vscode-foreground)); background: var(--vscode-editorSuggestWidget-background, var(--vscode-editor-background)); box-shadow: 0 4px 16px var(--vscode-widget-shadow); }
+    #file-completions button { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; border: 0; padding: 6px 8px; color: inherit; background: transparent; }
+    #file-completions button[aria-selected="true"] { color: var(--vscode-list-activeSelectionForeground); background: var(--vscode-list-activeSelectionBackground); }
     #slash-commands { position: absolute; bottom: calc(100% - 6px); left: 0; right: 0; z-index: 10; max-height: min(260px, 40vh); overflow-y: auto; padding: 4px; border: 1px solid var(--vscode-editorSuggestWidget-border, var(--pi-border)); border-radius: 8px; color: var(--vscode-editorSuggestWidget-foreground, var(--vscode-foreground)); background: var(--vscode-editorSuggestWidget-background, var(--vscode-editor-background)); box-shadow: 0 4px 16px var(--vscode-widget-shadow); }
     #slash-commands button { display: flex; width: 100%; justify-content: flex-start; gap: 12px; border: 0; padding: 6px 8px; text-align: left; color: inherit; background: transparent; }
     #slash-commands button[aria-selected="true"] { color: var(--vscode-editorSuggestWidget-selectedForeground, var(--vscode-list-activeSelectionForeground)); background: var(--vscode-editorSuggestWidget-selectedBackground, var(--vscode-list-activeSelectionBackground)); }
@@ -301,12 +305,13 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     <section id="composer" aria-label="Message composer">
       <div id="slash-commands" role="listbox" aria-label="Slash commands" hidden></div>
       <section id="extension-ui-above" class="extension-ui-block" tabindex="0" aria-label="Pi extension status and widgets above editor" hidden></section>
+      <div id="file-completions" role="listbox" aria-label="Workspace files" hidden></div>
       <div class="composer-box">
         <div id="attachments" aria-label="Attachments for the next message" hidden></div>
         <div id="attachment-estimate" class="proposal-meta"></div>
         <div id="pending-queue" role="list" aria-label="Pending Pi messages" hidden></div>
         <label for="input" class="sr-only">Message Pi</label>
-        <textarea id="input" rows="1" maxlength="${maxInputCharacters}" placeholder="Ask Pi anything…" aria-describedby="composer-hint" aria-autocomplete="list" aria-controls="slash-commands" aria-expanded="false"></textarea>
+        <textarea id="input" rows="1" maxlength="${maxInputCharacters}" placeholder="Ask Pi anything…" aria-describedby="composer-hint" aria-autocomplete="list" aria-controls="slash-commands file-completions" aria-expanded="false"></textarea>
         <div id="queue-status" class="proposal-meta" role="status"></div>
         <div class="proposal-actions">
           <button id="recover-queue" class="secondary" type="button" hidden>Restore drafts</button>
@@ -389,6 +394,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let submissionPending = false;
     let backgroundSubmissionPending = false;
     let composerRevision = 0;
+    let fileCompletion;
     let updatingControls = false;
     let thinkingSelectable = false;
     let thinkingUnavailableReason = '';
@@ -458,6 +464,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     }
 
     function submit(kind = 'steer') {
+      if (fileCompletion?.busy) return;
+      fileCompletion?.cancel();
       const text = input.value.trim();
       if ((!text && !attachedItems) || !connected || submissionPending || backgroundSubmissionPending || recoveredDraftPending) return;
       if (pendingImageReads > 0 || (attachedImages && !imageSupported)) return;
@@ -1063,6 +1071,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     }
 
     function setComposerInput(text) {
+      fileCompletion?.cancel();
       input.value = text;
       slashDismissed = false;
       closeSlashCommands();
@@ -1271,7 +1280,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       sendButton.classList.toggle('queue-action', canQueue);
       sendButton.setAttribute('aria-label', canQueue ? 'Next: send after the current tool finishes' : 'Send message');
       $('after-this').hidden = !canQueue;
-      sendButton.disabled = (busy && !canQueue) || queueBlocked || submissionPending || backgroundSubmissionPending || imageLoading || Boolean(recoveredDraftPending) || sessionStartBlocked || !connected || (!input.value.trim() && !attachedItems) || imageBlocked;
+      sendButton.disabled = Boolean(fileCompletion?.busy) || (busy && !canQueue) || queueBlocked || submissionPending || backgroundSubmissionPending || imageLoading || Boolean(recoveredDraftPending) || sessionStartBlocked || !connected || (!input.value.trim() && !attachedItems) || imageBlocked;
       $('after-this').disabled = sendButton.disabled;
       $('after-this').title = 'Send when Pi finishes responding (' + followUpShortcutLabel + ')';
       const settingsReason = !connected ? 'Reconnect to change settings.' : interactionLocked ? 'Settings are locked during active work.' : '';
@@ -1311,6 +1320,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
                   : 'Enter to send · Shift+Enter for a new line';
       updateRuntimeStatus();
       renderSlashCommands();
+      fileCompletion?.refresh();
     }
 
     let renderedExtensionUi = '';
@@ -1501,9 +1511,12 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     $('preview-image').addEventListener('error', () => { if (previewAssetId) rejectImageAsset(previewAssetId); });
     $('preview-close').addEventListener('click', closeImagePreview);
 
+    ${composerFileCompletionHtml()}
     window.addEventListener('message', event => {
       const message = event.data;
       if (!message || typeof message.type !== 'string') return;
+      fileCompletion.receive(message);
+      if (['setInput', 'clearInput', 'appendDraft', 'commitRecoveredDraft', 'showSessionDetail', 'showSessionsLayer'].includes(message.type)) fileCompletion.cancel();
       if (message.type === 'state') render(message);
       else if (message.type === 'showSessionDetail') showSessionDetail();
       else if (message.type === 'showSessionsLayer') showSessionsLayer();
@@ -1612,6 +1625,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     input.addEventListener('paste', attachPastedImages);
     input.addEventListener('keydown', event => {
       if (event.isComposing) return;
+      if (fileCompletion.keydown(event)) return;
       if (!slashMenu.hidden && slashMatches.length && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
           event.preventDefault();

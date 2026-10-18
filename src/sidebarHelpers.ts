@@ -1,6 +1,7 @@
 import path from "node:path";
 import * as vscode from "vscode";
 import { isSupportedImageMimeType } from "./attachmentUtils";
+import { type FileCompletionMessage, isFileCompletionMessage } from "./composerFileToken";
 import { type ImageAssetCache, unavailableImageAssetId } from "./imageAssets";
 import { piMessageContentText } from "./piMessages";
 import { extractReplacement, parseAgentPrompt } from "./prompts";
@@ -17,6 +18,7 @@ import {
 } from "./sidebarState";
 
 export type WebviewMessage =
+  | FileCompletionMessage
   | {
       readonly type:
         | "ready"
@@ -82,6 +84,7 @@ export type WebviewMessage =
 
 export function isWebviewMessage(value: unknown, maxImageBytes: number): value is WebviewMessage {
   if (!isRecord(value) || typeof value.type !== "string") return false;
+  if (value.type.startsWith("fileCompletion")) return isFileCompletionMessage(value);
   if (value.type === "send" || value.type === "sendNewSession")
     return typeof value.text === "string" && isComposerRevision(value.revision);
   if (value.type === "switchRecentSession") return typeof value.id === "string" && /^[a-f0-9]{24}$/.test(value.id);

@@ -31,6 +31,7 @@ import {
   SidebarAttachmentManager,
 } from "./sidebarAttachments";
 import { SidebarExtensionUi } from "./sidebarExtensionUi";
+import { SidebarFileCompletion } from "./sidebarFileCompletion";
 import {
   boundToolText,
   convertPiMessages,
@@ -125,6 +126,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   });
   private readonly imageAssetDelivery = new ImageAssetDeliveryTracker();
   private readonly attachments: SidebarAttachmentManager;
+  private readonly fileCompletion: SidebarFileCompletion;
   private readonly requestGate = new ConversationRequestGate();
   private readonly backgroundSubmissionGate = new ExclusiveOperationGate(
     "A background or worktree agent is already starting. Wait for it to finish starting before submitting another one.",
@@ -174,6 +176,12 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       onChange: () => this.postState(),
       onNotice: (message, level) => this.postNotice(message, level),
     });
+    this.fileCompletion = new SidebarFileCompletion({
+      cwd: () => this.runtime.currentCwd,
+      session: () => `${this.runtime.currentState.sessionId ?? ""}:${this.runtime.currentState.sessionFile ?? ""}`,
+      attachments: this.attachments,
+      post: (message) => this.postMessage(message),
+    });
     this.messages = restoreMessages(context.workspaceState.get<unknown>(storageKey), maxMessages, maxStoredCharacters);
     this.disposables.push(
       runtime.onEvent((event) => this.handleRuntimeEvent(event)),
@@ -203,6 +211,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       messageListener.dispose();
       viewListener.dispose();
       if (this.view === webviewView) {
+        this.fileCompletion.cancel();
         this.view = undefined;
       }
     });
@@ -222,6 +231,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.proposals.clear();
     this.queuedTranscriptPresentations.clear();
     this.extensionUi.clear();
+    this.fileCompletion.dispose();
     this.attachments.dispose();
     this.imageAssets.clear();
   }
@@ -285,6 +295,16 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       return;
     }
 
+    if (
+      message.type === "fileCompletionQuery" ||
+      message.type === "fileCompletionSelect" ||
+      message.type === "fileCompletionCancel"
+    ) {
+      await this.fileCompletion.handle(message);
+      return;
+    }
+    // Every other action can change the session, attachments, or composer draft.
+    this.fileCompletion.cancel();
     const noticeRevision = this.noticeRevision;
     try {
       switch (message.type) {

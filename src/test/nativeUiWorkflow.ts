@@ -76,6 +76,22 @@ export async function run(): Promise<void> {
             )?.length;
             break;
           }
+          case "completionDirty": {
+            const document: vscode.TextDocument = await vscode.workspace.openTextDocument(
+              vscode.Uri.joinPath(root, "completion-capture.txt"),
+            );
+            const editor: vscode.TextEditor = await vscode.window.showTextDocument(document);
+            assert.ok(
+              await editor.edit((edit) =>
+                edit.replace(new vscode.Range(0, 0, document.lineCount, 0), "completion dirty snapshot\n"),
+              ),
+            );
+            assert.ok(document.isDirty);
+            break;
+          }
+          case "completionInspection":
+            result = vscode.window.activeTextEditor?.document.getText() ?? "";
+            break;
           case "theme":
             await vscode.workspace
               .getConfiguration("workbench")

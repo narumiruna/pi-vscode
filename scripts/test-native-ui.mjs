@@ -11,6 +11,7 @@ import extensionUiFixture from "./fixtures/extension-ui.cjs";
 import toolFixture from "./fixtures/tool-activity.cjs";
 import { assertRichContent, richFixture } from "./rich-content-fixture.mjs";
 import { assertToolActivity } from "./tool-activity-fixture.mjs";
+import { assertNativeFileCompletion } from "./completion-native-fixture.mjs";
 
 // Actual Quick Picks, modals, Problems, code actions and webview clicks; only Pi is simulated.
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -547,6 +548,7 @@ try {
   const prompts = (await readFile(path.join(directory, "prompts.jsonl"), "utf8")).trim().split("\n").map(JSON.parse);
   assert.equal(prompts.length, 7);
   assert.ok(prompts.every((prompt) => /read.only/i.test(prompt.message)));
+  await assertNativeFileCompletion({ pi, page, invoke, pick, until, directory, workspace });
   // Ordinary composer requests, unlike callback-owned review requests, accept both queue actions.
   await writeFile(path.join(directory, "interface-hold"), "hold");
   pi = await frame();
@@ -660,6 +662,7 @@ try {
       richContent: "Markdown, math fonts, flowchart and sequence SVG passed",
       settingsPanel: "gear, singleton, User/Workspace writes, reset, hide/reveal drafts, no Pi side effects passed",
       semanticAttachmentPicker: "passed",
+      composerFileCompletion: "search, dirty snapshot, inspection, path-only Tab, failed capture, stale draft and explicit single Send passed",
       interface:
         "image preview/focus, session details, both queue actions, status/Stop, recovered drafts, deletion modal and native 200% zoom geometry in dark/light/high-contrast passed",
       fourReviewScopes: "passed",
