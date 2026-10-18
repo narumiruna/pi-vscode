@@ -34,7 +34,7 @@ export async function assertNativeDirectShell(frame, page, executionCount) {
   return "native modal rejection/approval, !/!! context labels, retained inert history, correlated final replacement";
 }
 
-export async function assertDirectShellInterface(browser, getSidebarHtml, shellMessageText, escapeHtml) {
+export async function assertDirectShellInterface(browser, getSidebarHtml, formatBashExecutionText, escapeHtml) {
   const page = await browser.newPage({ viewport: { width: 320, height: 700 } });
   const errors = [];
   page.on("pageerror", (error) => errors.push(String(error)));
@@ -61,7 +61,7 @@ export async function assertDirectShellInterface(browser, getSidebarHtml, shellM
   assert.equal(await page.locator("#after-this").isDisabled(), true);
   await post({ ...state, runtime: { connected: true, busy: true, queueable: false, cancellable: true } });
   assert.equal(await page.locator("#cancel").isVisible(), true);
-  const text = shellMessageText("printf '<img src=x>'", true, { output: "<img src=x onerror=alert(1)>\n[unsafe](https://invalid.example)", exitCode: 7, cancelled: true, truncated: true });
+  const text = formatBashExecutionText("printf '<img src=x>'", true, { output: "<img src=x onerror=alert(1)>\n[unsafe](https://invalid.example)", exitCode: 7, cancelled: true, truncated: true });
   await post({ ...state, messages: [{ id: "shell", role: "shell", content: text, html: `<pre class="shell-output">${escapeHtml(text)}</pre>` }] });
   assert.equal(await page.locator(".message.shell .role").textContent(), "Shell");
   assert.match(await page.locator(".shell-output").textContent(), /Cancelled · Output truncated/);

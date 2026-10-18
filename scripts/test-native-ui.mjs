@@ -342,6 +342,15 @@ try {
   // Native file controls are separate host dialogs. Passive opens and saves must not launch Pi.
   const nativeSettingsDone = await invoke("command", { command: "pi.openNativeSettings" }, false);
   await pick("Project Pi");
+  for (const label of ["Steering mode", "Follow-up mode", "Startup thinking level", "Scoped model patterns"]) {
+    const filter = page.locator(".quick-input-widget input[type=text]");
+    await filter.evaluate((element, value) => {
+      element.focus();
+      element.value = value;
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+    }, label);
+    await page.locator(".quick-input-list .monaco-list-row").filter({ hasText: label }).first().waitFor();
+  }
   await pick("Startup model");
   await pick("Edit selected override");
   const nativeInput = page.locator(".quick-input-widget input[type=text]");

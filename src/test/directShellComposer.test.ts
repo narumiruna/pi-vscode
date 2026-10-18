@@ -21,7 +21,7 @@ test("only explicit idle composer submissions use shell; literal escapes use pro
     },
     onDidChangeState: subscription,
     ensureStarted: async () => {},
-    executeShell: async (
+    executeBash: async (
       command: string,
       excludeFromContext: boolean,
       accepted: () => void,

@@ -17,7 +17,7 @@ import {
   type PiConversationController,
   shouldTrackConversationChanges,
 } from "./conversationController";
-import { parseComposerInput, parseShellResult, shellMessageText } from "./directShell";
+import { formatBashExecutionText, parseBashResultView, parseComposerInput } from "./directShell";
 import { EditProposalStore } from "./editProposals";
 import { ImageAssetCache, ImageAssetDeliveryTracker } from "./imageAssets";
 import { escapeHtml, MarkdownRenderer } from "./markdown";
@@ -111,7 +111,7 @@ export function registerPiSidebar(
     }),
     vscode.commands.registerCommand("pi.openChat", () => provider.showSessions()),
     vscode.commands.registerCommand("pi.reloadResources", () => provider.reloadResources()),
-    vscode.commands.registerCommand("pi.restartResources", () => provider.restartResources()),
+    vscode.commands.registerCommand("pi.restartResources", () => provider.restartSessionProcess()),
     vscode.commands.registerCommand("pi.browseSessionTree", () => provider.browseSessionTree()),
     vscode.commands.registerCommand("pi.returnFromTerminal", () => provider.returnFromTerminal()),
   );
@@ -645,7 +645,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     else if (selected.action === "commands") await this.pickPiCommand();
     else if (selected.action === "compact") await this.compact();
     else if (selected.action === "reload") await this.reloadResources();
-    else if (selected.action === "restart") await this.restartResources();
+    else if (selected.action === "restart") await this.restartSessionProcess();
     else if (selected.action === "branches") await this.browseSessionTree(composerRevision);
     else if (selected.action === "compatibility") await vscode.commands.executeCommand("pi.extensionUiCompatibility");
     else if (selected.action === "returnTerminal") await this.returnFromTerminal();
@@ -888,7 +888,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     let status: "completed" | "cancelled" | "process-exit" = "process-exit";
     try {
       checkpointCwd = await realpath(checkpointCwd);
-      const result = await this.runtime.executeShell(
+      const result = await this.runtime.executeBash(
         command,
         excludeFromContext,
         () => {
@@ -1320,9 +1320,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     return reloaded;
   }
 
-  public async restartResources(): Promise<void> {
+  public async restartSessionProcess(): Promise<void> {
     if (this.isForegroundRequestActive()) throw new Error("Wait for Pi before restarting.");
-    if (await this.runtime.restartResources()) {
+    if (await this.runtime.restartSessionProcess()) {
       this.proposals.clear();
       this.tools = [];
       this.retryRequest = undefined;
@@ -1563,10 +1563,10 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       typeof event.command === "string" &&
       typeof event.excludeFromContext === "boolean"
     ) {
-      const content = shellMessageText(
+      const content = formatBashExecutionText(
         event.command,
         event.excludeFromContext,
-        parseShellResult(event.result),
+        parseBashResultView(event.result),
         event.state === "running" ? "running" : event.state === "uncertain" ? "uncertain" : "finished",
       );
       const message: SidebarMessage = { id: `shell-${event.id}`, role: "shell", content };

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import {
   cleanShellText,
+  formatBashExecutionText,
   maxShellOutputCharacters,
+  parseBashResultView,
   parseComposerInput,
-  parseShellResult,
-  shellMessageText,
 } from "../directShell";
 import { ImageAssetCache } from "../imageAssets";
 import { installVscodeMock } from "./vscodeMock";
@@ -44,7 +44,7 @@ test("shell output strips terminal and bidi controls, bounds final data and reje
     cleanShellText("\u001b[31mred\u001b[0m\u001b]8;;https://invalid\u0007link\u001b]8;;\u0007\r\u0000\u202eevil\n\t"),
     "redlinkevil\n\t",
   );
-  const result = parseShellResult({
+  const result = parseBashResultView({
     output: "x".repeat(maxShellOutputCharacters + 1),
     exitCode: 7,
     cancelled: false,
@@ -52,15 +52,18 @@ test("shell output strips terminal and bidi controls, bounds final data and reje
   });
   assert.equal(result.output.length, maxShellOutputCharacters);
   assert.equal(result.truncated, true);
-  assert.match(shellMessageText("printf x", true, result), /Exit: 7 · Output truncated/);
-  assert.match(shellMessageText("printf x", true, result), /Excluded from model context; retained in Pi history/);
-  assert.match(shellMessageText("printf x", false, result), /Included in model context on the next prompt/);
+  assert.match(formatBashExecutionText("printf x", true, result), /Exit: 7 · Output truncated/);
+  assert.match(
+    formatBashExecutionText("printf x", true, result),
+    /Excluded from model context; retained in Pi history/,
+  );
+  assert.match(formatBashExecutionText("printf x", false, result), /Included in model context on the next prompt/);
   for (const value of [
     {},
     { output: "x", cancelled: false, truncated: false, exitCode: NaN },
     { output: "x", cancelled: "false", truncated: false },
   ])
-    assert.throws(() => parseShellResult(value), /Invalid Pi shell result/);
+    assert.throws(() => parseBashResultView(value), /Invalid Pi shell result/);
 });
 
 test("direct shell checkpoint coverage is explicitly non-restorable", () => {

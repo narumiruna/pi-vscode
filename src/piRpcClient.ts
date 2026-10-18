@@ -1,10 +1,10 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import {
+  type BashResultView,
   cleanShellText,
   maxShellOutputCharacters,
-  parseShellResult,
-  type ShellResult,
+  parseBashResultView,
   shellAbortDeadlineMs,
   shellExecutionDeadlineMs,
   validateShellCommand,
@@ -301,8 +301,8 @@ export class PiRpcClient {
   public async bash(
     command: string,
     excludeFromContext: boolean,
-    onUpdate: (result: ShellResult) => void,
-  ): Promise<ShellResult> {
+    onUpdate: (result: BashResultView) => void,
+  ): Promise<BashResultView> {
     validateShellCommand(command);
     const id = `vscode_shell_${++this.requestId}`;
     let rawOutput = "";
@@ -324,7 +324,7 @@ export class PiRpcClient {
         { id, timeoutMs: shellExecutionDeadlineMs + 2 * shellAbortDeadlineMs },
       );
       // The authoritative final output replaces streaming data. Never append it.
-      const result = parseShellResult(response.data);
+      const result = parseBashResultView(response.data);
       onUpdate(result);
       return result;
     } finally {

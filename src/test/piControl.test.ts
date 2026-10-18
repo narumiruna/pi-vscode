@@ -630,7 +630,7 @@ test("restart rejects a stale cached session before stopping the actual writer",
     isStreaming: false,
   });
   try {
-    await assert.rejects(f.control.restartResources(), /session changed before restart/);
+    await assert.rejects(f.control.restartSessionProcess(), /session changed before restart/);
     assert.equal(f.calls.includes("stop"), false);
     assert.equal(f.calls.includes("start-session"), false);
     assert.equal(hasOperation(root), false);
@@ -643,7 +643,7 @@ test("restart explicitly accepts changed launch policy without replay and cancel
   const f = await fixture();
   f.setPolicyChanged();
   try {
-    assert.equal(await f.control.restartResources(), true);
+    assert.equal(await f.control.restartSessionProcess(), true);
     assert.deepEqual(
       f.calls.filter((call) => ["stop", "start-session", "refresh"].includes(call)),
       ["stop", "start-session", "refresh"],
@@ -661,7 +661,7 @@ test("restart explicitly accepts changed launch policy without replay and cancel
   mock.window.showWarningMessage = async (_text: string, _options: unknown, action: string) =>
     action === "Restart Pi" ? action : undefined;
   try {
-    assert.equal(await uncertain.control.restartResources(), false);
+    assert.equal(await uncertain.control.restartSessionProcess(), false);
     assert.equal(uncertain.calls.includes("start-session"), false);
     assert.equal(hasOperation(root), true);
   } finally {

@@ -3,7 +3,7 @@ import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, unlink
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type * as vscode from "vscode";
-import type { HelperRequest } from "../isolatedPi";
+import type { IsolatedPiRequest } from "../isolatedPi";
 import { resolveNativeAgentDirectory } from "../nativePiFiles";
 import type { PiRuntimeManager } from "../piRuntime";
 import { hashSessionEntries, validateSessionJsonl } from "../sessionTransfer";
@@ -56,7 +56,7 @@ async function fixture() {
   let refreshed = 0;
   let switched = 0;
   const notices: string[] = [];
-  const requests: HelperRequest[] = [];
+  const requests: IsolatedPiRequest[] = [];
   const checks = async () => {
     if (stale) throw new Error("Pi operation origin changed.");
   };
@@ -118,7 +118,7 @@ async function fixture() {
   mock.env.remoteName = "ssh-remote";
   mock.workspace.workspaceFolders = [{ uri: mock.Uri.file(root) }];
   mock.workspace.getWorkspaceFolder = () => mock.workspace.workspaceFolders[0];
-  vi.spyOn(helper, "runIsolatedPi").mockImplementation(async (_invocation, _helper, request) => {
+  vi.spyOn(helper, "runIsolatedPiHelper").mockImplementation(async (_invocation, _helper, request) => {
     requests.push(request);
     if (request.operation === "discover")
       return { status: "providers", providers: [{ id: "fixture", methods: ["api_key", "oauth"] }] };
@@ -188,7 +188,7 @@ test("credential inputs use dedicated native masking, redirects remain complete 
       assert.equal(options.password, true);
       return "fixture-secret";
     };
-    vi.mocked(helper.runIsolatedPi).mockImplementation(async (_invocation, _helper, request, interaction) => {
+    vi.mocked(helper.runIsolatedPiHelper).mockImplementation(async (_invocation, _helper, request, interaction) => {
       f.requests.push(request);
       if (request.operation === "discover")
         return { status: "providers", providers: [{ id: "fixture", methods: ["api_key"] }] };
@@ -236,7 +236,7 @@ test("same-host provider operations serialize the selected Pi store across works
     const started = new Promise<void>((resolve) => {
       entered = resolve;
     });
-    vi.mocked(helper.runIsolatedPi).mockImplementation(async () => {
+    vi.mocked(helper.runIsolatedPiHelper).mockImplementation(async () => {
       entered?.();
       await new Promise<void>((resolve) => {
         release = resolve;
@@ -311,11 +311,13 @@ test("metadata discovery has native cancellation before any credential operation
     registerProviderAuthentication(f.context, f.runtime);
     mock.window.withProgress = async (_options: unknown, action: any) =>
       action({}, { isCancellationRequested: true, onCancellationRequested: () => ({ dispose() {} }) });
-    vi.mocked(helper.runIsolatedPi).mockImplementation(async (_invocation, _helper, request, _interaction, signal) => {
-      assert.equal(signal?.aborted, true);
-      f.requests.push(request);
-      return { status: "providers", providers: [] };
-    });
+    vi.mocked(helper.runIsolatedPiHelper).mockImplementation(
+      async (_invocation, _helper, request, _interaction, signal) => {
+        assert.equal(signal?.aborted, true);
+        f.requests.push(request);
+        return { status: "providers", providers: [] };
+      },
+    );
     await mock.registrations.get("pi.signInProvider")();
     assert.deepEqual(
       f.requests.map((request) => request.operation),

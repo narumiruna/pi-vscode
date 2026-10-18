@@ -1,7 +1,7 @@
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 import * as vscode from "vscode";
-import { type HelperInteraction, IsolatedPiError, runIsolatedPi } from "./isolatedPi";
+import { type IsolatedPiAuthInteraction, IsolatedPiHelperError, runIsolatedPiHelper } from "./isolatedPi";
 import { resolveNativeAgentDirectory } from "./nativePiFiles";
 import type { PiRuntimeManager } from "./piRuntime";
 import { readPiInvocationOptions } from "./vscodePi";
@@ -35,7 +35,7 @@ export function registerProviderAuthentication(context: vscode.ExtensionContext,
                 configuredDir !== process.env.PI_CODING_AGENT_DIR ||
                 (await canonicalStore(resolveNativeAgentDirectory(runtime.currentCwd))) !== agentDir
               )
-                throw new IsolatedPiError("cancelled");
+                throw new IsolatedPiHelperError("cancelled");
             };
             try {
               const invocation = readPiInvocationOptions(vscode.Uri.file(runtime.currentCwd));
@@ -50,7 +50,7 @@ export function registerProviderAuthentication(context: vscode.ExtensionContext,
                   const cancellation = token.onCancellationRequested(() => controller.abort());
                   if (token.isCancellationRequested) controller.abort();
                   try {
-                    return await runIsolatedPi(
+                    return await runIsolatedPiHelper(
                       invocation,
                       helperPath,
                       { operation: "discover", agentDir },
@@ -87,7 +87,7 @@ export function registerProviderAuthentication(context: vscode.ExtensionContext,
                     )
                   : undefined;
               if (operation === "login" && !method) return;
-              const authMethod = method?.method;
+              const authType = method?.method;
               await check();
               const approval = await vscode.window.showWarningMessage(
                 `${operation === "login" ? "Sign in to" : "Remove the stored credential for"} ${provider.label} on ${vscode.env.remoteName ? `remote Extension Host (${vscode.env.remoteName})` : "this Extension Host"}? Pi store: ${agentDir}. ${operation === "logout" ? "This does not revoke provider access or remove environment/configuration credentials." : "Pi owns credentials; VS Code does not store them. Provider authorization can use the network."}`,
@@ -96,7 +96,7 @@ export function registerProviderAuthentication(context: vscode.ExtensionContext,
               );
               if (approval !== (operation === "login" ? "Sign In" : "Remove Credential")) return;
               await check();
-              const interaction: HelperInteraction = {
+              const interaction: IsolatedPiAuthInteraction = {
                 prompt: async (prompt, signal) => {
                   await check();
                   const cancellation = new vscode.CancellationTokenSource();
@@ -174,16 +174,16 @@ export function registerProviderAuthentication(context: vscode.ExtensionContext,
                   if (token.isCancellationRequested) controller.abort();
                   try {
                     if (operation === "login") {
-                      if (!authMethod) throw new IsolatedPiError("failed");
-                      return await runIsolatedPi(
+                      if (!authType) throw new IsolatedPiHelperError("failed");
+                      return await runIsolatedPiHelper(
                         invocation,
                         helperPath,
-                        { operation, agentDir, provider: provider.label, method: authMethod },
+                        { operation, agentDir, provider: provider.label, method: authType },
                         interaction,
                         controller.signal,
                       );
                     }
-                    return await runIsolatedPi(
+                    return await runIsolatedPiHelper(
                       invocation,
                       helperPath,
                       { operation, agentDir, provider: provider.label },
@@ -212,7 +212,7 @@ export function registerProviderAuthentication(context: vscode.ExtensionContext,
           });
         } catch (error) {
           await vscode.window.showWarningMessage(
-            error instanceof IsolatedPiError
+            error instanceof IsolatedPiHelperError
               ? error.message
               : error instanceof Error && /^(Another authentication|The Pi credential may)/.test(error.message)
                 ? error.message

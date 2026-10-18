@@ -30,7 +30,8 @@ export function validateShellCommand(command: string): void {
     throw new Error("Shell commands cannot contain terminal or hidden formatting controls.");
 }
 
-export interface ShellResult {
+/** Bounded presentation of Pi BashResult; fullOutputPath is not retained. */
+export interface BashResultView {
   readonly output: string;
   readonly exitCode?: number;
   readonly cancelled: boolean;
@@ -44,7 +45,7 @@ export function cleanShellText(text: string): string {
   );
 }
 
-export function parseShellResult(value: unknown): ShellResult {
+export function parseBashResultView(value: unknown): BashResultView {
   if (
     !isRecord(value) ||
     typeof value.output !== "string" ||
@@ -61,10 +62,10 @@ export function parseShellResult(value: unknown): ShellResult {
   };
 }
 
-export function shellMessageText(
+export function formatBashExecutionText(
   command: string,
   excludeFromContext: boolean,
-  result: ShellResult,
+  result: BashResultView,
   state: "running" | "finished" | "uncertain" = "finished",
 ): string {
   const status =

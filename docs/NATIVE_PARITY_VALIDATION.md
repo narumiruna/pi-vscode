@@ -121,6 +121,18 @@ Review validation on Linux:
 
 The initial full matrix above is retained as historical evidence. Unchanged checks were not repeated. Remote hosts, native Windows/macOS UI, live providers, real authorization and external uploads remain unverified. The existing dependency advisories below are unchanged.
 
+## Pi core naming alignment
+
+Names were compared with installed Pi 1.3.0 public SDK/RPC/auth declarations and documentation. [Pi terminology](PI_TERMINOLOGY.md) records the mapping and the extension-only boundaries.
+
+- Bash methods use `executeBash`. Sanitized output uses `BashResultView`, not the raw SDK `BashResult`.
+- Isolated-helper types and errors have an explicit local prefix. SDK objects use `modelRuntime` and `sessionRuntime`.
+- Process restart is named `restartSessionProcess`, separate from resource reload. JSONL projections and active-branch export preparation have explicit names.
+- Native labels use Steering mode, Follow-up mode, Startup thinking level and scoped model patterns. The `Thinking` disclosure is unchanged.
+- A literal inventory check confirms that protected command IDs, configuration, markers, protocol values and scopes are unchanged across 27 changed code files. The manifest and permission/read-only policy files are unchanged. Runtime strings in five host/helper modules also match the previous commit.
+
+Validation passed: 71 files / 649 tests, with 3 platform-specific skips; pinned Biome with no errors, 662 warnings and 24 informational diagnostics; rich-content browser fixtures; trusted native hosts and complete native UI on 1.106.0 / 1.142.0; complete packaged UI on 1.106.0; actual Pi public SDK, shell and control reference checks; and package/syntax/diff checks. Native fixtures check all four updated settings labels. No live provider, real authorization or upload was used. Remote and other-platform native UI checks were not run.
+
 ## Existing dependency advisories
 
 `npm ci` and `npm audit` report two pre-existing transitive development advisories:

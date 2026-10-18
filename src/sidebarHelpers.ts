@@ -2,7 +2,7 @@ import path from "node:path";
 import * as vscode from "vscode";
 import { isSupportedImageMimeType } from "./attachmentUtils";
 import { type FileCompletionMessage, isFileCompletionMessage } from "./composerFileToken";
-import { maxShellCommandCharacters, parseShellResult, shellMessageText } from "./directShell";
+import { formatBashExecutionText, maxShellCommandCharacters, parseBashResultView } from "./directShell";
 import { type ImageAssetCache, unavailableImageAssetId } from "./imageAssets";
 import { piMessageContentText, piMessageThinking } from "./piMessages";
 import { extractReplacement, parseAgentPrompt } from "./prompts";
@@ -204,7 +204,7 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
     if (value.role === "bashExecution") {
       if (typeof value.command !== "string") continue;
       try {
-        parseShellResult(value);
+        parseBashResultView(value);
       } catch {
         continue;
       }
@@ -237,10 +237,10 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
       messages.push({
         id: `pi-shell-${String(value.timestamp ?? index)}-${index}`,
         role: "shell",
-        content: shellMessageText(
+        content: formatBashExecutionText(
           String(value.command).slice(0, maxShellCommandCharacters),
           value.excludeFromContext === true,
-          parseShellResult(value),
+          parseBashResultView(value),
         ),
       });
       continue;

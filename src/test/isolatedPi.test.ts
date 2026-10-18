@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   authUrl,
-  type HelperInteraction,
-  helperArguments,
-  helperEnvironment,
-  IsolatedPiError,
-  runIsolatedPi,
+  buildIsolatedPiHelperArguments,
+  buildIsolatedPiHelperEnvironment,
+  type IsolatedPiAuthInteraction,
+  IsolatedPiHelperError,
+  runIsolatedPiHelper,
 } from "../isolatedPi";
 
 let directory: string;
@@ -28,13 +28,16 @@ const request = {
   provider: "fixture",
   method: "api_key" as const,
 };
-const interaction: HelperInteraction = { prompt: async () => "fixture-super-secret-token", openUrl: async () => true };
+const interaction: IsolatedPiAuthInteraction = {
+  prompt: async () => "fixture-super-secret-token",
+  openUrl: async () => true,
+};
 function run(mode: string, callbacks = interaction, signal?: AbortSignal) {
-  return runIsolatedPi({ executablePath, cwd: directory }, mode, request, callbacks, signal);
+  return runIsolatedPiHelper({ executablePath, cwd: directory }, mode, request, callbacks, signal);
 }
 
 test("helper bootstrap is offline, private, and cannot inherit credentials, bridge tokens, resources or Node hooks", () => {
-  const environment = helperEnvironment("/disposable", "/workspace", {
+  const environment = buildIsolatedPiHelperEnvironment("/disposable", "/workspace", {
     PATH: "/bin:relative",
     HOME: "/real-home",
     PI_CODING_AGENT_DIR: "/real-store",
@@ -51,14 +54,14 @@ test("helper bootstrap is offline, private, and cannot inherit credentials, brid
   assert.equal(environment.OPENAI_API_KEY, undefined);
   assert.equal(environment.PI_VSCODE_BRIDGE_TOKEN, undefined);
   assert.equal(environment.GH_TOKEN, undefined);
-  assert.ok(helperArguments("helper.ts").includes("--no-approve"));
-  assert.ok(helperArguments("helper.ts").includes("--no-extensions"));
-  assert.ok(helperArguments("helper.ts").includes("--no-mcp"));
-  assert.ok(!helperArguments("helper.ts").includes("/real-store"));
+  assert.ok(buildIsolatedPiHelperArguments("helper.ts").includes("--no-approve"));
+  assert.ok(buildIsolatedPiHelperArguments("helper.ts").includes("--no-extensions"));
+  assert.ok(buildIsolatedPiHelperArguments("helper.ts").includes("--no-mcp"));
+  assert.ok(!buildIsolatedPiHelperArguments("helper.ts").includes("/real-store"));
 });
 
 test("configured custom executable discovers provider methods without auth or model calls", async () => {
-  const result = await runIsolatedPi({ executablePath, cwd: directory }, "discover", {
+  const result = await runIsolatedPiHelper({ executablePath, cwd: directory }, "discover", {
     operation: "discover",
     agentDir: "/unused",
   });
@@ -95,7 +98,7 @@ test("device and complete remote auth URLs are preserved; manual redirects remai
 test("logout and credential-changed/catalog-refresh-failed are distinct verified outcomes", async () => {
   assert.equal(
     (
-      await runIsolatedPi({ executablePath, cwd: directory }, "logout", {
+      await runIsolatedPiHelper({ executablePath, cwd: directory }, "logout", {
         operation: "logout",
         agentDir: "/unused",
         provider: "fixture",
@@ -108,7 +111,7 @@ test("logout and credential-changed/catalog-refresh-failed are distinct verified
 for (const mode of ["unsupported", "wrong-version", "bad-json", "oversize", "unsafe-url", "secret-error", "exit"]) {
   test(`helper rejects ${mode} with no raw provider diagnostics or secrets`, async () => {
     await assert.rejects(run(mode), (error: unknown) => {
-      assert.ok(error instanceof IsolatedPiError);
+      assert.ok(error instanceof IsolatedPiHelperError);
       assert.ok(!error.message.includes("fixture-super-secret-token"));
       assert.ok(!error.message.includes("command:"));
       return true;
@@ -116,7 +119,7 @@ for (const mode of ["unsupported", "wrong-version", "bad-json", "oversize", "uns
   });
 }
 test("browser cancellation and process cancellation stop only the owned helper", async () => {
-  await assert.rejects(run("url", { ...interaction, openUrl: async () => false }), IsolatedPiError);
+  await assert.rejects(run("url", { ...interaction, openUrl: async () => false }), IsolatedPiHelperError);
   const controller = new AbortController();
   const result = run(
     "hang",
@@ -132,7 +135,10 @@ test("browser cancellation and process cancellation stop only the owned helper",
     },
     controller.signal,
   );
-  await assert.rejects(result, (error: unknown) => error instanceof IsolatedPiError && error.category === "uncertain");
+  await assert.rejects(
+    result,
+    (error: unknown) => error instanceof IsolatedPiHelperError && error.category === "uncertain",
+  );
 });
 test("out-of-band callback dismisses a pending masked prompt and discards late answers", async () => {
   let dismissed = false;

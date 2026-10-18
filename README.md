@@ -14,7 +14,7 @@ Use your existing [Pi](https://pi.dev) providers, models, and tools in VS Code. 
 - **Pi ecosystem support** — Keep using your Pi providers, models, thinking levels, prompt templates, skills, extensions, and contributed tools.
 - **VS Code integration** — Fix diagnostics, rewrite selections, generate tests, request inline completions, and predict the next edit.
 
-See the [feature matrix](docs/FEATURE_MATRIX.md) for the complete capability map.
+See the [feature matrix](docs/FEATURE_MATRIX.md) for the complete capability map and [Pi terminology](docs/PI_TERMINOLOGY.md) for the core/extension naming boundary.
 
 ## Requirements
 
@@ -245,9 +245,9 @@ Additional settings control inline-completion delay, minimum prefix length, and 
 
 ### Native Pi settings and MCP
 
-These commands are separate from **Pi: Open Settings** and do not add duplicate VS Code configuration keys:
+These commands are separate from **Pi: Open Settings** and do not add duplicate VS Code configuration keys. They use Pi terms such as **Steering mode**, **Follow-up mode**, **thinking level**, and **scoped model patterns**:
 
-- **Pi: Open Native Pi Settings** edits common Global Pi or Project Pi `settings.json` overrides through native dialogs. Reset removes only the chosen override. Startup provider/model/thinking and ordered model patterns are restart preferences, not access control. An explicit advanced action opens the native file in VS Code.
+- **Pi: Open Native Pi Settings** edits common Global Pi or Project Pi `settings.json` overrides through native dialogs. Reset removes only the chosen override. Startup provider/model/thinking level and scoped model patterns are restart preferences, not access control. An explicit advanced action opens the native file in VS Code.
 - **Pi: Native Runtime Controls (Global Save)** changes idle foreground queue grouping, auto-compaction or auto-retry through public Pi setters. These setters also request a **global** Pi settings save. An acknowledgment does not verify disk persistence; retry state has no public read in Pi 1.3.0.
 - **Pi: Manage Native MCP Configuration** passively shows configured metadata, with current connection state **unknown**. Add/edit/remove, enable/disable and exposure changes only save the selected file. Environment/header/OAuth values and credentials do not enter the browser. The explicit approved CLI diagnostic connects all enabled file-configured servers separately from the current session. Interactive management and authentication stay in Pi's controlled terminal after native `/mcp` ownership is verified.
 - **Pi: Apply Saved Native Configuration (Reload Resources)** is a separate explicit action. A successful save does not reload, restart, connect, install packages or approve project resources. A failed apply retains the saved file and reports that active state is not verified. Startup model preferences are not live-applied. Use **Pi: Restart Pi (Current Launch Policy)** explicitly to load startup defaults and model patterns into the same session; resumed model/thinking state can still take precedence.

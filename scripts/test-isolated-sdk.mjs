@@ -7,7 +7,7 @@ import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 const require = createRequire(import.meta.url);
-const { runIsolatedPi, helperArguments, helperEnvironment } = require("../out/isolatedPi.js");
+const { runIsolatedPiHelper, buildIsolatedPiHelperArguments, buildIsolatedPiHelperEnvironment } = require("../out/isolatedPi.js");
 const { validateSessionJsonl, hashSessionEntries } = require("../out/sessionTransfer.js");
 const { planPiSpawn } = require("../out/piSpawn.js");
 const { PiProcessOwner } = require("../out/piProcess.js");
@@ -15,9 +15,9 @@ const { verifyPackagedCommands } = require("../out/piControl.js");
 
 // Exercise the actual command context after opening a same-cwd file outside the configured session directory.
 async function verifySessionLocation(invocation, directory, input) {
-  const env = helperEnvironment(directory, directory);
+  const env = buildIsolatedPiHelperEnvironment(directory, directory);
   const resources = path.resolve("resources");
-  const args = helperArguments(path.join(resources, "pi-control.ts")).filter((value) => value !== "--no-session");
+  const args = buildIsolatedPiHelperArguments(path.join(resources, "pi-control.ts")).filter((value) => value !== "--no-session");
   args.push("--session", input);
   for (const file of ["pi-bridge.ts", "pi-permission-gate.ts", "pi-read-only-gate.ts"])
     args.push("--extension", path.join(resources, file));
@@ -87,7 +87,7 @@ try {
   const helper = path.resolve("resources/pi-isolated-helper.ts");
   const cancellation = new AbortController();
   const deadline = setTimeout(() => cancellation.abort(), 20_000);
-  const catalog = await runIsolatedPi(invocation, helper, { operation: "discover", agentDir: store }, undefined, cancellation.signal);
+  const catalog = await runIsolatedPiHelper(invocation, helper, { operation: "discover", agentDir: store }, undefined, cancellation.signal);
   console.log("Isolated public SDK discovery passed.");
   assert.equal(catalog.status, "providers");
   assert.ok(catalog.providers.some((provider) => provider.id === "openai"));
@@ -100,13 +100,13 @@ try {
   const input = path.join(directory, "source.jsonl");
   const output = path.join(directory, "export.jsonl");
   await writeFile(input, source);
-  await runIsolatedPi(invocation, helper, { operation: "export", cwd: directory, input, output, leaf: "b" }, undefined, cancellation.signal);
+  await runIsolatedPiHelper(invocation, helper, { operation: "export", cwd: directory, input, output, leaf: "b" }, undefined, cancellation.signal);
   console.log("Isolated public SDK branch export passed.");
   const exported = validateSessionJsonl(await readFile(output));
   assert.deepEqual(exported.entries.map((value) => value.id), ["a", "b"]);
   assert.ok(!(await readFile(output, "utf8")).includes("abandoned branch"));
   const imported = path.join(directory, "import.jsonl");
-  await runIsolatedPi(invocation, helper, { operation: "import", cwd: directory, input, output: imported }, undefined, cancellation.signal);
+  await runIsolatedPiHelper(invocation, helper, { operation: "import", cwd: directory, input, output: imported }, undefined, cancellation.signal);
   clearTimeout(deadline);
   const importedEntries = validateSessionJsonl(await readFile(imported)).entries;
   console.log("Imported SDK entry types:", importedEntries.map((value) => value.type).join(", "));

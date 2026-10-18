@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { gistCreateArguments, gistUrl, redactSessionPayload, uploadSessionGist } from "../sessionShare";
 import {
-  assertTransferWorkspace,
+  assertSessionJsonlWorkspace,
   hashSessionEntries,
   readTransferFile,
   validateSessionJsonl,
@@ -222,10 +222,10 @@ test("bounded descriptor snapshots reject links, path aliases, directories, chan
   try {
     const source = path.join(root, "source.jsonl");
     await writeFile(source, sessionFixture(root));
-    await assertTransferWorkspace(validateSessionJsonl(await readTransferFile(source)), root);
+    await assertSessionJsonlWorkspace(validateSessionJsonl(await readTransferFile(source)), root);
     await mkdir(path.join(root, "other"));
     await assert.rejects(
-      assertTransferWorkspace(validateSessionJsonl(await readTransferFile(source)), path.join(root, "other")),
+      assertSessionJsonlWorkspace(validateSessionJsonl(await readTransferFile(source)), path.join(root, "other")),
       /another workspace/,
     );
     await symlink(source, path.join(root, "symlink.jsonl"));

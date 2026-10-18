@@ -14,7 +14,7 @@ export async function verifyNativeDirectShell(): Promise<string> {
       environmentVariableCollection: { clear() {} },
     } as unknown as vscode.ExtensionContext);
     try {
-      await assert.rejects(runtime.executeShell("fixture:hello", false), /trusted/);
+      await assert.rejects(runtime.executeBash("fixture:hello", false), /trusted/);
       return "Restricted Mode rejects shell before process launch";
     } finally {
       runtime.dispose();

@@ -21,7 +21,8 @@ const entryTypes = new Set([
   "label",
   "session_info",
 ]);
-export interface ValidatedSession {
+/** Validated JSONL projection, not a SessionManager or live session context. */
+export interface ValidatedSessionJsonl {
   readonly header: { id: string; cwd: string; version: 3 };
   readonly entries: readonly Record<string, unknown>[];
 }
@@ -42,7 +43,7 @@ export function hashSessionEntries(entries: readonly unknown[]): string {
 }
 
 /** Validate the complete supported v3 tree, without executing or silently dropping any entry. */
-export function validateSessionJsonl(bytes: Buffer): ValidatedSession {
+export function validateSessionJsonl(bytes: Buffer): ValidatedSessionJsonl {
   if (!bytes.length || bytes.length > maxSessionTransferBytes || bytes[bytes.length - 1] !== 10)
     throw new Error("The session is empty, truncated, or exceeds the 32 MiB limit.");
   const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -213,7 +214,7 @@ export async function readTransferFile(filename: string, maxBytes = maxSessionTr
   if (!bytes) throw new Error("The selected file no longer exists.");
   return bytes;
 }
-export async function assertTransferWorkspace(session: ValidatedSession, cwd: string): Promise<void> {
+export async function assertSessionJsonlWorkspace(session: ValidatedSessionJsonl, cwd: string): Promise<void> {
   if ((await realpath(session.header.cwd)) !== (await realpath(cwd)))
     throw new Error("This session belongs to another workspace. Open its working directory before importing it.");
 }

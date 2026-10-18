@@ -100,14 +100,14 @@ export default function (pi: ExtensionAPI): void {
         if (typeof value.agentDir !== "string" || !path.isAbsolute(value.agentDir)) throw new Error("request");
         const storeDirectory = operation === "discover" ? process.env.PI_CODING_AGENT_DIR : value.agentDir;
         if (!storeDirectory) throw new Error("missing isolated directory");
-        const models = await ModelRuntime.create({
+        const modelRuntime = await ModelRuntime.create({
           authPath: path.join(storeDirectory, "auth.json"),
           modelsPath: operation === "discover" ? null : path.join(value.agentDir, "models.json"),
           refreshOnCreate: false,
           allowModelNetwork: false,
           signal: controller.signal,
         });
-        const providers = models.getProviders().map((provider) => ({
+        const providers = modelRuntime.getProviders().map((provider) => ({
           id: provider.id,
           methods: [
             ...(provider.auth.apiKey?.login ? ["api_key"] : []),
@@ -119,11 +119,11 @@ export default function (pi: ExtensionAPI): void {
         } else {
           if (typeof value.provider !== "string" || !providers.some((provider) => provider.id === value.provider))
             throw new Error("provider");
-          if (operation === "logout") await models.logout(value.provider, { signal: controller.signal });
+          if (operation === "logout") await modelRuntime.logout(value.provider, { signal: controller.signal });
           else {
             if (value.method !== "api_key" && value.method !== "oauth") throw new Error("method");
             let sequence = 0;
-            await models.login(value.provider, value.method, {
+            await modelRuntime.login(value.provider, value.method, {
               signal: controller.signal,
               prompt: async (prompt) => {
                 if (controller.signal.aborted || prompt.signal?.aborted) throw new Error("cancelled");
@@ -200,25 +200,25 @@ export default function (pi: ExtensionAPI): void {
           operation === "export"
             ? SessionManager.inMemory(cwd, undefined, parseSessionEntries(readFileSync(value.input, "utf8")))
             : SessionManager.create(cwd, path.join(agentDir, "imports"));
-        const runtime = await createAgentSessionRuntime(createRuntime, { cwd, agentDir, sessionManager });
+        const sessionRuntime = await createAgentSessionRuntime(createRuntime, { cwd, agentDir, sessionManager });
         try {
           if (operation === "export") {
             if (value.leaf === null) sessionManager.resetLeaf();
             else if (typeof value.leaf === "string" && sessionManager.getEntry(value.leaf))
               sessionManager.branch(value.leaf);
             else throw new Error("leaf");
-            runtime.session.exportToJsonl(value.output);
+            sessionRuntime.session.exportToJsonl(value.output);
           } else {
-            const result = await runtime.importFromJsonl(value.input);
+            const result = await sessionRuntime.importFromJsonl(value.input);
             if (result.cancelled) throw new Error("cancelled");
             // Preserve the complete imported tree; do not turn an import into a branch export.
             const { copyFileSync, constants } = await import("node:fs");
-            if (!runtime.session.sessionFile) throw new Error("missing import");
-            copyFileSync(runtime.session.sessionFile, value.output, constants.COPYFILE_EXCL);
+            if (!sessionRuntime.session.sessionFile) throw new Error("missing import");
+            copyFileSync(sessionRuntime.session.sessionFile, value.output, constants.COPYFILE_EXCL);
           }
           send({ type: "complete" });
         } finally {
-          await runtime.dispose();
+          await sessionRuntime.dispose();
         }
       } else throw new Error("operation");
     } catch (error) {

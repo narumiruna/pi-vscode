@@ -52,6 +52,16 @@ test("native JSON patch keeps unrelated formatting, ordered patterns, nested key
   }
 });
 
+test("native setting labels use the Pi core settings terms", () => {
+  for (const [key, label] of [
+    ["steeringMode", "Steering mode"],
+    ["followUpMode", "Follow-up mode"],
+    ["defaultThinkingLevel", "Startup thinking level"],
+    ["enabledModels", "Scoped model patterns (ordered; not access control)"],
+  ])
+    assert.equal(nativeSettingControls.find((control) => control.key === key)?.label, label);
+});
+
 test("native resolution uses host paths and custom agent directory; controls reject invalid types without discovery", () => {
   assert.equal(resolveNativeAgentDirectory("/host/project", {}, "/host/home"), "/host/home/.pi/agent");
   assert.equal(

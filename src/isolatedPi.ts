@@ -9,31 +9,33 @@ import { buildPiProcessEnvironment, planPiSpawn } from "./piSpawn";
 export const isolatedProtocol = "pi-vscode-isolated-v1";
 const maxFrameBytes = 16_384;
 const maxOutputBytes = 256 * 1024;
-export type AuthMethod = "api_key" | "oauth";
-export interface AuthProvider {
+export type IsolatedPiAuthType = "api_key" | "oauth";
+export interface IsolatedPiProviderAuthSummary {
   readonly id: string;
-  readonly methods: readonly AuthMethod[];
+  readonly methods: readonly IsolatedPiAuthType[];
 }
-export interface AuthPrompt {
+/** Helper protocol projection, not the pi-ai AuthPrompt interface. */
+export interface IsolatedPiAuthPrompt {
   readonly id: number;
   readonly kind: "text" | "secret" | "manual_code" | "select";
   readonly options?: readonly { id: string; label: string }[];
 }
-export interface HelperInteraction {
-  prompt(value: AuthPrompt, signal: AbortSignal): Promise<string | undefined>;
+export interface IsolatedPiAuthInteraction {
+  prompt(value: IsolatedPiAuthPrompt, signal: AbortSignal): Promise<string | undefined>;
   openUrl(url: string, code: string | undefined, signal: AbortSignal): Promise<boolean>;
 }
-export type HelperRequest =
+export type IsolatedPiRequest =
   | { operation: "discover"; agentDir: string }
-  | { operation: "login"; agentDir: string; provider: string; method: AuthMethod }
+  | { operation: "login"; agentDir: string; provider: string; method: IsolatedPiAuthType }
   | { operation: "logout"; agentDir: string; provider: string }
   | { operation: "export" | "import"; cwd: string; input: string; output: string; leaf?: string | null };
-export interface HelperResult {
+export interface IsolatedPiResult {
   readonly status: "providers" | "changed" | "complete" | "changed-refresh-failed";
-  readonly providers?: readonly AuthProvider[];
+  readonly providers?: readonly IsolatedPiProviderAuthSummary[];
   readonly cleanupWarning?: string;
 }
-export class IsolatedPiError extends Error {
+/** Host helper failure, not an SDK ModelRuntime or AgentSessionRuntime exception. */
+export class IsolatedPiHelperError extends Error {
   public constructor(
     public readonly category: "unsupported" | "cancelled" | "failed" | "uncertain",
     public readonly cleanupUnverified = false,
@@ -53,14 +55,14 @@ export class IsolatedPiError extends Error {
 
 export function authUrl(value: unknown): string {
   if (typeof value !== "string" || value.length > 4_096 || /[\s\\]/u.test(value) || hasControl(value))
-    throw new IsolatedPiError("failed");
+    throw new IsolatedPiHelperError("failed");
   const url = new URL(value);
   if (url.protocol !== "https:" || !url.hostname || url.username || url.password || url.hash)
-    throw new IsolatedPiError("failed");
+    throw new IsolatedPiHelperError("failed");
   return value; // Preserve the complete URL. Do not rebuild a remote redirect URI.
 }
 
-export function helperArguments(helperPath: string): string[] {
+export function buildIsolatedPiHelperArguments(helperPath: string): string[] {
   return [
     "--mode",
     "rpc",
@@ -80,7 +82,11 @@ export function helperArguments(helperPath: string): string[] {
 }
 
 /** Only OS/runtime lookup and proxy settings cross into the disposable bootstrap environment. */
-export function helperEnvironment(directory: string, cwd: string, base = process.env): NodeJS.ProcessEnv {
+export function buildIsolatedPiHelperEnvironment(
+  directory: string,
+  cwd: string,
+  base = process.env,
+): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(base)) {
     if (
@@ -110,22 +116,22 @@ export function helperEnvironment(directory: string, cwd: string, base = process
   };
 }
 
-export async function runIsolatedPi(
+export async function runIsolatedPiHelper(
   invocation: PiInvocationOptions,
   helperPath: string,
-  request: HelperRequest,
-  interaction?: HelperInteraction,
+  request: IsolatedPiRequest,
+  interaction?: IsolatedPiAuthInteraction,
   signal?: AbortSignal,
-): Promise<HelperResult> {
-  if (signal?.aborted) throw new IsolatedPiError("cancelled");
+): Promise<IsolatedPiResult> {
+  if (signal?.aborted) throw new IsolatedPiHelperError("cancelled");
   const directory = await mkdtemp(path.join(tmpdir(), "pi-isolated-"));
   try {
-    const env = helperEnvironment(directory, invocation.cwd);
+    const env = buildIsolatedPiHelperEnvironment(directory, invocation.cwd);
     const executable =
       /[/\\]/.test(invocation.executablePath) && !path.isAbsolute(invocation.executablePath)
         ? path.resolve(invocation.cwd, invocation.executablePath)
         : invocation.executablePath;
-    const plan = planPiSpawn(executable, helperArguments(helperPath), { cwd: invocation.cwd, env });
+    const plan = planPiSpawn(executable, buildIsolatedPiHelperArguments(helperPath), { cwd: invocation.cwd, env });
     const child = spawn(plan.command, plan.args, {
       cwd: directory,
       env,
@@ -135,11 +141,11 @@ export async function runIsolatedPi(
       stdio: ["pipe", "pipe", "pipe"],
     });
     const owner = new PiProcessOwner(child);
-    return await new Promise<HelperResult>((resolve, reject) => {
+    return await new Promise<IsolatedPiResult>((resolve, reject) => {
       let ready = false;
       let sent = false;
       let settled = false;
-      let result: HelperResult | undefined;
+      let result: IsolatedPiResult | undefined;
       let buffer = Buffer.alloc(0);
       let bytes = 0;
       let prompt: { id: number; controller: AbortController } | undefined;
@@ -147,9 +153,9 @@ export async function runIsolatedPi(
       let interactions = 0;
       let pending = Promise.resolve();
       const lifetime = new AbortController();
-      const startupTimer = setTimeout(() => fail(new IsolatedPiError("unsupported")), 15_000);
+      const startupTimer = setTimeout(() => fail(new IsolatedPiHelperError("unsupported")), 15_000);
       const timer = setTimeout(
-        () => fail(new IsolatedPiError(sent && request.operation !== "discover" ? "uncertain" : "failed")),
+        () => fail(new IsolatedPiHelperError(sent && request.operation !== "discover" ? "uncertain" : "failed")),
         300_000,
       );
       const clear = (): void => {
@@ -160,24 +166,26 @@ export async function runIsolatedPi(
         prompt?.controller.abort();
         prompt = undefined;
       };
-      const fail = (error: IsolatedPiError): void => {
+      const fail = (error: IsolatedPiHelperError): void => {
         if (settled) return;
         settled = true;
         clear();
-        void owner.stop().then((cleanup) => reject(new IsolatedPiError(error.category, Boolean(cleanup.warning))));
+        void owner
+          .stop()
+          .then((cleanup) => reject(new IsolatedPiHelperError(error.category, Boolean(cleanup.warning))));
       };
       const abort = (): void =>
-        fail(new IsolatedPiError(sent && request.operation !== "discover" ? "uncertain" : "cancelled"));
+        fail(new IsolatedPiHelperError(sent && request.operation !== "discover" ? "uncertain" : "cancelled"));
       const send = (fields: Record<string, unknown>): void => {
         if (settled) return;
         const line = JSON.stringify({ protocol: isolatedProtocol, ...fields });
-        if (Buffer.byteLength(line) > maxFrameBytes) throw new IsolatedPiError("failed");
+        if (Buffer.byteLength(line) > maxFrameBytes) throw new IsolatedPiHelperError("failed");
         child.stdin.write(`${line}\n`);
       };
       const receive = (value: unknown): void => {
         if (!record(value) || value.protocol !== isolatedProtocol || typeof value.type !== "string")
-          throw new IsolatedPiError("unsupported");
-        if (value.type === "unsupported") throw new IsolatedPiError("unsupported");
+          throw new IsolatedPiHelperError("unsupported");
+        if (value.type === "unsupported") throw new IsolatedPiHelperError("unsupported");
         if (value.type === "ready" && !ready && value.version === "1.3.0") {
           ready = true;
           clearTimeout(startupTimer);
@@ -185,11 +193,11 @@ export async function runIsolatedPi(
           sent = true;
           return;
         }
-        if (!ready || result) throw new IsolatedPiError("failed");
+        if (!ready || result) throw new IsolatedPiHelperError("failed");
         if (value.type === "providers" && request.operation === "discover") {
-          result = { status: "providers", providers: parseProviders(value.providers) };
+          result = { status: "providers", providers: parseProviderAuthSummaries(value.providers) };
         } else if (value.type === "changed" && (request.operation === "login" || request.operation === "logout")) {
-          if (prompt) throw new IsolatedPiError("failed");
+          if (prompt) throw new IsolatedPiHelperError("failed");
           result = { status: "changed" };
         } else if (value.type === "complete" && (request.operation === "import" || request.operation === "export")) {
           result = { status: "complete" };
@@ -199,14 +207,14 @@ export async function runIsolatedPi(
             (request.operation === "login" || request.operation === "logout")
           )
             result = { status: "changed-refresh-failed" };
-          else throw new IsolatedPiError(value.category === "cancelled" ? "cancelled" : "failed");
+          else throw new IsolatedPiHelperError(value.category === "cancelled" ? "cancelled" : "failed");
         } else if (value.type === "dismiss" && prompt && value.id === prompt.id) {
           prompt.controller.abort();
           prompt = undefined;
         } else if (request.operation === "login" && interaction && value.type === "prompt") {
           if (prompt || sequence >= 100 || !Number.isSafeInteger(value.id) || value.id !== ++sequence)
-            throw new IsolatedPiError("failed");
-          const parsed = parsePrompt(value);
+            throw new IsolatedPiHelperError("failed");
+          const parsed = parseAuthPrompt(value);
           const active = { id: parsed.id, controller: new AbortController() };
           prompt = active;
           pending = pending
@@ -215,55 +223,55 @@ export async function runIsolatedPi(
               let answer = await interaction.prompt(parsed, active.controller.signal);
               if (settled || active.controller.signal.aborted || prompt !== active) return;
               prompt = undefined;
-              if (answer === undefined) throw new IsolatedPiError("cancelled");
+              if (answer === undefined) throw new IsolatedPiHelperError("cancelled");
               if (
                 answer.length > 8_192 ||
                 (parsed.kind === "select" && !parsed.options?.some((option) => option.id === answer))
               )
-                throw new IsolatedPiError("failed");
+                throw new IsolatedPiHelperError("failed");
               send({ type: "answer", id: parsed.id, value: answer });
               answer = undefined;
             })
-            .catch(() => fail(new IsolatedPiError("cancelled")));
+            .catch(() => fail(new IsolatedPiHelperError("cancelled")));
         } else if (request.operation === "login" && interaction && (value.type === "url" || value.type === "device")) {
-          if (++interactions > 20) throw new IsolatedPiError("failed");
+          if (++interactions > 20) throw new IsolatedPiHelperError("failed");
           const url = authUrl(value.url);
           const code = value.type === "device" ? boundedString(value.code, 256) : undefined;
           pending = pending
             .then(async () => {
               if (!settled && !(await interaction.openUrl(url, code, lifetime.signal)))
-                throw new IsolatedPiError("cancelled");
+                throw new IsolatedPiHelperError("cancelled");
             })
-            .catch(() => fail(new IsolatedPiError("cancelled")));
-        } else throw new IsolatedPiError("failed");
+            .catch(() => fail(new IsolatedPiHelperError("cancelled")));
+        } else throw new IsolatedPiHelperError("failed");
       };
       child.stdout.on("data", (chunk: Buffer) => {
         if (settled) return;
         bytes += chunk.length;
-        if (bytes > maxOutputBytes) return fail(new IsolatedPiError("failed"));
+        if (bytes > maxOutputBytes) return fail(new IsolatedPiHelperError("failed"));
         buffer = Buffer.concat([buffer, chunk]);
         try {
           let newline = buffer.indexOf(10);
           while (newline >= 0) {
-            if (newline > maxFrameBytes) throw new IsolatedPiError("failed");
+            if (newline > maxFrameBytes) throw new IsolatedPiHelperError("failed");
             const line = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, newline));
             buffer = buffer.subarray(newline + 1);
             receive(JSON.parse(line));
             if (settled) return;
             newline = buffer.indexOf(10);
           }
-          if (buffer.length > maxFrameBytes) throw new IsolatedPiError("failed");
+          if (buffer.length > maxFrameBytes) throw new IsolatedPiHelperError("failed");
         } catch (error) {
-          fail(error instanceof IsolatedPiError ? error : new IsolatedPiError("failed"));
+          fail(error instanceof IsolatedPiHelperError ? error : new IsolatedPiHelperError("failed"));
         }
       });
       // Drain and bound diagnostics, but never retain or report arbitrary provider/CLI text.
       child.stderr.on("data", (chunk: Buffer) => {
         bytes += chunk.length;
-        if (bytes > maxOutputBytes) fail(new IsolatedPiError("failed"));
+        if (bytes > maxOutputBytes) fail(new IsolatedPiHelperError("failed"));
       });
-      child.stdin.on("error", () => fail(new IsolatedPiError(sent ? "uncertain" : "unsupported")));
-      child.once("error", () => fail(new IsolatedPiError("unsupported")));
+      child.stdin.on("error", () => fail(new IsolatedPiHelperError(sent ? "uncertain" : "unsupported")));
+      child.once("error", () => fail(new IsolatedPiHelperError("unsupported")));
       child.once("exit", (code) => {
         void owner.stop().then((cleanup) => {
           if (settled) return;
@@ -271,7 +279,7 @@ export async function runIsolatedPi(
           clear();
           if (code !== 0 || !result || buffer.length || !cleanup.pipesClosed)
             reject(
-              new IsolatedPiError(
+              new IsolatedPiHelperError(
                 sent && request.operation !== "discover" ? "uncertain" : "unsupported",
                 Boolean(cleanup.warning),
               ),
@@ -287,8 +295,8 @@ export async function runIsolatedPi(
   }
 }
 
-function parseProviders(value: unknown): AuthProvider[] {
-  if (!Array.isArray(value) || value.length > 100) throw new IsolatedPiError("failed");
+function parseProviderAuthSummaries(value: unknown): IsolatedPiProviderAuthSummary[] {
+  if (!Array.isArray(value) || value.length > 100) throw new IsolatedPiHelperError("failed");
   const ids = new Set<string>();
   return value.map((item) => {
     if (
@@ -301,28 +309,29 @@ function parseProviders(value: unknown): AuthProvider[] {
       item.methods.some((method) => method !== "api_key" && method !== "oauth") ||
       new Set(item.methods).size !== item.methods.length
     )
-      throw new IsolatedPiError("failed");
+      throw new IsolatedPiHelperError("failed");
     ids.add(item.id);
     return { id: item.id, methods: item.methods };
   });
 }
-function parsePrompt(value: Record<string, unknown>): AuthPrompt {
-  if (!["text", "secret", "manual_code", "select"].includes(String(value.kind))) throw new IsolatedPiError("failed");
+function parseAuthPrompt(value: Record<string, unknown>): IsolatedPiAuthPrompt {
+  if (!["text", "secret", "manual_code", "select"].includes(String(value.kind)))
+    throw new IsolatedPiHelperError("failed");
   let options: { id: string; label: string }[] | undefined;
   if (value.kind === "select") {
     if (!Array.isArray(value.options) || !value.options.length || value.options.length > 50)
-      throw new IsolatedPiError("failed");
+      throw new IsolatedPiHelperError("failed");
     options = value.options.map((option) => {
-      if (!record(option)) throw new IsolatedPiError("failed");
+      if (!record(option)) throw new IsolatedPiHelperError("failed");
       return { id: boundedString(option.id, 128), label: boundedString(option.label, 256) };
     });
-    if (new Set(options.map((option) => option.id)).size !== options.length) throw new IsolatedPiError("failed");
+    if (new Set(options.map((option) => option.id)).size !== options.length) throw new IsolatedPiHelperError("failed");
   }
-  return { id: value.id as number, kind: value.kind as AuthPrompt["kind"], options };
+  return { id: value.id as number, kind: value.kind as IsolatedPiAuthPrompt["kind"], options };
 }
 function boundedString(value: unknown, max: number): string {
   if (typeof value !== "string" || !value || value.length > max || hasControl(value))
-    throw new IsolatedPiError("failed");
+    throw new IsolatedPiHelperError("failed");
   return value;
 }
 function hasControl(value: string): boolean {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { maxShellOutputCharacters, type ShellResult } from "../directShell";
+import { type BashResultView, maxShellOutputCharacters } from "../directShell";
 import { PiRpcClient, type PiRpcEvent } from "../piRpcClient";
 
 async function fixture(action: (client: PiRpcClient, events: PiRpcEvent[]) => Promise<void>): Promise<void> {
@@ -26,7 +26,7 @@ async function fixture(action: (client: PiRpcClient, events: PiRpcEvent[]) => Pr
 
 test("direct shell works without provider selection; output is correlated and final replaces streamed output", async () => {
   await fixture(async (client, events) => {
-    const updates: ShellResult[] = [];
+    const updates: BashResultView[] = [];
     const result = await client.bash("fixture:hello", false, (update) => updates.push(update));
     assert.equal(result.output, "hello\n");
     assert.equal(result.exitCode, 7);

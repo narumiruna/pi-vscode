@@ -281,7 +281,7 @@ export class PiRuntimeControl {
       return true;
     });
   }
-  public async restartResources(): Promise<boolean> {
+  public async restartSessionProcess(): Promise<boolean> {
     return this.withWorkspaceOperation("restart Pi with current launch policy", async (assertCurrent) => {
       const approval = await vscode.window.showWarningMessage(
         "Restart Pi with the current launch settings and project-resource approval? This stops the foreground process, retains the session, and does not replay requests.",

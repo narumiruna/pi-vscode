@@ -14,7 +14,7 @@ export const nativeSettingControls: readonly NativeSettingControl[] = [
   { key: "defaultModel", label: "Startup model", path: ["defaultModel"], defaultValue: "", effect: startup },
   {
     key: "defaultThinkingLevel",
-    label: "Startup thinking",
+    label: "Startup thinking level",
     path: ["defaultThinkingLevel"],
     defaultValue: "medium",
     choices: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
@@ -22,14 +22,14 @@ export const nativeSettingControls: readonly NativeSettingControl[] = [
   },
   {
     key: "enabledModels",
-    label: "Startup/cycling model patterns (ordered; not access control)",
+    label: "Scoped model patterns (ordered; not access control)",
     path: ["enabledModels"],
     defaultValue: [],
     effect: `${startup} Exact IDs, fuzzy names, case-insensitive globs, provider/id and :thinking suffixes use Pi semantics. Zero matches are not validated here.`,
   },
   {
     key: "steeringMode",
-    label: "Next instruction grouping",
+    label: "Steering mode",
     path: ["steeringMode"],
     defaultValue: "one-at-a-time",
     choices: ["one-at-a-time", "all"],
@@ -37,7 +37,7 @@ export const nativeSettingControls: readonly NativeSettingControl[] = [
   },
   {
     key: "followUpMode",
-    label: "After this instruction grouping",
+    label: "Follow-up mode",
     path: ["followUpMode"],
     defaultValue: "one-at-a-time",
     choices: ["one-at-a-time", "all"],

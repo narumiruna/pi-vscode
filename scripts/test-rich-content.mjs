@@ -17,7 +17,7 @@ const { renderSafeMarkdown, escapeHtml } = require("../out/markdown.js");
 const { piMessageThinking } = require("../out/piMessages.js");
 
 import { assertDirectShellInterface } from "./direct-shell-fixture.mjs";
-const { shellMessageText } = require("../out/directShell.js");
+const { formatBashExecutionText } = require("../out/directShell.js");
 const server = createServer(async (request, response) => {
   try {
     const name = request.url?.slice(1) ?? "";
@@ -45,7 +45,7 @@ try {
   );
   console.log("PI_EXTENSION_UI_BROWSER_EVIDENCE", JSON.stringify(await assertExtensionUi(browser, getSidebarHtml)));
   console.log("PI_COMPLETION_BROWSER_EVIDENCE", JSON.stringify(await assertComposerFileCompletion(browser, getSidebarHtml)));
-  console.log("PI_SHELL_BROWSER_EVIDENCE", JSON.stringify(await assertDirectShellInterface(browser, getSidebarHtml, shellMessageText, escapeHtml)));
+  console.log("PI_SHELL_BROWSER_EVIDENCE", JSON.stringify(await assertDirectShellInterface(browser, getSidebarHtml, formatBashExecutionText, escapeHtml)));
   const page = await browser.newPage({ viewport: { width: 600, height: 800 } });
   const errors = [];
   const external = [];

@@ -4,8 +4,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import * as vscode from "vscode";
-import { runIsolatedPi } from "../isolatedPi";
-import { assertTransferWorkspace, validateSessionJsonl, writeTransferFile } from "../sessionTransfer";
+import { runIsolatedPiHelper } from "../isolatedPi";
+import { assertSessionJsonlWorkspace, validateSessionJsonl, writeTransferFile } from "../sessionTransfer";
 
 export async function verifyNativeAuthTransfer(): Promise<void> {
   const commands = await vscode.commands.getCommands(true);
@@ -24,12 +24,12 @@ export async function verifyNativeAuthTransfer(): Promise<void> {
       cwd: directory,
     };
     const helperPath = path.resolve(__dirname, "../../resources/pi-isolated-helper.ts");
-    const catalog = await runIsolatedPi(invocation, helperPath, {
+    const catalog = await runIsolatedPiHelper(invocation, helperPath, {
       operation: "discover",
       agentDir: path.join(directory, "unused-store"),
     });
     assert.deepEqual(catalog.providers, [{ id: "fixture", methods: ["api_key", "oauth"] }]);
-    const result = await runIsolatedPi(
+    const result = await runIsolatedPiHelper(
       invocation,
       helperPath,
       {
@@ -62,7 +62,7 @@ export async function verifyNativeAuthTransfer(): Promise<void> {
     );
     const destination = path.join(directory, "copy.jsonl");
     await writeTransferFile(destination, bytes);
-    await assertTransferWorkspace(validateSessionJsonl(await readFile(destination)), directory);
+    await assertSessionJsonlWorkspace(validateSessionJsonl(await readFile(destination)), directory);
     await assert.rejects(writeTransferFile(destination, Buffer.from("do not overwrite")), /EEXIST/);
   } finally {
     await rm(directory, { recursive: true, force: true });

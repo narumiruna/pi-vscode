@@ -3,13 +3,13 @@ import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import * as vscode from "vscode";
-import { runIsolatedPi } from "./isolatedPi";
+import { runIsolatedPiHelper } from "./isolatedPi";
 import type { PiRpcClient } from "./piRpcClient";
 import type { PiRuntimeManager } from "./piRuntime";
 import type { PiSessionTransferSnapshot } from "./piRuntimeControl";
 import { redactSessionPayload, uploadSessionGist } from "./sessionShare";
 import {
-  assertTransferWorkspace,
+  assertSessionJsonlWorkspace,
   hashSessionEntries,
   maxSessionTransferBytes,
   maxShareBytes,
@@ -85,7 +85,7 @@ export function registerSessionTransfer(context: vscode.ExtensionContext, runtim
       await rm(directory, { recursive: true, force: true });
     }
   };
-  const snapshotBranch = async (
+  const prepareActiveBranchExport = async (
     client: PiRpcClient,
     check: () => Promise<void>,
     signal: AbortSignal,
@@ -97,7 +97,7 @@ export function registerSessionTransfer(context: vscode.ExtensionContext, runtim
     // The descriptor-bound reader checks the 32 MiB file bound before parsing or SDK handoff.
     const bytes = await readTransferFile(source);
     const session = validateSessionJsonl(bytes);
-    await assertTransferWorkspace(session, runtime.currentCwd);
+    await assertSessionJsonlWorkspace(session, runtime.currentCwd);
     if (
       session.header.id !== snapshot.sessionId ||
       hashSessionEntries(session.entries) !== snapshot.entriesHash ||
@@ -114,7 +114,7 @@ export function registerSessionTransfer(context: vscode.ExtensionContext, runtim
         throw new Error("The Pi session branch or source file changed. Prepare a new export.");
       await check();
     };
-    await runIsolatedPi(
+    await runIsolatedPiHelper(
       readPiInvocationOptions(vscode.Uri.file(runtime.currentCwd)),
       helper,
       {
@@ -128,7 +128,7 @@ export function registerSessionTransfer(context: vscode.ExtensionContext, runtim
       signal,
     );
     const payload = await readTransferFile(output);
-    await assertTransferWorkspace(validateSessionJsonl(payload), runtime.currentCwd);
+    await assertSessionJsonlWorkspace(validateSessionJsonl(payload), runtime.currentCwd);
     await revalidate();
     return { payload, revalidate };
   };
@@ -154,7 +154,7 @@ export function registerSessionTransfer(context: vscode.ExtensionContext, runtim
     await stage(async (directory) => {
       let payload: Buffer;
       if (format.format === "jsonl") {
-        const branch = await snapshotBranch(client, check, signal, directory);
+        const branch = await prepareActiveBranchExport(client, check, signal, directory);
         payload = branch.payload;
         await branch.revalidate();
       } else {
@@ -187,7 +187,7 @@ export function registerSessionTransfer(context: vscode.ExtensionContext, runtim
     await check();
     const bytes = await readTransferFile(source.fsPath);
     const session = validateSessionJsonl(bytes);
-    await assertTransferWorkspace(session, runtime.currentCwd);
+    await assertSessionJsonlWorkspace(session, runtime.currentCwd);
     const snapshot = await runtime.getSessionTransferSnapshot(client, check);
     const approval = await vscode.window.showWarningMessage(
       `Import ${session.entries.length} entries as a new copy and activate it? Its working directory matches this workspace. The source and old session file stay unchanged.`,
@@ -202,7 +202,7 @@ export function registerSessionTransfer(context: vscode.ExtensionContext, runtim
       const input = path.join(directory, "import.jsonl");
       const output = path.join(directory, "validated.jsonl");
       await writeFile(input, bytes, { flag: "wx", mode: 0o600 });
-      await runIsolatedPi(
+      await runIsolatedPiHelper(
         readPiInvocationOptions(vscode.Uri.file(runtime.currentCwd)),
         helper,
         {
@@ -215,7 +215,7 @@ export function registerSessionTransfer(context: vscode.ExtensionContext, runtim
         signal,
       );
       const imported = await readTransferFile(output);
-      await assertTransferWorkspace(validateSessionJsonl(imported), runtime.currentCwd);
+      await assertSessionJsonlWorkspace(validateSessionJsonl(imported), runtime.currentCwd);
       await check();
       if (!(await readTransferFile(source.fsPath)).equals(bytes))
         throw new Error("The import source changed. No copy was activated.");
@@ -260,7 +260,7 @@ export function registerSessionTransfer(context: vscode.ExtensionContext, runtim
     if (destination.destination === "radius")
       throw new Error("Radius sharing is blocked pending a public upload contract. No private endpoint was used.");
     await stage(async (directory) => {
-      const branch = await snapshotBranch(client, check, signal, directory);
+      const branch = await prepareActiveBranchExport(client, check, signal, directory);
       let payload = branch.payload;
       if (payload.length > maxShareBytes)
         throw new Error("Sharing supports at most 2 MiB. Use local export for larger sessions.");

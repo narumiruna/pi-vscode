@@ -5,8 +5,8 @@ import * as vscode from "vscode";
 import { piConfiguration } from "./configuration";
 import { ConversationResponseCapture, ExclusiveOperationGate } from "./conversationController";
 import {
+  type BashResultView,
   maxShellPolicyMessageCharacters,
-  type ShellResult,
   shellAbortDeadlineMs,
   shellCapabilityName,
   shellExecutionDeadlineMs,
@@ -164,6 +164,7 @@ export function runtimeSessionIdentityChanged(
   );
 }
 
+/** Owns VS Code RPC, bridge, policy and extension UI lifecycle; not an SDK runtime. */
 export class PiRuntimeManager implements vscode.Disposable {
   private readonly extensionDialogs = new ExtensionDialogRequests();
   private readonly dialogOrigins = new WeakMap<PiRpcEvent, ExtensionDialogRequest>();
@@ -197,7 +198,7 @@ export class PiRuntimeManager implements vscode.Disposable {
         approved: boolean;
         consumed: boolean;
         cancelled: boolean;
-        execution?: Promise<ShellResult>;
+        execution?: Promise<BashResultView>;
         stopping?: Promise<void>;
       }
     | undefined;
@@ -395,12 +396,12 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   /** Only the explicit idle composer dispatch calls this mutation route. */
-  public async executeShell(
+  public async executeBash(
     command: string,
     excludeFromContext: boolean,
     onAccepted?: () => void,
     onHistory?: (messages: readonly unknown[]) => Promise<void>,
-  ): Promise<ShellResult | undefined> {
+  ): Promise<BashResultView | undefined> {
     return this.withForegroundOperation("direct shell", async (client, assertCurrent) => {
       validateShellCommand(command);
       if (this.state.busy || this.state.queue?.steering.length || this.state.queue?.followUp.length)
@@ -458,13 +459,13 @@ export class PiRuntimeManager implements vscode.Disposable {
         approved: false,
         consumed: false,
         cancelled: false,
-        execution: undefined as Promise<ShellResult> | undefined,
+        execution: undefined as Promise<BashResultView> | undefined,
         stopping: undefined as Promise<void> | undefined,
       };
       this.shellActive = shell;
       // The shared owner projects busy while its state stays idle for assertCurrent.
       this.updateState({ queueable: false });
-      let result: ShellResult = { output: "", cancelled: false, truncated: false };
+      let result: BashResultView = { output: "", cancelled: false, truncated: false };
       let submitted = false;
       try {
         const choice = await vscode.window.showWarningMessage(
@@ -1100,8 +1101,8 @@ export class PiRuntimeManager implements vscode.Disposable {
   public reloadResources(): Promise<boolean> {
     return this.control.reloadResources();
   }
-  public restartResources(): Promise<boolean> {
-    return this.control.restartResources();
+  public restartSessionProcess(): Promise<boolean> {
+    return this.control.restartSessionProcess();
   }
   public getSessionTree() {
     return this.control.getSessionTree();

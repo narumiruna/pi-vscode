@@ -104,7 +104,7 @@ test("direct shell is available before the first model turn writes a session fil
   await fixture(async (f) => {
     f.internal.state.sessionFile = path.join(f.root, "assigned-but-unsaved.jsonl");
     f.client.getState = async () => ({ sessionId: "fixture-session", sessionFile: f.internal.state.sessionFile });
-    assert.deepEqual(await f.runtime.executeShell("printf harmless", false), f.result);
+    assert.deepEqual(await f.runtime.executeBash("printf harmless", false), f.result);
     assert.equal(f.executions(), 1);
   });
 });
@@ -129,7 +129,7 @@ test("every direct shell has full host approval independent of tool mode, with c
       return "Run Shell";
     };
     for (const exclude of [false, true])
-      assert.deepEqual(await f.runtime.executeShell("printf harmless", exclude), f.result);
+      assert.deepEqual(await f.runtime.executeBash("printf harmless", exclude), f.result);
     assert.equal(approvals, 2);
     assert.equal(f.executions(), 2);
     assert.equal(hasOperation(f.root), false);
@@ -141,7 +141,7 @@ test("every direct shell has full host approval independent of tool mode, with c
 test("rejected/stale approval and unsupported policy discovery run no shell", async () => {
   await fixture(async (f) => {
     vscode.window.showWarningMessage = async () => undefined;
-    assert.equal(await f.runtime.executeShell("printf harmless", false), undefined);
+    assert.equal(await f.runtime.executeBash("printf harmless", false), undefined);
     assert.equal(f.executions(), 0);
     for (const mutate of [
       () => {
@@ -167,7 +167,7 @@ test("rejected/stale approval and unsupported policy discovery run no shell", as
         mutate();
         return "Run Shell";
       };
-      await assert.rejects(f.runtime.executeShell("printf harmless", false), /origin|trusted|policy|workspace/i);
+      await assert.rejects(f.runtime.executeBash("printf harmless", false), /origin|trusted|policy|workspace/i);
       assert.equal(f.executions(), 0);
       assert.equal(hasOperation(f.root), false);
     }
@@ -176,7 +176,7 @@ test("rejected/stale approval and unsupported policy discovery run no shell", as
     f.internal.state.sessionId = "fixture-session";
     vscode.window.showWarningMessage = async () => assert.fail("Unsupported runtime must not offer execution");
     f.descriptors[0].description = "VS Code direct-shell policy; Pi 1.2.0";
-    await assert.rejects(f.runtime.executeShell("printf harmless", false), /verified Pi 1.3.0/);
+    await assert.rejects(f.runtime.executeBash("printf harmless", false), /verified Pi 1.3.0/);
     assert.equal(f.executions(), 0);
   });
 });
@@ -184,17 +184,17 @@ test("rejected/stale approval and unsupported policy discovery run no shell", as
 test("policy discovery rejects duplicates and foreign sources, but accepts canonical packaged aliases", async () => {
   await fixture(async (f) => {
     f.descriptors.push({ ...f.descriptors[0] });
-    await assert.rejects(f.runtime.executeShell("printf harmless", false), /verified Pi 1.3.0/);
+    await assert.rejects(f.runtime.executeBash("printf harmless", false), /verified Pi 1.3.0/);
     f.descriptors.pop();
     const original = f.descriptors[0].sourceInfo.path;
     f.descriptors[0].sourceInfo.path = f.descriptors[1].sourceInfo.path;
-    await assert.rejects(f.runtime.executeShell("printf harmless", false), /verified Pi 1.3.0/);
+    await assert.rejects(f.runtime.executeBash("printf harmless", false), /verified Pi 1.3.0/);
     f.descriptors[0].sourceInfo.path = original;
     if (process.platform !== "win32") {
       const alias = path.join(f.root, "permission-alias.ts");
       await symlink(original, alias);
       f.descriptors[0].sourceInfo.path = alias;
-      assert.deepEqual(await f.runtime.executeShell("printf harmless", false), f.result);
+      assert.deepEqual(await f.runtime.executeBash("printf harmless", false), f.result);
     }
   });
 });
@@ -253,7 +253,7 @@ test("wrong origin and replayed user_bash approval requests fail closed", async 
       assert.equal(f.responses.at(-1).confirmed, false, "approval is one-shot");
       return f.result;
     };
-    await f.runtime.executeShell("printf harmless", false);
+    await f.runtime.executeBash("printf harmless", false);
     assert.equal(shellPolicyTitle, "PI_VSCODE_DIRECT_SHELL_V1");
   });
 });
@@ -271,7 +271,7 @@ test("pending dialogs/queues, terminal ownership, trust, virtual workspaces and 
       if (state === "trust") vscode.workspace.isTrusted = false;
       if (state === "virtual") f.folder.uri = { scheme: "virtual" };
       if (state === "lock") release = acquireOperation(f.root, "Apply/import/restore");
-      await assert.rejects(f.runtime.executeShell("printf harmless", false));
+      await assert.rejects(f.runtime.executeBash("printf harmless", false));
       release();
       f.runtime.invalidateExtensionDialogs();
       f.internal.state.queue = undefined;
@@ -300,7 +300,7 @@ test("shell-specific Stop waits for final result; failed abort disconnects witho
       aborts++;
       finish({ ...f.result, cancelled: true });
     };
-    const execution = f.runtime.executeShell("printf harmless", false);
+    const execution = f.runtime.executeBash("printf harmless", false);
     await started;
     await f.runtime.abort();
     assert.equal((await execution)?.cancelled, true);
@@ -319,7 +319,7 @@ test("shell-specific Stop waits for final result; failed abort disconnects witho
       f.client.isRunning = false;
       finish(Promise.reject(new Error("disconnected")));
     };
-    const failed = f.runtime.executeShell("printf harmless", false);
+    const failed = f.runtime.executeBash("printf harmless", false);
     void failed.catch(() => {});
     await started;
     await assert.rejects(f.runtime.abort(), /fixture abort failure/);
@@ -347,7 +347,7 @@ test("execution deadline requests abort, requires final settlement and never rep
       finish({ ...f.result, cancelled: true });
     };
     vi.useFakeTimers();
-    const execution = f.runtime.executeShell("printf harmless", false);
+    const execution = f.runtime.executeBash("printf harmless", false);
     void execution.catch(() => {});
     await ready;
     await vi.advanceTimersByTimeAsync(shellExecutionDeadlineMs + 1);
@@ -363,7 +363,7 @@ test("Stop during modal approval preserves the draft and executes no command", a
       await f.runtime.abort();
       return "Run Shell";
     };
-    assert.equal(await f.runtime.executeShell("printf harmless", false), undefined);
+    assert.equal(await f.runtime.executeBash("printf harmless", false), undefined);
     assert.equal(f.executions(), 0);
     assert.equal(hasOperation(f.root), false);
   });
@@ -386,7 +386,7 @@ test("abort acknowledgement without a final result disconnects with bounded clea
       rejectExecution(new Error("fixture disconnected"));
     };
     vi.useFakeTimers();
-    const execution = f.runtime.executeShell("printf harmless", false);
+    const execution = f.runtime.executeBash("printf harmless", false);
     void execution.catch(() => {});
     await started;
     const stopping = f.runtime.abort();
@@ -404,7 +404,7 @@ test("history replacement stays inside the canonical owner and final session ide
   await fixture(async (f) => {
     f.client.getMessages = async () => [];
     let delivered = false;
-    await f.runtime.executeShell("printf harmless", false, undefined, async () => {
+    await f.runtime.executeBash("printf harmless", false, undefined, async () => {
       assert.equal(hasOperation(f.root), true);
       assert.equal(f.runtime.currentState.busy, true);
       delivered = true;
@@ -416,10 +416,7 @@ test("history replacement stays inside the canonical owner and final session ide
       f.client.getState = async () => ({ sessionId: "replacement" });
       return result;
     };
-    await assert.rejects(
-      f.runtime.executeShell("printf harmless", false),
-      /session changed|session is busy or changed/,
-    );
+    await assert.rejects(f.runtime.executeBash("printf harmless", false), /session changed|session is busy or changed/);
     assert.equal(hasOperation(f.root), false);
     assert.equal(f.events.at(-1).state, "uncertain");
     assert.equal(f.client.isRunning, false);
@@ -438,13 +435,13 @@ test("canonical workspace aliases retain their binding and a replaced alias reje
     try {
       f.folder.uri = MockUri.file(alias);
       f.internal.control.clientStarted();
-      assert.deepEqual(await f.runtime.executeShell("printf harmless", false), f.result);
+      assert.deepEqual(await f.runtime.executeBash("printf harmless", false), f.result);
       vscode.window.showWarningMessage = async () => {
         await rm(alias);
         await symlink(tmpdir(), alias, "dir");
         return "Run Shell";
       };
-      await assert.rejects(f.runtime.executeShell("printf harmless", false), /origin|workspace|directory/i);
+      await assert.rejects(f.runtime.executeBash("printf harmless", false), /origin|workspace|directory/i);
       assert.equal(f.executions(), 1);
     } finally {
       await rm(alias, { force: true });
