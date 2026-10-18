@@ -159,7 +159,7 @@ The screen-reader runner needs the Linux x64 dependencies listed in the README. 
 
 Speech Dispatcher was unavailable. These are genuine Orca-generated speech-text utterances, not audible-output or human-usability results. Message role and heading level are spoken; message numbers can occur in article context and are not guaranteed in each utterance.
 
-Plans 03 and 04 now have their required remote-placement and actual screen-reader evidence. Per-workspace native consent remains mandatory before retention; no unverified topology is silently treated as verified. The seven implementation plans can be retired after the Git/PR handoff.
+Plans 03 and 04 now have their required remote-placement and actual screen-reader evidence. Per-workspace native consent remains mandatory before retention; no unverified topology is silently treated as verified. All seven implementation plans are complete and retired after the Git/PR handoff. This document retains their behavior and validation evidence.
 
 Other unverified paths: Remote SSH/WSL/container or cross-machine deployments, non-Linux UI and screen readers, audible output/human usability, packaged native installation and live providers. No live model, provider authorization, upload, release tag, package publication or release workflow dispatch was used. `npm ci` reported two audit vulnerabilities (one moderate, one critical) in the unchanged lockfile; dependency remediation is outside this UX change.
 
