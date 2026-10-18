@@ -5,8 +5,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { gitEnvironment, gitIdentity, gitRevision } from "../gitSnapshots";
 import { acquireOperation, hasOperation } from "../operationLocks";
-import { buildRpcArguments, PiRpcClient } from "../piRpcClient";
+import { buildPiProcessEnvironment, buildRpcArguments, PiRpcClient } from "../piRpcClient";
 import {
+  vscodeAnnotationTokenEnvironmentKey,
   vscodeBridgeExtensionEnvironmentKey,
   vscodeBridgePortEnvironmentKey,
   vscodeBridgeTokenEnvironmentKey,
@@ -94,7 +95,17 @@ test("background manager restores legacy/interrupted tasks safely, previews canc
         vscodeBridgePortEnvironmentKey,
         vscodeBridgeTokenEnvironmentKey,
         vscodeBridgeExtensionEnvironmentKey,
+        vscodeAnnotationTokenEnvironmentKey,
       ]);
+      assert.equal(
+        buildPiProcessEnvironment(
+          { [vscodeAnnotationTokenEnvironmentKey]: "foreground-only" },
+          launchOptions.env,
+          launchOptions.unsetEnv,
+        )[vscodeAnnotationTokenEnvironmentKey],
+        undefined,
+        "background clients remove inherited annotation credentials",
+      );
       await launchManager.cancel(launched);
       assert.match(
         launchManager.states.find((task) => task.id === launched)?.output ?? "",

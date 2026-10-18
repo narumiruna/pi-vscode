@@ -22,6 +22,7 @@ import thinkingFixture from "./fixtures/thinking.cjs";
 import { assertThinkingDisclosure } from "./thinking-fixture.mjs";
 import { assertNativeDirectShell } from "./direct-shell-fixture.mjs";
 import { assertAuthTransferDialogs, seedTransferSession } from "./auth-transfer-native-fixture.mjs";
+import { assertNativeAnnotations } from "./annotation-native-fixture.mjs";
 
 // Actual Quick Picks, modals, Problems, code actions and webview clicks; only Pi is simulated.
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -29,7 +30,8 @@ const version = process.argv[2] ?? "1.106.0";
 const workspaceAlias = process.argv[3] === "alias";
 const packaged = process.argv.includes("packaged");
 const selectionOnly = process.argv.includes("selection");
-const evidenceLabel = `${version}${workspaceAlias ? "-alias" : ""}${packaged ? "-packaged" : ""}${selectionOnly ? "-selection" : ""}`;
+const annotationsOnly = process.argv.includes("annotations");
+const evidenceLabel = `${version}${workspaceAlias ? "-alias" : ""}${packaged ? "-packaged" : ""}${selectionOnly ? "-selection" : ""}${annotationsOnly ? "-annotations" : ""}`;
 if (process.platform !== "linux") throw new Error("The native UI runner currently supports Linux only.");
 const directory = await realpath(await mkdtemp(path.join(tmpdir(), "pi-native-ui-")));
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -76,6 +78,7 @@ try {
   const userData = path.join(directory, "user");
   await mkdir(workspace);
   if (selectionOnly) await writeFile(path.join(directory, "selection-first-open"), "selection");
+  if (annotationsOnly) await writeFile(path.join(directory, "annotations-only"), "annotations");
   if (workspaceAlias) await symlink(workspace, openedWorkspace, "junction");
   await mkdir(path.join(userData, "User"), { recursive: true });
   const executableFixture = path.join(directory, "pi-fixture");
@@ -89,7 +92,7 @@ try {
   // Fail closed even if an upload approval regression invokes gh. Never delegates to real gh.
   await writeFile(path.join(fixtureBin, "gh"), `#!/bin/sh\nprintf invoked >> '${path.join(directory, "gh-invoked")}'\nexit 91\n`, { mode: 0o700 });
   await respond("Native fixture explanation.");
-  if (!selectionOnly) await writeFile(path.join(directory, "extension-ui.json"), JSON.stringify(extensionUiFixture));
+  if (!selectionOnly && !annotationsOnly) await writeFile(path.join(directory, "extension-ui.json"), JSON.stringify(extensionUiFixture));
   await writeFile(
     path.join(userData, "User", "settings.json"),
     JSON.stringify({
@@ -270,7 +273,9 @@ try {
       "Quick Pick accepted or advanced",
     );
   };
-  if (selectionOnly) {
+  if (annotationsOnly) {
+    await assertNativeAnnotations({ page, directory, workspace, invoke, until, frame, pick });
+  } else if (selectionOnly) {
     // No pi.openChat, view focus, or webview message may prepare this first-open command.
     for (const candidate of page.frames()) assert.equal(await candidate.locator("#add-context").count(), 0);
     await assert.rejects(readFile(path.join(directory, "pids.jsonl")), { code: "ENOENT" });

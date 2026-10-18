@@ -48,8 +48,29 @@ export function installVscodeMock(): any {
     ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
     ViewColumn: { Active: -1 },
     StatusBarAlignment: { Left: 1, Right: 2 },
+    DecorationRangeBehavior: { ClosedClosed: 1 },
+    ThemeColor: class {
+      constructor(public id: string) {}
+    },
+    MarkdownString: class {
+      public value = "";
+      public isTrusted = false;
+      public supportHtml = false;
+      public readonly appendedText: string[] = [];
+      public appendText(value: string) {
+        this.appendedText.push(value);
+        this.value += value.replace(/[\\`*_{}[\]()<>#+!|~-]/g, "\\$&");
+        return this;
+      }
+    },
     TabInputText: class {
       constructor(public uri: MockUri) {}
+    },
+    TabInputTextDiff: class {
+      constructor(
+        public original: MockUri,
+        public modified: MockUri,
+      ) {}
     },
     CancellationTokenSource: class {
       private events = new NodeEmitter();
@@ -148,6 +169,8 @@ export function installVscodeMock(): any {
       onDidGrantWorkspaceTrust: (listener: (...args: any[]) => void) => listen(workspaceEvents, "trust", listener),
       onDidCloseTextDocument: (listener: (...args: any[]) => void) =>
         listen(workspaceEvents, "closeDocument", listener),
+      onDidChangeTextDocument: (listener: (...args: any[]) => void) =>
+        listen(workspaceEvents, "changeDocument", listener),
       textDocuments: [],
       workspaceFolders: [],
       registerTextDocumentContentProvider: disposable,
@@ -159,6 +182,21 @@ export function installVscodeMock(): any {
       getWorkspaceFolder: () => undefined,
     },
     window: {
+      visibleTextEditors: [],
+      decorationTypes: [],
+      createTextEditorDecorationType: (options: unknown) => {
+        const decoration = {
+          options,
+          disposed: false,
+          dispose() {
+            this.disposed = true;
+          },
+        };
+        mock.window.decorationTypes.push(decoration);
+        return decoration;
+      },
+      onDidChangeVisibleTextEditors: (listener: (...args: any[]) => void) =>
+        listen(workspaceEvents, "visibleEditors", listener),
       onDidChangeActiveTextEditor: (listener: (...args: any[]) => void) =>
         listen(workspaceEvents, "activeEditor", listener),
       tabGroups: {

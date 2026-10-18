@@ -1,4 +1,4 @@
-import type * as vscode from "vscode";
+import * as vscode from "vscode";
 import { registerPiChat } from "./chat";
 import { registerDebugContext } from "./debugContextController";
 import { registerEditorActions } from "./editorActions";
@@ -27,7 +27,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<PiVsco
     throw new Error(`Could not remove the legacy global Pi bridge extension: ${formatError(error)}`, { cause: error });
   }
   const runtime = new PiRuntimeManager(context);
-  context.subscriptions.push(runtime);
+  context.subscriptions.push(
+    runtime,
+    vscode.commands.registerCommand("pi.clearAnnotations", () => runtime.clearAnnotations()),
+  );
   await runtime.initializeControlOwnership();
   await runtime.initializeBridge();
   registerExtensionUiDialogs(context, runtime);

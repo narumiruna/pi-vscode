@@ -501,6 +501,11 @@ test("terminal handoff stops writer, retains canonical ownership, forwards polic
     assert.ok(options.shellArgs.includes("/session path/session.jsonl"));
     assert.equal(options.env.PI_VSCODE_PERMISSION_MODE, "all");
     assert.equal(options.env.PI_VSCODE_BRIDGE_TOKEN, "fixture-token");
+    assert.equal(
+      options.env.PI_VSCODE_ANNOTATION_TOKEN,
+      null,
+      "terminal handoff explicitly removes annotation credentials",
+    );
     assert.ok(options.shellArgs.some((arg: string) => arg.endsWith("pi-read-only-gate.ts")));
     assert.throws(() => f.control.assertSidebarOwnership(), /owned by the terminal/);
     mock.window.showWarningMessage = async () => undefined;

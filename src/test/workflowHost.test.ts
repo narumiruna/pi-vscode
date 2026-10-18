@@ -21,7 +21,19 @@ test("packaged read-only gate blocks mutating default and extension tools and re
   const javascript = stripTypeScriptTypes(source);
   const { default: readOnlyGate } = await import(`data:text/javascript,${encodeURIComponent(javascript)}`);
   const handlers = new Map<string, (event?: unknown) => unknown>();
-  let tools = ["read", "vscode_code_context", "bash", "write", "edit", "custom_mutation"];
+  let tools = [
+    "read",
+    "vscode_code_context",
+    "vscode_annotate",
+    "vscode_open_file",
+    "vscode_notify",
+    "vscode_annotate_extra",
+    "bash",
+    "write",
+    "edit",
+    "custom_mutation",
+  ];
+  const originalTools = [...tools];
   readOnlyGate({
     registerCommand: () => {},
     on: (name: string, callback: (event?: unknown) => unknown) => handlers.set(name, callback),
@@ -38,13 +50,21 @@ test("packaged read-only gate blocks mutating default and extension tools and re
       "read-only",
     ),
   });
-  assert.deepEqual([...tools], ["read", "vscode_code_context"]);
-  for (const toolName of ["bash", "write", "edit", "custom_mutation"])
+  assert.deepEqual([...tools], ["read", "vscode_code_context", "vscode_annotate"]);
+  for (const toolName of [
+    "bash",
+    "write",
+    "edit",
+    "custom_mutation",
+    "vscode_open_file",
+    "vscode_notify",
+    "vscode_annotate_extra",
+  ])
     assert.equal((handlers.get("tool_call")!({ toolName }) as any).block, true);
-  assert.equal(handlers.get("tool_call")!({ toolName: "read" }), undefined);
-  assert.equal(handlers.get("tool_call")!({ toolName: "vscode_code_context" }), undefined);
+  for (const toolName of ["read", "vscode_code_context", "vscode_annotate"])
+    assert.equal(handlers.get("tool_call")!({ toolName }), undefined);
   handlers.get("agent_settled")!();
-  assert.ok(tools.includes("bash"));
+  assert.deepEqual(tools, originalTools);
 });
 
 test("foreground queue ownership, settlement grouping, clear-before-abort and uncertain fallback", async () => {

@@ -7,6 +7,7 @@ import * as vscode from "vscode";
 import { addMultiFileEditProposal, registerEditPreviewProvider } from "../editProposalController";
 import { EditProposalStore } from "../editProposals";
 import { captureGitReview } from "../gitSnapshots";
+import { PiRuntimeManager } from "../piRuntime";
 import { ReviewFindingStore } from "../reviewFindings";
 import type { CodeContextResult } from "../semanticContext";
 import { queryCodeContext } from "../semanticContext";
@@ -33,7 +34,14 @@ export async function run(): Promise<void> {
   if (!vscode.workspace.isTrusted) {
     await verifyNativePiControl(root);
     await assert.rejects(queryCodeContext("definition", uri, new vscode.Position(1, 0)), /trusted/);
-    await evidence({ version: vscode.version, trusted: false, trustGuard: "passed", directShell });
+    await verifyAnnotationTrust(root);
+    await evidence({
+      version: vscode.version,
+      trusted: false,
+      trustGuard: "passed",
+      annotations: "Clear command needs no client; authenticated foreground annotation routes reject Restricted Mode",
+      directShell,
+    });
     return;
   }
   await verifyNativeSettings();
@@ -173,6 +181,67 @@ export async function run(): Promise<void> {
     diagnosticEncodingCases,
     directShell,
   });
+}
+
+async function verifyAnnotationTrust(root: vscode.Uri): Promise<void> {
+  await vscode.extensions.getExtension("narumi.narumi-pi")?.activate();
+  assert.ok((await vscode.commands.getCommands(true)).includes("pi.clearAnnotations"));
+  await vscode.commands.executeCommand("pi.clearAnnotations");
+  const environment: Record<string, string> = {};
+  const runtime = new PiRuntimeManager({
+    extensionUri: vscode.Uri.file(path.resolve(__dirname, "../..")),
+    workspaceState: { get: () => undefined, update: async () => {} },
+    environmentVariableCollection: {
+      replace: (key: string, value: string) => {
+        environment[key] = value;
+      },
+      clear() {},
+    },
+  } as unknown as vscode.ExtensionContext);
+  try {
+    await runtime.initializeBridge();
+    runtime.clearAnnotations();
+    await assert.rejects(runtime.ensureStarted(root), /trusted/);
+    for (const [method, params] of [
+      ["annotationOrigin", { credential: "0".repeat(64), sessionId: "untrusted-session", cwd: root.fsPath }],
+      ["annotate", { origin: "0".repeat(64), path: vscode.Uri.joinPath(root, "source.ts").fsPath, annotations: [] }],
+    ] as const) {
+      const response = await new Promise<{ ok: boolean }>((resolve, reject) => {
+        const socket = net.createConnection({
+          host: "127.0.0.1",
+          port: Number(environment[vscodeBridgePortEnvironmentKey]),
+        });
+        let text = "";
+        socket.setTimeout(5000, () => socket.destroy(new Error("Native annotation trust bridge timed out")));
+        socket.on("error", reject);
+        socket.on("connect", () =>
+          socket.write(
+            `${JSON.stringify({
+              id: "native-annotation-trust",
+              token: environment[vscodeBridgeTokenEnvironmentKey],
+              method,
+              params,
+            })}\n`,
+          ),
+        );
+        socket.on("data", (chunk) => {
+          text += chunk.toString();
+        });
+        socket.on("end", () => {
+          try {
+            resolve(JSON.parse(text));
+          } catch (error) {
+            reject(error);
+          }
+        });
+      });
+      assert.equal(response.ok, false, "Restricted Mode has no authorized foreground annotation origin");
+    }
+    assert.equal(runtime.currentState.connected, false);
+    assert.equal(runtime.currentState.sessionId, undefined);
+  } finally {
+    runtime.dispose();
+  }
 }
 
 async function evidence(value: unknown): Promise<void> {

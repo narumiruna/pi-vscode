@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 import * as vscode from "vscode";
@@ -13,6 +13,7 @@ import {
   shellPolicyTitle,
   validateShellCommand,
 } from "./directShell";
+import { EditorAnnotations } from "./editorAnnotations";
 import { type ExtensionDialogRequest, ExtensionDialogRequests } from "./extensionDialogRequests";
 import {
   PiRpcClient,
@@ -26,6 +27,7 @@ import { PiRuntimeControl } from "./piRuntimeControl";
 import { assertAssignedSessionWorkspace, assertSessionWorkspace } from "./sessionIdentity";
 import { VscodeBridgeServer } from "./vscodeBridge";
 import {
+  vscodeAnnotationTokenEnvironmentKey,
   vscodeBridgeExtensionEnvironmentKey,
   vscodeBridgePortEnvironmentKey,
   vscodeBridgeTokenEnvironmentKey,
@@ -171,7 +173,14 @@ export class PiRuntimeManager implements vscode.Disposable {
   private dialogGeneration = 0;
   private readonly eventEmitter = new vscode.EventEmitter<PiRpcEvent>();
   private readonly stateEmitter = new vscode.EventEmitter<PiRuntimeState>();
-  private readonly bridge = new VscodeBridgeServer();
+  private readonly annotations = new EditorAnnotations();
+  private readonly bridge = new VscodeBridgeServer((method, params, isCancelled) =>
+    this.annotationRequest(method, params, isCancelled),
+  );
+  private annotationLaunch:
+    | { readonly client: PiRpcClient; readonly credential: string; readonly cwd: string }
+    | undefined;
+  private annotationScope = randomBytes(32).toString("hex");
   private client: PiRpcClient | undefined;
   private disposed = false;
   private clientSubscription: vscode.Disposable | undefined;
@@ -307,6 +316,71 @@ export class PiRuntimeManager implements vscode.Disposable {
 
   public broadcastToPi(event: string, data: unknown): number {
     return this.bridge.broadcast(event, data);
+  }
+
+  public clearAnnotations(): void {
+    this.annotationScope = randomBytes(32).toString("hex");
+    this.annotations.clear();
+  }
+
+  private async annotationRequest(
+    method: "annotationOrigin" | "annotate",
+    params: Record<string, unknown>,
+    isCancelled: () => boolean,
+  ): Promise<unknown> {
+    const launch = this.annotationLaunch;
+    const scope = this.annotationScope;
+    const sessionId = this.state.sessionId;
+    const sessionFile = this.state.sessionFile;
+    const cwd = this.currentCwd;
+    if (!launch) throw new Error("Annotations require the current foreground sidebar session.");
+    const assertCurrent = () => {
+      if (
+        this.disposed ||
+        isCancelled() ||
+        !vscode.workspace.isTrusted ||
+        this.annotationLaunch !== launch ||
+        this.client !== launch.client ||
+        !launch.client.isRunning ||
+        !this.state.connected ||
+        !sessionId ||
+        this.state.sessionId !== sessionId ||
+        this.state.sessionFile !== sessionFile ||
+        this.annotationScope !== scope ||
+        this.currentCwd !== cwd ||
+        (this.ownership.isPending && !this.promptActive) ||
+        this.shellActive
+      )
+        throw new Error("Annotations require the current foreground sidebar session.");
+      this.control.assertSidebarOwnership();
+    };
+    assertCurrent();
+    if (method === "annotationOrigin") {
+      if (
+        Object.keys(params).some((key) => !["credential", "sessionId", "cwd"].includes(key)) ||
+        !annotationTokenMatches(params.credential, launch.credential) ||
+        params.sessionId !== sessionId ||
+        typeof params.cwd !== "string" ||
+        params.cwd.length > 8_192 ||
+        !path.isAbsolute(params.cwd)
+      )
+        throw new Error("Annotation foreground authorization failed.");
+      const cwd = await realpath(params.cwd);
+      if (cwd !== launch.cwd || (await realpath(this.currentCwd)) !== launch.cwd)
+        throw new Error("Annotation workspace does not match the foreground session.");
+      assertCurrent();
+      return { origin: scope };
+    }
+    if (
+      Object.keys(params).some((key) => !["origin", "path", "annotations"].includes(key)) ||
+      !annotationTokenMatches(params.origin, scope)
+    )
+      throw new Error("Annotation origin expired or is unavailable.");
+    // Enter the controller before any await so it captures document versions and clear revisions at arrival.
+    return this.annotations.annotate(
+      { path: params.path, annotations: params.annotations },
+      { cwd, root: launch.cwd, assertCurrent },
+    );
   }
 
   public async ensureStarted(resource?: vscode.Uri): Promise<void> {
@@ -1172,6 +1246,7 @@ export class PiRuntimeManager implements vscode.Disposable {
 
   /** Clear before replacing resources/session so only newly emitted Pi UI is retained. */
   public resetExtensionUi(): void {
+    this.clearAnnotations();
     this.invalidateExtensionDialogs();
     this.eventEmitter.fire({ type: "extension_ui_reset" });
   }
@@ -1180,6 +1255,8 @@ export class PiRuntimeManager implements vscode.Disposable {
     if (this.disposed) return;
     this.disposed = true;
     this.resetExtensionUi();
+    this.annotations.dispose();
+    this.annotationLaunch = undefined;
     this.control.dispose();
     this.clientSubscription?.dispose();
     this.clientSubscription = undefined;
@@ -1227,7 +1304,13 @@ export class PiRuntimeManager implements vscode.Disposable {
     if (!vscode.workspace.isTrusted) throw new Error("Pi startup requires a trusted workspace.");
     if (JSON.stringify(this.buildClientOptions(sessionPath, {})) !== launch)
       throw new Error("Pi launch settings changed during startup.");
-    const options = { ...this.buildClientOptions(sessionPath, bridgeEnvironment), cwd: root };
+    const credential = randomBytes(32).toString("hex");
+    const baseOptions = this.buildClientOptions(sessionPath, bridgeEnvironment);
+    const options = {
+      ...baseOptions,
+      cwd: root,
+      env: { ...baseOptions.env, [vscodeAnnotationTokenEnvironmentKey]: credential },
+    };
     const client = new PiRpcClient(options);
     this.invalidateExtensionDialogs();
     this.clientSubscription?.dispose();
@@ -1247,6 +1330,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     });
     this.clientSubscription = subscription;
     this.client = client;
+    this.annotationLaunch = { client, credential, cwd: root };
     this.resetExtensionUi();
     this.control.clientStarted();
     try {
@@ -1260,6 +1344,7 @@ export class PiRuntimeManager implements vscode.Disposable {
         this.invalidateExtensionDialogs();
         this.clientSubscription = undefined;
         this.client = undefined;
+        this.annotationLaunch = undefined;
         this.resetExtensionUi();
       }
       await this.stopDetachedClient(client);
@@ -1289,6 +1374,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       approveProjectResources: configuration.get<boolean>("approveProjectResources", false),
       env: {
         ...bridgeEnvironment,
+        [vscodeAnnotationTokenEnvironmentKey]: undefined,
         PI_VSCODE_PERMISSION_MODE: configuration.get<string>("agent.confirmToolCalls", "dangerous"),
       },
     };
@@ -1339,8 +1425,10 @@ export class PiRuntimeManager implements vscode.Disposable {
         sessionId: stringField(rpcState, "sessionId"),
         sessionFile,
       })
-    )
+    ) {
       this.invalidateExtensionDialogs();
+      this.clearAnnotations();
+    }
     this.state = {
       connected: true,
       busy: Boolean(this.shellActive) || this.promptActive || Boolean(rpcState.isStreaming),
@@ -1496,7 +1584,11 @@ export class PiRuntimeManager implements vscode.Disposable {
       event.message.startsWith("PI_VSCODE_CONTROL_RESULT:")
     )
       return;
-    if (event.type === "process_exit") this.invalidateExtensionDialogs();
+    if (event.type === "process_exit") {
+      this.annotationLaunch = undefined;
+      this.clearAnnotations();
+      this.invalidateExtensionDialogs();
+    }
     if (event.type === "extension_ui_request") {
       const client = this.client;
       const generation = this.dialogGeneration;
@@ -1675,6 +1767,7 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   private updateState(changes: Partial<PiRuntimeState>): void {
+    if (changes.connected === false || runtimeSessionIdentityChanged(this.state, changes)) this.clearAnnotations();
     this.state = { ...this.state, ...changes };
     this.stateEmitter.fire(this.state);
   }
@@ -1708,6 +1801,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     this.clientSubscription?.dispose();
     this.clientSubscription = undefined;
     this.client = undefined;
+    this.annotationLaunch = undefined;
     await this.stopDetachedClient(client);
     this.resetQueueTracking();
     this.updateState({
@@ -1773,6 +1867,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function annotationTokenMatches(value: unknown, expected: string): boolean {
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) return false;
+  return timingSafeEqual(Buffer.from(value, "hex"), Buffer.from(expected, "hex"));
 }
 
 function formatError(error: unknown): string {

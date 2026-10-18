@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Deterministic RPC subprocess for native UI tests. Never invokes a provider or tool.
+// Deterministic RPC subprocess for native UI tests. Never invokes a provider.
 if (process.argv.some((value) => value.endsWith("pi-isolated-helper.ts"))) {
   // The native runner embeds an absolute test-module URL in its disposable copy.
   void import("../../src/test/fixtures/isolated-pi-fixture.mjs");
@@ -85,6 +85,80 @@ setInterval(() => {
   if (event.type === "fixture_exit") process.exit(0);
   emit(event);
 }, 50).unref();
+// Exercise the real authenticated bridge from the actual foreground child. Private
+// credentials and origins stay in this process; file IPC returns metadata only.
+if (fs.existsSync(path.join(directory, "annotations-only"))) {
+  const net = require("node:net");
+  let retainedOrigin;
+  let currentOrigin;
+  let busy = false;
+  const bridge = (method, params) => new Promise((resolve, reject) => {
+    const socket = net.connect({ host: "127.0.0.1", port: Number(process.env.PI_VSCODE_BRIDGE_PORT) });
+    let input = "";
+    const fail = () => { socket.destroy(); reject(new Error("Annotation fixture bridge transport failed")); };
+    socket.setTimeout(5000, fail);
+    socket.on("error", fail);
+    socket.on("connect", () => socket.write(JSON.stringify({
+      id: "native-annotation", token: process.env.PI_VSCODE_BRIDGE_TOKEN, method, params,
+    }) + "\n"));
+    socket.on("data", (chunk) => {
+      input += chunk;
+      if (input.length > 16384) return fail();
+      const end = input.indexOf("\n");
+      if (end < 0) return;
+      socket.destroy();
+      try { resolve(JSON.parse(input.slice(0, end))); } catch { reject(new Error("Invalid annotation fixture response")); }
+    });
+    socket.on("end", () => { if (!input.includes("\n")) fail(); });
+  });
+  setInterval(async () => {
+    const file = path.join(directory, "annotation-request.json");
+    if (busy || !fs.existsSync(file)) return;
+    busy = true;
+    const request = JSON.parse(fs.readFileSync(file, "utf8"));
+    fs.unlinkSync(file);
+    let result;
+    try {
+      if (request.action === "remember") {
+        retainedOrigin = currentOrigin;
+        result = { ok: true, remembered: typeof retainedOrigin === "string" };
+      } else {
+        let origin = retainedOrigin;
+        if (request.action !== "stale") {
+          const params = {
+            credential: process.env.PI_VSCODE_ANNOTATION_TOKEN,
+            sessionId,
+            cwd: fs.realpathSync(process.cwd()),
+          };
+          if (request.reject === "terminal") delete params.credential;
+          if (request.reject === "credential") params.credential = "0".repeat(64);
+          if (request.reject === "session") params.sessionId = "forged-native-session";
+          if (request.reject === "cwd") params.cwd = directory;
+          const response = await bridge("annotationOrigin", params);
+          if (!response.ok) result = { ok: false, stage: "origin" };
+          else {
+            if (!/^[a-f0-9]{64}$/.test(response.result?.origin)) throw new Error("Invalid origin metadata");
+            origin = response.result.origin;
+            currentOrigin = origin;
+          }
+        }
+        if (!result) {
+          const response = await bridge("annotate", {
+            origin, path: path.resolve(process.cwd(), request.path), annotations: request.annotations,
+          });
+          result = response.ok
+            ? { ok: true, count: response.result.count, visible: response.result.visible }
+            : { ok: false, stage: "annotate" };
+        }
+      }
+    } catch {
+      result = { ok: false, stage: "fixture" };
+    }
+    fs.writeFileSync(path.join(directory, "annotation-result.tmp"), JSON.stringify({ id: request.id, ...result }));
+    fs.renameSync(path.join(directory, "annotation-result.tmp"), path.join(directory, "annotation-result.json"));
+    busy = false;
+  }, 50).unref();
+}
 const onLine = (line) => {
   const request = JSON.parse(line);
   if (request.type === "bash") {
