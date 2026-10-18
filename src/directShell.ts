@@ -4,6 +4,7 @@ export const shellCapabilityName = "vscode-pi-permission-ready";
 export const shellPolicyTitle = "PI_VSCODE_DIRECT_SHELL_V1";
 export const maxShellCommandCharacters = 8_000;
 export const maxShellOutputCharacters = 64_000;
+export const maxShellPolicyMessageCharacters = 40_000;
 export const shellExecutionDeadlineMs = 60_000;
 export const shellAbortDeadlineMs = 5_000;
 

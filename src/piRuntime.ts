@@ -6,6 +6,7 @@ import { piConfiguration } from "./configuration";
 import { ConversationResponseCapture, ExclusiveOperationGate } from "./conversationController";
 import { type ExtensionDialogRequest, ExtensionDialogRequests } from "./extensionDialogRequests";
 import {
+  maxShellPolicyMessageCharacters,
   type ShellResult,
   shellAbortDeadlineMs,
   shellCapabilityName,
@@ -402,26 +403,33 @@ export class PiRuntimeManager implements vscode.Disposable {
       const commands = await client.getCommands();
       const policyPath = path.join(this.context.extensionUri.fsPath, "resources", "pi-permission-gate.ts");
       const readOnlyPath = path.join(this.context.extensionUri.fsPath, "resources", "pi-read-only-gate.ts");
-      const hasPolicy = (name: string, sourcePath: string, description: string) => {
+      const hasPolicy = async (name: string, sourcePath: string, description: string): Promise<boolean> => {
         const matches = commands.filter((value) => isRecord(value) && value.name === name);
         const value = matches[0];
-        return (
-          matches.length === 1 &&
-          isRecord(value) &&
-          value.source === "extension" &&
-          value.description === description &&
-          isRecord(value.sourceInfo) &&
-          value.sourceInfo.path === sourcePath
-        );
+        if (
+          matches.length !== 1 ||
+          !isRecord(value) ||
+          value.source !== "extension" ||
+          value.description !== description ||
+          !isRecord(value.sourceInfo) ||
+          typeof value.sourceInfo.path !== "string"
+        )
+          return false;
+        try {
+          return (await realpath(value.sourceInfo.path)) === (await realpath(sourcePath));
+        } catch {
+          return false;
+        }
       };
       if (
-        !hasPolicy(shellCapabilityName, policyPath, "VS Code direct-shell policy; Pi 1.3.0") ||
-        !hasPolicy("vscode-pi-read-only-ready", readOnlyPath, "VS Code read-only direct-shell policy v1")
+        !(await hasPolicy(shellCapabilityName, policyPath, "VS Code direct-shell policy; Pi 1.3.0")) ||
+        !(await hasPolicy("vscode-pi-read-only-ready", readOnlyPath, "VS Code read-only direct-shell policy v1"))
       )
         throw new Error(
           "Direct shell is unavailable: verified Pi 1.3.0 packaged policies are required. No command ran.",
         );
-      if (!this.state.sessionId) throw new Error("Direct shell requires a verified session identity.");
+      if (!this.state.sessionId || this.state.sessionId.length > 200 || cwd.length > 8_192)
+        throw new Error("Direct shell requires a bounded verified session and working-directory identity.");
       await assertCurrent();
       const shell = {
         id: randomUUID(),
@@ -569,17 +577,21 @@ export class PiRuntimeManager implements vscode.Disposable {
 
   private async authorizeShellPolicy(event: PiRpcEvent, client: PiRpcClient): Promise<void> {
     const id = typeof event.id === "string" ? event.id : undefined;
-    if (!id) return;
+    if (!id || id.length > 200) return;
     let confirmed = false;
     const shell = this.shellActive;
     try {
       if (!shell || shell.client !== client || !shell.approved || shell.consumed || event.method !== "confirm")
         throw new Error("No direct-shell approval belongs to this request.");
-      const payload: unknown = typeof event.message === "string" ? JSON.parse(event.message) : undefined;
+      if (typeof event.message !== "string" || event.message.length > maxShellPolicyMessageCharacters)
+        throw new Error("Invalid or oversized direct-shell policy payload.");
+      const payload: unknown = JSON.parse(event.message);
       if (
         !isRecord(payload) ||
+        Object.keys(payload).length !== 4 ||
         payload.command !== shell.command ||
         typeof payload.cwd !== "string" ||
+        payload.cwd.length > 8_192 ||
         payload.excludeFromContext !== shell.excludeFromContext ||
         payload.sessionId !== shell.sessionId
       )

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { shellExecutionDeadlineMs, shellPolicyTitle } from "../directShell";
@@ -11,6 +11,13 @@ const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRunt
 
 async function fixture(action: (f: any) => Promise<void>): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), "pi-shell-runtime-"));
+  const extensionRoot = path.join(root, "extension");
+  await mkdir(path.join(extensionRoot, "resources"), { recursive: true });
+  await Promise.all(
+    ["pi-permission-gate.ts", "pi-read-only-gate.ts"].map((name) =>
+      writeFile(path.join(extensionRoot, "resources", name), "// fixture policy identity"),
+    ),
+  );
   const folder = { uri: MockUri.file(root) };
   vscode.workspace.workspaceFolders = [folder];
   vscode.workspace.getWorkspaceFolder = () => folder;
@@ -18,7 +25,7 @@ async function fixture(action: (f: any) => Promise<void>): Promise<void> {
   vscode.workspace.getConfiguration = () => ({ get: (_key: string, fallback: unknown) => fallback });
   vscode.window.showWarningMessage = async () => "Run Shell";
   const runtime = new PiRuntimeManager({
-    extensionUri: MockUri.file("/fixture-extension"),
+    extensionUri: MockUri.file(extensionRoot),
     workspaceState: { get: () => undefined, update: async () => {} },
     environmentVariableCollection: { clear() {} },
   } as any);
@@ -32,13 +39,13 @@ async function fixture(action: (f: any) => Promise<void>): Promise<void> {
       name: "vscode-pi-permission-ready",
       description: "VS Code direct-shell policy; Pi 1.3.0",
       source: "extension",
-      sourceInfo: { path: "/fixture-extension/resources/pi-permission-gate.ts" },
+      sourceInfo: { path: path.join(extensionRoot, "resources", "pi-permission-gate.ts") },
     },
     {
       name: "vscode-pi-read-only-ready",
       description: "VS Code read-only direct-shell policy v1",
       source: "extension",
-      sourceInfo: { path: "/fixture-extension/resources/pi-read-only-gate.ts" },
+      sourceInfo: { path: path.join(extensionRoot, "resources", "pi-read-only-gate.ts") },
     },
   ];
   let executions = 0;
@@ -164,6 +171,24 @@ test("rejected/stale approval and unsupported policy discovery run no shell", as
   });
 });
 
+test("policy discovery rejects duplicates and foreign sources, but accepts canonical packaged aliases", async () => {
+  await fixture(async (f) => {
+    f.descriptors.push({ ...f.descriptors[0] });
+    await assert.rejects(f.runtime.executeShell("printf harmless", false), /verified Pi 1.3.0/);
+    f.descriptors.pop();
+    const original = f.descriptors[0].sourceInfo.path;
+    f.descriptors[0].sourceInfo.path = f.descriptors[1].sourceInfo.path;
+    await assert.rejects(f.runtime.executeShell("printf harmless", false), /verified Pi 1.3.0/);
+    f.descriptors[0].sourceInfo.path = original;
+    if (process.platform !== "win32") {
+      const alias = path.join(f.root, "permission-alias.ts");
+      await symlink(original, alias);
+      f.descriptors[0].sourceInfo.path = alias;
+      assert.deepEqual(await f.runtime.executeShell("printf harmless", false), f.result);
+    }
+  });
+});
+
 test("wrong origin and replayed user_bash approval requests fail closed", async () => {
   await fixture(async (f) => {
     const event = {
@@ -180,6 +205,19 @@ test("wrong origin and replayed user_bash approval requests fail closed", async 
     await f.internal.authorizeShellPolicy(event, f.client);
     assert.equal(f.responses.at(-1).confirmed, false, "no active command");
     f.client.bash = async () => {
+      for (const message of [
+        "x".repeat(40_001),
+        JSON.stringify({
+          command: "printf harmless",
+          cwd: f.root,
+          excludeFromContext: false,
+          sessionId: "fixture-session",
+          extra: "rejected",
+        }),
+      ]) {
+        await f.internal.authorizeShellPolicy({ ...event, message }, f.client);
+        assert.equal(f.responses.at(-1).confirmed, false);
+      }
       for (const [key, value] of [
         ["command", "wrong"],
         ["sessionId", "wrong"],
