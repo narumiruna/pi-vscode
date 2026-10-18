@@ -4,6 +4,85 @@ import { imageAssetId } from "../imageAssets";
 import { getSidebarHtml } from "../sidebarHtml";
 import { installVscodeMock } from "./vscodeMock";
 
+test("composer blockers share a visible explanation and button title for every unavailable state", () => {
+  const cases = [
+    ["connected = false; pendingImageReads = 1", /disconnected.*Reconnect/, false],
+    ["composerDraft = { changed() {}, blocked: () => true }", /Draft context changed.*verify/, false],
+    ["fileCompletion = { busy: true, refresh() {} }", /Capturing.*Wait/, false],
+    ["recoveredDraftPending = { id: 'recover', text: 'draft' }", /Restoring.*Wait/, false],
+    ["submissionPending = true", /Sending this message.*Wait/, false],
+    ["backgroundSubmissionPending = true", /Starting a background.*Wait/, false],
+    ["pendingImageReads = 1", /Loading pasted images.*Wait/, false],
+    ["sessionsLayerVisible = true; busy = true", /before starting a new session/, true],
+    ["busy = true; queueable = false", /cannot accept queued messages.*Wait/, true],
+    ["input.value = '!pwd'; attachedItems = true", /Direct shell.*remove attachments/, false],
+    ["busy = true; queueable = true; input.value = '/compact'", /Slash commands.*Wait/, false],
+    ["busy = true; queueable = true; pendingQueueCount = 10", /queue is full.*Wait/, false],
+    ["attachedImages = true; imageSupported = false", /cannot use images.*Choose/, false],
+    ["input.value = ''", /Enter a message or attach context/, false],
+  ] as const;
+  for (const [flags, reason, hidden] of cases) {
+    const sidebar = createSidebarScriptHarness();
+    sidebar.run("connected = true; sessionsLayerVisible = false; input.value = 'Draft'");
+    sidebar.run(`${flags}; updateSendState()`);
+    const status = sidebar.element("composer-status");
+    assert.equal(status.hidden, false, flags);
+    assert.match(status.textContent, reason, flags);
+    assert.equal(sidebar.element("send").title, status.textContent, flags);
+    assert.equal(sidebar.element("after-this").title, status.textContent, flags);
+    assert.equal(sidebar.element("send").disabled, true, flags);
+    assert.equal(sidebar.element("send").hidden, hidden, flags);
+    assert.equal(sidebar.run("document.activeElement === input"), false, "status updates do not steal focus");
+  }
+});
+
+test("composer blockers clear when ready and empty text is neutral, not a failure", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.run("connected = true; sessionsLayerVisible = false; input.value = ''; updateSendState()");
+  assert.equal(sidebar.element("composer-status").dataset.state, "empty");
+  sidebar.run("input.value = 'Ready'; updateSendState()");
+  assert.equal(sidebar.element("composer-status").hidden, true);
+  assert.equal(sidebar.element("composer-status").textContent, "");
+  assert.equal(sidebar.element("send").disabled, false);
+  sidebar.run("busy = true; queueable = true; updateSendState()");
+  assert.equal(sidebar.element("composer-status").hidden, true);
+  assert.match(sidebar.element("send").title, /after the current tool/);
+  assert.match(sidebar.element("after-this").title, /finishes responding/);
+  const html = getSidebarHtml(1000, 1024);
+  assert.match(html, /id="composer-status" role="status" aria-live="polite" aria-atomic="true"/);
+  for (const id of ["input", "send", "after-this"]) {
+    assert.match(html, new RegExp(`id="${id}"[^>]*aria-describedby="[^"]*composer-status`));
+  }
+  assert.ok(html.indexOf('id="composer-status"') < html.indexOf('id="composer-help"'));
+});
+
+test("Jump to latest tracks transcript changes only and does not submit or change drafts", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "showSessionDetail" });
+  sidebar.run("renderMessages([{ id: 'reply', role: 'assistant', html: '<p>First</p>' }])");
+  const conversation = sidebar.element("conversation");
+  conversation.scrollHeight = 1000;
+  conversation.clientHeight = 100;
+  conversation.scrollTop = 40;
+  conversation.listeners.get("scroll")!({ isTrusted: true });
+  assert.equal(sidebar.element("jump-to-latest").hidden, false);
+  assert.equal(sidebar.element("jump-to-latest").textContent, "Jump to latest");
+  sidebar.run("renderMessages([{ id: 'reply', role: 'assistant', html: '<p>First</p>' }]); updateLatestOutput()");
+  assert.equal(sidebar.run("hasNewTranscriptOutput"), false);
+  sidebar.run("renderMessages([{ id: 'reply', role: 'assistant', html: '<p>Second</p>' }]); updateLatestOutput()");
+  assert.equal(conversation.scrollTop, 40);
+  assert.match(sidebar.element("jump-to-latest").textContent, /New output/);
+  sidebar.element("input").value = "Unsent draft";
+  const count = sidebar.posted.length;
+  sidebar.element("jump-to-latest").listeners.get("click")!();
+  assert.equal(sidebar.element("input").value, "Unsent draft");
+  assert.equal(sidebar.posted.length, count);
+  assert.equal(sidebar.run("conversationPinnedToBottom"), true);
+  assert.equal(sidebar.run("hasNewTranscriptOutput"), false);
+  assert.equal(sidebar.element("jump-to-latest").hidden, true);
+  assert.ok(sidebar.element("input").focusCount > 0);
+});
+
 test("rich assets preserve nonce-only scripts, offline resource restrictions and source fallback", () => {
   const html = getSidebarHtml(1000, 1024, {
     source: "https://vscode-resource.example",
@@ -141,8 +220,8 @@ test("sidebar composer forwards pasted clipboard images with client-side bounds"
   assert.match(html, /let pendingImageReads = 0/);
   assert.match(html, /pendingImageReads > 0/);
   assert.match(html, /reader\.addEventListener\('loadend'/);
-  assert.match(html, /Wait for pasted images to finish loading/);
-  assert.match(html, /current model does not support image attachments/i);
+  assert.match(html, /Loading pasted images\. Wait for loading to finish/);
+  assert.match(html, /This model cannot use images\. Choose an image-capable model or remove the images/);
 });
 
 test("sidebar places model and thinking controls before submission and exposes recovery", () => {
@@ -257,7 +336,7 @@ test("sidebar preserves hidden semantics, themed layout, and keyboard accessibil
   assert.match(html, /text\.textContent = item\.text/);
   assert.doesNotMatch(html, /row\.innerHTML|text\.innerHTML|kindLabel\.innerHTML/);
   assert.match(html, /<label for="input" class="sr-only">Message Pi<\/label>/);
-  assert.match(html, /<textarea[^>]*maxlength="42"[^>]*aria-describedby="composer-hint"/);
+  assert.match(html, /<textarea[^>]*maxlength="42"[^>]*aria-describedby="[^"]*composer-hint[^"]*"/);
   assert.match(html, /id="send"[^>]*aria-label="Send message"[^>]*disabled/);
   assert.match(html, /sendButton\.hidden = busy && !canQueue/);
   assert.match(html, /cancelButton\.hidden = !cancellable/);
@@ -760,6 +839,8 @@ function createSidebarScriptHarness(clientPlatform = "Linux x86_64", userAgent =
         if (type === "message") receive = listener;
       },
     },
+    setTimeout: () => 1,
+    clearTimeout: () => {},
     navigator: { platform: clientPlatform, userAgent },
     Element: SidebarTestElement,
     FileReader: class {

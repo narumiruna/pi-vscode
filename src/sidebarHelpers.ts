@@ -2,10 +2,12 @@ import path from "node:path";
 import * as vscode from "vscode";
 import { isSupportedImageMimeType } from "./attachmentUtils";
 import { type FileCompletionMessage, isFileCompletionMessage } from "./composerFileToken";
+import type { ConversationHistoryWindow } from "./conversationHistory";
 import { formatBashExecutionText, maxShellCommandCharacters, parseBashResultView } from "./directShell";
 import { type ImageAssetCache, unavailableImageAssetId } from "./imageAssets";
 import { piMessageContentText, piMessageThinking } from "./piMessages";
 import { extractReplacement, parseAgentPrompt } from "./prompts";
+import { isSessionDraftMessage, type SessionDraftMessage } from "./sessionDraftController";
 import {
   contextTranscriptAttachment,
   limitSidebarMessages,
@@ -20,6 +22,7 @@ import {
 } from "./sidebarState";
 
 export type WebviewMessage =
+  | SessionDraftMessage
   | FileCompletionMessage
   | {
       readonly type:
@@ -52,6 +55,7 @@ export type WebviewMessage =
         | "clearQueue"
         | "inspectQueue";
     }
+  | { readonly type: "historyWindow"; readonly direction: "earlier" | "latest"; readonly generation: number }
   | { readonly type: "switchRecentSession"; readonly id: string }
   | { readonly type: "send" | "sendNewSession"; readonly text: string; readonly revision: number }
   | {
@@ -87,6 +91,9 @@ export type WebviewMessage =
 export function isWebviewMessage(value: unknown, maxImageBytes: number): value is WebviewMessage {
   if (!isRecord(value) || typeof value.type !== "string") return false;
   if (value.type.startsWith("fileCompletion")) return isFileCompletionMessage(value);
+  if (value.type.startsWith("draft")) return isSessionDraftMessage(value);
+  if (value.type === "historyWindow")
+    return ["earlier", "latest"].includes(String(value.direction)) && isComposerRevision(value.generation);
   if (value.type === "send" || value.type === "sendNewSession")
     return typeof value.text === "string" && isComposerRevision(value.revision);
   if (value.type === "switchRecentSession") return typeof value.id === "string" && /^[a-f0-9]{24}$/.test(value.id);
@@ -190,6 +197,8 @@ export interface ConvertPiMessagesOptions {
   readonly knownMessages?: readonly SidebarMessage[];
   readonly maxMessages?: number;
   readonly maxCharacters?: number;
+  readonly historyBefore?: number;
+  readonly onHistoryWindow?: (window: ConversationHistoryWindow) => void;
 }
 
 export function convertPiMessages(values: readonly unknown[], options: ConvertPiMessagesOptions): SidebarMessage[] {
@@ -198,23 +207,11 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
     ? Math.max(0, Math.min(values.length, requestedLimit))
     : values.length;
   const retainedEntries: Array<{ readonly index: number; readonly value: Record<string, unknown> }> = [];
-  for (let index = values.length - 1; index >= 0 && retainedEntries.length < retainedCount; index -= 1) {
+  const end =
+    options.historyBefore === undefined ? values.length : Math.min(values.length, Math.max(0, options.historyBefore));
+  for (let index = end - 1; index >= 0 && retainedEntries.length < retainedCount; index -= 1) {
     const value = values[index];
-    if (!isRecord(value) || !["user", "assistant", "bashExecution"].includes(String(value.role))) continue;
-    if (value.role === "bashExecution") {
-      if (typeof value.command !== "string") continue;
-      try {
-        parseBashResultView(value);
-      } catch {
-        continue;
-      }
-    } else if (
-      !hasMessageText(value.content) &&
-      !(value.role === "assistant" && hasMessageThinking(value.content)) &&
-      (value.role !== "user" || !hasMessageImages(value.content))
-    )
-      continue;
-    retainedEntries.push({ index, value });
+    if (isVisibleHistoryMessage(value)) retainedEntries.push({ index, value });
   }
   retainedEntries.reverse();
 
@@ -232,17 +229,37 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
 
   let messages: SidebarMessage[] = [];
   const assistantOccurrences = new Map<number, number>();
+  // Seed only retained timestamps, so duplicate timestamps keep their identity across windows.
+  for (const { index, value } of retainedEntries) {
+    if (value.role !== "assistant") continue;
+    const timestamp =
+      typeof value.timestamp === "number" && Number.isSafeInteger(value.timestamp) ? value.timestamp : index;
+    assistantOccurrences.set(timestamp, 0);
+  }
+  const firstRetainedIndex = retainedEntries[0]?.index ?? 0;
+  for (let index = 0; index < firstRetainedIndex; index += 1) {
+    const value = values[index];
+    if (!isRecord(value) || value.role !== "assistant") continue;
+    const timestamp =
+      typeof value.timestamp === "number" && Number.isSafeInteger(value.timestamp) ? value.timestamp : index;
+    if (assistantOccurrences.has(timestamp) && isVisibleHistoryMessage(value))
+      assistantOccurrences.set(timestamp, (assistantOccurrences.get(timestamp) ?? 0) + 1);
+  }
+  const sourceIndices = new Map<string, number>();
   for (const { index, value } of retainedEntries) {
     if (value.role === "bashExecution") {
       messages.push({
         id: `pi-shell-${String(value.timestamp ?? index)}-${index}`,
         role: "shell",
+        ...(parseBashResultView(value).truncated ? { truncated: true } : {}),
         content: formatBashExecutionText(
           String(value.command).slice(0, maxShellCommandCharacters),
           value.excludeFromContext === true,
           parseBashResultView(value),
         ),
       });
+      sourceIndices.set(messages[messages.length - 1]!.id, index);
+      messages = limitSidebarMessages(messages, retainedCount, options.maxCharacters ?? 250_000);
       continue;
     }
     const text = piMessageContentText(value.content);
@@ -275,10 +292,52 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
         ...(thinking.length ? { thinking } : {}),
       });
     }
+    sourceIndices.set(messages[messages.length - 1]!.id, index);
     messages = limitSidebarMessages(messages, retainedCount, options.maxCharacters ?? 250_000);
+  }
+  if (options.onHistoryWindow) {
+    const start = messages.length ? sourceIndices.get(messages[0]!.id)! : end;
+    let total = 0;
+    let omittedBefore = 0;
+    let omittedAfter = 0;
+    for (let index = 0; index < values.length; index += 1) {
+      if (!isVisibleHistoryMessage(values[index])) continue;
+      total += 1;
+      if (index < start) omittedBefore += 1;
+      if (index >= end) omittedAfter += 1;
+    }
+    options.onHistoryWindow({
+      mode: options.historyBefore === undefined ? "latest" : "earlier",
+      start,
+      end,
+      total,
+      omittedBefore,
+      omittedAfter,
+      truncated:
+        messages.some((message) => message.truncated || message.thinking?.some((block) => block.truncated)) ||
+        messages.length < retainedEntries.length,
+    });
   }
   const availableMessages = sidebarMessagesForWebview(messages, (id) => options.imageAssets.has(id));
   return mergeKnownImageLabels(availableMessages, options.knownMessages ?? []);
+}
+
+function isVisibleHistoryMessage(value: unknown): value is Record<string, unknown> {
+  if (!isRecord(value) || !["user", "assistant", "bashExecution"].includes(String(value.role))) return false;
+  if (value.role === "bashExecution") {
+    if (typeof value.command !== "string") return false;
+    try {
+      parseBashResultView(value);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return (
+    hasMessageText(value.content) ||
+    (value.role === "assistant" && hasMessageThinking(value.content)) ||
+    (value.role === "user" && hasMessageImages(value.content))
+  );
 }
 
 // Pi tool results use content/text blocks. Unknown and mixed payloads stay JSON.

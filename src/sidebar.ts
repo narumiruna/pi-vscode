@@ -17,6 +17,11 @@ import {
   type PiConversationController,
   shouldTrackConversationChanges,
 } from "./conversationController";
+import {
+  type ConversationHistoryWindow,
+  emptyConversationHistory,
+  historyRequestIsCurrent,
+} from "./conversationHistory";
 import { formatBashExecutionText, parseBashResultView, parseComposerInput } from "./directShell";
 import { EditProposalStore } from "./editProposals";
 import { ImageAssetCache, ImageAssetDeliveryTracker } from "./imageAssets";
@@ -25,6 +30,8 @@ import { acquireOperation } from "./operationLocks";
 import type { PiRpcEvent, PiRpcImage } from "./piRpcClient";
 import { deleteConversationWithTrashFallback, type PiRuntimeManager, runtimeSessionIdentityChanged } from "./piRuntime";
 import { type AgentRequestPolicy, buildAgentPrompt, type ChatReferenceContext } from "./prompts";
+import { isSessionDraftMessage, SessionDraftController } from "./sessionDraftController";
+import { SessionDraftStore } from "./sessionDraftStore";
 import { listRecentPiSessions, type PiSessionSummary, piSessionKey } from "./sessionHistory";
 import { registerSessionTransfer } from "./sessionTransferController";
 import { SidebarAssistantStream } from "./sidebarAssistantStream";
@@ -135,6 +142,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   private readonly imageAssetDelivery = new ImageAssetDeliveryTracker();
   private readonly attachments: SidebarAttachmentManager;
   private readonly fileCompletion: SidebarFileCompletion;
+  private readonly drafts: SessionDraftController;
   private readonly requestGate = new ConversationRequestGate();
   private readonly backgroundSubmissionGate = new ExclusiveOperationGate(
     "A background or worktree agent is already starting. Wait for it to finish starting before submitting another one.",
@@ -158,6 +166,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   private assistantStream: SidebarAssistantStream | undefined;
   private streamSessionIdentity: string;
   private historySyncRevision = 0;
+  private historyWindow: ConversationHistoryWindow = emptyConversationHistory();
+  private historyAvailable = false;
+  private historyLoading = false;
   private readonly queuedTranscriptPresentations = new Map<string, QueuedTranscriptPresentation>();
   private renderTimer: NodeJS.Timeout | undefined;
   private foregroundCancellable = false;
@@ -191,18 +202,39 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       session: () => `${this.runtime.currentState.sessionId ?? ""}:${this.runtime.currentState.sessionFile ?? ""}`,
       attachments: this.attachments,
       post: (message) => this.postMessage(message),
+      onSupportChange: () => this.postState(),
     });
+    this.drafts = new SessionDraftController(
+      new SessionDraftStore(context.workspaceState, () =>
+        this.postNotice(
+          "Draft storage failed. Recent text or discard actions may not survive reload. Do not rely on recovery.",
+          "warning",
+        ),
+      ),
+      () => this.runtime.currentState.sessionFile,
+      (message) => this.postMessage(message),
+      async () =>
+        (await vscode.window.showWarningMessage(
+          "Enable text draft recovery for this workspace? VS Code workspaceState will retain non-secret composer text for this workspace, without Settings Sync. VS Code manages its storage location. Limits: 50,000 characters per draft, 20 drafts, 250,000 total characters, seven days. Attachments and extension dialogs are not saved. Remote storage placement is not yet validated. Discard cannot securely erase backups. Do not enter credentials.",
+          { modal: true },
+          "Enable Draft Recovery",
+        )) === "Enable Draft Recovery",
+    );
     this.messages = restoreMessages(context.workspaceState.get<unknown>(storageKey), maxMessages, maxStoredCharacters);
     this.streamSessionIdentity = JSON.stringify([runtime.currentState.sessionFile, runtime.currentState.sessionId]);
     this.disposables.push(
       runtime.onEvent((event) => this.handleRuntimeEvent(event)),
       runtime.onDidChangeState(() => {
+        this.drafts.refresh();
         const identity = JSON.stringify([runtime.currentState.sessionFile, runtime.currentState.sessionId]);
         if (identity !== this.streamSessionIdentity) {
           if (this.assistantStream)
             this.messages = this.messages.filter((message) => message.id !== this.assistantStream?.id);
           this.assistantStream = undefined;
           this.historySyncRevision += 1;
+          this.historyWindow = emptyConversationHistory();
+          this.historyAvailable = false;
+          this.historyLoading = false;
           this.streamSessionIdentity = identity;
         }
         this.scheduleState();
@@ -213,6 +245,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
 
   public resolveWebviewView(webviewView: vscode.WebviewView): void {
     this.view = webviewView;
+    this.drafts.beginView();
     this.imageAssetDelivery.reset();
     webviewView.webview.options = {
       enableScripts: true,
@@ -226,13 +259,14 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     });
 
     const messageListener = webviewView.webview.onDidReceiveMessage((message) => {
-      void this.handleMessage(message);
+      if (this.view === webviewView) void this.drafts.runMessage(message, () => this.handleMessage(message));
     });
     const viewListener = webviewView.onDidDispose(() => {
       messageListener.dispose();
       viewListener.dispose();
       if (this.view === webviewView) {
         this.fileCompletion.cancel();
+        this.drafts.endView();
         this.view = undefined;
       }
     });
@@ -253,6 +287,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.queuedTranscriptPresentations.clear();
     this.extensionUi.clear();
     this.fileCompletion.dispose();
+    this.drafts.endView();
     this.attachments.dispose();
     this.imageAssets.clear();
   }
@@ -324,12 +359,17 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       await this.fileCompletion.handle(message);
       return;
     }
+    if (isSessionDraftMessage(message)) {
+      await this.drafts.handle(message);
+      return;
+    }
     // Every other action can change the session, attachments, or composer draft.
     this.fileCompletion.cancel();
     const noticeRevision = this.noticeRevision;
     try {
       switch (message.type) {
         case "ready":
+          this.drafts.ready();
           this.postState();
           break;
         case "send":
@@ -395,6 +435,10 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           break;
         case "reconnect":
           await this.reconnect();
+          break;
+        case "historyWindow":
+          if (message.generation !== this.historySyncRevision || !this.canBrowseHistory()) return;
+          await this.syncMessagesFromPi(false, message.direction === "earlier" ? this.historyWindow.start : undefined);
           break;
         case "refreshHistory":
           await this.refreshHistory();
@@ -586,38 +630,130 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async showMoreActions(composerText: string, composerRevision: number): Promise<void> {
-    const selected = await vscode.window.showQuickPick(
-      [
-        { label: "$(history) Request Checkpoints", action: "checkpoints" },
-        { label: "$(git-pull-request) Review Changes…", action: "review" },
-        { label: "$(list-unordered) Show Review Findings", action: "findings" },
-        { label: "$(wrench) Fix Workspace Diagnostics (Preview)", action: "diagnostics" },
-        { label: "$(git-pull-request) Review Staged Changes", action: "staged" },
-        { label: "$(beaker) Repair Failed Test", action: "repair" },
-        { label: "$(debug) Ask Debug Context", action: "debug" },
-        { label: "$(history) Resume Session", action: "resume" },
-        { label: "$(edit) Rename Session", action: "rename" },
-        { label: "$(symbol-method) Change Model", action: "model" },
-        { label: "$(lightbulb) Change Thinking Level", action: "thinking" },
-        { label: "$(list-selection) Commands and Skills", action: "commands" },
-        { label: "$(fold) Compact Context", action: "compact" },
-        { label: "$(refresh) Reload Pi Resources", action: "reload" },
-        { label: "$(debug-restart) Restart Pi (Current Launch Policy)", action: "restart" },
-        { label: "$(git-branch) Browse Session Tree / Fork / Clone", action: "branches" },
-        { label: "$(question) Extension UI Compatibility", action: "compatibility" },
-        { label: "$(debug-disconnect) Return Pi from Terminal", action: "returnTerminal" },
-        { label: "$(export) Export Session", action: "export" },
-        { label: "$(import) Import Session Copy", action: "import" },
-        { label: "$(share) Share Session", action: "share" },
-        { label: "$(sign-in) Sign In to Provider", action: "login" },
-        { label: "$(sign-out) Sign Out of Provider", action: "logout" },
-        { label: "$(terminal) Open in Terminal", action: "terminal" },
-        { label: "$(run) Run Message in Background", action: "background" },
-        { label: "$(workspace-trusted) Run Message in Worktree", action: "worktree" },
-      ],
-      { title: "Pi Session Actions", placeHolder: "Choose a session or advanced action" },
-    );
-    if (!selected) return;
+    const origin = () => {
+      const state = this.runtime.currentState;
+      return JSON.stringify([this.runtime.currentCwd, state.sessionId, state.sessionFile, state.connected]);
+    };
+    const expectedOrigin = origin();
+    let stale = false;
+    const subscription = this.runtime.onDidChangeState(() => {
+      if (origin() !== expectedOrigin) stale = true;
+    });
+    const lifecycleSubscription = this.runtime.onEvent((event) => {
+      // Client replacement and same-session branch/resource controls reset extension UI.
+      if (event.type === "extension_ui_reset" || event.type === "process_exit") stale = true;
+    });
+    const items = [
+      { label: "Session management", kind: vscode.QuickPickItemKind.Separator },
+      { label: "$(history) Resume Session", description: "Open a Pi session JSONL file", action: "resume" },
+      { label: "$(edit) Rename Session", description: "Name the current session", action: "rename" },
+      { label: "$(fold) Compact Context", description: "Reduce current conversation context", action: "compact" },
+      {
+        label: "$(git-branch) Browse Session Tree / Fork / Clone",
+        description: "Navigate conversation branches; workspace files stay unchanged",
+        action: "branches",
+      },
+      { label: "$(export) Export Session", description: "Save HTML or active-branch JSONL locally", action: "export" },
+      { label: "$(import) Import Session Copy", description: "Validate and open a JSONL copy", action: "import" },
+      { label: "$(share) Share Session", description: "Inspect and approve an external upload", action: "share" },
+      { label: "$(terminal) Open in Terminal", description: "Hand foreground ownership to Pi TUI", action: "terminal" },
+      {
+        label: "$(debug-disconnect) Return Pi from Terminal",
+        description: "Recover ownership after checking terminal processes",
+        action: "returnTerminal",
+      },
+      { label: "Review and repair", kind: vscode.QuickPickItemKind.Separator },
+      {
+        label: "$(history) Request Checkpoints",
+        description: "Inspect and restore covered file changes",
+        action: "checkpoints",
+      },
+      { label: "$(git-pull-request) Review Changes…", description: "Choose a Git review scope", action: "review" },
+      {
+        label: "$(list-unordered) Show Review Findings",
+        description: "Navigate captured review results",
+        action: "findings",
+      },
+      {
+        label: "$(wrench) Fix Workspace Diagnostics (Preview)",
+        description: "Review a multi-file diagnostic repair before Apply",
+        action: "diagnostics",
+      },
+      { label: "$(git-pull-request) Review Staged Changes", description: "Review the Git index", action: "staged" },
+      {
+        label: "$(beaker) Repair Failed Test",
+        description: "Inspect test evidence and preview a repair",
+        action: "repair",
+      },
+      {
+        label: "$(debug) Ask Debug Context",
+        description: "Inspect paused Node.js values before asking",
+        action: "debug",
+      },
+      { label: "Background work", kind: vscode.QuickPickItemKind.Separator },
+      {
+        label: "$(run) Run Message in Background",
+        description: "Confirm an agent in this workspace",
+        action: "background",
+      },
+      {
+        label: "$(workspace-trusted) Run Message in Worktree",
+        description: "Confirm an isolated Git worktree agent",
+        action: "worktree",
+      },
+      { label: "Pi configuration", kind: vscode.QuickPickItemKind.Separator },
+      { label: "$(symbol-method) Change Model", description: "Choose the current session model", action: "model" },
+      {
+        label: "$(lightbulb) Change Thinking Level",
+        description: "Choose the model thinking level",
+        action: "thinking",
+      },
+      {
+        label: "$(list-selection) Commands and Skills",
+        description: "Insert a command, prompt template, or skill",
+        action: "commands",
+      },
+      {
+        label: "$(refresh) Reload Pi Resources",
+        description: "Reload approved resources without a model request",
+        action: "reload",
+      },
+      {
+        label: "$(debug-restart) Restart Pi (Current Launch Policy)",
+        description: "Confirm current executable, permissions, and resource approval",
+        action: "restart",
+      },
+      {
+        label: "$(question) Extension UI Compatibility",
+        description: "Explain RPC and terminal-only UI",
+        action: "compatibility",
+      },
+      {
+        label: "$(sign-in) Sign In to Provider",
+        description: "Confirm provider authentication on this host",
+        action: "login",
+      },
+      {
+        label: "$(sign-out) Sign Out of Provider",
+        description: "Confirm removal of a stored Pi credential",
+        action: "logout",
+      },
+    ];
+    let selected: (typeof items)[number] | undefined;
+    try {
+      selected = await vscode.window.showQuickPick(items, {
+        title: "Pi Session Actions",
+        placeHolder: "Search session, review, background, or configuration actions",
+        matchOnDescription: true,
+      });
+    } finally {
+      subscription.dispose();
+      lifecycleSubscription.dispose();
+    }
+    if (!selected || selected.kind === vscode.QuickPickItemKind.Separator || !selected.action) return;
+    if (stale || origin() !== expectedOrigin) {
+      throw new Error("Pi session changed while choosing an action. Open More again.");
+    }
     if (selected.action === "checkpoints") {
       if (this.isForegroundRequestActive()) throw new Error("Wait for Pi before restoring checkpoints.");
       const release = this.requestGate.acquire();
@@ -656,7 +792,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     else if (selected.action === "logout") await vscode.commands.executeCommand("pi.signOutProvider");
     else if (selected.action === "terminal") await this.runtime.openInTerminal();
     else if (selected.action === "background") await this.runBackground(composerText, false, composerRevision);
-    else await this.runBackground(composerText, true, composerRevision);
+    else if (selected.action === "worktree") await this.runBackground(composerText, true, composerRevision);
   }
 
   private async pickModel(): Promise<void> {
@@ -876,7 +1012,10 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     if (this.attachments.summaries.length) throw new Error("Remove all attachments before running direct shell.");
     if (this.isForegroundRequestActive() || this.backgroundSubmissionGate.isPending)
       throw new Error("Direct shell requires an idle composer with no conflicting work.");
+    const historyOrigin = this.historyWindow.mode === "earlier" ? this.submissionSessionIdentity() : undefined;
     const release = this.requestGate.acquire();
+    this.historySyncRevision += 1;
+    this.historyAvailable = false;
     this.retryRequest = undefined;
     this.foregroundCancellable = true;
     this.tools = [];
@@ -888,6 +1027,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     let status: "completed" | "cancelled" | "process-exit" = "process-exit";
     try {
       checkpointCwd = await realpath(checkpointCwd);
+      if (historyOrigin !== undefined) await this.restoreLatestHistoryForSubmission(historyOrigin);
       const result = await this.runtime.executeBash(
         command,
         excludeFromContext,
@@ -902,6 +1042,11 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
               imageAssets: this.imageAssets,
               knownMessages: this.messages,
               maxMessages,
+              maxCharacters: maxStoredCharacters,
+              onHistoryWindow: (window) => {
+                this.historyWindow = window;
+                this.historyAvailable = true;
+              },
             }),
             maxMessages,
             maxStoredCharacters,
@@ -974,9 +1119,13 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       throw new Error(`Messages are limited to ${maxInputCharacters.toLocaleString()} characters.`);
     }
 
+    const historyOrigin = this.historyWindow.mode === "earlier" ? this.submissionSessionIdentity() : undefined;
     const behavior = conversationRequestBehavior(origin);
     const retryable = behavior.retryable;
     const releaseRequest = requestGateAlreadyHeld ? () => {} : this.requestGate.acquire();
+    this.historySyncRevision += 1;
+    this.historyAvailable = false;
+    this.historyLoading = false;
     this.requestLifecycle.begin();
     this.foregroundCancellable = true;
     this.postState();
@@ -989,6 +1138,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     try {
       await this.runtime.ensureStarted(resource);
       releaseOperation = acquireOperation(await realpath(this.runtime.currentCwd), "foreground Pi request");
+      if (historyOrigin !== undefined) await this.restoreLatestHistoryForSubmission(historyOrigin);
       const submittedTranscriptAttachments = transcriptAttachments ?? [
         ...contexts.flatMap((context) => contextTranscriptAttachment(context.label) ?? []),
         ...images.flatMap((image, index) => {
@@ -1261,6 +1411,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       },
     });
     if (outcome.status === "deleted") {
+      this.drafts.deleteSession(sessionBeforeDelete.sessionFile);
       const next = this.runtime.currentState.connected ? "New Pi session" : "Reconnect available";
       await this.resetConversation(
         `${outcome.permanently ? "Session permanently deleted" : "Session deleted"} · ${next}`,
@@ -1289,6 +1440,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
 
   private async resetConversation(status: string, preserveAttachments = false): Promise<void> {
     this.historySyncRevision += 1;
+    this.historyWindow = emptyConversationHistory();
+    this.historyAvailable = false;
+    this.historyLoading = false;
     this.changeTracker.resetSession();
     this.queuedTranscriptPresentations.clear();
     this.assistantStream = undefined;
@@ -1557,6 +1711,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.retryRequest = undefined;
       this.assistantStream = undefined;
       this.historySyncRevision += 1;
+      this.historyLoading = false;
+      this.historyAvailable = false;
     } else if (
       event.type === "shell_execution" &&
       typeof event.id === "string" &&
@@ -1595,11 +1751,15 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       }
     } else if (event.type === "agent_start") {
       this.historySyncRevision += 1;
+      this.historyLoading = false;
+      this.historyAvailable = false;
       this.status = "Pi is working…";
       this.tools = [];
     } else if (event.type === "message_start") {
       const message = isRecord(event.message) ? event.message : undefined;
       this.historySyncRevision += 1;
+      this.historyLoading = false;
+      this.historyAvailable = false;
       this.assistantStream = message?.role === "assistant" ? this.createAssistantStream(message) : undefined;
     } else if (event.type === "message_update") {
       const update = isRecord(event.assistantMessageEvent) ? event.assistantMessageEvent : undefined;
@@ -1657,8 +1817,14 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       }
     } else if (event.type === "extension_ui_reset") {
       this.extensionUi.clear();
+      this.historySyncRevision += 1;
+      this.historyLoading = false;
+      this.historyAvailable = false;
     } else if (event.type === "process_exit") {
       this.extensionUi.clear();
+      this.historySyncRevision += 1;
+      this.historyLoading = false;
+      this.historyAvailable = false;
       this.assistantStream = undefined;
       this.queuedTranscriptPresentations.clear();
       if (this.trackCurrentRequestChanges) {
@@ -1738,7 +1904,48 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.tools = this.tools.map((tool) => (tool.id === id ? { ...tool, ...changes } : tool));
   }
 
-  private async syncMessagesFromPi(verifiedImport = false): Promise<void> {
+  private submissionSessionIdentity(): string {
+    return JSON.stringify([
+      this.runtime.currentCwd,
+      this.runtime.currentState.sessionFile,
+      this.runtime.currentState.sessionId,
+    ]);
+  }
+
+  private async restoreLatestHistoryForSubmission(origin: string): Promise<void> {
+    const changed = () =>
+      new Error(
+        "The conversation changed while preparing submission. Review the current session before sending again.",
+      );
+    if (origin !== this.submissionSessionIdentity()) throw changed();
+    const expectedRevision = this.historySyncRevision + 1;
+    await this.syncMessagesFromPi();
+    if (
+      origin !== this.submissionSessionIdentity() ||
+      this.historySyncRevision !== expectedRevision ||
+      !this.historyAvailable ||
+      this.historyWindow.mode !== "latest"
+    )
+      throw changed();
+    this.historyAvailable = false;
+  }
+
+  private canBrowseHistory(): boolean {
+    const state = this.runtime.currentState;
+    return (
+      state.connected &&
+      !this.isForegroundRequestActive() &&
+      !this.backgroundSubmissionGate.isPending &&
+      !this.historyLoading &&
+      !this.runtime.hasPendingExtensionDialogs &&
+      !state.pendingQueue?.steering.length &&
+      !state.pendingQueue?.followUp.length &&
+      !state.queue?.steering.length &&
+      !state.queue?.followUp.length
+    );
+  }
+
+  private async syncMessagesFromPi(verifiedImport = false, historyBefore?: number): Promise<void> {
     if (!this.runtime.currentState.connected) {
       const failure = historySyncFailureState(false);
       this.status = failure.status;
@@ -1750,32 +1957,53 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       throw new Error("Wait for Pi to finish before refreshing conversation history.");
     }
     const revision = ++this.historySyncRevision;
+    const session = JSON.stringify([this.runtime.currentState.sessionFile, this.runtime.currentState.sessionId]);
+    const current = () =>
+      historyRequestIsCurrent(
+        { generation: revision, session },
+        {
+          generation: this.historySyncRevision,
+          session: JSON.stringify([this.runtime.currentState.sessionFile, this.runtime.currentState.sessionId]),
+          busy: verifiedImport ? this.requestGate.isPending : this.runtime.currentState.busy,
+        },
+      );
+    this.historyLoading = true;
+    this.postState();
     try {
       const values = await this.runtime.getMessages();
-      if (
-        revision !== this.historySyncRevision ||
-        (verifiedImport ? this.requestGate.isPending : this.runtime.currentState.busy)
-      )
-        return;
+      if (!current()) return;
       const messages = convertPiMessages(values, {
         imageAssets: this.imageAssets,
         knownMessages: this.messages,
         maxMessages,
         maxCharacters: maxStoredCharacters,
+        historyBefore,
+        onHistoryWindow: (window) => {
+          this.historyWindow = window;
+        },
       });
+      this.historyAvailable = true;
       if (messages.length > 0 || this.runtime.currentState.sessionId) {
         this.messages = limitSidebarMessages(messages, maxMessages, maxStoredCharacters);
-        await this.persistMessages();
+        // Older-window browsing must not replace the persisted latest-window cache.
+        if (historyBefore === undefined) await this.persistMessages();
       }
+      if (!current()) return;
       this.historyRecoveryAvailable = false;
       this.postState();
     } catch (error) {
-      if (revision !== this.historySyncRevision) return;
+      if (!current()) return;
+      this.historyAvailable = false;
       const failure = historySyncFailureState(this.runtime.currentState.connected);
       this.status = failure.status;
       this.historyRecoveryAvailable = failure.historyRecoveryAvailable;
       this.postState();
       throw error;
+    } finally {
+      if (revision === this.historySyncRevision) {
+        this.historyLoading = false;
+        this.postState();
+      }
     }
   }
 
@@ -1865,9 +2093,18 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         estimatedTextTokens: estimate.estimatedTextTokens,
         imageUsage: estimate.imageUsage,
       },
+      fileCompletionSupport: this.fileCompletion.support,
       imageSupported: modelSupportsImages(this.runtime.currentState.model),
       retryAvailable: Boolean(this.retryRequest) && !requestBusy,
       historyRecoveryAvailable: this.historyRecoveryAvailable && !requestBusy,
+      history: {
+        ...this.historyWindow,
+        truncated: this.historyWindow.truncated || messages.some((message) => message.truncated),
+        generation: this.historySyncRevision,
+        available: this.historyAvailable,
+        loading: this.historyLoading,
+        canNavigate: this.canBrowseHistory(),
+      },
       backgroundSubmissionPending: this.backgroundSubmissionGate.isPending,
       sessions: this.recentSessions.map((session) => ({
         id: session.key,
@@ -1919,6 +2156,14 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private postMessage(message: Record<string, unknown>): void {
+    if (
+      message.type === "clearInput" &&
+      typeof message.expectedRevision === "number" &&
+      typeof message.expectedText === "string"
+    ) {
+      const binding = this.drafts.accepted(message.expectedRevision, message.expectedText);
+      if (binding) message.draftBinding = binding;
+    }
     void this.view?.webview.postMessage(message);
   }
 }

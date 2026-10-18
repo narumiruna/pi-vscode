@@ -65,6 +65,24 @@ After installation or an update, run **Developer: Reload Window**. Sidebar sessi
 
 Use `@pi` in VS Code's native Chat view when you prefer the native participant workflow. Native Chat history is separate from the Pi sidebar session.
 
+### Conversation controls
+
+- The composer shows why Send, Next, or After this is unavailable and gives a next action. An empty draft is a neutral hint, not an error. The host still validates every request.
+- Scroll up without following new output. **Jump to latest** returns to current output and restores automatic following; **New output** indicates a transcript change, not a status update.
+- **Wrap code** changes transcript code display only. Source text, copied text, shell cards, and editor files are unchanged.
+- **Find text** searches literal, case-sensitive text in the current history window, including code and diagram source. It excludes thinking, tool details, and images. Use **Previous/Next** or Enter/Shift+Enter; Escape closes search and returns focus.
+- **Earlier history** replaces the bounded window; **Latest history** returns to the current tail. Each window contains at most 100 messages and 250,000 text characters. Omitted portions of long messages are labelled and cannot be browsed. History responses above the existing 5 MiB RPC limit remain unavailable; this is not whole-session search.
+- The initial file hint distinguishes `@` snapshot attachment from Tab path-only insertion. Message headings support assistive-technology navigation; actual screen-reader validation remains pending.
+- **More…** has one searchable native picker with **Session management**, **Review and repair**, **Background work**, and **Pi configuration** groups. Existing action names and commands remain available.
+
+#### Text draft recovery
+
+Open **Text draft recovery → Enable recovery** to review and accept local retention before saving any composer text. This is for non-secret text only. The extension uses workspace-scoped VS Code `workspaceState`, without Settings Sync: at most 50,000 characters per draft, 20 drafts, and 250,000 total characters. Recovery expires after seven days; expired records are removed on the next activation or access. VS Code manages storage placement and backups; remote storage placement has not been validated.
+
+**Restore text** requires an empty composer and never sends, queues, or executes the text. Attachments, pins, image bytes, extension dialogs, and queued-message recovery payloads are not saved. **Discard retained text** removes the current record; **Disable and discard all** removes the extension's draft store and disables retention. Removal is not secure erasure of backups. Recent edits can be lost before storage completes. A session change preserves newer text rather than silently assigning it to another session; verify the session and clear that kept text before sending again.
+
+See [Composer behavior and validation](docs/COMPOSER_UX.md) for state priorities, history bounds, and validation limits.
+
 ### Pi extension dialogs
 
 Pi extensions can request single-line input or a native multiline editor through the public RPC UI protocol (reference: Pi 1.3.0). No model request is needed to display a dialog.

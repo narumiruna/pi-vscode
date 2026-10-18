@@ -6,6 +6,9 @@ import { build } from "esbuild";
 import { chromium } from "playwright-core";
 import { assertExtensionUi } from "./extension-ui-fixture.mjs";
 import { assertInterface } from "./interface-fixture.mjs";
+import { assertDiscoveryWrapBrowser } from "./discovery-wrap-fixture.mjs";
+import { assertHistoryBrowser } from "./history-fixture.mjs";
+import { assertComposerDraftRecovery } from "./draft-fixture.mjs";
 import { assertRichContent, richFixture } from "./rich-content-fixture.mjs";
 import { assertComposerFileCompletion } from "./completion-fixture.mjs";
 import { assertThinkingBrowser } from "./thinking-fixture.mjs";
@@ -43,6 +46,9 @@ try {
     "PI_INTERFACE_BROWSER_EVIDENCE",
     JSON.stringify(await assertInterface(browser, getSidebarHtml, renderSafeMarkdown)),
   );
+  console.log("PI_DISCOVERY_WRAP_BROWSER_EVIDENCE", JSON.stringify(await assertDiscoveryWrapBrowser(browser, getSidebarHtml, renderSafeMarkdown)));
+  console.log("PI_HISTORY_BROWSER_EVIDENCE", JSON.stringify(await assertHistoryBrowser(browser)));
+  console.log("PI_DRAFT_BROWSER_EVIDENCE", JSON.stringify(await assertComposerDraftRecovery(browser, getSidebarHtml)));
   console.log("PI_EXTENSION_UI_BROWSER_EVIDENCE", JSON.stringify(await assertExtensionUi(browser, getSidebarHtml)));
   console.log("PI_COMPLETION_BROWSER_EVIDENCE", JSON.stringify(await assertComposerFileCompletion(browser, getSidebarHtml)));
   console.log("PI_SHELL_BROWSER_EVIDENCE", JSON.stringify(await assertDirectShellInterface(browser, getSidebarHtml, formatBashExecutionText, escapeHtml)));

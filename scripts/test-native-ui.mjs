@@ -11,6 +11,11 @@ import extensionUiFixture from "./fixtures/extension-ui.cjs";
 import { assertExtensionEditorDialogs } from "./editor-dialog-fixture.mjs";
 import toolFixture from "./fixtures/tool-activity.cjs";
 import { assertRichContent, richFixture } from "./rich-content-fixture.mjs";
+import { assertComposerNavigation } from "./composer-navigation-fixture.mjs";
+import { assertDiscoveryWrap } from "./discovery-wrap-fixture.mjs";
+import { assertNativeConversationHistory, historyFixtureMessages } from "./history-fixture.mjs";
+import { assertSessionActions } from "./session-actions-fixture.mjs";
+import { assertNativeDraftRecovery } from "./draft-native-fixture.mjs";
 import { assertToolActivity } from "./tool-activity-fixture.mjs";
 import { assertNativeFileCompletion } from "./completion-native-fixture.mjs";
 import thinkingFixture from "./fixtures/thinking.cjs";
@@ -500,6 +505,23 @@ try {
   console.log("PI_NATIVE_TOOL_ACTIVITY", JSON.stringify(toolEvidence));
   const richEvidence = await assertRichContent(await frame());
   console.log("PI_NATIVE_RICH_CONTENT", JSON.stringify({ packaged, ...richEvidence }));
+  console.log("PI_NATIVE_COMPOSER_NAVIGATION", JSON.stringify(await assertComposerNavigation(await frame(), page)));
+  console.log("PI_NATIVE_DISCOVERY_WRAP", JSON.stringify(await assertDiscoveryWrap(await frame())));
+  await assertSessionActions({ page, frame, until });
+  console.log("PI_NATIVE_SESSION_ACTIONS grouped filtering and keyboard selection/cancellation passed");
+  pi = await frame();
+  try {
+    const evidence = await assertNativeConversationHistory({ pi, invoke: async () => {
+      await writeFile(path.join(directory, "history.json"), JSON.stringify(historyFixtureMessages()));
+      await pi.locator("#history-latest").click();
+    } });
+    console.log("PI_NATIVE_HISTORY", JSON.stringify(evidence));
+  } finally {
+    await rm(path.join(directory, "history.json"), { force: true });
+    await pi.locator("#history-latest:not([disabled])").waitFor();
+    await pi.locator("#history-latest").click();
+    await until(async () => !(await pi.locator("#messages").innerText()).includes("History 204"), "original native history restored");
+  }
   const shellEvidence = await assertNativeDirectShell(frame, page, async () =>
     readFile(path.join(directory, "shell.jsonl"), "utf8").then((text) => text.trim().split("\n").filter(Boolean).length).catch(() => 0),
   );
@@ -804,6 +826,7 @@ try {
   console.log("PI_NATIVE_CONTROL repeated reload, clone, no-summary navigation, fork, draft preservation and persistent terminal ownership passed");
   console.log("PI_NATIVE_INTERFACE both queue buttons, pending labels, Stop/recovery and deletion confirmation passed");
   await writeFile(path.join(directory, "thinking.json"), JSON.stringify(thinkingFixture));
+  await pi.locator("#input").fill("");
   await pi.locator("#input").fill("Show the deterministic thinking transcript.");
   await pi.locator("#send").click();
   await pi.locator(".thinking-transcript").waitFor();
@@ -837,6 +860,17 @@ try {
   }
   await assertThinkingDisclosure(pi);
   console.log("PI_NATIVE_THINKING", JSON.stringify({ ...thinkingEvidence, reconnect: "restored from fixture history" }));
+  pi = await assertNativeDraftRecovery({ pi, page, until, directory, reload: async () => {
+    const boot = (await json("ready.json")).boot;
+    await invoke("command", { command: "workbench.action.reloadWindow" }, false);
+    await until(async () => {
+      const next = await json("ready.json");
+      return next && next.boot !== boot;
+    }, "text draft actual window reload", 40_000);
+    const next = await frame();
+    await until(async () => (await next.locator("#status").innerText()).includes("Ready"), "draft reload runtime ready");
+    return next;
+  } });
   console.log(
     "PI_NATIVE_UI_EVIDENCE",
     JSON.stringify({
