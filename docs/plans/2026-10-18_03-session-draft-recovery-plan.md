@@ -85,4 +85,3 @@ Use a new versioned key, not the transcript key. Reverting the feature must not 
 - Public history contract passed offline against Pi 1.3.0; no model call, upload or live authentication was used.
 - Remote, Windows/macOS and actual screen-reader behavior are not claimed. Plans 03/04 retain their explicit external acceptance items until verified or accepted by the user.
 - [x] Complete the authorized Git/PR handoff and record the pull request before retiring this plan. Draft PR: https://github.com/narumiruna/pi-vscode/pull/84; branch `narumi/feat/composer-experience`.
-
