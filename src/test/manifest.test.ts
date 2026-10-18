@@ -17,7 +17,13 @@ interface ExtensionManifest {
   readonly contributes: {
     readonly viewsContainers: { readonly secondarySidebar: readonly { readonly id: string; readonly title: string }[] };
     readonly views: Record<string, readonly { readonly id: string }[]>;
-    readonly commands: readonly { command: string; title: string; category: string; enablement?: string }[];
+    readonly commands: readonly {
+      command: string;
+      title: string;
+      category: string;
+      enablement?: string;
+      icon?: string | { light: string; dark: string };
+    }[];
     readonly chatParticipants: readonly { readonly id: string; readonly name: string; readonly fullName: string }[];
     readonly submenus: readonly { readonly label: string }[];
     readonly menus: Record<string, readonly MenuContribution[]>;
@@ -81,6 +87,23 @@ test("extension identity stays consistent across packaging, settings, and docume
     manifest.scripts["install:extension"],
     "npm run install:vsix && node scripts/remove-legacy-pi-extension.mjs",
   );
+});
+
+test("Open Sessions uses explicit light and dark Pi icons with matching shapes", () => {
+  const command = manifest.contributes.commands.find((item) => item.command === "pi.openChat");
+  assert.ok(command);
+  assert.deepEqual(command.icon, { light: "resources/pi.svg", dark: "resources/pi-dark.svg" });
+  assert.ok(command.icon && typeof command.icon !== "string");
+
+  const light = readFileSync(command.icon.light, "utf8");
+  const dark = readFileSync(command.icon.dark, "utf8");
+  assert.match(light, /fill="#424242"/);
+  assert.match(dark, /fill="#C5C5C5"/);
+  for (const svg of [light, dark]) {
+    assert.doesNotMatch(svg, /currentColor/i, "image-loaded SVGs cannot inherit the toolbar foreground");
+    assert.match(svg, /viewBox="0 0 24 24"/);
+  }
+  assert.equal(light.replace("#424242", "#C5C5C5"), dark);
 });
 
 test("workflow commands are contributed, registered, documented and keep minimum stable workspace-host compatibility", () => {

@@ -77,6 +77,8 @@ Untimed confirmations keep the native permission modal. Timed confirmations defa
 
 ### Editor actions
 
+The Pi button in the editor title opens Sessions and uses separate light and dark icons to stay visible in both themes.
+
 | Action | Shortcut or location |
 | --- | --- |
 | Fix a diagnostic or open inline edit | **Ctrl/Cmd+I** |
