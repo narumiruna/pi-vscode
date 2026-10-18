@@ -131,6 +131,20 @@ export async function run(): Promise<void> {
           case "closePiTerminal":
             for (const terminal of vscode.window.terminals) if (terminal.name === "Pi") terminal.dispose();
             break;
+          case "nativeSettingsDirty": {
+            const document = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(root, ".pi", "settings.json"));
+            const editor = await vscode.window.showTextDocument(document);
+            await editor.edit((edit) =>
+              edit.replace(new vscode.Range(0, 0, document.lineCount, 0), '{"userDraft":"retained"}\n'),
+            );
+            result = { dirty: document.isDirty, path: document.uri.fsPath };
+            break;
+          }
+          case "nativeSettingsSave": {
+            const document = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(root, ".pi", "settings.json"));
+            result = { saved: await document.save(), text: document.getText() };
+            break;
+          }
           case "settingsState":
             result = {
               model: vscode.workspace.getConfiguration("pi").inspect("model"),

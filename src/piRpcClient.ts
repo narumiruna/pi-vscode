@@ -371,6 +371,27 @@ export class PiRpcClient {
     await this.command("set_thinking_level", { level });
   }
 
+  /** These public Pi setters also request persistence to GLOBAL Pi settings. */
+  public async setSteeringMode(mode: "all" | "one-at-a-time"): Promise<void> {
+    if (mode !== "all" && mode !== "one-at-a-time") throw new Error("Invalid queue mode.");
+    await this.command("set_steering_mode", { mode });
+  }
+
+  public async setFollowUpMode(mode: "all" | "one-at-a-time"): Promise<void> {
+    if (mode !== "all" && mode !== "one-at-a-time") throw new Error("Invalid queue mode.");
+    await this.command("set_follow_up_mode", { mode });
+  }
+
+  public async setAutoCompaction(enabled: boolean): Promise<void> {
+    if (typeof enabled !== "boolean") throw new Error("Invalid compaction value.");
+    await this.command("set_auto_compaction", { enabled });
+  }
+
+  public async setAutoRetry(enabled: boolean): Promise<void> {
+    if (typeof enabled !== "boolean") throw new Error("Invalid retry value.");
+    await this.command("set_auto_retry", { enabled });
+  }
+
   public async setSessionName(name: string): Promise<void> {
     await this.command("set_session_name", { name });
   }

@@ -106,8 +106,20 @@
         "enablement": "isWorkspaceTrusted"
       },
       {
+        "command": "pi.openNativeSettings",
+        "title": "Open Native Pi Settings",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
         "command": "pi.restartResources",
         "title": "Restart Pi (Current Launch Policy)",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "pi.openNativeMcp",
+        "title": "Manage Native MCP Configuration",
         "category": "Pi",
         "enablement": "isWorkspaceTrusted"
       },
@@ -118,8 +130,20 @@
         "enablement": "isWorkspaceTrusted"
       },
       {
+        "command": "pi.nativeRuntimeControls",
+        "title": "Native Runtime Controls (Global Save)",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
         "command": "pi.returnFromTerminal",
         "title": "Return Pi from Terminal / Recover Ownership",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "pi.applyNativeConfiguration",
+        "title": "Apply Saved Native Configuration (Reload Resources)",
         "category": "Pi",
         "enablement": "isWorkspaceTrusted"
       },

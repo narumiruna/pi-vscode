@@ -86,6 +86,15 @@ export async function deleteConversationWithTrashFallback(actions: {
   }
 }
 
+export class NativeRuntimeControlAppliedError extends Error {
+  public constructor() {
+    super(
+      "Pi acknowledged a runtime change, but current-state verification failed. Global persistence remains unverified. Check the active runtime and file before retrying.",
+    );
+    this.name = "NativeRuntimeControlAppliedError";
+  }
+}
+
 export interface PendingQueueInstruction {
   readonly id: string;
   readonly kind: "steering" | "followUp";
@@ -108,6 +117,9 @@ export interface PiRuntimeState {
   readonly busy: boolean;
   readonly model?: Record<string, unknown>;
   readonly thinkingLevel?: string;
+  readonly steeringMode?: "all" | "one-at-a-time";
+  readonly followUpMode?: "all" | "one-at-a-time";
+  readonly autoCompactionEnabled?: boolean;
   readonly sessionFile?: string;
   readonly sessionId?: string;
   readonly sessionName?: string;
@@ -974,6 +986,49 @@ export class PiRuntimeManager implements vscode.Disposable {
     });
   }
 
+  /** Public setters apply now AND request GLOBAL persistence. RPC does not verify durability. */
+  public async setNativeRuntimeControl(
+    key: "steeringMode" | "followUpMode" | "compaction.enabled" | "retry.enabled",
+    value: "all" | "one-at-a-time" | boolean,
+  ): Promise<void> {
+    await this.configureNativeRuntimeControl(async () => ({ key, value }));
+  }
+
+  /** Keep selection/approval and mutation bound to the same foreground generation. */
+  public async configureNativeRuntimeControl(
+    select: (assertCurrent: () => Promise<void>) => Promise<
+      | {
+          key: "steeringMode" | "followUpMode" | "compaction.enabled" | "retry.enabled";
+          value: "all" | "one-at-a-time" | boolean;
+        }
+      | undefined
+    >,
+  ): Promise<boolean> {
+    return this.withForegroundOperation("changing native Pi runtime controls", async (client, assertCurrent) => {
+      const selection = await select(assertCurrent);
+      if (!selection) return false;
+      await assertCurrent();
+      const { key, value } = selection;
+      if (key === "steeringMode" || key === "followUpMode") {
+        if (value !== "all" && value !== "one-at-a-time") throw new Error("Invalid queue mode.");
+        if (key === "steeringMode") await client.setSteeringMode(value);
+        else await client.setFollowUpMode(value);
+      } else {
+        if (typeof value !== "boolean") throw new Error("Invalid runtime control value.");
+        if (key === "compaction.enabled") await client.setAutoCompaction(value);
+        else if (key === "retry.enabled") await client.setAutoRetry(value);
+        else throw new Error("Unsupported runtime control.");
+      }
+      try {
+        await assertCurrent();
+        await this.refreshStateAfterCommand(false, "Native runtime control (global save requested, not verified)");
+      } catch {
+        throw new NativeRuntimeControlAppliedError();
+      }
+      return true;
+    });
+  }
+
   public async getMessages(): Promise<unknown[]> {
     await this.ensureStarted(this.resource);
     return this.requireClient().getMessages();
@@ -1192,6 +1247,16 @@ export class PiRuntimeManager implements vscode.Disposable {
       busy: Boolean(this.shellActive) || this.promptActive || Boolean(rpcState.isStreaming),
       model: recordField(rpcState, "model"),
       thinkingLevel: stringField(rpcState, "thinkingLevel"),
+      steeringMode:
+        rpcState.steeringMode === "all" || rpcState.steeringMode === "one-at-a-time"
+          ? rpcState.steeringMode
+          : undefined,
+      followUpMode:
+        rpcState.followUpMode === "all" || rpcState.followUpMode === "one-at-a-time"
+          ? rpcState.followUpMode
+          : undefined,
+      autoCompactionEnabled:
+        typeof rpcState.autoCompactionEnabled === "boolean" ? rpcState.autoCompactionEnabled : undefined,
       sessionFile,
       sessionId: stringField(rpcState, "sessionId"),
       sessionName: stringField(rpcState, "sessionName"),

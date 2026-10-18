@@ -124,6 +124,39 @@ test("PiRpcClient correlates responses and streams events", async () => {
   });
 });
 
+test("native runtime setters send typed public commands without prompting or queue mutation", async () => {
+  await withFakePi(async (options) => {
+    const client = new PiRpcClient(options);
+    const events: PiRpcEvent[] = [];
+    client.onEvent((event) => events.push(event));
+    await client.start();
+    try {
+      await client.setSteeringMode("all");
+      await client.setFollowUpMode("one-at-a-time");
+      await client.setAutoCompaction(false);
+      await client.setAutoRetry(true);
+      await waitForEvent(events, "native_control_received");
+      assert.deepEqual(
+        events.filter((event) => event.type === "native_control_received").map((event) => event.command),
+        [
+          { type: "set_steering_mode", mode: "all" },
+          { type: "set_follow_up_mode", mode: "one-at-a-time" },
+          { type: "set_auto_compaction", enabled: false },
+          { type: "set_auto_retry", enabled: true },
+        ],
+      );
+      assert.equal(
+        events.some((event) => event.type === "agent_start" || event.type === "queue_update"),
+        false,
+      );
+      await assert.rejects(client.setSteeringMode("invalid" as "all"), /Invalid/);
+      await assert.rejects(client.setAutoRetry("true" as unknown as boolean), /Invalid/);
+    } finally {
+      await client.stop();
+    }
+  });
+});
+
 test("PiRpcClient prompt resolves after acceptance and before task settlement", async () => {
   await withFakePi(async (options) => {
     const client = new PiRpcClient(options);
@@ -506,6 +539,10 @@ process.stdin.on("data", chunk => {
       success: true,
       data,
     }) + "\n");
+    if (["set_steering_mode", "set_follow_up_mode", "set_auto_compaction", "set_auto_retry"].includes(request.type)) {
+      const { id, ...command } = request;
+      process.stdout.write(JSON.stringify({ type: "native_control_received", command }) + "\n");
+    }
     if (request.type === "prompt" && request.message === "/handled-command") {
       respond({ disposition: "handled" });
       continue;

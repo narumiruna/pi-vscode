@@ -84,6 +84,9 @@ try {
   };
   await page.goto(origin);
   await page.waitForFunction(() => document.querySelector("nav button") !== null);
+  assert.match(await page.locator("body").innerText(), /This page edits VS Code pi\.\* settings only/);
+  assert.match(await page.locator("body").innerText(), /Pi: Open Native Pi Settings/);
+  assert.match(await page.locator("body").innerText(), /Opening those surfaces starts no Pi process or connection/);
   await push();
   assert.equal(await page.locator("section").count(), 4);
   assert.match(await page.locator("main").innerText(), /Used when a Pi process starts; running sessions are unchanged/);
