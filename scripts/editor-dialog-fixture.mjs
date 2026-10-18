@@ -26,7 +26,12 @@ export async function assertExtensionEditorDialogs({ page, directory, invoke, un
   };
   const open = async (id, prefill, fields = {}) => {
     await send({ type: "extension_ui_request", id, method: "editor", title: `Native editor ${id}`, prefill, ...fields });
-    const picker = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Open Non-Secret Editor" });
+    // Stable VS Code keeps a dismissed picker visible but inert during its close animation.
+    // Wait for this request, not the previous privacy picker's retained row.
+    const widget = page.locator(".quick-input-widget:not(.quick-input-widget-closing):not([inert])")
+      .filter({ has: page.getByText(`Pi extension editor: Native editor ${id}`, { exact: true }) });
+    const picker = widget.locator(".quick-input-list .monaco-list-row")
+      .filter({ hasText: "Open Non-Secret Editor" });
     await picker.waitFor({ state: "visible" });
     assert.match(await picker.innerText(), /hot-exit backups/);
     // Confirmation and every editor action can be completed without a mouse.
