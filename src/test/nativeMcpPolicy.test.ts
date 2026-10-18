@@ -22,7 +22,9 @@ test("focused packaged policy blocks MCP tools and indirect entry points regardl
     "tool_search",
   ];
   let active = [...original];
+  const commands = new Set<string>();
   gate({
+    registerCommand: (name: string) => commands.add(name),
     on: (name: string, handler: Handler) => handlers.set(name, handler),
     getActiveTools: () => active,
     setActiveTools: (tools: string[]) => {
@@ -30,6 +32,7 @@ test("focused packaged policy blocks MCP tools and indirect entry points regardl
     },
     getAllTools: () => original.map((name) => ({ name, annotations: { readOnlyHint: true } })),
   });
+  assert.equal(commands.has("vscode-pi-read-only-ready"), true);
   const invoke = (name: string, event?: unknown) => {
     const handler = handlers.get(name);
     assert.ok(handler, `Missing packaged handler: ${name}`);

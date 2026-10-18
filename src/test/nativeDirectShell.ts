@@ -9,9 +9,16 @@ import { PiRuntimeManager } from "../piRuntime";
 /** Isolated Extension Host checks. No model, real Pi profile, or arbitrary command. */
 export async function verifyNativeDirectShell(): Promise<string> {
   if (!vscode.workspace.isTrusted) {
-    const runtime = new PiRuntimeManager({} as vscode.ExtensionContext);
-    await assert.rejects(runtime.executeShell("fixture:hello", false), /trusted/);
-    return "Restricted Mode rejects shell before process launch";
+    const runtime = new PiRuntimeManager({
+      workspaceState: { get: () => undefined, update: async () => {} },
+      environmentVariableCollection: { clear() {} },
+    } as unknown as vscode.ExtensionContext);
+    try {
+      await assert.rejects(runtime.executeShell("fixture:hello", false), /trusted/);
+      return "Restricted Mode rejects shell before process launch";
+    } finally {
+      runtime.dispose();
+    }
   }
   const root = await mkdtemp(path.join(tmpdir(), "pi-native-shell-"));
   const client = new PiRpcClient({
