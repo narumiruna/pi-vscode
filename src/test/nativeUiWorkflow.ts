@@ -76,6 +76,15 @@ export async function run(): Promise<void> {
             )?.length;
             break;
           }
+          case "completionExclusions":
+            await vscode.workspace
+              .getConfiguration("search")
+              .update(
+                "exclude",
+                { "**/{completion-excluded,completion-other-excluded}/**": true },
+                vscode.ConfigurationTarget.Workspace,
+              );
+            break;
           case "completionDirty": {
             const document: vscode.TextDocument = await vscode.workspace.openTextDocument(
               vscode.Uri.joinPath(root, "completion-capture.txt"),

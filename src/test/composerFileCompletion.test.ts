@@ -93,6 +93,16 @@ async function fixture(alias = false) {
   const searches: any[] = [];
   vscode.workspace.findFiles = async (...args: any[]) => {
     searches.push(args);
+    // Match the native backend limitation that a mock previously hid.
+    let depth = 0;
+    let bracket = false;
+    for (const character of args[1] as string) {
+      if (character === "[") bracket = true;
+      if (character === "]") bracket = false;
+      if (bracket) continue;
+      if (character === "{" && ++depth > 1) throw new Error("Nested alternate groups are not allowed");
+      if (character === "}") depth--;
+    }
     return found;
   };
   vscode.workspace.openTextDocument = async (uri: MockUri) => ({
@@ -189,10 +199,68 @@ test("discovery has fixed bounds, configured exclusions, deterministic ordering 
     assert.equal(new Set(result.candidates.map((item: any) => item.id)).size, 30);
     assert.equal(f.searches[0][2], 2_000);
     assert.match(f.searches[0][1], /node_modules.*coverage/);
+    const exclusion = f.searches[0][1] as string;
+    assert.equal(exclusion.startsWith("{") && exclusion.endsWith("}"), true);
+    assert.equal(/[{}]/.test(exclusion.slice(1, -1)), false, "native search rejects nested brace alternatives");
+    assert.ok(exclusion.slice(1, -1).split(",").includes("**/node_modules/**"));
+    assert.ok(exclusion.slice(1, -1).split(",").includes("**/out/**"));
     assert.equal(f.attachments.values.length, 0);
     await f.select(result, "00000000-0000-4000-8000-000000000000");
     assert.equal(f.attachments.values.length, 0);
     assert.ok(f.posted.some((item) => item.type === "fileCompletionFailed"));
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("configured brace alternatives form a flat bounded native exclusion union", async () => {
+  const f = await fixture();
+  try {
+    f.vscode.workspace.getConfiguration = (section: string) => ({
+      get: () =>
+        section === "files"
+          ? { "**/{private,secrets}/**": true }
+          : {
+              "**/{cache,temp}/*.{js,ts}": true,
+              "**/[{},]literal": true,
+              "**/private,secret/**": true,
+              "**/keep/**": false,
+            },
+    });
+    await f.add("file.ts");
+    assert.equal((await f.query("@file")).candidates.length, 1);
+    assert.equal(
+      f.searches[0][1],
+      "{**/.git/**,**/node_modules/**,**/out/**,**/dist/**,**/build/**,**/coverage/**,**/.next/**,**/.cache/**,**/vendor/**," +
+        "**/private/**,**/secrets/**,**/cache/*.js,**/cache/*.ts,**/temp/*.js,**/temp/*.ts,**/[{},]literal,**/private[,]secret/**}",
+    );
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("malformed and excessive exclusion alternatives fail closed before native discovery", async () => {
+  const f = await fixture();
+  try {
+    await f.add("file.ts");
+    let id = 0;
+    for (const pattern of [
+      "**/{private,secrets/**",
+      "**/{private,{secrets,hidden}}/**",
+      "**/[private/**",
+      "**/private}/**",
+      "x".repeat(1_025),
+      `**/${"{a,b}".repeat(12)}/**`,
+      `**/${"private".repeat(20)}/{${Array.from({ length: 60 }, (_, index) => String(index).padStart(8, "0")).join(",")}}/${"{a,b}".repeat(5)}`,
+    ]) {
+      f.vscode.workspace.getConfiguration = () => ({ get: () => ({ [pattern]: true }) });
+      assert.deepEqual((await f.query("@file", ++id)).candidates, [], pattern);
+    }
+    f.vscode.workspace.getConfiguration = () => ({
+      get: () => Object.fromEntries(Array.from({ length: 2_000 }, (_, index) => [`p${index}`, true])),
+    });
+    assert.deepEqual((await f.query("@file", ++id)).candidates, []);
+    assert.equal(f.searches.length, 0, "invalid exclusions must not trigger an unfiltered search");
   } finally {
     await f.cleanup();
   }

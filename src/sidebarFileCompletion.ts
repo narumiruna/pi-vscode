@@ -7,7 +7,60 @@ import type { SidebarAttachmentManager } from "./sidebarAttachments";
 import { safeRelativePath } from "./workspaceFiles";
 
 export const fileCompletionLimits = { discovered: 2_000, candidates: 30, path: 1_024, deadlineMs: 2_000 } as const;
-const generated = "**/{.git,node_modules,out,dist,build,coverage,.next,.cache,vendor}/**";
+const generated = [".git", "node_modules", "out", "dist", "build", "coverage", ".next", ".cache", "vendor"].map(
+  (directory) => `**/${directory}/**`,
+);
+const exclusionLimits = { patterns: 2_000, characters: 64_000 } as const;
+
+// Native search rejects nested brace groups. Expand configured alternatives before joining the union.
+function completionExclusionGlob(patterns: readonly string[]): string {
+  const flattened: string[] = [];
+  let characters = 2;
+  for (const pattern of patterns) {
+    let expanded = [""];
+    let literal = "";
+    let choices: string[] | undefined;
+    let bracket = false;
+    const append = (parts: string[]) => {
+      if (expanded.length * parts.length + flattened.length > exclusionLimits.patterns)
+        throw new Error("Too many completion exclusions.");
+      const size =
+        expanded.reduce((sum, value) => sum + value.length, 0) * parts.length +
+        parts.reduce((sum, value) => sum + value.length, 0) * expanded.length;
+      if (size + characters + expanded.length * parts.length > exclusionLimits.characters)
+        throw new Error("Completion exclusions are too large.");
+      expanded = expanded.flatMap((prefix) => parts.map((part) => prefix + part));
+    };
+    for (const character of pattern) {
+      if (character === "[" && !bracket) bracket = true;
+      else if (character === "]" && bracket) {
+        bracket = false;
+        literal += character;
+        continue;
+      }
+      if (!bracket && character === "{") {
+        if (choices) throw new Error("Nested completion exclusion alternatives are not supported.");
+        append([literal]);
+        literal = "";
+        choices = [];
+      } else if (!bracket && character === "," && choices) {
+        choices.push(literal);
+        literal = "";
+      } else if (!bracket && character === "}") {
+        if (!choices) throw new Error("Malformed completion exclusion.");
+        choices.push(literal);
+        append(choices);
+        choices = undefined;
+        literal = "";
+      } else literal += !bracket && character === "," ? "[,]" : character;
+    }
+    if (bracket || choices) throw new Error("Malformed completion exclusion.");
+    append([literal]);
+    flattened.push(...expanded);
+    characters += expanded.reduce((sum, value) => sum + value.length + 1, 0);
+  }
+  return `{${flattened.join(",")}}`;
+}
 
 export interface CompletionCandidate {
   readonly id: string;
@@ -124,18 +177,21 @@ export class SidebarFileCompletion {
           }
         }
         if (!folder) throw new Error("A matching file workspace is required.");
-        const excludes = [generated];
+        const excludes = [...generated];
         for (const section of ["files", "search"]) {
           const values = vscode.workspace
             .getConfiguration(section, folder.uri)
             .get<Record<string, unknown>>("exclude", {});
-          for (const [pattern, enabled] of Object.entries(values))
-            if (enabled === true && pattern.length <= 1_024) excludes.push(pattern);
+          for (const [pattern, enabled] of Object.entries(values)) {
+            if (enabled !== true) continue;
+            if (pattern.length > 1_024) throw new Error("Completion exclusion is too long.");
+            excludes.push(pattern);
+          }
         }
         if (active.source.token.isCancellationRequested) throw new Error("Cancelled");
         const found = await vscode.workspace.findFiles(
           new vscode.RelativePattern(folder, "**/*"),
-          `{${excludes.join(",")}}`,
+          completionExclusionGlob(excludes),
           fileCompletionLimits.discovered,
           active.source.token,
         );
