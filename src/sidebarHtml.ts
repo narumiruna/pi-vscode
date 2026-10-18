@@ -427,6 +427,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let composerDraft;
     let fileCompletionSupport = { available: false, reason: 'Checking workspace file completion.' };
     let messageHeadingSequence = 0;
+    let wrapReadingAnchor;
+    let wrapReadingTop;
     let updatingControls = false;
     let thinkingSelectable = false;
     let thinkingUnavailableReason = '';
@@ -582,10 +584,20 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const x = bounds.left + Math.min(24, bounds.width / 2);
       const readingEdge = bounds.top + $('transcript-controls').getBoundingClientRect().height;
       const y = Math.min(readingEdge + 8, bounds.bottom - 1);
+      const candidates = Array.from(messagesElement.querySelectorAll('pre, p, .role'));
+      const visible = node => {
+        const rect = node?.getBoundingClientRect();
+        return rect && rect.bottom > bounds.top && rect.top < bounds.bottom;
+      };
+      const active = document.activeElement;
+      const focused = active && messagesElement.contains(active) && visible(active) ? active : undefined;
+      const retained = wrapReadingAnchor && messagesElement.contains(wrapReadingAnchor) && visible(wrapReadingAnchor)
+        && Math.abs(top - wrapReadingTop) <= 1 ? wrapReadingAnchor : undefined;
+      const anchor = focused || retained || candidates.find(node => node.getBoundingClientRect().bottom > readingEdge);
       const caret = document.caretRangeFromPoint?.(x, y);
-      const range = caret && messagesElement.contains(caret.startContainer) ? caret : undefined;
-      const candidates = range ? [] : Array.from(messagesElement.querySelectorAll('pre, p, .role'));
-      const anchor = candidates.find(node => node.getBoundingClientRect().bottom > readingEdge);
+      // A gutter hit can return an unrelated or empty caret rectangle. Use text offsets only inside visible code.
+      const range = caret && anchor?.tagName === 'PRE' && anchor.contains(caret.startContainer)
+        && caret.getBoundingClientRect().height > 0 ? caret : undefined;
       const before = range?.getBoundingClientRect().top ?? anchor?.getBoundingClientRect().top;
       const enabled = $('wrap-code').getAttribute('aria-pressed') !== 'true';
       $('wrap-code').setAttribute('aria-pressed', String(enabled));
@@ -595,6 +607,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         const after = range?.getBoundingClientRect().top ?? anchor?.getBoundingClientRect().top;
         setConversationScrollTop(before === undefined || after === undefined ? top : conversationElement.scrollTop + after - before);
       }
+      wrapReadingAnchor = follow ? undefined : anchor;
+      wrapReadingTop = conversationElement.scrollTop;
       window.dispatchEvent(new Event('pi-transcript-layout'));
     }
     $('wrap-code').addEventListener('click', toggleCodeWrapping);

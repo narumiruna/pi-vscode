@@ -211,11 +211,34 @@ export async function assertDiscoveryWrapBrowser(browser, getSidebarHtml, render
   const marker = page.locator("#messages > article").nth(2).locator("h2");
   await marker.evaluate((node) => node.scrollIntoView({ block: "start" }));
   await page.waitForTimeout(60);
+  // Focus can scroll a partially covered heading. Measure after focus to isolate the wrapping operation.
+  await marker.focus();
   const beforeTop = await marker.evaluate((node) => node.getBoundingClientRect().top);
   // DOM activation avoids browser auto-scroll of the toolbar; focus remains in the message.
-  await marker.focus();
+  const wrapBefore = await page.evaluate(() => ({
+    pinned: conversationPinnedToBottom,
+    top: conversationElement.scrollTop,
+    edge:
+      conversationElement.getBoundingClientRect().top +
+      document.getElementById("transcript-controls").getBoundingClientRect().height,
+    anchors: Array.from(messagesElement.querySelectorAll("pre, p, .role"))
+      .map((node) => ({
+        tag: node.tagName,
+        top: node.getBoundingClientRect().top,
+        bottom: node.getBoundingClientRect().bottom,
+      }))
+      .filter((item) => item.bottom > conversationElement.getBoundingClientRect().top)
+      .slice(0, 4),
+  }));
   await toggle.evaluate((node) => node.click());
-  assert.ok(Math.abs((await marker.evaluate((node) => node.getBoundingClientRect().top)) - beforeTop) <= 2);
+  assert.ok(
+    Math.abs((await marker.evaluate((node) => node.getBoundingClientRect().top)) - beforeTop) <= 2,
+    JSON.stringify({
+      beforeTop,
+      wrapBefore,
+      after: await page.evaluate(() => ({ pinned: conversationPinnedToBottom, top: conversationElement.scrollTop })),
+    }),
+  );
   assert.equal(await marker.evaluate((node) => document.activeElement === node), true);
   const readingTop = await marker.evaluate((node) => node.getBoundingClientRect().top);
   await toggle.click();
