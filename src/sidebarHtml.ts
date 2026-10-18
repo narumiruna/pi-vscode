@@ -735,6 +735,18 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       else renderTranscriptImage(target.button, target.attachment);
     }
 
+    function discardImageAsset(id) {
+      const asset = imageAssetCache.get(id);
+      if (!asset) return false;
+      imageAssetCache.delete(id);
+      imageAssetCacheBytes -= asset.byteLength;
+      for (const target of imageTargets.get(id) || []) {
+        target.attachment.availability = 'unavailable';
+        rerenderImageTarget(target);
+      }
+      return true;
+    }
+
     function acceptImageAsset(message) {
       if (typeof message.id !== 'string' || !/^sha256-[a-f0-9]{64}$/.test(message.id)) return;
       if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(message.mimeType)) return;
@@ -746,13 +758,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       if (imageAssetCache.has(message.id)) return;
       while (imageAssetCache.size && (imageAssetCacheBytes + message.byteLength > maxImageAssetCacheBytes || imageAssetCache.size >= maxImageAssets)) {
         const oldestId = imageAssetCache.keys().next().value;
-        const oldest = imageAssetCache.get(oldestId);
-        imageAssetCache.delete(oldestId);
-        imageAssetCacheBytes -= oldest.byteLength;
-        for (const target of imageTargets.get(oldestId) || []) {
-          target.attachment.availability = 'unavailable';
-          rerenderImageTarget(target);
-        }
+        discardImageAsset(oldestId);
         vscode.postMessage({ type: 'imageAssetEvicted', id: oldestId });
       }
       imageAssetCache.set(message.id, { url: 'data:' + message.mimeType + ';base64,' + message.data, byteLength: message.byteLength });
@@ -761,14 +767,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     }
 
     function rejectImageAsset(id) {
-      const asset = imageAssetCache.get(id);
-      if (!asset) return;
-      imageAssetCache.delete(id);
-      imageAssetCacheBytes -= asset.byteLength;
-      for (const target of imageTargets.get(id) || []) {
-        target.attachment.availability = 'unavailable';
-        rerenderImageTarget(target);
-      }
+      if (!discardImageAsset(id)) return;
       if (previewAssetId === id) closeImagePreview();
       vscode.postMessage({ type: 'imageAssetRejected', id });
     }
@@ -1466,17 +1465,12 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('activity').hidden = ![state.proposals, state.changes, state.backgroundTasks].some(items => items && items.length);
       updatingControls = true;
       renderThinkingLevel(state.runtime);
-      thinkingLevel.disabled = busy || !connected || !thinkingSelectable;
       updatingControls = false;
       const currentModel = state.runtime.model || {};
       $('model-label').textContent = currentModel.name || currentModel.id || 'Choose model…';
       $('model-picker').title = currentModel.provider && currentModel.id ? currentModel.provider + '/' + currentModel.id : 'Choose Pi model';
       $('model-picker').setAttribute('aria-label', 'Pi model: ' + (currentModel.name || currentModel.id || 'Choose model'));
-      $('model-picker').disabled = busy || !connected;
-      $('new-session').disabled = busy;
       $('delete-session').hidden = !deletableSession;
-      $('delete-session').disabled = busy || !connected || !deletableSession;
-      $('more').disabled = busy || !connected;
       $('runtime').dataset.connection = !connected ? 'disconnected' : busy ? 'busy' : 'connected';
       const status = busy && (!state.status || state.status === 'Ready') ? 'Working…' : state.status || 'Ready';
       latestStatus = status + (connected || /disconnected/i.test(status) ? '' : ' · disconnected');
@@ -1491,7 +1485,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('retry').disabled = busy || !connected;
       $('refresh-history').hidden = !state.historyRecoveryAvailable;
       $('refresh-history').disabled = busy || !connected;
-      $('add-context').disabled = false;
       cancelButton.hidden = !cancellable;
       updateSendState();
     }

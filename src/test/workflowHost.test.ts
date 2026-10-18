@@ -472,6 +472,146 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
   }
 });
 
+for (const operation of ["clearInstructions", "abort"] as const) {
+  for (const outcome of ["success", "missing-start", "abort-failure"] as const) {
+    if (outcome === "abort-failure" && operation !== "abort") continue;
+    test(`${operation} preserves queue recovery ownership after clear: ${outcome}`, async () => {
+      const vscode = installVscodeMock();
+      const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
+      const runtime = new PiRuntimeManager({
+        environmentVariableCollection: { clear() {} },
+      } as unknown as ConstructorParameters<typeof PiRuntimeManager>[0]);
+      const internal = runtime as unknown as {
+        client: unknown;
+        handleEvent(event: Record<string, unknown>): void;
+        updateState(state: Record<string, unknown>): void;
+        readonly queueStopping: boolean;
+        readonly queueGate: { readonly isPending: boolean };
+        readonly awaitingQueueStarts: readonly unknown[];
+      };
+      const calls: string[] = [];
+      const restored = { steering: 0, followUp: 0 };
+      const delivered: unknown[] = [];
+      let queued = { steering: [] as string[], followUp: [] as string[] };
+      let acknowledgeClear!: () => void;
+      const client = {
+        isRunning: true,
+        onEvent: () => ({ dispose() {} }),
+        steer: async (text: string) => {
+          calls.push("steer");
+          queued.steering.push(text);
+          internal.handleEvent({ type: "queue_update", ...queued });
+        },
+        followUp: async (text: string) => {
+          calls.push("follow_up");
+          queued.followUp.push(text);
+          internal.handleEvent({ type: "queue_update", ...queued });
+        },
+        clearQueue: async () => {
+          calls.push("clear_queue");
+          await new Promise<void>((resolve) => {
+            acknowledgeClear = resolve;
+          });
+          calls.push("clear_ack");
+          const cleared = queued;
+          queued = { steering: [], followUp: [] };
+          internal.handleEvent({ type: "queue_update", ...queued });
+          return cleared;
+        },
+        abort: async () => {
+          calls.push("abort");
+          assert.deepEqual(runtime.currentState.pendingQueue, { steering: [], followUp: [] });
+          assert.equal(runtime.currentState.recoveredDrafts?.length, 2, "recover before sending abort");
+          if (outcome === "abort-failure") throw new Error("Abort failed after verified clear");
+        },
+        stop: async () => {
+          if (!client.isRunning) return;
+          calls.push("stop");
+          client.isRunning = false;
+          internal.handleEvent({ type: "process_exit" });
+        },
+      };
+      internal.client = client;
+      internal.updateState({ connected: true, busy: true, queueable: true, queue: queued });
+      runtime.onEvent((event) => {
+        if (event.type === "queue_instruction_delivered") delivered.push(event);
+      });
+      runtime.onDidChangeState((state) => {
+        if (
+          calls.includes("cleared_state") ||
+          state.recoveredDrafts?.length !== 2 ||
+          state.pendingQueue?.steering.length !== 0 ||
+          state.pendingQueue?.followUp.length !== 0
+        )
+          return;
+        calls.push("cleared_state");
+        queueMicrotask(() => calls.push("after_transition"));
+      });
+      try {
+        for (const kind of ["steering", "followUp"] as const) {
+          await runtime.queueInstruction(kind === "steering" ? "steer" : "followUp", kind, {
+            recoveryText: `${kind} attachment draft`,
+            hasAttachments: true,
+            recoveryBytes: 10,
+            restoreAttachments: () => {
+              restored[kind] += 1;
+            },
+          });
+        }
+        if (outcome === "missing-start") {
+          queued = { steering: [], followUp: ["followUp"] };
+          internal.handleEvent({ type: "queue_update", ...queued });
+          assert.equal(internal.awaitingQueueStarts.length, 1);
+        }
+        const clearing = runtime[operation]();
+        const completion =
+          outcome === "success"
+            ? clearing
+            : assert.rejects(clearing, outcome === "missing-start" ? /without a delivery event/ : /Abort failed/);
+        assert.equal(internal.queueStopping, true);
+        assert.equal(internal.queueGate.isPending, true);
+        const draftsBeforeAcknowledgement = runtime.currentState.recoveredDrafts;
+        assert.equal(draftsBeforeAcknowledgement, undefined, "do not recover before clear acknowledgement");
+        await assert.rejects(runtime.queueInstruction("steer", "must not enter clearing queue"), /ordinary composer/);
+        acknowledgeClear();
+        await completion;
+        assert.deepEqual(
+          runtime.currentState.recoveredDrafts?.map((draft) => [draft.text, draft.uncertain, draft.hasAttachments]),
+          [
+            ["steering attachment draft", outcome === "missing-start", true],
+            ["followUp attachment draft", outcome === "missing-start", true],
+          ],
+          "only missing delivery evidence makes recovered drafts uncertain, not an abort failure after clear",
+        );
+        assert.deepEqual(runtime.currentState.queue, { steering: [], followUp: [] });
+        assert.deepEqual(runtime.currentState.pendingQueue, { steering: [], followUp: [] });
+        assert.equal(internal.queueStopping, false);
+        assert.equal(internal.queueGate.isPending, false);
+        assert.equal(runtime.currentState.connected, outcome === "success");
+        assert.deepEqual(restored, { steering: 0, followUp: 0 }, "recovery never restores attachments automatically");
+        for (const draft of runtime.currentState.recoveredDrafts ?? []) {
+          runtime.restoreRecoveredDraftAttachments(draft.id);
+          runtime.restoreRecoveredDraftAttachments(draft.id);
+        }
+        assert.deepEqual(restored, { steering: 1, followUp: 1 }, "each attachment owner restores exactly once");
+        assert.deepEqual(delivered, [], "clearing and disconnect do not imply user-message delivery");
+        assert.deepEqual(calls.slice(0, 4), ["steer", "follow_up", "clear_queue", "clear_ack"]);
+        assert.equal(calls.filter((call) => call === "steer" || call === "follow_up").length, 2, "no automatic replay");
+        if (operation === "abort" && outcome !== "missing-start") {
+          assert.deepEqual(calls.slice(4, 6), ["cleared_state", "abort"], "no async boundary before abort");
+          assert.ok(calls.indexOf("abort") < calls.indexOf("after_transition"));
+        } else {
+          assert.equal(calls.includes("abort"), false, "unresolved user starts prevent abort dispatch");
+        }
+        assert.equal(calls.filter((call) => call === "stop").length, outcome === "success" ? 0 : 1);
+      } finally {
+        runtime.dispose();
+        vscode.restore();
+      }
+    });
+  }
+}
+
 test("runtime correlates duplicate queue delivery starts in FIFO order and recovers missing starts", () => {
   const vscode = installVscodeMock();
   const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
@@ -1443,6 +1583,12 @@ test("cleared queue validation preserves both attachment ledgers until every que
   internal.trackedQueue.steering.push(steering);
   internal.trackedQueue.followUp.push(followUp);
   try {
+    assert.throws(
+      () => internal.takeClearedInstructions({ steering: ["unexpected"], followUp: ["follow"] }),
+      /unexpected steering queue/,
+    );
+    assert.deepEqual(internal.trackedQueue.steering, [steering]);
+    assert.deepEqual(internal.trackedQueue.followUp, [followUp], "a steering mismatch preserves follow-up ownership");
     assert.throws(
       () => internal.takeClearedInstructions({ steering: ["steer"], followUp: ["unexpected"] }),
       /unexpected follow-up queue/,

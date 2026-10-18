@@ -144,14 +144,7 @@ export class EditProposalStore {
         if (proposal.disposed) return;
         proposal.state = { ...proposal.state, status: "previewed" };
       } catch (error) {
-        const message = formatError(error);
-        const stale = isStaleError(message);
-        proposal.state = { ...proposal.state, status: stale ? "stale" : "failed", error: message };
-        if (stale) {
-          this.release(proposal);
-          this.pruneTerminalStates();
-        }
-        this.onNotice(message, "error");
+        this.failProposal(proposal, error);
       }
       this.onChange();
       return;
@@ -179,14 +172,7 @@ export class EditProposalStore {
       this.pruneTerminalStates();
       this.onNotice("Pi edit applied. Use Undo to revert it.", "info");
     } catch (error) {
-      const message = formatError(error);
-      const stale = isStaleError(message);
-      proposal.state = { ...proposal.state, status: stale ? "stale" : "failed", error: message };
-      if (stale) {
-        this.release(proposal);
-        this.pruneTerminalStates();
-      }
-      this.onNotice(message, "error");
+      this.failProposal(proposal, error);
     } finally {
       this.applyInProgress = false;
       this.onChange();
@@ -199,6 +185,17 @@ export class EditProposalStore {
     }
     this.proposals.clear();
     this.onChange();
+  }
+
+  private failProposal(proposal: EditProposalEntry, error: unknown): void {
+    const message = formatError(error);
+    const stale = isStaleError(message);
+    proposal.state = { ...proposal.state, status: stale ? "stale" : "failed", error: message };
+    if (stale) {
+      this.release(proposal);
+      this.pruneTerminalStates();
+    }
+    this.onNotice(message, "error");
   }
 
   private release(proposal: EditProposalEntry): void {
