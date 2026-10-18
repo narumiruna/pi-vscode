@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented and locally verified. **Blocked:** an actual screen-reader pass or explicit user acceptance of that validation gap is pending. Browser accessibility assertions and native heading/focus checks do not close that item. Draft PR: https://github.com/narumiruna/pi-vscode/pull/84.
+Implemented and verified, including actual Orca heading navigation and changed-hint speech on VS Code 1.106.0 and 1.142.0. Final Git/PR update is pending; the existing PR remains ready: https://github.com/narumiruna/pi-vscode/pull/84.
 
 ## Goal
 
@@ -29,7 +29,7 @@ Explain existing file-completion actions before use and make transcript messages
 
 - [x] Run `npm test`, `npm run test:rich-content` and the documented Biome check; record results.
 - [x] Verify heading navigation and completion keyboard behavior in fixture-driven native UI on VS Code 1.106.0 and stable.
-- [ ] Perform a screen-reader pass for heading navigation and changed hints; record the screen reader/platform, or obtain explicit acceptance of that validation gap.
+- [x] Perform a screen-reader pass for heading navigation and changed hints. Orca 50.2 / AT-SPI 2.60.4 on Linux x64 WSL2 passed four ten-step checks per version, including actual focus on message headings and changed/restored file-hint speech. Audio and human usability are not claimed.
 - [x] Confirm hints do not capture files, start Pi or send a model request; existing capture/security guards still pass.
 - [x] Report automated, native and assistive-technology evidence separately. No live model is required.
 
@@ -41,13 +41,13 @@ Explain existing file-completion actions before use and make transcript messages
 - Focused Biome check passed for `src/sidebarFileCompletion.ts` and `src/test/sidebarDiscoveryWrap.test.ts`.
 - The worker's initial 59/60 `sidebarHtml` run exposed an old image-blocker text assertion. Integration updated it; the full final suite now passes.
 - Integration completed shared documentation, runner registration, full checks and native validation as recorded below.
-- The worker-only phase did not run native VS Code. Final integration passed local Linux native checks on both versions; no remote host, non-Linux platform, live provider or actual screen reader was tested. Screen-reader heading navigation and hint announcements remain an explicit validation gap.
+- The worker-only phase did not run native VS Code. Subsequent integration passed Linux native checks and real Orca on both versions. Actual Orca exposed a CSS-generated decorative π section that broke later heading navigation; an `aria-hidden` span fixed it without changing heading IDs, labels or visible style. The runner now requires actual Orca focus on the expected heading.
 
 ## Integrated evidence and handoff
 
 - `docs/COMPOSER_UX.md` records behavior tables, ownership transitions, all 26 native actions, fixed bounds, failure-case review and separate validation results.
-- Final local checks: `npm test` / packaging passed (80 files; 765 passed, 3 skipped); rich-content browser suite passed; Biome passed with warnings; 64 thinking-picker cases passed.
+- Final local checks: `npm test` / packaging passed (81 files; 773 passed, 3 skipped); rich-content browser suite passed; Biome passed with warnings; 64 thinking-picker cases passed.
 - Local Linux native Host and full UI fixtures passed on VS Code 1.106.0 and stable 1.142.0. New UI fixtures cover status/focus, latest navigation, headings/wrap, picker groups, bounded search and actual draft reload recovery.
 - Public history contract passed offline against Pi 1.3.0; no model call, upload or live authentication was used.
-- Remote, Windows/macOS and actual screen-reader behavior are not claimed. Plans 03/04 retain their explicit external acceptance items until verified or accepted by the user.
-- [x] Complete the authorized Git/PR handoff and record the pull request before retiring this plan. Draft PR: https://github.com/narumiruna/pi-vscode/pull/84; branch `narumi/feat/composer-experience`.
+- Final follow-up: 81 files / 773 tests passed, 3 skipped; package, browser and Linux native Host/UI suites passed on both versions. Actual web-remote storage and real Orca evidence now close plans 03/04's validation items. See `docs/COMPOSER_UX.md` for separate results, earlier failures and limits. Audio/human usability, non-Linux UI/screen readers and other remote topologies remain unverified.
+- [ ] Update the authorized Git/PR handoff with final evidence before retiring this plan. PR: https://github.com/narumiruna/pi-vscode/pull/84; branch `narumi/feat/composer-experience`.

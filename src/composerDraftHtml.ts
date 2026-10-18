@@ -68,6 +68,9 @@ export function composerDraftHtml(): string {
       const matches = (value, revision, text) => {
         if (pendingSend && value === pendingSend.binding && revision === pendingSend.revision && text === pendingSend.text) {
           pendingSend = undefined;
+          // Local commands can accept without a new session or another draftState reply.
+          // Rearm retention if newer input's debounce expired while the handoff blocked writes.
+          if (value === binding) { moving = false; observed = -1; }
           return true;
         }
         return !value || value === binding;
@@ -100,7 +103,7 @@ export function composerDraftHtml(): string {
           if (available) panel.open = true;
           renderDraft(); changed(); updateSendState();
         } else if (['sessionSwitchRejected', 'newSessionRejected', 'sendRejected'].includes(message.type)) {
-          moving = false; pendingSend = undefined; changed();
+          moving = false; pendingSend = undefined; observed = -1; changed();
         } else if (message.type === 'draftRestored' && message.binding === binding) {
           if (message.expectedRevision !== composerRevision || input.value || composing || moving || ownershipBlocked || submissionPending || recoveredDraftPending || input.readOnly || typeof message.text !== 'string' || message.text.length > 50000) {
             showNotice('Your composer changed. Retained text was not inserted.', 'warning'); return;

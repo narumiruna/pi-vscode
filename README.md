@@ -72,12 +72,12 @@ Use `@pi` in VS Code's native Chat view when you prefer the native participant w
 - **Wrap code** changes transcript code display only. Source text, copied text, shell cards, and editor files are unchanged.
 - **Find text** searches literal, case-sensitive text in the current history window, including code and diagram source. It excludes thinking, tool details, and images. Use **Previous/Next** or Enter/Shift+Enter; Escape closes search and returns focus.
 - **Earlier history** replaces the bounded window; **Latest history** returns to the current tail. Each window contains at most 100 messages and 250,000 text characters. Omitted portions of long messages are labelled and cannot be browsed. History responses above the existing 5 MiB RPC limit remain unavailable; this is not whole-session search.
-- The initial file hint distinguishes `@` snapshot attachment from Tab path-only insertion. Message headings support assistive-technology navigation; actual screen-reader validation remains pending.
+- The initial file hint distinguishes `@` snapshot attachment from Tab path-only insertion. Message headings support assistive-technology navigation. Real Orca structural navigation and hint speech text were checked on Linux; audible output and human usability were not tested.
 - **More…** has one searchable native picker with **Session management**, **Review and repair**, **Background work**, and **Pi configuration** groups. Existing action names and commands remain available.
 
 #### Text draft recovery
 
-Open **Text draft recovery → Enable recovery** to review and accept local retention before saving any composer text. This is for non-secret text only. The extension uses workspace-scoped VS Code `workspaceState`, without Settings Sync: at most 50,000 characters per draft, 20 drafts, and 250,000 total characters. Recovery expires after seven days; expired records are removed on the next activation or access. VS Code manages storage placement and backups; remote storage placement has not been validated.
+Open **Text draft recovery → Enable recovery** to review and accept draft retention before saving any composer text. This is for non-secret text only. The extension uses workspace-scoped VS Code `workspaceState`, without Settings Sync: at most 50,000 characters per draft, 20 drafts, and 250,000 total characters. Recovery expires after seven days; expired records are removed on the next activation or access. On checked Linux desktop builds, drafts reside in the local profile's workspace database. With the checked VS Code Server web clients, they reside in the browser's IndexedDB workspace storage, even though the extension runs in a remote Node Extension Host. Other remote client layouts remain unverified. Remote draft updates still pass through the workspace Extension Host over VS Code's connection; client-side storage does not mean the text never reaches that host. These updates are not model/provider requests. VS Code manages backups; removal is not secure erasure.
 
 **Restore text** requires an empty composer and never sends, queues, or executes the text. Attachments, pins, image bytes, extension dialogs, and queued-message recovery payloads are not saved. **Discard retained text** removes the current record; **Disable and discard all** removes the extension's draft store and disables retention. Removal is not secure erasure of backups. Recent edits can be lost before storage completes. A session change preserves newer text rather than silently assigning it to another session; verify the session and clear that kept text before sending again.
 
@@ -357,6 +357,8 @@ npm exec --yes --package=@biomejs/biome@2.5.13 -- biome check src resources
 | `npm test` | Compile, then run the Vitest suite without a live model. |
 | `npm run package` | Run the full test suite and create or overwrite `pi.vsix`. |
 
+Run compile-based commands sequentially. Their shared generated assets can conflict when multiple builds run at the same time.
+
 ### Browser checks
 
 Install local Playwright Chromium before running browser checks:
@@ -398,6 +400,27 @@ Append `transfer` to `test:native-ui` for native export/import/sharing/authentic
 Append `editor` to `test:native-ui` for the isolated multiline-editor and timed-confirmation fixtures only. They cover exact text, keyboard Submit/Cancel, close/discard, privacy decline, read-only review, timeouts, and process replacement.
 
 Native checks download a VS Code test build into the system temporary cache and use disposable profiles and workspaces. UI checks use a deterministic Pi RPC fixture; Playwright connects only to the disposable profile's loopback debugging endpoint. These checks do not use a live model, your VS Code profile, or your workspace.
+
+### Remote draft storage check
+
+After compilation, supply a VS Code Server **web** build and local Playwright Chromium:
+
+```bash
+npm run test:remote-drafts -- /path/to/vscode-server-web/bin/code-server
+```
+
+The runner uses a loopback-only, token-authenticated server, a remote Node Extension Host, and a disposable Chromium profile. It checks consent, the actual draft envelope in client IndexedDB, absence from the server's active storage rows, reload/Restore, and Disable. It uses a synthetic Pi executable with no model calls. It accepts the supplied server build's license terms through `--accept-server-license-terms`; supply only a build whose terms you accept. Test homes, profiles, tokens, processes, and files are isolated and removed. This checks the web-remote topology, not Remote SSH, WSL, containers, or a cross-machine network.
+
+### Real screen-reader check
+
+On Linux x64, supply an extracted compatible Orca dependency prefix, system Python GI, `uv`, `dbus-run-session`, Xvfb, system AT-SPI services, and `xdotool` from that prefix. Compile the prefix's schemas first with `glib-compile-schemas /path/to/orca-prefix/usr/share/glib-2.0/schemas`:
+
+```bash
+npm run test:screen-reader -- /path/to/orca-prefix 1.106.0
+npm run test:screen-reader -- /path/to/orca-prefix stable
+```
+
+Run screen-reader checks sequentially; Orca does not support concurrent copies in this environment. The runner starts real Orca with a private display, D-Bus session, home, and VS Code profile. It checks structural heading navigation and file-hint announcements through actual Orca-generated speech text. It does not replace speech/navigation functions or use an accessibility-tree snapshot as screen-reader evidence. Speech Dispatcher, audible output, and human usability are not tested. Bounded synthetic diagnostic evidence is retained under the printed temporary path. No live model or file attachment capture is required.
 
 ### Direct-shell public contract check
 

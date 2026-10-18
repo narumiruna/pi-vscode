@@ -15,7 +15,7 @@ import { assertComposerNavigation } from "./composer-navigation-fixture.mjs";
 import { assertDiscoveryWrap } from "./discovery-wrap-fixture.mjs";
 import { assertNativeConversationHistory, historyFixtureMessages } from "./history-fixture.mjs";
 import { assertSessionActions } from "./session-actions-fixture.mjs";
-import { assertNativeDraftRecovery } from "./draft-native-fixture.mjs";
+import { assertNativeDraftLocalCommands, assertNativeDraftRecovery } from "./draft-native-fixture.mjs";
 import { assertToolActivity } from "./tool-activity-fixture.mjs";
 import { assertNativeFileCompletion } from "./completion-native-fixture.mjs";
 import thinkingFixture from "./fixtures/thinking.cjs";
@@ -860,6 +860,7 @@ try {
   }
   await assertThinkingDisclosure(pi);
   console.log("PI_NATIVE_THINKING", JSON.stringify({ ...thinkingEvidence, reconnect: "restored from fixture history" }));
+  await assertNativeDraftLocalCommands({ pi, page, until, directory });
   pi = await assertNativeDraftRecovery({ pi, page, until, directory, reload: async () => {
     const boot = (await json("ready.json")).boot;
     await invoke("command", { command: "workbench.action.reloadWindow" }, false);

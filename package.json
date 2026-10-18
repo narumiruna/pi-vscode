@@ -584,6 +584,8 @@
     "test": "npm run compile && vitest run",
     "test:native": "npm run compile && node scripts/test-native.mjs",
     "test:native-ui": "npm run compile && node scripts/test-native-ui.mjs",
+    "test:remote-drafts": "npm run compile && node scripts/test-remote-drafts.mjs",
+    "test:screen-reader": "npm run compile && node scripts/test-screen-reader.mjs",
     "package": "npm run test && vsce package --out pi.vsix",
     "changeset": "changeset",
     "changeset:version": "changeset version && npm version $(node -p \"require('./package.json').version\") --no-git-tag-version --allow-same-version",

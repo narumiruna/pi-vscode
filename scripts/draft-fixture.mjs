@@ -215,6 +215,89 @@ async function assertDraftOwnership(browser, getSidebarHtml) {
     await f.close();
   }
 
+  // Local commands accept without creating a session or publishing another draft binding.
+  for (const command of ["/compact", "/reload"]) {
+    for (const enabled of [false, true]) {
+      for (const edit of ["unchanged", "newer text", "same text newer revision"]) {
+        const f = await open(a, enabled);
+        await f.input.fill(command);
+        await f.page.locator("#send").click();
+        const sent = (await f.messages("sendNewSession")).at(-1);
+        assert.ok(sent, "Sessions local command captures a pending send handoff");
+        if (edit !== "unchanged") await f.input.fill("newer input");
+        if (edit === "same text newer revision") await f.input.fill(command);
+        const kept = await f.input.inputValue();
+        // A slow local command can outlast the newer revision's debounce while moving blocks writes.
+        await f.page.waitForTimeout(300);
+        await f.post({ type: "clearInput", draftBinding: a, expectedRevision: sent.revision, expectedText: sent.text });
+        assert.equal(
+          await f.input.inputValue(),
+          edit === "unchanged" ? "" : kept,
+          `${command}, recovery ${enabled}, ${edit}: accepted clear cannot remove newer input`,
+        );
+        assert.doesNotMatch(await f.page.locator("#text-draft-status").textContent(), /Waiting for the draft context/);
+        if (enabled && edit !== "unchanged") {
+          await f.page.waitForFunction(
+            ({ text, revision }) =>
+              window.posted.some(
+                (item) => item.type === "draftChanged" && item.text === text && item.revision > revision,
+              ),
+            { text: kept, revision: sent.revision },
+            { timeout: 2000 },
+          );
+        }
+        if (edit === "unchanged") await f.input.fill("next prompt");
+        assert.equal(
+          await f.page.locator("#send").isDisabled(),
+          false,
+          `${command}, recovery ${enabled}, ${edit}: same-binding acceptance must release the handoff`,
+        );
+        await f.page.locator("#send").click();
+        assert.equal((await f.messages("sendNewSession")).length, 2, "the next Send must actually submit");
+        await f.close();
+      }
+    }
+  }
+
+  const rejected = await open(a, true);
+  await rejected.input.fill("/compact");
+  await rejected.page.locator("#send").click();
+  const rejectedSend = (await rejected.messages("sendNewSession")).at(-1);
+  await rejected.input.fill("kept after command rejection");
+  await rejected.page.waitForTimeout(300);
+  await rejected.post({ type: "sendRejected" });
+  await rejected.page.waitForFunction(
+    (revision) =>
+      window.posted.some(
+        (item) =>
+          item.type === "draftChanged" && item.text === "kept after command rejection" && item.revision > revision,
+      ),
+    rejectedSend.revision,
+    { timeout: 2000 },
+  );
+  assert.equal(await rejected.input.inputValue(), "kept after command rejection");
+  await rejected.close();
+
+  for (const stale of ["binding", "revision", "text"]) {
+    const f = await open(a);
+    await f.input.fill("/reload");
+    await f.page.locator("#send").click();
+    const sent = (await f.messages("sendNewSession")).at(-1);
+    const accepted = { type: "clearInput", draftBinding: a, expectedRevision: sent.revision, expectedText: sent.text };
+    await f.post({
+      ...accepted,
+      ...(stale === "binding" ? { draftBinding: b } : {}),
+      ...(stale === "revision" ? { expectedRevision: sent.revision + 1 } : {}),
+      ...(stale === "text" ? { expectedText: "/compact" } : {}),
+    });
+    assert.equal(await f.input.inputValue(), sent.text, `${stale}: stale clear keeps the command`);
+    assert.equal(await f.page.locator("#send").isDisabled(), true, `${stale}: stale clear cannot release the handoff`);
+    await f.post(accepted);
+    await f.input.fill("next prompt");
+    assert.equal(await f.page.locator("#send").isDisabled(), false, "stale clear must not consume the exact token");
+    await f.close();
+  }
+
   // A late More start must carry the old binding even when a fresh view repeats revision and text.
   const old = await open(a);
   await old.input.fill("repeated More prompt");
@@ -255,6 +338,9 @@ async function assertDraftOwnership(browser, getSidebarHtml) {
     acceptedOriginClear: true,
     newerOriginPreserved: true,
     navigationAndRejectInvalidateOrigin: true,
+    acceptedSameBindingLocalCommands: 12,
+    staleLocalCommandAcknowledgements: 3,
+    delayedHandoffRetention: 5,
     replacementMoreAcknowledgement: true,
   };
 }

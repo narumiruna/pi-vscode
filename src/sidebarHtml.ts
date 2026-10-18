@@ -153,7 +153,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .role { display: flex; align-items: center; gap: 6px; margin: 0 0 6px 2px; color: var(--vscode-descriptionForeground); font-size: .85em; font-weight: 500; }
     .role:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
     .assistant .role { color: var(--vscode-foreground); }
-    .assistant .role::before { content: 'π'; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; background: var(--vscode-input-background); color: var(--pi-accent); font: 15px Georgia, serif; }
+    .assistant .role-icon { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; background: var(--vscode-input-background); color: var(--pi-accent); font: 15px Georgia, serif; }
     .thinking-transcript { min-width: 0; margin: 8px 2px; padding: 8px; border: 1px solid var(--pi-border); border-radius: 7px; color: var(--vscode-descriptionForeground); }
     .thinking-transcript > summary { cursor: pointer; }
     .thinking-transcript > summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 3px; }
@@ -716,7 +716,17 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           if (!role.id) role.id = 'pi-message-heading-' + (++messageHeadingSequence);
           const label = message.role === 'user' ? 'You' : message.role === 'shell' ? 'Shell' : 'Pi';
           const name = label + ' message ' + (index + 1);
-          role.textContent = label;
+          role.replaceChildren();
+          if (message.role === 'assistant') {
+            const mark = document.createElement('span');
+            mark.className = 'role-icon';
+            mark.setAttribute('aria-hidden', 'true');
+            mark.textContent = 'π';
+            role.append(mark);
+          }
+          const roleLabel = document.createElement('span');
+          roleLabel.textContent = label;
+          role.append(roleLabel);
           role.setAttribute('aria-label', name);
           wrapper.setAttribute('aria-labelledby', role.id);
           const content = document.createElement('div');

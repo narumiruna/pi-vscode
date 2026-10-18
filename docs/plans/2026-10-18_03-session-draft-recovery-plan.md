@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented and locally verified. **Blocked:** remote storage placement has not been verified, and the user's explicit acceptance of that limitation is pending. Runtime consent protects all persistent text writes; the privacy/placement acceptance items below remain open. Draft PR: https://github.com/narumiruna/pi-vscode/pull/84.
+Implemented and verified. The opt-in retention contract is enforced before persistent writes. Actual desktop and web-remote storage placement, reload, Restore and Disable passed on both supported test versions. Final Git/PR update is pending; the existing PR remains ready: https://github.com/narumiruna/pi-vscode/pull/84.
 
 ## Goal
 
@@ -20,13 +20,13 @@ Recover ordinary unsent text after view recreation or window reload without repl
 
 The Extension Host owns a versioned, workspace-scoped text draft store. The webview sends bounded revision-tagged text updates. Each record belongs to a verified session identity or the separate Sessions-level composer. Persist only text and recovery metadata, never attachments, pins, image bytes, dialog values or queue ledgers.
 
-## Unknowns
+## Retention contract
 
-Local draft retention is a new privacy contract. Before implementation, obtain approval for the storage scope, retention and user notice. Proposed fixed limits: 50,000 characters per draft, 20 records, 250,000 aggregate characters and seven-day expiry. Do not add settings unless the agreed contract requires them.
+The authorized implementation requires explicit native per-workspace consent before any retained text write. The fixed limits are 50,000 UTF-16 code units per draft, 20 records, 250,000 aggregate code units and seven-day expiry. No new setting is required. The consent notice describes checked client-side storage and transient remote-host processing; other remote topologies remain explicitly unverified.
 
 ## Plan
 
-- [ ] Approve the retention/privacy contract and document where bytes reside in local and remote Extension Hosts. Acceptance: explicit approval or a revised contract is recorded before persistent writes are implemented.
+- [x] Adopt the opt-in retention/privacy contract and document actual storage placement. Acceptance: native approval precedes every first persistent text write; desktop SQLite and web-remote client IndexedDB contents were inspected on VS Code 1.106.0 and 1.142.0. No server-side retention is inferred from Extension Host placement.
 - [x] Trace session creation, unsaved-to-saved identity changes, switch/import/fork/clone, deletion, restart, view disposal and send acknowledgements. Acceptance: a transition table defines draft ownership, clearing and identity migration without cross-session insertion.
 - [x] Implement a small validated store and host protocol in `src/`, using `workspaceState` without Settings Sync. Acceptance: malformed/oversized/expired records are rejected or evicted deterministically; writes are serialized so stale updates cannot restore cleared text.
 - [x] Send text updates with revision/session binding and bounded write frequency. Acceptance: stale messages from an old view/session cannot overwrite current text; an acknowledged send clears only its captured revision; rejected sends retain it.
@@ -36,7 +36,7 @@ Local draft retention is a new privacy contract. Before implementation, obtain a
 
 ## Implementation Evidence
 
-Runtime persistence is opt-in. The native modal records consent in the versioned envelope only after **Enable Draft Recovery** is accepted for the current view/binding. Decline, disposal, replacement and Disable invalidate pending approval. Fixed limits are 50,000 UTF-16 code units per draft, 20 records, 250,000 aggregate code units and seven days. Expired records are removed on the next activation/access/write, not while VS Code is closed. This implementation authorization does not close the remote-placement/approval acceptance item above.
+Runtime persistence is opt-in. The native modal records consent in the versioned envelope only after **Enable Draft Recovery** is accepted for the current view/binding. Decline, disposal, replacement and Disable invalidate pending approval. Fixed limits are 50,000 UTF-16 code units per draft, 20 records, 250,000 aggregate code units and seven days. Expired records are removed on the next activation/access/write, not while VS Code is closed. Actual client storage inspection now closes the placement item; runtime native approval remains mandatory.
 
 `src/sessionDraftStore.ts` stores only `{ version: 1, consent: true, records: [{ owner, text, updated }] }` under `pi.sidebar.drafts.v1`. Session paths are SHA-256 ownership keys, not copied into records. The Sessions composer uses `sessions`. Writes are serialized and synchronous mutations coalesce; a failed snapshot reports a fixed warning without replaying obsolete data. Failure can leave earlier disk bytes, including a failed removal. There is no secure-erasure or multi-window atomicity claim.
 
@@ -63,7 +63,7 @@ Checks run by the draft worker:
 - Focused Vitest: `./node_modules/.bin/vitest run out/test/sessionDraftStore.test.js out/test/sessionDraftController.test.js`: 12 passed.
 - Local Playwright Chromium: exported `assertComposerDraftRecovery` passed consent, Unicode/IME, oversize, explicit/stale Restore, handoff race, old acknowledgement, discard and zero automatic requests.
 - `scripts/draft-native-fixture.mjs` exports `assertNativeDraftRecovery` for the native runner. It requires a real window-reload callback; it has not been run by this worker.
-- Final integrated checks supersede the worker-only native limitation: actual reload/Restore/Disable passed on local Linux VS Code 1.106.0 and 1.142.0. Remote placement, other platforms and live-provider checks remain unverified. No live model was used.
+- Integrated checks supersede the worker-only native limitation: actual reload/Restore/Disable and active-row placement passed on local Linux desktop and real web-remote VS Code 1.106.0 and 1.142.0. Other remote topologies, other platforms and live providers remain unverified. No live model was used.
 
 ## Rollback / Recovery
 
@@ -71,17 +71,17 @@ Use a new versioned key, not the transcript key. Reverting the feature must not 
 
 ## Completion Checklist
 
-- [ ] Resolve the privacy contract and all identity transitions; record approval and final fixed bounds.
+- [x] Resolve the privacy contract and all identity transitions; record approval and final fixed bounds. Native per-workspace consent enforces the contract; no silent or automatic approval was added.
 - [x] Run `npm test`, `npm run test:rich-content` and the documented Biome check; record results.
 - [x] Run `xvfb-run -a npm run test:native-ui -- 1.106.0` and `stable` with recovery fixtures; verify actual window reload, not only hide/show.
-- [ ] Verify remote storage placement in a disposable remote workspace, or obtain explicit acceptance of the unverified remote limitation before closing this plan.
+- [x] Verify remote storage placement in a disposable remote workspace. Both versions used a real VS Code Server remote Node host; serialized IndexedDB draft rows, reload/Restore and exact key removal passed. Server active rows had no retained draft marker. Other remote topologies are reported separately.
 - [x] Review storage contents, retention, cleanup and no-replay behavior; report native/browser/remote/platform evidence separately. No live model is required.
 
 ## Integrated evidence and handoff
 
 - `docs/COMPOSER_UX.md` records behavior tables, ownership transitions, all 26 native actions, fixed bounds, failure-case review and separate validation results.
-- Final local checks: `npm test` / packaging passed (80 files; 765 passed, 3 skipped); rich-content browser suite passed; Biome passed with warnings; 64 thinking-picker cases passed.
+- Final local checks: `npm test` / packaging passed (81 files; 773 passed, 3 skipped); rich-content browser suite passed; Biome passed with warnings; 64 thinking-picker cases passed.
 - Local Linux native Host and full UI fixtures passed on VS Code 1.106.0 and stable 1.142.0. New UI fixtures cover status/focus, latest navigation, headings/wrap, picker groups, bounded search and actual draft reload recovery.
 - Public history contract passed offline against Pi 1.3.0; no model call, upload or live authentication was used.
-- Remote, Windows/macOS and actual screen-reader behavior are not claimed. Plans 03/04 retain their explicit external acceptance items until verified or accepted by the user.
-- [x] Complete the authorized Git/PR handoff and record the pull request before retiring this plan. Draft PR: https://github.com/narumiruna/pi-vscode/pull/84; branch `narumi/feat/composer-experience`.
+- Final follow-up: 81 files / 773 tests passed, 3 skipped; package, browser and Linux native Host/UI suites passed on both versions. Actual desktop SQLite and web-remote IndexedDB placement, explicit reload/Restore/Disable, real Orca heading navigation and changed hints passed. See `docs/COMPOSER_UX.md` for evidence, earlier failures and limits. Windows/macOS UI and other remote topologies remain unverified, not silently accepted.
+- [ ] Update the authorized Git/PR handoff with final evidence before retiring this plan. PR: https://github.com/narumiruna/pi-vscode/pull/84; branch `narumi/feat/composer-experience`.

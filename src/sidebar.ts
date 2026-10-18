@@ -215,7 +215,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       (message) => this.postMessage(message),
       async () =>
         (await vscode.window.showWarningMessage(
-          "Enable text draft recovery for this workspace? VS Code workspaceState will retain non-secret composer text for this workspace, without Settings Sync. VS Code manages its storage location. Limits: 50,000 characters per draft, 20 drafts, 250,000 total characters, seven days. Attachments and extension dialogs are not saved. Remote storage placement is not yet validated. Discard cannot securely erase backups. Do not enter credentials.",
+          "Enable text draft recovery for this workspace? VS Code workspaceState will retain non-secret composer text for this workspace, without Settings Sync. VS Code manages its storage location. Limits: 50,000 characters per draft, 20 drafts, 250,000 total characters, seven days. Attachments and extension dialogs are not saved. Remote draft updates pass through the workspace Extension Host; they are not model requests. Checked desktop builds use local profile storage; checked web-remote builds use browser workspace storage. Other remote layouts remain unverified. Discard cannot securely erase backups. Do not enter credentials.",
           { modal: true },
           "Enable Draft Recovery",
         )) === "Enable Draft Recovery",
