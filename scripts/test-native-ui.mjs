@@ -28,7 +28,8 @@ const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 const version = process.argv[2] ?? "1.106.0";
 const workspaceAlias = process.argv[3] === "alias";
 const packaged = process.argv.includes("packaged");
-const evidenceLabel = `${version}${workspaceAlias ? "-alias" : ""}${packaged ? "-packaged" : ""}`;
+const selectionOnly = process.argv.includes("selection");
+const evidenceLabel = `${version}${workspaceAlias ? "-alias" : ""}${packaged ? "-packaged" : ""}${selectionOnly ? "-selection" : ""}`;
 if (process.platform !== "linux") throw new Error("The native UI runner currently supports Linux only.");
 const directory = await realpath(await mkdtemp(path.join(tmpdir(), "pi-native-ui-")));
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -74,6 +75,7 @@ try {
   const openedWorkspace = workspaceAlias ? path.join(directory, "workspace-alias") : workspace;
   const userData = path.join(directory, "user");
   await mkdir(workspace);
+  if (selectionOnly) await writeFile(path.join(directory, "selection-first-open"), "selection");
   if (workspaceAlias) await symlink(workspace, openedWorkspace, "junction");
   await mkdir(path.join(userData, "User"), { recursive: true });
   const executableFixture = path.join(directory, "pi-fixture");
@@ -87,7 +89,7 @@ try {
   // Fail closed even if an upload approval regression invokes gh. Never delegates to real gh.
   await writeFile(path.join(fixtureBin, "gh"), `#!/bin/sh\nprintf invoked >> '${path.join(directory, "gh-invoked")}'\nexit 91\n`, { mode: 0o700 });
   await respond("Native fixture explanation.");
-  await writeFile(path.join(directory, "extension-ui.json"), JSON.stringify(extensionUiFixture));
+  if (!selectionOnly) await writeFile(path.join(directory, "extension-ui.json"), JSON.stringify(extensionUiFixture));
   await writeFile(
     path.join(userData, "User", "settings.json"),
     JSON.stringify({
@@ -268,6 +270,50 @@ try {
       "Quick Pick accepted or advanced",
     );
   };
+  if (selectionOnly) {
+    // No pi.openChat, view focus, or webview message may prepare this first-open command.
+    for (const candidate of page.frames()) assert.equal(await candidate.locator("#add-context").count(), 0);
+    await assert.rejects(readFile(path.join(directory, "pids.jsonl")), { code: "ENOENT" });
+    const selected = await invoke("selection");
+    const question = "Why does the selected greet function return 1?";
+    const complete = await invoke("command", { command: "pi.askSelection" }, false);
+    const input = page.locator(".quick-input-widget input[type=text]");
+    await input.waitFor({ state: "visible" });
+    assert.match(await page.locator(".quick-input-widget").innerText(), /Ask Pi About Selection/);
+    await input.fill(question);
+    await input.press("Enter");
+    await complete();
+    const pi = await frame();
+    await until(
+      async () => (await pi.locator("#messages .assistant").innerText()).includes("Native fixture explanation."),
+      "selection fixture answer",
+    );
+    assert.equal(
+      await pi.locator("#app").evaluate((element) => element.classList.contains("sessions-layer")),
+      false,
+      "First-open Ask must show the session detail, not Sessions",
+    );
+    assert.equal(await pi.locator("#messages").isVisible(), true);
+    const turn = pi.locator("#messages .user").filter({ hasText: question });
+    assert.equal(await turn.count(), 1);
+    assert.equal(
+      await turn.isVisible(),
+      true,
+      "The submitted selection question must be visible without opening a session",
+    );
+    assert.equal(await pi.locator("#messages .assistant").isVisible(), true);
+    const prompts = (await readFile(path.join(directory, "prompts.jsonl"), "utf8"))
+      .trim().split("\n").map(JSON.parse);
+    assert.equal(prompts.length, 1);
+    assert.ok(prompts[0].message.includes(question));
+    assert.ok(prompts[0].message.includes(selected), "The actual editor selection must reach fixture Pi");
+    assert.match(prompts[0].message, /read.only/i);
+    assert.deepEqual((await invoke("state")).texts, [source, "export const other = 4;\n"]);
+    console.log(
+      "PI_NATIVE_SELECTION first-open pi.askSelection, native question input, visible session detail/question/answer " +
+      "and unchanged source passed; fixture Pi only",
+    );
+  } else {
   // Start a session detail pane, then capture all five provider-backed attachment types.
   let pi = await frame();
   await until(async () => (await pi.locator("body").innerText()).includes("Ready"), "Pi runtime ready");
@@ -900,6 +946,7 @@ try {
   );
   }
   if (!process.argv.includes("transfer")) await assertExtensionEditorDialogs({ page, directory, invoke, until, frame });
+  }
   await invoke("finish", {}, false);
 } catch (error) {
   if (page) {

@@ -914,12 +914,107 @@ test("Open Sessions focuses the sidebar and restores its list layer", async () =
     },
   };
   try {
+    await (provider as any).handleMessage({ type: "ready" });
+    posted.length = 0;
     await vscode.registrations.get("pi.openChat")!();
     assert.deepEqual(executed, ["pi.chatView.focus"]);
-    assert.deepEqual(posted, [{ type: "showSessionsLayer" }]);
+    assert.deepEqual(
+      posted.filter((message) => message.type === "showSessionsLayer"),
+      [{ type: "showSessionsLayer" }],
+    );
   } finally {
     for (const disposable of context.subscriptions) disposable.dispose();
+    delete require.cache[require.resolve("../sidebar")];
     vscode.restore();
+  }
+});
+
+test("editor navigation survives first-open and loading webviews without delaying the request", async () => {
+  for (const phase of ["unresolved", "resolving", "loading", "ready"] as const) {
+    const vscode = installVscodeMock();
+    vscode.window.registerWebviewViewProvider = () => ({ dispose() {} });
+    const { registerPiSidebar } = require("../sidebar") as typeof import("../sidebar");
+    const subscription = () => ({ dispose() {} });
+    const runtime: any = {
+      currentState: {},
+      onEvent: subscription,
+      onDidChangeState: subscription,
+    };
+    const context: any = {
+      workspaceState: { get: () => undefined },
+      extensionUri: MockUri.file("/extension"),
+      subscriptions: [],
+    };
+    const provider = registerPiSidebar(context, runtime);
+    const internal = provider as any;
+    internal.initializeRuntime = async () => {};
+    let requests = 0;
+    internal.runRequest = async () => {
+      requests += 1;
+      return "fixture answer";
+    };
+    let scriptReady = false;
+    const received: Record<string, unknown>[] = [];
+    let disposeView = () => {};
+    const resolveView = () =>
+      internal.resolveWebviewView({
+        webview: {
+          cspSource: "resource:",
+          asWebviewUri: (uri: any) => uri,
+          onDidReceiveMessage: subscription,
+          postMessage: async (message: Record<string, unknown>) => {
+            // VS Code can report success before the browser installs its listener.
+            if (scriptReady) received.push(message);
+            return true;
+          },
+        },
+        onDidDispose: (listener: () => void) => {
+          disposeView = listener;
+          return subscription();
+        },
+      });
+    const ready = async () => {
+      scriptReady = true;
+      await internal.handleMessage({ type: "ready" });
+    };
+    const navigation = () => received.filter((message) => String(message.type).startsWith("showSession"));
+    let deferResolution = phase === "unresolved";
+    vscode.commands.executeCommand = async () => {
+      if (!internal.view && !deferResolution) resolveView();
+    };
+    try {
+      if (phase === "loading" || phase === "ready") resolveView();
+      if (phase === "ready") await ready();
+      assert.equal(await provider.sendRequest("Explain this selection", []), "fixture answer");
+      assert.equal(requests, 1, `${phase}: readiness does not delay or repeat execution`);
+      deferResolution = false;
+      if (!internal.view) resolveView();
+      await ready();
+      assert.deepEqual(navigation(), [{ type: "showSessionDetail" }], `${phase}: show the requested conversation`);
+      await ready();
+      assert.equal(navigation().length, 1, "repeated ready must not override later browser navigation");
+
+      disposeView();
+      scriptReady = false;
+      received.length = 0;
+      await provider.sendRequest("Another selection", []);
+      await internal.showSessions();
+      await ready();
+      assert.deepEqual(navigation(), [{ type: "showSessionsLayer" }], "the latest explicit navigation wins");
+
+      disposeView();
+      scriptReady = false;
+      received.length = 0;
+      await provider.sendRequest("Disposed selection", []);
+      disposeView();
+      resolveView();
+      await ready();
+      assert.deepEqual(navigation(), [], "a disposed view must not leak its pending navigation into a new view");
+    } finally {
+      for (const disposable of context.subscriptions) disposable.dispose();
+      delete require.cache[require.resolve("../sidebar")];
+      vscode.restore();
+    }
   }
 });
 
