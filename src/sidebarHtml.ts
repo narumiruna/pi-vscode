@@ -214,7 +214,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .extension-ui-block h2, .extension-ui-block p { margin: 0; font: inherit; }
     .extension-ui-block h2 { font-weight: 600; }
     .extension-ui-block pre { margin: 0 0 3px; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
-    #composer.has-extension-ui .composer-box { max-height: 44vh; }
     #file-completions { position: absolute; bottom: calc(100% - 6px); left: 0; right: 0; z-index: 11; max-height: min(260px, 40vh); overflow: auto; padding: 4px; border: 1px solid var(--vscode-editorSuggestWidget-border, var(--pi-border)); border-radius: 8px; color: var(--vscode-editorSuggestWidget-foreground, var(--vscode-foreground)); background: var(--vscode-editorSuggestWidget-background, var(--vscode-editor-background)); box-shadow: 0 4px 16px var(--vscode-widget-shadow); }
     #file-completions button { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; border: 0; padding: 6px 8px; color: inherit; background: transparent; }
     #file-completions button[aria-selected="true"] { color: var(--vscode-list-activeSelectionForeground); background: var(--vscode-list-activeSelectionBackground); }
@@ -224,7 +223,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .slash-name { flex: 0 0 auto; font-family: var(--vscode-editor-font-family); }
     .slash-description { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .75; }
     /* Reserve short/zoomed view space for the session header, help, notices and runtime footer. */
-    .composer-box { position: relative; display: flex; flex-direction: column; min-height: 0; max-height: 60vh; overflow: hidden; background: var(--pi-composer-background); border: 1px solid var(--vscode-input-border, var(--pi-border)); border-radius: 14px; box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, .2)); }
+    .composer-box { position: relative; display: flex; flex: 0 0 auto; flex-direction: column; min-height: 0; max-height: 60vh; overflow: hidden; background: var(--pi-composer-background); border: 1px solid var(--vscode-input-border, var(--pi-border)); border-radius: 14px; box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, .2)); }
     .composer-box:focus-within { border-color: var(--vscode-focusBorder); box-shadow: 0 6px 20px var(--vscode-widget-shadow, rgba(0, 0, 0, .24)); }
     textarea { display: block; width: 100%; height: 42px; min-height: 42px; max-height: min(220px, 28vh); resize: none; padding: 11px 13px 7px; color: var(--vscode-input-foreground); background: transparent; border: 0; border-radius: 14px 14px 6px 6px; font: inherit; line-height: 1.5; scrollbar-width: thin; }
     textarea:focus-visible { outline: none; }
@@ -1415,7 +1414,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       }
       above.hidden = !above.children.length;
       below.hidden = !below.children.length;
-      $('composer').classList.toggle('has-extension-ui', !above.hidden || !below.hidden);
     }
 
     function render(state) {

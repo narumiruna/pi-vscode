@@ -17,12 +17,25 @@ export async function assertExtensionUi(browser, getSidebarHtml) {
   await post({ type: "showSessionDetail" });
   const ui = new SidebarExtensionUi();
   for (const request of requests) ui.update(request);
-  const state = (extensionUi = ui.state) =>
+  const state = (extensionUi = ui.state, queued = false) =>
     post({
       type: "state",
       status: "Pi is working…",
       extensionUi,
-      runtime: { connected: true, busy: true, cancellable: true, queueable: true },
+      runtime: {
+        connected: true,
+        busy: true,
+        cancellable: true,
+        queueable: true,
+        ...(queued
+          ? {
+              pendingQueue: {
+                steering: [{ id: "next", text: "Next native instruction", kind: "steering" }],
+                followUp: [{ id: "later", text: "After this native instruction", kind: "followUp" }],
+              },
+            }
+          : {}),
+      },
     });
   await state();
   assert.deepEqual(await page.locator("#extension-ui-above > p").allTextContents(), [
@@ -52,43 +65,57 @@ export async function assertExtensionUi(browser, getSidebarHtml) {
     await page.evaluate((theme) => {
       document.body.className = theme;
     }, theme);
-    for (const width of [180, 220, 280, 600, 960]) {
-      for (const height of [420, 800]) {
-        await page.setViewportSize({ width, height });
-        await state();
-        await post({
-          type: "notice",
-          level: "warning",
-          message: "Queued delivery is uncertain. Check history before resending.",
-        });
-        await page.locator("#input").fill("Draft\n".repeat(12));
-        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-        for (const id of ["input", "cancel", "send", "notice", "status", "extension-ui-above", "extension-ui-below"]) {
-          assert.equal(
-            await page.locator(`#${id}`).evaluate((element) => {
-              const rect = element.getBoundingClientRect();
-              return (
-                rect.width > 0 &&
-                rect.height > 0 &&
-                rect.top >= 0 &&
-                rect.left >= 0 &&
-                rect.right <= innerWidth &&
-                rect.bottom <= innerHeight
-              );
-            }),
-            true,
-            `${theme} ${width}x${height} ${id} must remain visible`,
-          );
+    for (const width of [169, 180, 220, 280, 600, 960]) {
+      for (const height of [358, 420, 800]) {
+        for (const queued of [false, true]) {
+          await page.setViewportSize({ width, height });
+          await state(ui.state, queued);
+          await post({
+            type: "notice",
+            level: "warning",
+            message: "Queued delivery is uncertain. Check history before resending.",
+          });
+          await page.locator("#input").fill("Draft\n".repeat(12));
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+          for (const id of [
+            "input",
+            "add-context",
+            "cancel",
+            "after-this",
+            "send",
+            "notice",
+            "status",
+            "extension-ui-above",
+            "extension-ui-below",
+          ]) {
+            assert.equal(
+              await page.locator(`#${id}`).evaluate((element) => {
+                const rect = element.getBoundingClientRect();
+                const composer = element.closest(".composer-box")?.getBoundingClientRect();
+                return (
+                  rect.width > 0 &&
+                  rect.height > 0 &&
+                  rect.top >= 0 &&
+                  rect.left >= 0 &&
+                  rect.right <= innerWidth &&
+                  rect.bottom <= innerHeight &&
+                  (!composer || (rect.top >= composer.top && rect.bottom <= composer.bottom))
+                );
+              }),
+              true,
+              `${theme} ${width}x${height} queued=${queued} ${id} must remain visible: ${JSON.stringify(await page.locator(`#${id}`).evaluate((element) => ({ rect: element.getBoundingClientRect().toJSON(), composer: element.closest(".composer-box")?.getBoundingClientRect().toJSON() })))}`,
+            );
+          }
+          const order = await page.evaluate(() => {
+            const above = document.getElementById("extension-ui-above").getBoundingClientRect();
+            const box = document.querySelector(".composer-box").getBoundingClientRect();
+            const below = document.getElementById("extension-ui-below").getBoundingClientRect();
+            return above.bottom <= box.top && box.bottom <= below.top;
+          });
+          assert.equal(order, true, "widgets must not overlap the composer");
+          assert.match(await page.locator("#notice").textContent(), /Queued delivery is uncertain/);
+          layouts++;
         }
-        const order = await page.evaluate(() => {
-          const above = document.getElementById("extension-ui-above").getBoundingClientRect();
-          const box = document.querySelector(".composer-box").getBoundingClientRect();
-          const below = document.getElementById("extension-ui-below").getBoundingClientRect();
-          return above.bottom <= box.top && box.bottom <= below.top;
-        });
-        assert.equal(order, true, "widgets must not overlap the composer");
-        assert.match(await page.locator("#notice").textContent(), /Queued delivery is uncertain/);
-        layouts++;
       }
     }
   }
