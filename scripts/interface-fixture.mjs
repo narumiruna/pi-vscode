@@ -402,22 +402,146 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
   await page.locator("#input").press("Enter");
   assert.match(await page.locator("#notice").innerText(), /does not accept queued messages/);
 
+  // Every submission blocker is visible without expanding help or hovering a disabled button.
+  await page.setViewportSize({ width: 280, height: 420 });
+  for (const [extra, text, reason] of [
+    [{ runtime: { ...runtime, connected: false } }, "draft", /disconnected.*Reconnect/],
+    [
+      { runtime: { ...runtime, busy: true, queueable: false, cancellable: true } },
+      "draft",
+      /cannot accept queued messages/,
+    ],
+    [
+      {
+        runtime: {
+          ...runtime,
+          busy: true,
+          queueable: true,
+          cancellable: true,
+          pendingQueue: {
+            steering: Array.from({ length: 10 }, (_, index) => ({ id: String(index), text: "queued" })),
+            followUp: [],
+          },
+        },
+      },
+      "draft",
+      /queue is full/,
+    ],
+    [
+      { runtime: { ...runtime, busy: true, queueable: true, cancellable: true } },
+      "/compact",
+      /Slash commands cannot be queued/,
+    ],
+    [{ attachments: descriptors.slice(0, 1) }, "!pwd", /Direct shell.*remove attachments/],
+    [{ imageSupported: false, attachments: descriptors.slice(0, 1) }, "draft", /cannot use images.*Choose/],
+    [{ backgroundSubmissionPending: true }, "draft", /Starting a background agent/],
+    [{}, "", /Enter a message or attach context/],
+  ]) {
+    await state(extra);
+    await page.locator("#input").fill(text);
+    const status = page.locator("#composer-status");
+    assert.equal(await status.isVisible(), true);
+    assert.match(await status.innerText(), reason);
+    assert.equal(await page.locator("#send").getAttribute("title"), await status.innerText());
+    assert.equal(await page.locator("#after-this").getAttribute("title"), await status.innerText());
+    assert.equal(await page.locator("#send").isDisabled(), true);
+    assert.equal(await page.locator("#composer-help").evaluate((element) => element.open), false);
+  }
+  await state();
+  await page.locator("#input").fill("Ready");
+  assert.equal(await page.locator("#composer-status").isVisible(), false);
+  await page.evaluate(() => {
+    window.blockerMutations = 0;
+    window.blockerObserver = new MutationObserver((records) => {
+      window.blockerMutations += records.length;
+    });
+    window.blockerObserver.observe(document.getElementById("composer-status"), {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+  });
+  for (let index = 0; index < 5; index++) await state({ status: "Unrelated runtime status" });
+  assert.equal(
+    await page.evaluate(() => window.blockerMutations),
+    0,
+    "ready streaming updates do not repeat announcements",
+  );
+  await page.evaluate(() => window.blockerObserver.disconnect());
+  // Transient capture/restoration/loading/send states share the same explanation calculation.
+  for (const [flag, reason] of [
+    ["capture", /Capturing a file attachment/],
+    ["recovery", /Restoring draft attachments/],
+    ["image", /Loading pasted images/],
+    ["sending", /Sending this message/],
+    ["newSession", /before starting a new session/],
+  ]) {
+    await page.evaluate((flag) => {
+      const previousCompletion = fileCompletion;
+      if (flag === "capture") fileCompletion = { busy: true, refresh() {} };
+      if (flag === "recovery") recoveredDraftPending = { id: "fixture", text: "draft" };
+      if (flag === "image") pendingImageReads = 1;
+      if (flag === "sending") submissionPending = true;
+      if (flag === "newSession") {
+        sessionsLayerVisible = true;
+        busy = true;
+      }
+      updateSendState();
+      fileCompletion = previousCompletion;
+    }, flag);
+    assert.match(await page.locator("#composer-status").innerText(), reason);
+    await page.evaluate(() => {
+      recoveredDraftPending = undefined;
+      pendingImageReads = 0;
+      submissionPending = false;
+      sessionsLayerVisible = false;
+      busy = false;
+      updateSendState();
+    });
+  }
+
   // Resizing must follow only readers already at the bottom.
   await page.setViewportSize({ width: 600, height: 420 });
   await state({ messages: [{ id: "long", role: "assistant", html: renderSafeMarkdown(prose) }] });
+  // Previous cases deliberately changed composer state; start this independent following check at latest.
+  await page.locator("#jump-to-latest").evaluate((button) => button.click());
   await page.locator("#input").fill("Growing input\n".repeat(15));
   await page.waitForTimeout(100);
   const bottomGap = () =>
     page
       .locator("#conversation")
       .evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop);
-  assert.ok((await bottomGap()) <= 1);
+  assert.ok(
+    (await bottomGap()) <= 1,
+    JSON.stringify(
+      await page.evaluate(() => ({
+        pinned: conversationPinnedToBottom,
+        previousHeight: conversationClientHeight,
+        height: conversationElement.clientHeight,
+        scrollHeight: conversationElement.scrollHeight,
+        scrollTop: conversationElement.scrollTop,
+        programmatic: programmaticConversationScrollTop,
+      })),
+    ),
+  );
   await state({
     messages: [{ id: "long", role: "assistant", html: renderSafeMarkdown(prose) }],
     attachments: descriptors,
   });
   await page.waitForTimeout(100);
-  assert.ok((await bottomGap()) <= 1);
+  assert.ok(
+    (await bottomGap()) <= 1,
+    JSON.stringify(
+      await page.evaluate(() => ({
+        pinned: conversationPinnedToBottom,
+        previousHeight: conversationClientHeight,
+        height: conversationElement.clientHeight,
+        scrollHeight: conversationElement.scrollHeight,
+        scrollTop: conversationElement.scrollTop,
+        programmatic: programmaticConversationScrollTop,
+      })),
+    ),
+  );
   await page.locator("#conversation").hover();
   await page.mouse.wheel(0, -10000);
   await page.waitForTimeout(100);
@@ -429,14 +553,52 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
   await state({ messages: [{ id: "long", role: "assistant", html: renderSafeMarkdown(prose + "\n\nStream update") }] });
   await page.waitForTimeout(100);
   assert.equal(await page.locator("#conversation").evaluate((element) => element.scrollTop), 40);
+  const latest = page.locator("#jump-to-latest");
+  assert.equal(await latest.isVisible(), true);
+  assert.match(await latest.innerText(), /New output/);
+  const beforeNavigation = await page.evaluate(() => window.posted.length);
+  await latest.focus();
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(100);
+  assert.ok((await bottomGap()) <= 1);
+  assert.equal(await latest.isVisible(), false);
+  assert.equal(await page.evaluate(() => document.activeElement.id), "input");
+  assert.equal(await page.locator("#input").inputValue(), "Short draft");
+  assert.equal(
+    await page.evaluate(() => window.posted.length),
+    beforeNavigation,
+    "latest navigation never sends a request",
+  );
+  await page.locator("#conversation").hover();
+  await page.mouse.wheel(0, -10000);
+  await page.waitForTimeout(100);
+  await state({
+    messages: [{ id: "long", role: "assistant", html: renderSafeMarkdown(prose + "\n\nStream update") }],
+    status: "Only a status change",
+  });
+  assert.equal(await latest.innerText(), "Jump to latest", "status-only updates are not new transcript output");
+  await state({ runtime: { ...runtime, sessionId: "different-session", sessionFile: "/fixture/other.jsonl" } });
+  assert.equal(await latest.isVisible(), false, "session changes reset navigation");
 
   // Control catalog and branch drafts use only host-owned, revision-bound browser messages.
-  await state({ runtime: { ...runtime, commands: [
-    { name: "vscode-pi-control", description: "Internal" }, { name: "reload", description: "Shadowed" },
-  ] } });
+  await state({
+    runtime: {
+      ...runtime,
+      commands: [
+        { name: "vscode-pi-control", description: "Internal" },
+        { name: "reload", description: "Shadowed" },
+      ],
+    },
+  });
   await page.locator("#input").fill("/reload");
   assert.equal(await page.locator("#slash-commands button").count(), 1);
-  assert.equal(await page.locator("#slash-commands").innerText().then((text) => text.includes("Shadowed")), false);
+  assert.equal(
+    await page
+      .locator("#slash-commands")
+      .innerText()
+      .then((text) => text.includes("Shadowed")),
+    false,
+  );
   await page.locator("#input").fill("");
   await post({ type: "restoreBranchDraft", text: "Selected user prompt" });
   assert.equal(await page.locator("#input").inputValue(), "Selected user prompt");

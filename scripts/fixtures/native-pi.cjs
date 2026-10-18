@@ -142,7 +142,10 @@ const onLine = (line) => {
       isStreaming: false,
       model: { id: "fixture", provider: "fixture", name: "Native UI fixture" },
     };
-  if (request.type === "get_messages") data = { messages };
+  if (request.type === "get_messages") {
+    const historyOverride = path.join(directory, "history.json");
+    data = { messages: fs.existsSync(historyOverride) ? JSON.parse(fs.readFileSync(historyOverride, "utf8")) : messages };
+  }
   if (request.type === "get_session_stats") data = { contextUsage: { percent: 12 } };
   if (request.type === "get_available_models") data = { models: [] };
   if (request.type === "get_available_thinking_levels") data = { levels: [] };

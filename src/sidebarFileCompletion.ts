@@ -70,8 +70,57 @@ export interface CompletionCandidate {
   readonly folder: vscode.WorkspaceFolder;
 }
 
+export interface FileCompletionSupport {
+  readonly available: boolean;
+  readonly reason?: string;
+}
+
 /** One query per view. Candidate paths never come back from the browser as authority. */
 export class SidebarFileCompletion {
+  private supportKey = "";
+  private supportState: FileCompletionSupport = { available: false, reason: "Checking workspace file completion." };
+  private disposed = false;
+
+  /** Presentation only. Query and selection still validate the current canonical workspace. */
+  public get support(): FileCompletionSupport {
+    const cwd = this.options.cwd();
+    const trusted = vscode.workspace.isTrusted;
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    const key = JSON.stringify([cwd, trusted, folders.map((folder) => folder.uri.toString())]);
+    if (key !== this.supportKey && !this.disposed) {
+      this.supportKey = key;
+      this.supportState = { available: false, reason: "Checking workspace file completion." };
+      void this.checkSupport(cwd, trusted, folders).then((support) => {
+        if (this.disposed || this.supportKey !== key) return;
+        this.supportState = support;
+        this.options.onSupportChange?.();
+      });
+    }
+    return this.supportState;
+  }
+
+  private async checkSupport(
+    cwd: string,
+    trusted: boolean,
+    folders: readonly vscode.WorkspaceFolder[],
+  ): Promise<FileCompletionSupport> {
+    if (!trusted) return { available: false, reason: "File completion requires a trusted workspace." };
+    const fileFolders = folders.filter((folder) => folder.uri.scheme === "file");
+    if (!fileFolders.length) return { available: false, reason: "File completion requires a file-backed workspace." };
+    try {
+      const root = await realpath(cwd);
+      for (const folder of fileFolders) {
+        try {
+          if ((await realpath(folder.uri.fsPath)) === root) return { available: true };
+        } catch {
+          // An unavailable folder cannot establish a matching workspace.
+        }
+      }
+    } catch {
+      // An unavailable working directory cannot establish a matching workspace.
+    }
+    return { available: false, reason: "File completion requires a workspace matching the Pi working directory." };
+  }
   private active:
     | {
         request: FileCompletionRequest;
@@ -88,10 +137,12 @@ export class SidebarFileCompletion {
       readonly session: () => string;
       readonly attachments: SidebarAttachmentManager;
       readonly post: (message: Record<string, unknown>) => void;
+      readonly onSupportChange?: () => void;
     },
   ) {}
 
   public dispose(): void {
+    this.disposed = true;
     this.cancel();
   }
   public cancel(): void {
