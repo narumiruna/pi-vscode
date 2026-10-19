@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { assertFixedStatus } from "./fixed-status-fixture.mjs";
 
 // Deterministic sidebar states. This harness never starts Pi or a provider.
 export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdown) {
@@ -169,13 +170,16 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
       () => !document.getElementById("conversation-details").open && document.activeElement.id === "more",
     );
   };
-  assert.equal(await page.locator("#runtime").isVisible(), false, "Ready must not add a footer");
+  assert.equal(await page.locator("#runtime").isVisible(), true, "idle reserves the primary status line");
+  assert.equal(await page.locator("#status").textContent(), "");
+  assert.equal(await page.locator("#runtime .status-dot").isVisible(), false);
   assert.equal(await page.locator("#composer-status").isVisible(), false, "an empty draft is visually neutral");
   assert.match(await page.locator("#send").getAttribute("title"), /Enter a message or attach context/);
   assert.match(await page.locator("#composer-status").textContent(), /Enter a message or attach context/);
   assert.ok((await page.locator("#send").getAttribute("aria-describedby")).includes("composer-status"));
   assert.equal(await page.locator("#thinking-level").count(), 0);
   await page.screenshot({ path: "/tmp/pi-composer-idle.png" });
+  const fixedStatus = await assertFixedStatus({ page, state, post, runtime, themes, theme, renderSafeMarkdown, prose });
   for (const id of [
     "composer-help",
     "file-discovery-hint",
@@ -486,17 +490,25 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
     ],
   ]) {
     const foreground = { ...runtime, busy: true, queueable: true, cancellable: true, ...extra };
+    await page.locator("#input").fill(""); // An empty draft must not replace foreground progress.
     await state({ status, runtime: foreground });
     assert.equal(
       await page.locator("#status").innerText(),
-      status + (!foreground.connected && !/disconnected/i.test(status) ? " · disconnected" : ""),
+      foreground.connected && !foreground.queueable
+        ? "This request cannot accept queued messages. Wait or use Stop."
+        : status + (!foreground.connected && !/disconnected/i.test(status) ? " · disconnected" : ""),
     );
     assert.equal(await page.locator("#cancel").isVisible(), foreground.cancellable);
     assert.equal(await page.locator("#after-this").isVisible(), foreground.queueable);
     assert.equal(await page.locator("#model-picker").isDisabled(), true);
     assert.equal(await page.locator("#runtime").isVisible(), true);
     assert.equal(await page.locator("#runtime").count(), 1, "there is only one foreground progress line");
-    assert.equal(await page.locator("#conversation #runtime").count(), 1, "progress belongs to the conversation tail");
+    assert.equal(
+      await page.locator("#composer > #runtime + .composer-box").count(),
+      1,
+      "progress stays above the editor",
+    );
+    assert.equal(await page.locator("#conversation #runtime").count(), 0);
     assert.equal(await page.locator("#more").isEnabled(), true);
     if (status === "Pi is thinking…") await page.screenshot({ path: "/tmp/pi-composer-working.png" });
     const draft = await page.locator("#input").inputValue();
@@ -530,6 +542,7 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
   await page.getByRole("button", { name: "View diagnostic" }).click();
   assert.equal(await page.evaluate(() => window.posted.at(-1).type), "showNoticeDetails");
   await state({ runtime: { ...runtime, busy: true, queueable: false, cancellable: true } });
+  await page.locator("#input").fill("Blocked draft");
   await page.locator("#input").press("Enter");
   assert.match(await page.locator("#notice").innerText(), /does not accept queued messages/);
 
@@ -570,10 +583,14 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
     await state(extra);
     await page.locator("#input").fill(text);
     const status = page.locator("#composer-status");
-    assert.equal(await status.isVisible(), true);
-    assert.match(await status.innerText(), reason);
-    assert.equal(await page.locator("#send").getAttribute("title"), await status.innerText());
-    assert.equal(await page.locator("#after-this").getAttribute("title"), await status.innerText());
+    assert.equal(await status.isVisible(), false);
+    assert.equal(await status.getAttribute("hidden"), "");
+    assert.equal(await status.getAttribute("data-state"), "blocked");
+    assert.match(await status.textContent(), reason);
+    if (extra.runtime?.connected !== false) assert.match(await page.locator("#status").innerText(), reason);
+    else assert.match(await page.locator("#status").innerText(), /disconnected/i);
+    assert.equal(await page.locator("#send").getAttribute("title"), await status.textContent());
+    assert.equal(await page.locator("#after-this").getAttribute("title"), await status.textContent());
     assert.equal(await page.locator("#send").isDisabled(), true);
     assert.equal(await page.locator("#composer-help").evaluate((element) => element.open), false);
   }
@@ -623,7 +640,9 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
       updateSendState();
       fileCompletion = previousCompletion;
     }, flag);
-    assert.match(await page.locator("#composer-status").innerText(), reason);
+    assert.match(await page.locator("#composer-status").textContent(), reason);
+    assert.match(await page.locator("#status").innerText(), reason);
+    assert.equal(await page.locator("#composer-status").isVisible(), false);
     await page.evaluate(() => {
       recoveredDraftPending = undefined;
       pendingImageReads = 0;
@@ -762,9 +781,10 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
     phases: 8,
     themes: Object.keys(themes),
     keyboard: "preview/focus restoration, More/details Close/Escape, submission help, session ID copy, queue Tab order",
-    quietIdle: "no Ready footer, empty-draft hint, usage footer, or separate thinking selector",
+    quietIdle: "empty reserved status line; no Ready text, visible empty-draft hint, or separate thinking selector",
     details: "bounded in four themes and narrow/short layouts; no automatic restore, submission, or draft loss",
-    progress: "single conversation-tail line; Sessions recovery retained",
+    progress: "single fixed composer line; Sessions recovery retained",
+    fixedStatus,
     captures: ["idle", "working", "warning", "narrow"].map((state) => `/tmp/pi-composer-${state}.png`),
     announcements: "unchanged streaming status does not mutate the live region",
   };

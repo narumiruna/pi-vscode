@@ -384,7 +384,12 @@ if (!isolated) {
         )
           return candidate;
     }, "Pi webview");
-    await until(async () => (await frame.locator("#status").textContent()).includes("Ready"), "fixture runtime");
+    await until(
+      async () =>
+        (await frame.locator("#runtime").getAttribute("data-connection")) === "connected" &&
+        (await frame.locator("#status").textContent()) === "",
+      "fixture runtime idle",
+    );
     await frame.locator("#recent-session-list .current").click();
     await frame.locator("h2.role").first().waitFor({ state: "visible" });
     const window = execFileSync(xdotool, ["search", "--onlyvisible", "--class", "Code"], { encoding: "utf8" })

@@ -64,8 +64,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     [hidden] { display: none !important; }
     body { margin: 0; padding: 0; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); line-height: 1.5; overflow: hidden; }
     #app { height: 100vh; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto minmax(0, auto) auto; padding: 0 12px 10px; }
-    #app.sessions-layer { grid-template-rows: minmax(0, 1fr) minmax(0, auto) auto auto; }
-    #app.sessions-layer > :not(#sessions):not(#composer):not(#notice):not(#runtime) { display: none; }
+    #app.sessions-layer { grid-template-rows: minmax(0, 1fr) minmax(0, auto) auto; }
+    #app.sessions-layer > :not(#sessions):not(#composer):not(#notice) { display: none; }
     button, select { min-height: 28px; border: 1px solid var(--vscode-button-border, transparent); border-radius: 7px; padding: 4px 9px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); cursor: pointer; font: inherit; }
     button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
     button:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
@@ -113,17 +113,15 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     #text-draft-recovery > summary, #composer-help > summary { cursor: pointer; }
     #text-draft-body p { margin: 8px 0; }
     #text-draft-notice { align-self: flex-start; max-width: 100%; margin-top: 4px; white-space: normal; text-align: left; }
-    #composer-status { margin: 4px 2px 0; max-height: 3.6em; overflow-y: auto; overflow-wrap: anywhere; color: var(--vscode-descriptionForeground); font-size: .82em; }
     #jump-to-latest { position: sticky; bottom: 0; display: flex; margin: 4px auto 0; max-width: 100%; background: var(--vscode-editor-background); border-color: var(--vscode-contrastBorder, var(--pi-border)); font-size: .85em; }
     #model-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #model-picker .icon { width: 12px; height: 12px; }
-    #runtime { position: relative; display: flex; flex-wrap: wrap; min-width: 0; gap: 6px; align-items: center; margin-top: 7px; padding: 7px 2px; color: var(--vscode-descriptionForeground); font-size: .82em; }
+    #runtime { display: flex; flex-wrap: wrap; min-width: 0; min-height: calc(1.5em + 14px); gap: 6px; align-items: center; padding: 7px 2px; color: var(--vscode-descriptionForeground); font-size: .82em; }
     .status-dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--vscode-descriptionForeground); }
     #runtime[data-connection="connected"] .status-dot { background: var(--vscode-testing-iconPassed, var(--pi-accent)); }
     #runtime[data-connection="busy"] .status-dot { background: var(--vscode-progressBar-background); }
     #runtime[data-connection="disconnected"] .status-dot { background: var(--vscode-editorWarning-foreground); }
-    #runtime span:not(.status-dot) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    #status { flex: 1 1 70px; }
+    #status { flex: 1 1 70px; min-width: 0; overflow-wrap: anywhere; white-space: normal; }
     #session-details { min-width: 0; }
     #session-details > summary { cursor: pointer; }
     .session-details-content { min-width: 0; padding: 8px 0; }
@@ -140,7 +138,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     #conversation { min-width: 0; overflow-y: auto; overflow-anchor: none; padding: 18px 2px 24px; scrollbar-width: thin; }
     #messages { min-width: 0; }
     #messages.is-empty { min-height: 100%; display: flex; }
-    #conversation:has(#runtime:not([hidden])) #messages.is-empty { min-height: 0; }
     .empty { width: 100%; max-width: 380px; margin: auto; padding: 24px 8px 40px; text-align: center; color: var(--vscode-descriptionForeground); }
     .welcome-mark { display: grid; place-items: center; width: 44px; height: 44px; margin: 0 auto 18px; border: 1px solid var(--pi-border); border-radius: 12px; background: var(--vscode-editor-background); color: var(--pi-accent); font: 30px Georgia, serif; }
     .empty h2 { margin: 0 0 8px; color: var(--vscode-foreground); font-size: 1.65em; font-weight: 600; letter-spacing: -.035em; line-height: 1.25; }
@@ -264,7 +261,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     #model-picker:hover:not(:disabled) { background: var(--vscode-list-hoverBackground, var(--vscode-toolbar-hoverBackground)); }
     #send { width: 30px; flex: 0 0 30px; padding: 6px; }
     #send:disabled { border-color: var(--pi-control-border); color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground)); background: transparent; }
-    #send.queue-action { width: auto; flex: 0 0 auto; }
+    #send.queue-action { width: auto; flex: 0 0 auto; padding: 4px 9px; }
     #after-this { min-height: 30px; font-size: .9em; }
     #submission-label { display: none; }
     #send.queue-action #submission-label { display: inline; }
@@ -323,7 +320,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       ${conversationHistoryControlsHtml()}
       <section id="messages" aria-live="off"></section>
       <details id="tools-group" hidden><summary id="tools-group-toggle"><span id="tools-summary">Tool activity</span><span id="tools-running"></span><span id="tools-failed"></span></summary><section id="tools" aria-label="Pi tool activity"></section></details>
-      <div id="runtime"><span class="status-dot" aria-hidden="true"></span><span id="status" role="status" aria-live="polite">Connecting…</span><button id="retry" class="secondary" type="button" hidden>Retry</button><button id="refresh-history" class="secondary" type="button" hidden>Refresh history</button><button id="reconnect" class="secondary" type="button" hidden>Reconnect</button></div>
       <button id="jump-to-latest" class="secondary" type="button" hidden>Jump to latest</button>
     </section>
     <section id="activity" aria-label="Pi workflow activity" hidden>
@@ -335,6 +331,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       <div id="slash-commands" role="listbox" aria-label="Slash commands" hidden></div>
       <section id="extension-ui-above" class="extension-ui-block" tabindex="0" aria-label="Pi extension widgets above editor" hidden></section>
       <div id="file-completions" role="listbox" aria-label="Workspace files" hidden></div>
+      <div id="runtime"><span id="runtime-dot" class="status-dot" aria-hidden="true" hidden></span><span id="status" role="status" aria-live="polite" aria-atomic="true"></span><button id="retry" class="secondary" type="button" hidden>Retry</button><button id="refresh-history" class="secondary" type="button" hidden>Refresh history</button><button id="reconnect" class="secondary" type="button" hidden>Reconnect</button></div>
       <div class="composer-box">
         <div id="attachments" aria-label="Attachments for the next message" hidden></div>
         <div id="attachment-estimate" class="proposal-meta"></div>
@@ -356,7 +353,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         </div>
       </div>
       <section id="extension-ui-below" class="extension-ui-block" tabindex="0" aria-label="Pi extension widgets below editor" hidden></section>
-      <p id="composer-status" role="status" aria-live="polite" aria-atomic="true" hidden></p>
+      <p id="composer-status" hidden></p>
       <p id="settings-description" class="sr-only"></p>
     </section>
     <div id="notice" role="status" aria-live="polite"></div>
@@ -483,21 +480,34 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       notice.dataset.transientLock = '';
     }
 
-    function updateRuntimeStatus() {
-      const imageLoading = pendingImageReads > 0;
-      const displayed = imageLoading
-        ? 'Loading pasted image…'
-        : backgroundSubmissionPending
-          ? 'Starting background agent…'
-          : submissionPending
-            ? 'Sending to Pi…'
-            : latestStatus;
+    function updateRuntimeStatus(blocker) {
+      // These are fixed host problem producers, including failures without a Retry action.
+      const problem = [
+        'Request failed · Retry available', 'Request failed · Run the action again',
+        'Pi stopped after tool execution · Retry unavailable', 'Pi completed · Follow-up action failed',
+        'Pi completed · History refresh failed', 'Context compacted · History refresh failed',
+        'History unavailable · Refresh available', 'Shell execution uncertain · Inspect effects',
+        'Shell execution uncertain · Inspect effects; no automatic retry'
+      ].includes(latestStatus);
+      const runtimeStatus = latestStatus === 'Ready' ? '' : latestStatus;
+      const recoveryStatus = !$('refresh-history').hidden ? 'History unavailable · Refresh available'
+        : !$('retry').hidden ? latestStatus === 'Cancelled · Ready to retry' ? latestStatus : 'Retry available' : '';
+      const problemStatus = !connected
+        ? latestStatus === 'Connecting…' ? blocker : runtimeStatus || blocker
+        : problem ? runtimeStatus : recoveryStatus;
+      const displayed = problemStatus || blocker || (pendingImageReads > 0 ? 'Loading pasted image…'
+        : backgroundSubmissionPending ? 'Starting background agent…'
+        : submissionPending ? 'Sending to Pi…' : runtimeStatus);
       if ($('status').textContent !== displayed) $('status').textContent = displayed;
       $('status').title = displayed;
-      const wasHidden = $('runtime').hidden;
-      $('runtime').hidden = connected && !busy && !imageLoading && !backgroundSubmissionPending && !submissionPending
-        && displayed === 'Ready' && $('retry').hidden && $('refresh-history').hidden;
-      if (wasHidden !== $('runtime').hidden && conversationPinnedToBottom) scrollConversationToBottom();
+      $('runtime-dot').hidden = !displayed;
+    }
+
+    function updateRecoveryControl(id, hidden, disabled = false) {
+      const button = $(id);
+      if ((hidden || disabled) && document.activeElement === button) input.focus();
+      button.hidden = hidden;
+      button.disabled = disabled;
     }
 
     function setConversationScrollTop(scrollTop) {
@@ -1339,13 +1349,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('session-header-title').title = sessionsLayerVisible ? '' : current?.title || '';
       for (const id of ['history-search-open', 'history-earlier', 'history-latest']) $(id).hidden = sessionsLayerVisible;
       input.placeholder = sessionsLayerVisible ? 'Start a new session…' : busy ? 'Write a follow-up…' : 'Ask Pi anything…';
-      const runtime = $('runtime');
-      if (sessionsLayerVisible) {
-        if (runtime.parentElement !== appElement) appElement.appendChild(runtime);
-        renderSessions();
-      } else if (runtime.parentElement !== conversationElement) {
-        conversationElement.append(runtime, $('jump-to-latest'));
-      }
+      if (sessionsLayerVisible) renderSessions();
     }
 
     function showSessionDetail() {
@@ -1460,7 +1464,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('settings-description').textContent = [settingsReason, thinkingUnavailableReason].filter(Boolean).join(' ');
       $('model-picker').setAttribute('aria-describedby', 'settings-description');
       $('model-picker').title = modelTitle + (settingsReason ? ' · ' + settingsReason : '');
-      // Priority is shared by the visible status and disabled-button titles.
+      // Submission priority controls eligibility descriptions, not runtime problem severity.
       const blocker = !connected ? 'Pi is disconnected. Use Reconnect before sending.'
         : composerDraft?.blocked() ? 'Draft context changed. Wait for the transition, or verify the session and clear the kept text.'
         : fileCompletion?.busy ? 'Capturing a file attachment. Wait for capture to finish.'
@@ -1480,7 +1484,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const composerStatus = $('composer-status');
       if (composerStatus.textContent !== blocker) composerStatus.textContent = blocker;
       const emptyDraft = blocker === 'Enter a message or attach context to send.';
-      composerStatus.hidden = !blocker || emptyDraft;
+      composerStatus.hidden = true;
       composerStatus.dataset.state = emptyDraft ? 'empty' : blocker ? 'blocked' : 'ready';
       sendButton.title = blocker || (canQueue ? 'Send after the current tool finishes (Enter)' : !input.value.trim() && attachedItems ? 'Send attachments' : sessionsLayerVisible ? 'Start new session' : 'Send message');
       if (blocker) $('after-this').title = blocker;
@@ -1497,7 +1501,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
                 : busy
                   ? 'Wait for Pi to finish before sending'
                   : shellInput ? 'Direct shell: ! includes model context · !! excludes model context, not history · Approval required' : 'Enter to send · Shift+Enter for a new line';
-      updateRuntimeStatus();
+      updateRuntimeStatus(emptyDraft ? '' : blocker);
       renderSlashCommands();
       fileCompletion?.refresh();
     }
@@ -1622,11 +1626,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const hasContextUsage = typeof context.percent === 'number';
       $('usage').textContent = hasContextUsage ? 'Context ' + Math.round(context.percent) + '%' : 'Context usage is unavailable.';
       $('usage').title = hasContextUsage ? 'Share of the model’s context window currently in use' : '';
-      $('reconnect').hidden = connected;
-      $('retry').hidden = !state.retryAvailable;
-      $('retry').disabled = busy || !connected;
-      $('refresh-history').hidden = !state.historyRecoveryAvailable;
-      $('refresh-history').disabled = busy || !connected;
+      updateRecoveryControl('reconnect', connected);
+      updateRecoveryControl('retry', !state.retryAvailable, busy || !connected);
+      updateRecoveryControl('refresh-history', !state.historyRecoveryAvailable, busy || !connected);
       cancelButton.hidden = !cancellable;
       updateSendState();
       updateLatestOutput();
@@ -1833,20 +1835,30 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     window.addEventListener('resize', resizeInput);
     if (typeof ResizeObserver === 'function') {
       new ResizeObserver(() => {
+        const resized = conversationClientHeight !== conversationElement.clientHeight;
+        conversationClientHeight = conversationElement.clientHeight;
         if (conversationPinnedToBottom) scrollConversationToBottom();
+        else if (resized) programmaticConversationScrollTop = conversationElement.scrollTop;
         updateLatestOutput();
       }).observe(conversationElement);
     }
     conversationElement.addEventListener('scroll', event => {
       const resized = conversationClientHeight !== conversationElement.clientHeight;
       conversationClientHeight = conversationElement.clientHeight;
-      if (resized && conversationPinnedToBottom) {
-        scrollConversationToBottom();
+      if (resized) {
+        // A wrapping status can resize the viewport and clamp scrollTop near the tail.
+        // Layout alone must not resume following or clear the unread-output indicator.
+        if (conversationPinnedToBottom) scrollConversationToBottom();
+        else updateLatestOutput();
+        return;
+      }
+      if (conversationElement.scrollTop === programmaticConversationScrollTop) {
+        programmaticConversationScrollTop = undefined;
+        updateLatestOutput();
         return;
       }
       const atBottom = conversationElement.scrollHeight - conversationElement.scrollTop - conversationElement.clientHeight <= 16;
       if (atBottom) conversationPinnedToBottom = true;
-      else if (conversationElement.scrollTop === programmaticConversationScrollTop) return;
       else if (event.isTrusted) conversationPinnedToBottom = false;
       programmaticConversationScrollTop = undefined;
       updateLatestOutput();
