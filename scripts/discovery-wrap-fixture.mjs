@@ -56,8 +56,16 @@ async function assertResponsiveHeader(page, state, post) {
   // Native 200% zoom also exposes a 169 CSS-pixel sidebar viewport.
   const widths = [169, 200, 240, 280, 340, 600, 960];
   const history = {
-    generation: 10, mode: "earlier", start: 0, end: 3, total: 6,
-    omittedBefore: 0, omittedAfter: 3, available: true, loading: false, canNavigate: true,
+    generation: 10,
+    mode: "earlier",
+    start: 0,
+    end: 3,
+    total: 6,
+    omittedBefore: 0,
+    omittedAfter: 3,
+    available: true,
+    loading: false,
+    canNavigate: true,
   };
   for (const theme of themes) {
     await page.evaluate((theme) => {
@@ -69,7 +77,8 @@ async function assertResponsiveHeader(page, state, post) {
         "sideBar-background": light ? "#ffffff" : "#000000",
         focusBorder: light ? "#000000" : "#ffffff",
         contrastBorder: light ? "#000000" : "#ffffff",
-      })) document.body.style.setProperty(`--vscode-${key}`, value);
+      }))
+        document.body.style.setProperty(`--vscode-${key}`, value);
     }, theme);
     for (const width of widths) {
       await page.setViewportSize({ width, height: 700 });
@@ -80,7 +89,10 @@ async function assertResponsiveHeader(page, state, post) {
           history,
         });
         assert.equal(await page.locator("#session-header-title").innerText(), title.trim());
-        assert.deepEqual(await page.locator(".sessions-actions > button").evaluateAll((nodes) => nodes.map((node) => node.id)), ids);
+        assert.deepEqual(
+          await page.locator(".sessions-actions > button").evaluateAll((nodes) => nodes.map((node) => node.id)),
+          ids,
+        );
         for (const id of ids) {
           const button = page.locator(`#${id}`);
           assert.equal(await button.count(), 1, `${id} must be unique`);
@@ -103,14 +115,16 @@ async function assertResponsiveHeader(page, state, post) {
         });
         const context = `${theme} ${width}px ${title.length} characters: ${JSON.stringify(geometry)}`;
         assert.equal(geometry.overflow, false, context);
-        const overlaps = (a, b) => a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
+        const overlaps = (a, b) =>
+          a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
         assert.equal(overlaps(geometry.title, geometry.actions), false, context);
         for (let index = 0; index < geometry.buttons.length; index += 1) {
           const button = geometry.buttons[index];
           assert.ok(button.width > 0 && button.left >= 0 && button.right <= geometry.viewport, context);
           if (index) assert.equal(overlaps(geometry.buttons[index - 1], button), false, context);
         }
-        if (width <= 240) assert.ok(geometry.actions.top >= geometry.title.bottom - 1, `narrow header uses a second row: ${context}`);
+        if (width <= 240)
+          assert.ok(geometry.actions.top >= geometry.title.bottom - 1, `narrow header uses a second row: ${context}`);
         await post({ type: "showSessionsLayer" });
         for (const id of ids.slice(2, 5)) assert.equal(await page.locator(`#${id}`).isVisible(), false);
         await post({ type: "showSessionDetail" });
@@ -127,7 +141,8 @@ async function assertResponsiveHeader(page, state, post) {
     await page.keyboard.press("Tab");
     assert.equal(await page.locator(`#${id}`).evaluate((node) => document.activeElement === node), true);
     const focus = await page.locator(`#${id}`).evaluate((node) => ({
-      style: getComputedStyle(node).outlineStyle, width: getComputedStyle(node).outlineWidth,
+      style: getComputedStyle(node).outlineStyle,
+      width: getComputedStyle(node).outlineWidth,
     }));
     assert.notEqual(focus.style, "none");
     assert.notEqual(focus.width, "0px");
@@ -139,7 +154,8 @@ async function assertResponsiveHeader(page, state, post) {
   const latest = page.locator("#history-latest");
   assert.equal(await latest.isDisabled(), true);
   const disabledStyle = await latest.evaluate((node) => ({
-    opacity: Number(getComputedStyle(node).opacity), visibility: getComputedStyle(node).visibility,
+    opacity: Number(getComputedStyle(node).opacity),
+    visibility: getComputedStyle(node).visibility,
   }));
   assert.ok(disabledStyle.opacity > 0, "disabled latest action remains visible");
   assert.equal(disabledStyle.visibility, "visible");
@@ -147,7 +163,13 @@ async function assertResponsiveHeader(page, state, post) {
   await page.keyboard.press("Tab");
   assert.equal(await page.locator("#more").evaluate((node) => document.activeElement === node), true);
   await state();
-  return { themes: themes.length, widths, titles: 2, layouts: themes.length * widths.length * 2, keyboard: "header Tab order and disabled skip" };
+  return {
+    themes: themes.length,
+    widths,
+    titles: 2,
+    layouts: themes.length * widths.length * 2,
+    keyboard: "header Tab order and disabled skip",
+  };
 }
 
 export async function assertDiscoveryWrapBrowser(browser, getSidebarHtml, renderSafeMarkdown) {
@@ -191,9 +213,18 @@ export async function assertDiscoveryWrapBrowser(browser, getSidebarHtml, render
       ...changes,
     });
   await state();
-  const hint = page.locator("#file-discovery-hint");
+  const hint = page.locator("#conversation-details #file-discovery-hint");
+  assert.equal(await hint.isVisible(), false, "file discovery instructions are not persistent composer chrome");
+  await page.locator("#more").focus();
+  await page.keyboard.press("Enter");
+  assert.equal(await page.evaluate(() => window.fixturePosts.at(-1).type), "showMoreActions");
+  await post({ type: "showConversationDetails" });
+  assert.equal(await page.locator("#conversation-details").evaluate((dialog) => dialog.open), true);
+  assert.equal(await hint.isVisible(), true);
   assert.match(await hint.innerText(), /@ selects a file snapshot/);
   assert.match(await hint.innerText(), /Tab on a visible path suggestion inserts only its path/);
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => document.activeElement.id === "more");
   assert.ok((await page.locator("#input").getAttribute("aria-describedby")).includes("file-discovery-hint"));
   assert.equal(
     await page.evaluate(() =>
@@ -204,7 +235,7 @@ export async function assertDiscoveryWrapBrowser(browser, getSidebarHtml, render
   );
   for (const text of ["!echo x", "!!echo x", "/compact"]) {
     await page.locator("#input").fill(text);
-    assert.match(await hint.innerText(), /unavailable for shell input and slash commands/);
+    assert.match(await hint.textContent(), /unavailable for shell input and slash commands/);
   }
   await page.locator("#input").fill("");
   for (const reason of [
@@ -213,8 +244,8 @@ export async function assertDiscoveryWrapBrowser(browser, getSidebarHtml, render
     "File completion requires a workspace matching the Pi working directory.",
   ]) {
     await state({ fileCompletionSupport: { available: false, reason } });
-    assert.equal(await hint.innerText(), reason);
-    assert.doesNotMatch(await hint.innerText(), /@ selects|Tab on/);
+    assert.equal(await hint.textContent(), reason);
+    assert.doesNotMatch(await hint.textContent(), /@ selects|Tab on/);
   }
   await state();
   const wrapped = () => page.locator("#messages").evaluate((node) => node.classList.contains("wrap-code"));
@@ -332,10 +363,15 @@ export async function assertDiscoveryWrapBrowser(browser, getSidebarHtml, render
   ];
   await state({ messages: many });
   const scroller = page.locator("#conversation");
-  await scroller.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+  await scroller.evaluate((node) => {
+    node.scrollTop = node.scrollHeight;
+  });
   await page.waitForTimeout(60);
   await toggleWrapping({ preserveFocus: true });
-  assert.ok(await scroller.evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop <= 2), "wrapping retains bottom following");
+  assert.ok(
+    await scroller.evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop <= 2),
+    "wrapping retains bottom following",
+  );
   const marker = page.locator("#messages > article").nth(2).locator("h2");
   await marker.evaluate((node) => node.scrollIntoView({ block: "start" }));
   await page.waitForTimeout(60);
@@ -380,7 +416,7 @@ export async function assertDiscoveryWrapBrowser(browser, getSidebarHtml, render
     themes: 4,
     layouts: 24,
     headingIdentity: "retained",
-    hints: "capability-aware",
+    hints: "capability-aware, inside Conversation details without automatic capture",
     readingPosition: "retained",
     wrapping: "More state IPC and fixed host reply",
     header: headerEvidence,

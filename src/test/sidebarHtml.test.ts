@@ -19,7 +19,6 @@ test("composer blockers share a visible explanation and button title for every u
     ["busy = true; queueable = true; input.value = '/compact'", /Slash commands.*Wait/, false],
     ["busy = true; queueable = true; pendingQueueCount = 10", /queue is full.*Wait/, false],
     ["attachedImages = true; imageSupported = false", /cannot use images.*Choose/, false],
-    ["input.value = ''", /Enter a message or attach context/, false],
   ] as const;
   for (const [flags, reason, hidden] of cases) {
     const sidebar = createSidebarScriptHarness();
@@ -40,6 +39,9 @@ test("composer blockers clear when ready and empty text is neutral, not a failur
   const sidebar = createSidebarScriptHarness();
   sidebar.run("connected = true; sessionsLayerVisible = false; input.value = ''; updateSendState()");
   assert.equal(sidebar.element("composer-status").dataset.state, "empty");
+  assert.equal(sidebar.element("composer-status").hidden, true);
+  assert.match(sidebar.element("composer-status").textContent, /Enter a message or attach context/);
+  assert.equal(sidebar.element("send").title, sidebar.element("composer-status").textContent);
   sidebar.run("input.value = 'Ready'; updateSendState()");
   assert.equal(sidebar.element("composer-status").hidden, true);
   assert.equal(sidebar.element("composer-status").textContent, "");
@@ -54,6 +56,181 @@ test("composer blockers clear when ready and empty text is neutral, not a failur
     assert.match(html, new RegExp(`id="${id}"[^>]*aria-describedby="[^"]*composer-status`));
   }
   assert.ok(html.indexOf('id="composer-status"') < html.indexOf('id="composer-help"'));
+});
+
+test("Conversation details opens only on request and Close or Escape returns focus to More", () => {
+  const sidebar = createSidebarScriptHarness();
+  const dialog = sidebar.element("conversation-details");
+  assert.equal(dialog.open, false);
+  for (const runtime of [{ connected: true, busy: true }, { connected: false }]) {
+    sidebar.receive({ type: "state", runtime });
+    assert.equal(sidebar.element("more").disabled, false);
+    sidebar.element("more").listeners.get("click")!();
+    assert.equal(sidebar.posted.at(-1).type, "showMoreActions");
+    assert.equal(dialog.open, false, "More still uses the native action picker");
+    sidebar.receive({ type: "showConversationDetails" });
+    assert.equal(dialog.open, true);
+    assert.equal(sidebar.run("document.activeElement === $('conversation-details-close')"), true);
+    sidebar.element("conversation-details-close").listeners.get("click")!();
+    assert.equal(dialog.open, false);
+    assert.equal(sidebar.run("document.activeElement === $('more')"), true);
+    sidebar.receive({ type: "showConversationDetails" });
+    let prevented = false;
+    dialog.listeners.get("cancel")!({
+      preventDefault() {
+        prevented = true;
+      },
+    });
+    assert.equal(prevented, true);
+    assert.equal(dialog.open, false);
+    assert.equal(sidebar.run("document.activeElement === $('more')"), true);
+  }
+  const html = getSidebarHtml(1000, 1024);
+  const details = html.slice(
+    html.indexOf('<dialog id="conversation-details"'),
+    html.indexOf('<dialog id="image-preview"'),
+  );
+  for (const id of [
+    "composer-help",
+    "composer-hint",
+    "file-discovery-hint",
+    "session-details",
+    "usage",
+    "extension-status",
+  ]) {
+    assert.match(details, new RegExp(`id="${id}"`));
+  }
+  assert.match(html, /#conversation-details \{[^}]*max-height: calc\(100vh - 24px\);[^}]*overflow-y: auto/);
+});
+
+test("read-only details preserves an active file capture and composer revision", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "setInput", text: "@src/file.ts" });
+  sidebar.run(
+    "fileCompletion = { busy: true, receive() {}, cancel() { throw new Error('capture must remain pending'); } }",
+  );
+  sidebar.receive({ type: "showConversationDetails" });
+  assert.equal(sidebar.element("conversation-details").open, true);
+  assert.equal(sidebar.run("fileCompletion.busy"), true);
+  assert.equal(sidebar.run("composerRevision"), 1);
+  assert.equal(sidebar.element("input").value, "@src/file.ts");
+});
+
+test("retained text notice is session-bound, manual and never opens details or submits automatically", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "state", runtime: { connected: true } });
+  const draftState = { type: "draftState", binding: "session-a", enabled: true, writable: true, available: true };
+  sidebar.receive(draftState);
+  const notice = sidebar.element("text-draft-notice");
+  assert.equal(notice.hidden, false);
+  assert.equal(sidebar.element("conversation-details").open, false);
+  assert.equal(sidebar.element("text-draft-recovery").open, false);
+  assert.equal(sidebar.element("input").value, "");
+  assert.equal(
+    sidebar.posted.some((item) => ["draftRestore", "send", "sendNewSession"].includes(item.type)),
+    false,
+  );
+  notice.listeners.get("click")!();
+  assert.equal(sidebar.element("conversation-details").open, true);
+  assert.equal(sidebar.element("text-draft-recovery").open, true);
+  assert.equal(sidebar.element("input").value, "");
+  sidebar.element("restore-text-draft").listeners.get("click")!();
+  assert.equal(sidebar.posted.at(-1).type, "draftRestore");
+  assert.equal(sidebar.posted.at(-1).binding, "session-a");
+  sidebar.receive({ type: "draftRestored", binding: "stale", expectedRevision: 0, text: "stale text" });
+  assert.equal(sidebar.element("input").value, "");
+  sidebar.receive({ type: "setInput", text: "Newer text" });
+  sidebar.receive({ type: "draftRestored", binding: "session-a", expectedRevision: 0, text: "old text" });
+  assert.equal(sidebar.element("input").value, "Newer text");
+  sidebar.receive({ ...draftState, binding: "session-b", available: false });
+  assert.equal(notice.hidden, true);
+  assert.equal(sidebar.element("send").disabled, true, "uncertain draft context still blocks submission");
+  assert.match(sidebar.element("composer-status").textContent, /Draft context changed/);
+  assert.equal(sidebar.element("composer-status").hidden, false);
+  assert.equal(
+    sidebar.posted.some((item) => ["send", "sendNewSession", "queueInstruction"].includes(item.type)),
+    false,
+  );
+});
+
+test("draft controls keep explicit consent and verified restore returns to the composer without sending", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "state", runtime: { connected: true } });
+  sidebar.receive({ type: "draftState", binding: "session-a", enabled: false, writable: true, available: false });
+  assert.equal(sidebar.element("text-draft-notice").hidden, true);
+  sidebar.element("enable-text-drafts").listeners.get("click")!();
+  assert.equal(sidebar.posted.at(-1).type, "draftEnable");
+  assert.equal(sidebar.posted.at(-1).binding, "session-a");
+  assert.equal(sidebar.element("disable-text-drafts").hidden, true, "retention waits for host consent");
+  sidebar.receive({ type: "draftState", binding: "session-a", enabled: true, writable: true, available: true });
+  sidebar.element("text-draft-notice").listeners.get("click")!();
+  sidebar.receive({ type: "draftRestored", binding: "session-a", expectedRevision: 0, text: "Recovered text" });
+  assert.equal(sidebar.element("input").value, "Recovered text");
+  assert.equal(sidebar.element("conversation-details").open, false);
+  assert.equal(sidebar.run("document.activeElement === input"), true);
+  assert.equal(
+    sidebar.element("conversation-details").listeners.has("close"),
+    false,
+    "deferred close cannot steal later focus",
+  );
+  assert.equal(
+    sidebar.posted.some((item) => ["send", "sendNewSession", "queueInstruction"].includes(item.type)),
+    false,
+  );
+  sidebar.element("discard-text-draft").listeners.get("click")!();
+  assert.equal(sidebar.posted.at(-1).type, "draftDiscard");
+  assert.equal(sidebar.posted.at(-1).binding, "session-a");
+  sidebar.element("disable-text-drafts").listeners.get("click")!();
+  assert.equal(sidebar.posted.at(-1).type, "draftDisable");
+  assert.equal(sidebar.posted.at(-1).binding, "session-a");
+});
+
+test("one runtime line follows the conversation tail and keeps Sessions recovery visible", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "state", status: "Ready", runtime: { connected: true } });
+  assert.equal(sidebar.element("runtime").hidden, true);
+  sidebar.receive({ type: "showSessionDetail" });
+  assert.equal(sidebar.element("runtime").parentElement, sidebar.element("conversation"));
+  for (const state of [
+    { status: "Working…", runtime: { connected: true, busy: true, cancellable: true } },
+    { status: "Ready", retryAvailable: true, runtime: { connected: true } },
+    { status: "Ready", historyRecoveryAvailable: true, runtime: { connected: true } },
+    { status: "Disconnected", runtime: { connected: false } },
+  ]) {
+    sidebar.receive({ type: "state", ...state });
+    assert.equal(sidebar.element("runtime").hidden, false);
+    sidebar.receive({ type: "showSessionsLayer" });
+    assert.equal(sidebar.element("runtime").parentElement, sidebar.element("app"));
+    assert.equal(sidebar.element("runtime").hidden, false);
+    assert.equal(sidebar.element("reconnect").hidden, state.runtime.connected);
+    assert.equal(sidebar.element("retry").hidden, !("retryAvailable" in state));
+    assert.equal(sidebar.element("refresh-history").hidden, !("historyRecoveryAvailable" in state));
+    sidebar.receive({ type: "showSessionDetail" });
+    assert.equal(sidebar.element("runtime").parentElement, sidebar.element("conversation"));
+  }
+  assert.equal((getSidebarHtml(1000, 1024).match(/id="runtime"/g) || []).length, 1);
+});
+
+test("only non-blocking informational notices can be dismissed", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "notice", message: "Display updated.", level: "info" });
+  const dismiss = sidebar.element("notice").children.find((child) => child.dataset.noticeDismiss);
+  assert.ok(dismiss);
+  sidebar.element("notice").listeners.get("click")!({ target: dismiss });
+  assert.equal(sidebar.element("notice").textContent, "");
+  for (const [level, message] of [
+    ["error", "Permission required."],
+    ["warning", "Cleanup is unverified."],
+    ["warning", "Queue delivery is uncertain."],
+  ]) {
+    sidebar.receive({ type: "notice", level, message, detailsAvailable: true });
+    assert.equal(sidebar.element("notice").textContent, message);
+    assert.equal(
+      sidebar.element("notice").children.some((child) => child.dataset.noticeDismiss),
+      false,
+    );
+    assert.equal(sidebar.element("notice").children[0].textContent, "View diagnostic");
+  }
 });
 
 test("Jump to latest tracks transcript changes only and does not submit or change drafts", () => {
@@ -127,20 +304,18 @@ test("extension status and widgets render as inert ordered text without changing
   const below = sidebar.element("extension-ui-below");
   assert.deepEqual(
     above.children.map((child) => child.textContent),
-    [
-      "Extension status",
-      `second: ${text}`,
-      "first: one",
-      "Extension widgets · above editor",
-      "above",
-      `${text}\nline two`,
-      "An extension update was ignored.",
-    ],
+    ["Extension widgets · above editor", "above", `${text}\nline two`],
   );
   assert.deepEqual(
     below.children.map((child) => child.textContent),
     ["Extension widgets · below editor", "below", "below text"],
   );
+  const status = sidebar.element("extension-status");
+  assert.deepEqual(
+    status.children.map((child) => child.textContent),
+    ["Extension status", `second: ${text}`, "first: one", "An extension update was ignored."],
+  );
+  assert.equal(status.innerHTML, "");
   assert.equal(above.innerHTML, "");
   assert.equal(below.innerHTML, "");
   assert.equal(sidebar.element("cancel").hidden, false);
@@ -154,6 +329,8 @@ test("extension status and widgets render as inert ordered text without changing
   assert.equal(below.hidden, true);
   assert.equal(above.children.length, 0);
   assert.equal(below.children.length, 0);
+  assert.equal(status.hidden, true);
+  assert.equal(status.children.length, 0);
 });
 
 test("follow-up shortcut selection uses the webview client OS", () => {
@@ -229,13 +406,13 @@ test("sidebar places model and thinking controls before submission and exposes r
 
   assert.match(
     html,
-    /<div class="composer-actions">[\s\S]*id="model-picker"[\s\S]*id="thinking-level"[\s\S]*id="send"/,
+    /<div class="composer-actions">[\s\S]*id="add-context"[\s\S]*id="model-picker"[\s\S]*id="thinking-label"[\s\S]*id="send"/,
   );
-  assert.match(html, /id="thinking-level"[^>]*aria-label="Pi thinking level"/);
+  assert.doesNotMatch(html, /id="thinking-level"|class="thinking-picker"/);
   assert.doesNotMatch(html, /id="steer"|id="follow-up"|id="inspect-queue"|id="clear-queue"/);
   assert.doesNotMatch(html, /id="mode"|id="handoff-agent"|type: 'setMode'|type: 'handoffAgent'/);
   assert.match(html, /renderThinkingLevel\(state\.runtime\)/);
-  assert.match(html, /type: 'setThinking', level: thinkingLevel\.value/);
+  assert.match(html, /type: 'pickComposerSettings'/);
   assert.match(html, /id="delete-session"[^>]*aria-label="Delete current Pi session"[^>]*hidden>/);
   assert.match(html, /delete-session'\)\.hidden = !deletableSession/);
   assert.match(html, /type: 'deleteSession'/);
@@ -290,15 +467,20 @@ test("sidebar places model and thinking controls before submission and exposes r
   assert.match(html, /for \(let index = 0; index < visibleMessages\.length; index \+= 1\)/);
   assert.match(html, /structure === renderedMessageStructure/);
   assert.match(html, /setMessageContent\(content, html\[index\]\)/);
-  assert.match(html, /#add-context span \{ display: none; \}/);
+  assert.match(html, /id="add-context"[^>]*aria-label="Attach code, files, or images"/);
   assert.match(html, /\.composer-actions \{[^}]*flex-wrap: wrap/);
   assert.doesNotMatch(html, /id="resume-session"/);
 });
 
-test("thinking picker can shrink without overflowing its wrapper", () => {
+test("combined settings can shrink while submission and attachment actions keep their size", () => {
   const html = getSidebarHtml(100_000, 5 * 1024 * 1024);
-  assert.match(html, /\.thinking-picker \{[^}]*flex: 0 1 auto;[^}]*min-width: 38px/);
-  assert.match(html, /#thinking-level \{[^}]*min-width: 0;[^}]*max-width: 100%/);
+  assert.match(html, /#model-picker \{[^}]*min-width: 0;[^}]*flex: 0 1 auto;[^}]*max-width: 100%/);
+  assert.match(html, /#model-label \{[^}]*text-overflow: ellipsis/);
+  assert.match(html, /\.composer-submit-actions \{[^}]*flex: 1 1 0;[^}]*min-width: 0/);
+  assert.match(html, /#thinking-label \{[^}]*min-width: 0;[^}]*text-overflow: ellipsis/);
+  assert.match(html, /#add-context \{[^}]*flex: 0 0 30px/);
+  assert.match(html, /#send \{[^}]*flex: 0 0 30px/);
+  assert.doesNotMatch(html, /\.model-settings|class="composer-spacer"/);
 });
 
 test("sidebar preserves hidden semantics, themed layout, and keyboard accessibility", () => {
@@ -308,11 +490,11 @@ test("sidebar preserves hidden semantics, themed layout, and keyboard accessibil
   const runtimePosition = html.indexOf('id="runtime"');
 
   assert.ok(
-    composerPosition < noticePosition && noticePosition < runtimePosition,
-    "runtime status belongs below the composer and notices",
+    runtimePosition < composerPosition && composerPosition < noticePosition,
+    "one runtime line belongs at the conversation tail, not in a composer footer",
   );
-  assert.match(html, /grid-template-rows: auto minmax\(0, 1fr\) auto minmax\(0, auto\) auto auto/);
-  assert.match(html, /#runtime \{[^}]*border-top: 1px solid var\(--pi-border\)/);
+  assert.match(html, /grid-template-rows: auto minmax\(0, 1fr\) auto minmax\(0, auto\) auto;/);
+  assert.doesNotMatch(html, /#runtime \{[^}]*border-top/);
   assert.match(html, /\[hidden\] \{ display: none !important; \}/);
   assert.match(html, /id="activity" aria-label="Pi workflow activity" hidden/);
   assert.match(html, /id="proposals" aria-label="Pi edit proposals"/);
@@ -694,8 +876,14 @@ test("model identity and session details expose full runtime values without pers
   });
   assert.equal(sidebar.element("session").value, "full-session-identifier");
   assert.equal(sidebar.element("session-details").hidden, false);
-  assert.equal(sidebar.element("model-picker").title, "provider/full-model-id");
-  assert.equal((sidebar.element("model-picker") as any)["aria-label"], "Pi model: Runtime display name");
+  assert.match(
+    sidebar.element("model-picker").title,
+    /Runtime display name.*provider\/full-model-id.*Thinking: Unavailable/,
+  );
+  assert.match(
+    (sidebar.element("model-picker") as any)["aria-label"],
+    /Pi model: Runtime display name.*provider\/full-model-id.*Thinking: Unavailable/,
+  );
   assert.match(sidebar.element("settings-description").textContent, /unavailable for this model/);
 });
 
@@ -741,6 +929,8 @@ test("thinking-only messages use collapsed inert disclosures and retain user sta
 
 class SidebarTestElement {
   children: SidebarTestElement[] = [];
+  parentElement?: SidebarTestElement;
+  id = "";
   dataset: Record<string, string> = {};
   "aria-current"?: string;
   "aria-expanded"?: string;
@@ -774,13 +964,24 @@ class SidebarTestElement {
   listeners = new Map<string, (event?: any) => void>();
 
   append(...elements: SidebarTestElement[]): void {
-    this.children.push(...elements);
+    for (const element of elements) {
+      element.parentElement?.removeChild(element);
+      element.parentElement = this;
+      this.children.push(element);
+    }
+  }
+  insertBefore(element: SidebarTestElement, reference: SidebarTestElement): void {
+    element.parentElement?.removeChild(element);
+    element.parentElement = this;
+    const index = this.children.indexOf(reference);
+    this.children.splice(index < 0 ? this.children.length : index, 0, element);
   }
   appendChild(element: SidebarTestElement): void {
     this.append(element);
   }
   removeChild(element: SidebarTestElement): void {
     this.children = this.children.filter((child) => child !== element);
+    element.parentElement = undefined;
   }
   replaceChildren(...elements: SidebarTestElement[]): void {
     this.children = [...elements];
@@ -824,18 +1025,38 @@ class SidebarTestElement {
 
 function createSidebarScriptHarness(clientPlatform = "Linux x86_64", userAgent = "") {
   const html = getSidebarHtml(100_000, 1024);
+  const document = {
+    activeElement: undefined as SidebarTestElement | undefined,
+    getElementById: (id: string): SidebarTestElement => element(id),
+    createElement: () => makeElement(),
+    addEventListener: () => {},
+  };
+  const created: SidebarTestElement[] = [];
+  const makeElement = () => {
+    const item = new SidebarTestElement();
+    item.focus = () => {
+      item.focusCount += 1;
+      document.activeElement = item;
+    };
+    created.push(item);
+    return item;
+  };
   const elements = new Map(
-    Array.from(html.matchAll(/\bid="([^"]+)"/g), (match) => [match[1], new SidebarTestElement()]),
+    Array.from(html.matchAll(/\bid="([^"]+)"/g), (match) => {
+      const item = makeElement();
+      item.id = match[1];
+      return [match[1], item];
+    }),
   );
   const element = (id: string) => {
-    const result = elements.get(id);
+    const result = elements.get(id) || created.find((item) => item.id === id);
     assert.ok(result, `missing sidebar element: ${id}`);
     return result;
   };
   let receive: ((event: { data: unknown }) => void) | undefined;
   const posted: any[] = [];
   const context = createContext({
-    document: { getElementById: element, createElement: () => new SidebarTestElement(), addEventListener: () => {} },
+    document,
     window: {
       addEventListener: (type: string, listener: typeof receive) => {
         if (type === "message") receive = listener;
@@ -994,11 +1215,11 @@ test("More sends current wrapping state and only the fixed host reply toggles it
   assert.equal(sidebar.element("input").value, "Keep draft");
 });
 
-test("composer keeps idle hints short and hides empty queue and unknown usage", () => {
+test("composer keeps idle hints short and empty queue quiet, with unknown usage in details", () => {
   const sidebar = createSidebarScriptHarness();
   sidebar.receive({ type: "state", status: "Ready", runtime: { busy: false, connected: true }, attachments: [] });
   assert.equal(sidebar.element("composer-hint").textContent, "Enter to send · Shift+Enter for a new line");
-  assert.equal(sidebar.element("usage").textContent, "");
+  assert.equal(sidebar.element("usage").textContent, "Context usage is unavailable.");
   assert.equal(sidebar.element("usage").title, "");
   assert.equal(sidebar.element("queue-status").textContent, "");
   assert.equal(sidebar.element("attachment-estimate").textContent, "");
@@ -1453,7 +1674,7 @@ test("idle host updates preserve local control locks and restore controls when e
           availableThinkingLevels: ["off", "high"],
         },
       });
-    const controls = ["model-picker", "thinking-level", "new-session", "delete-session", "more"];
+    const controls = ["model-picker", "new-session", "delete-session"];
     state(false);
     for (const id of controls) assert.equal(sidebar.element(id).disabled, false, `${lock}: initially enabled ${id}`);
     const pendingValue =
@@ -1465,6 +1686,7 @@ test("idle host updates preserve local control locks and restore controls when e
     sidebar.run(`${lock} = ${pendingValue}`);
     state(true);
     for (const id of controls) assert.equal(sidebar.element(id).disabled, true, `${lock}: locked ${id}`);
+    assert.equal(sidebar.element("more").disabled, false, "read-only details remain reachable");
     const recovering = lock === "recoveredDraftPending";
     assert.equal(sidebar.element("input").disabled, recovering, `${lock}: input lock`);
     assert.equal(sidebar.element("add-context").disabled, recovering, `${lock}: attachment lock`);
@@ -1509,72 +1731,59 @@ test("proposal cards block empty previews and hide dead terminal actions", () =>
   assert.equal(applied?.children.length, 2);
 });
 
-test("sidebar displays and changes the current thinking level", () => {
+test("combined model control shows thinking and opens host settings without changing the draft", () => {
   const sidebar = createSidebarScriptHarness();
+  const model = { name: "A very long active model display name", provider: "provider", id: "full-model-id" };
+  sidebar.receive({ type: "setInput", text: "Unsent request" });
   sidebar.receive({
     type: "state",
-    runtime: {
-      busy: false,
-      connected: true,
-      thinkingLevel: "high",
-      availableThinkingLevels: ["off", "low", "high"],
-    },
+    runtime: { connected: true, model, thinkingLevel: "high", availableThinkingLevels: ["off", "low", "high"] },
   });
-
-  const picker = sidebar.element("thinking-level");
-  assert.equal(picker.value, "high");
-  assert.equal(picker.title, "Pi thinking level: High");
-  assert.equal(picker.disabled, false);
-  assert.deepEqual(
-    picker.children.map((option) => option.textContent),
-    ["Off", "Low", "High"],
+  assert.equal(sidebar.element("model-label").textContent, model.name);
+  assert.equal(sidebar.element("thinking-label").textContent, "High");
+  const picker = sidebar.element("model-picker");
+  assert.match(picker.title, /A very long active model display name.*provider\/full-model-id.*Thinking: High/);
+  assert.match((picker as any)["aria-label"], /full-model-id.*Thinking: High.*Change model or thinking level/);
+  picker.listeners.get("click")!();
+  assert.equal(sidebar.posted.at(-1).type, "pickComposerSettings");
+  assert.equal(sidebar.element("input").value, "Unsent request");
+  assert.equal(sidebar.run("composerRevision"), 1);
+  assert.equal(
+    sidebar.posted.some((item) => ["send", "setThinking", "pickModel"].includes(item.type)),
+    false,
   );
 
-  picker.value = "low";
-  picker.listeners.get("change")!();
-  assert.equal(sidebar.posted.at(-1).type, "setThinking");
-  assert.equal(sidebar.posted.at(-1).level, "low");
-
   sidebar.receive({
     type: "state",
-    runtime: {
-      busy: false,
-      connected: true,
-      thinkingLevel: "off",
-      availableThinkingLevels: ["off"],
-    },
+    runtime: { connected: true, thinkingLevel: "off", availableThinkingLevels: ["off"] },
   });
-  assert.equal(picker.value, "off");
-  assert.equal(picker.disabled, true);
+  assert.equal(sidebar.element("thinking-label").textContent, "Off");
+  assert.equal(picker.disabled, false, "one thinking level must not disable model changes");
+  assert.match(sidebar.element("settings-description").textContent, /Only one thinking level/);
 });
 
-test("thinking level labels stay compact for all levels and unavailable state", () => {
+test("combined thinking label covers all levels, stale availability and unavailable state", () => {
   const sidebar = createSidebarScriptHarness();
-  sidebar.receive({
-    type: "state",
-    runtime: {
-      busy: false,
-      connected: true,
-      thinkingLevel: "xhigh",
-      availableThinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh"],
-    },
-  });
-
-  const picker = sidebar.element("thinking-level");
-  assert.deepEqual(
-    picker.children.map((option) => option.textContent),
-    ["Off", "Minimal", "Low", "Medium", "High", "X-high"],
-  );
-  assert.equal(picker.value, "xhigh");
-  assert.equal(picker.title, "Pi thinking level: X-high");
-
-  sidebar.receive({ type: "state", runtime: { busy: false, connected: true } });
-  assert.deepEqual(
-    picker.children.map((option) => option.textContent),
-    ["—"],
-  );
-  assert.equal(picker.disabled, true);
-  assert.equal(picker.title, "Pi thinking level unavailable for this model.");
+  for (const [level, label] of [
+    ["off", "Off"],
+    ["minimal", "Minimal"],
+    ["low", "Low"],
+    ["medium", "Medium"],
+    ["high", "High"],
+    ["xhigh", "X-high"],
+  ]) {
+    sidebar.receive({
+      type: "state",
+      runtime: { connected: true, thinkingLevel: level, availableThinkingLevels: ["off"] },
+    });
+    assert.equal(sidebar.element("thinking-label").textContent, label, "current value remains authoritative");
+    assert.match(sidebar.element("model-picker").title, new RegExp(`Thinking: ${label}`));
+  }
+  sidebar.receive({ type: "state", runtime: { connected: true } });
+  assert.equal(sidebar.element("thinking-label").textContent, "");
+  assert.equal(sidebar.element("model-picker").disabled, false);
+  assert.match(sidebar.element("model-picker").title, /Thinking: Unavailable/);
+  assert.match(sidebar.element("settings-description").textContent, /unavailable for this model/);
 });
 
 test("transcript image assets render without HTML injection and preview restores focus after close or Escape", () => {

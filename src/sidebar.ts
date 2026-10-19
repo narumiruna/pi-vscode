@@ -130,6 +130,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   private readonly markdownRenderer = new MarkdownRenderer();
   private view: vscode.WebviewView | undefined;
   private webviewReady = false;
+  private disposed = false;
   private pendingNavigation: "showSessionDetail" | "showSessionsLayer" | undefined;
   private messages: SidebarMessage[];
   private tools: ToolActivity[] = [];
@@ -281,6 +282,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   public dispose(): void {
+    this.disposed = true;
     this.webviewReady = false;
     this.pendingNavigation = undefined;
     if (this.renderTimer) {
@@ -370,8 +372,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       await this.drafts.handle(message);
       return;
     }
-    // Every other action can change the session, attachments, or composer draft.
-    this.fileCompletion.cancel();
+    // Opening read-only details or settings must not change an in-progress draft capture.
+    if (!["showMoreActions", "pickComposerSettings", "pickModel"].includes(message.type)) this.fileCompletion.cancel();
     const noticeRevision = this.noticeRevision;
     try {
       switch (message.type) {
@@ -473,6 +475,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         case "pickModel":
           await this.pickModel();
           break;
+        case "pickComposerSettings":
+          await this.pickComposerSettings();
+          break;
         case "newSession":
           await this.newSession();
           break;
@@ -525,9 +530,18 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           this.attachments.remove(message.id);
           break;
         case "setModel":
+          this.assertSettingsIdle();
+          if (
+            !this.runtime.currentState.availableModels.some(
+              (model) => model.provider === message.provider && model.id === message.modelId,
+            )
+          )
+            return;
           await this.runtime.setModel(message.provider, message.modelId);
           break;
         case "setThinking":
+          this.assertSettingsIdle();
+          if (!this.runtime.currentState.availableThinkingLevels.includes(message.level)) return;
           await this.runtime.setThinkingLevel(message.level);
           break;
         case "compact":
@@ -639,20 +653,6 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async showMoreActions(composerText: string, composerRevision: number, codeWrapping = false): Promise<void> {
-    const origin = () => {
-      const state = this.runtime.currentState;
-      return JSON.stringify([this.runtime.currentCwd, state.sessionId, state.sessionFile, state.connected]);
-    };
-    const expectedOrigin = origin();
-    const expectedView = this.view;
-    let stale = false;
-    const subscription = this.runtime.onDidChangeState(() => {
-      if (origin() !== expectedOrigin) stale = true;
-    });
-    const lifecycleSubscription = this.runtime.onEvent((event) => {
-      // Client replacement and same-session branch/resource controls reset extension UI.
-      if (event.type === "extension_ui_reset" || event.type === "process_exit") stale = true;
-    });
     const items = [
       { label: "Session management", kind: vscode.QuickPickItemKind.Separator },
       { label: "$(history) Resume Session", description: "Open a Pi session JSONL file", action: "resume" },
@@ -673,6 +673,11 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         action: "returnTerminal",
       },
       { label: "Conversation display", kind: vscode.QuickPickItemKind.Separator },
+      {
+        label: "Conversation details",
+        description: "Submission help, text draft recovery, session, context usage, and extension status",
+        action: "details",
+      },
       {
         label: "Word wrap",
         description: `${codeWrapping ? "On" : "Off"} · Wrap long code lines for display only`,
@@ -755,22 +760,26 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         action: "logout",
       },
     ];
-    let selected: (typeof items)[number] | undefined;
-    try {
-      selected = await vscode.window.showQuickPick(items, {
-        title: "Pi Session Actions",
-        placeHolder: "Search session, display, review, background, or configuration actions",
-        matchOnDescription: true,
-      });
-    } finally {
-      subscription.dispose();
-      lifecycleSubscription.dispose();
-    }
-    if (!selected || selected.kind === vscode.QuickPickItemKind.Separator || !selected.action) return;
-    if (stale || origin() !== expectedOrigin || this.view !== expectedView) {
-      throw new Error("Pi session changed while choosing an action. Open More again.");
-    }
-    if (selected.action === "checkpoints") {
+    const selected = await this.chooseCurrent(
+      () =>
+        vscode.window.showQuickPick(items, {
+          title: "Pi Session Actions",
+          placeHolder: "Search session, display, review, background, or configuration actions",
+          matchOnDescription: true,
+        }),
+      false,
+    );
+    if (
+      !selected ||
+      !items.includes(selected) ||
+      selected.kind === vscode.QuickPickItemKind.Separator ||
+      !selected.action
+    )
+      return;
+    // More stays available for read-only display and terminal recovery, not for locked mutations.
+    if (!["details", "wordWrap", "returnTerminal"].includes(selected.action)) this.assertSettingsIdle();
+    if (selected.action === "details") this.postMessage({ type: "showConversationDetails" });
+    else if (selected.action === "checkpoints") {
       if (this.isForegroundRequestActive()) throw new Error("Wait for Pi before restoring checkpoints.");
       const release = this.requestGate.acquire();
       this.postState();
@@ -812,34 +821,104 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     else if (selected.action === "worktree") await this.runBackground(composerText, true, composerRevision);
   }
 
-  private async pickModel(): Promise<void> {
-    const models = this.runtime.currentState.availableModels;
-    const selected = await vscode.window.showQuickPick(
-      models.flatMap((model) => {
-        const provider = stringValue(model.provider);
-        const id = stringValue(model.id);
-        if (!provider || !id) return [];
-        return [
-          {
-            label: stringValue(model.name) ?? `${provider}/${id}`,
-            description: `${provider}/${id}`,
-            provider,
-            id,
-          },
-        ];
-      }),
-      { title: "Choose Pi Model", matchOnDescription: true },
-    );
-    if (selected) {
-      await this.runtime.setModel(selected.provider, selected.id);
+  private assertSettingsIdle(): void {
+    if (this.disposed) throw new Error("Pi session changed while choosing an action. Open the picker again.");
+    if (!this.runtime.currentState.connected) throw new Error("Reconnect to Pi before changing the session.");
+    const state = this.runtime.currentState;
+    if (
+      this.isForegroundRequestActive() ||
+      this.backgroundSubmissionGate.isPending ||
+      this.runtime.hasPendingExtensionDialogs ||
+      (state.pendingQueue?.steering.length ?? 0) > 0 ||
+      (state.pendingQueue?.followUp.length ?? 0) > 0 ||
+      (state.queue?.steering.length ?? 0) > 0 ||
+      (state.queue?.followUp.length ?? 0) > 0
+    ) {
+      throw new Error("Wait for Pi before changing the session.");
     }
   }
 
-  private async pickThinkingLevel(): Promise<void> {
-    const selected = await vscode.window.showQuickPick(this.runtime.currentState.availableThinkingLevels, {
-      title: "Choose Pi Thinking Level",
+  private async chooseCurrent<T>(choose: () => Thenable<T | undefined>, idle = true): Promise<T | undefined> {
+    if (idle) this.assertSettingsIdle();
+    const origin = () => {
+      const state = this.runtime.currentState;
+      return JSON.stringify([this.runtime.currentCwd, state.sessionId, state.sessionFile, state.connected]);
+    };
+    const expectedOrigin = origin();
+    const expectedView = this.view;
+    let stale = this.disposed;
+    const subscription = this.runtime.onDidChangeState(() => {
+      if (origin() !== expectedOrigin) stale = true;
     });
-    if (selected) {
+    const lifecycleSubscription = this.runtime.onEvent((event) => {
+      // Client replacement and same-session branch/resource controls reset extension UI.
+      if (event.type === "extension_ui_reset" || event.type === "process_exit") stale = true;
+    });
+    try {
+      const selected = await choose();
+      if (selected === undefined) return undefined;
+      if (stale || this.disposed || origin() !== expectedOrigin || this.view !== expectedView) {
+        throw new Error("Pi session changed while choosing an action. Open the picker again.");
+      }
+      if (idle) this.assertSettingsIdle();
+      return selected;
+    } finally {
+      subscription.dispose();
+      lifecycleSubscription.dispose();
+    }
+  }
+
+  private async pickComposerSettings(): Promise<void> {
+    const state = this.runtime.currentState;
+    const model = state.model;
+    const items = [
+      {
+        label: "Change Model",
+        description: stringValue(model?.name) ?? stringValue(model?.id) ?? "Unknown",
+        action: "model",
+      },
+      { label: "Change Thinking Level", description: state.thinkingLevel ?? "Unknown", action: "thinking" },
+    ];
+    const selected = await this.chooseCurrent(() =>
+      vscode.window.showQuickPick(items, { title: "Pi Model and Thinking", matchOnDescription: true }),
+    );
+    if (!selected || !items.includes(selected)) return;
+    if (selected.action === "model") await this.pickModel();
+    else if (selected.action === "thinking") await this.pickThinkingLevel();
+  }
+
+  private async pickModel(): Promise<void> {
+    const items = this.runtime.currentState.availableModels.flatMap((model) => {
+      const provider = stringValue(model.provider);
+      const id = stringValue(model.id);
+      if (!provider || !id) return [];
+      return [
+        { label: stringValue(model.name) ?? `${provider}/${id}`, description: `${provider}/${id}`, provider, id },
+      ];
+    });
+    const selected = await this.chooseCurrent(() =>
+      vscode.window.showQuickPick(items, { title: "Choose Pi Model", matchOnDescription: true }),
+    );
+    if (
+      selected &&
+      items.includes(selected) &&
+      this.runtime.currentState.availableModels.some(
+        (model) => model.provider === selected.provider && model.id === selected.id,
+      )
+    )
+      await this.runtime.setModel(selected.provider, selected.id);
+  }
+
+  private async pickThinkingLevel(): Promise<void> {
+    const levels = [...this.runtime.currentState.availableThinkingLevels];
+    const selected = await this.chooseCurrent(() =>
+      vscode.window.showQuickPick(levels, { title: "Choose Pi Thinking Level" }),
+    );
+    if (
+      selected !== undefined &&
+      levels.includes(selected) &&
+      this.runtime.currentState.availableThinkingLevels.includes(selected)
+    ) {
       await this.runtime.setThinkingLevel(selected);
     }
   }
@@ -1614,12 +1693,14 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async nameSession(): Promise<void> {
-    const name = await vscode.window.showInputBox({
-      title: "Name Pi Session",
-      value: this.runtime.currentState.sessionName ?? "",
-      prompt: "Set a name for the current persistent Pi session.",
-      ignoreFocusOut: true,
-    });
+    const name = await this.chooseCurrent(() =>
+      vscode.window.showInputBox({
+        title: "Name Pi Session",
+        value: this.runtime.currentState.sessionName ?? "",
+        prompt: "Set a name for the current persistent Pi session.",
+        ignoreFocusOut: true,
+      }),
+    );
     if (name === undefined) {
       return;
     }
@@ -1653,15 +1734,17 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.postNotice("Cancel or wait for the active request before switching sessions.", "warning");
       return;
     }
-    const selection = await vscode.window.showOpenDialog({
-      title: "Resume Pi Session",
-      defaultUri: vscode.Uri.file(path.join(homedir(), ".pi", "agent", "sessions")),
-      canSelectFiles: true,
-      canSelectFolders: false,
-      canSelectMany: false,
-      filters: { "Pi sessions": ["jsonl"] },
-      openLabel: "Resume Session",
-    });
+    const selection = await this.chooseCurrent(() =>
+      vscode.window.showOpenDialog({
+        title: "Resume Pi Session",
+        defaultUri: vscode.Uri.file(path.join(homedir(), ".pi", "agent", "sessions")),
+        canSelectFiles: true,
+        canSelectFolders: false,
+        canSelectMany: false,
+        filters: { "Pi sessions": ["jsonl"] },
+        openLabel: "Resume Session",
+      }),
+    );
     const session = selection?.[0];
     if (!session) {
       return;
@@ -1684,16 +1767,20 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.postNotice("Pi did not discover any extension commands, prompt templates, or skills.", "info");
       return;
     }
-    const selected = await vscode.window.showQuickPick(
-      commands.map((command) => ({
-        label: `/${command.name}`,
-        description: command.source,
-        detail: command.description,
-        command: command.name,
-      })),
-      { title: "Pi Commands, Prompts, and Skills", matchOnDescription: true, matchOnDetail: true },
+    const items = commands.map((command) => ({
+      label: `/${command.name}`,
+      description: command.source,
+      detail: command.description,
+      command: command.name,
+    }));
+    const selected = await this.chooseCurrent(() =>
+      vscode.window.showQuickPick(items, {
+        title: "Pi Commands, Prompts, and Skills",
+        matchOnDescription: true,
+        matchOnDetail: true,
+      }),
     );
-    if (selected) {
+    if (selected && items.includes(selected)) {
       this.postMessage({ type: "setInput", text: `/${selected.command} ` });
     }
   }

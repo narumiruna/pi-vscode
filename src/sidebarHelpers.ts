@@ -37,6 +37,7 @@ export type WebviewMessage =
         | "showNoticeDetails"
         | "pickContext"
         | "pickModel"
+        | "pickComposerSettings"
         | "attachSelection"
         | "attachFile"
         | "attachCurrentFile"
@@ -169,6 +170,7 @@ export function isWebviewMessage(value: unknown, maxImageBytes: number): value i
     "showNoticeDetails",
     "pickContext",
     "pickModel",
+    "pickComposerSettings",
     "attachSelection",
     "attachFile",
     "attachCurrentFile",

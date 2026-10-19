@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { openConversationDetails } from "./composer-navigation-fixture.mjs";
 
 // Inspect only the active row of the disposable desktop profile, not backups or SQLite free pages.
 async function retainedDesktopDrafts(directory) {
@@ -36,7 +37,8 @@ export async function assertNativeDraftLocalCommands({ pi, page, until, director
   // Settle the earlier detail/layer transition before testing an idle, same-binding command.
   await page.waitForTimeout(250);
   await input.fill("");
-  await pi.locator('#composer-status[data-state="empty"]').waitFor({ state: "visible" });
+  await pi.locator('#composer-status[data-state="empty"]').waitFor({ state: "attached" });
+  assert.equal(await pi.locator("#composer-status").isVisible(), false);
   const session = await pi.locator("#session").inputValue();
   const prompts = () => readFile(path.join(directory, "prompts.jsonl"), "utf8").catch(() => "");
   const before = await prompts();
@@ -82,6 +84,7 @@ export async function assertNativeDraftRecovery({ pi, page, reload, until, direc
     }
   };
   const expand = async () => {
+    await openConversationDetails(current, page);
     const details = current.locator("#text-draft-recovery");
     if (!(await details.evaluate((item) => item.open))) await details.locator("summary").click();
   };
@@ -105,6 +108,7 @@ export async function assertNativeDraftRecovery({ pi, page, reload, until, direc
     0,
     "native draft fixture must start without attachments",
   );
+  await current.locator("#conversation-details-close").click();
   await current.locator("#input").fill(text);
   await current.locator("#input").press("Tab"); // Flush the coalesced text update without submitting.
   const stored = await until(async () => {
@@ -115,9 +119,10 @@ export async function assertNativeDraftRecovery({ pi, page, reload, until, direc
   await actualReload();
   await sessions();
   await until(
-    async () => await current.locator("#restore-text-draft").isVisible(),
+    async () => await current.locator("#text-draft-notice").isVisible(),
     "retained draft offered after actual reload",
   );
+  assert.equal(await current.locator("#conversation-details").evaluate((node) => node.open), false);
   assert.equal(await current.locator("#input").inputValue(), "", "reload must not insert text automatically");
   assert.equal(await log(), before, "recovery must not submit shell syntax or a model request");
   await expand();
@@ -125,6 +130,7 @@ export async function assertNativeDraftRecovery({ pi, page, reload, until, direc
   await until(async () => (await current.locator("#input").inputValue()) === text, "explicit Unicode draft Restore");
   assert.equal(await current.locator("#attachments [data-remove-attachment]").count(), 0);
   assert.equal(await log(), before);
+  await expand();
   await current.locator("#disable-text-drafts").click();
   await until(
     async () => await current.locator("#enable-text-drafts").isVisible(),
@@ -140,6 +146,7 @@ export async function assertNativeDraftRecovery({ pi, page, reload, until, direc
   assert.equal(await current.locator("#restore-text-draft").isVisible(), false);
   assert.equal(await current.locator("#input").inputValue(), "");
   assert.equal(await log(), before);
+  await current.locator("#conversation-details-close").click();
   console.log(
     "PI_NATIVE_DRAFT actual window reload, explicit text-only Restore, Unicode, consent, desktop workspaceStorage/state.vscdb active-row placement and disable/discard passed; no requests",
   );

@@ -63,7 +63,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     /* Author display rules must never override native hidden state. */
     [hidden] { display: none !important; }
     body { margin: 0; padding: 0; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); line-height: 1.5; overflow: hidden; }
-    #app { height: 100vh; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto minmax(0, auto) auto auto; padding: 0 12px 10px; }
+    #app { height: 100vh; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto minmax(0, auto) auto; padding: 0 12px 10px; }
     #app.sessions-layer { grid-template-rows: minmax(0, 1fr) minmax(0, auto) auto auto; }
     #app.sessions-layer > :not(#sessions):not(#composer):not(#notice):not(#runtime) { display: none; }
     button, select { min-height: 28px; border: 1px solid var(--vscode-button-border, transparent); border-radius: 7px; padding: 4px 9px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); cursor: pointer; font: inherit; }
@@ -104,26 +104,20 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     #app.sessions-layer #sessions { display: grid; min-height: 0; grid-template-rows: auto minmax(0, 1fr); border-bottom: 0; }
     #app.sessions-layer .sessions-title { color: var(--vscode-foreground); font-size: 1em; }
     #app.sessions-layer.sessions-expanded #session-list-content { display: grid; grid-template-rows: minmax(0, 1fr); }
-    .thinking-picker { position: relative; display: inline-flex; flex: 0 1 auto; min-width: 38px; align-items: center; }
-    #thinking-level { appearance: none; min-width: 0; max-width: 100%; min-height: 30px; border-radius: 8px; padding: 4px 27px 4px 9px; color: var(--vscode-descriptionForeground); }
-    .thinking-picker > .icon { position: absolute; right: 9px; width: 12px; height: 12px; color: var(--vscode-descriptionForeground); pointer-events: none; }
-    #model-picker:disabled, #thinking-level:disabled { color: var(--vscode-descriptionForeground); }
-    #thinking-level:disabled + .icon { opacity: .5; }
-    #thinking-level option { color: var(--vscode-foreground); background: var(--pi-control-background); }
-    #model-picker { min-width: 0; flex: 0 1 auto; justify-content: flex-start; color: var(--vscode-foreground); }
-    .model-settings { display: flex; min-width: 0; gap: 6px; align-items: center; }
-    .thinking-caption { color: var(--vscode-descriptionForeground); font-size: .85em; }
+    #model-picker { min-width: 0; flex: 0 1 auto; max-width: 100%; justify-content: flex-start; color: var(--vscode-foreground); }
+    #model-picker:disabled { color: var(--vscode-descriptionForeground); }
+    #thinking-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-descriptionForeground); }
+    #thinking-label:not(:empty)::before { content: '· '; }
     #settings-description { margin: 0; }
-    #file-discovery-hint { margin: 3px 2px; max-height: 2.6em; overflow-y: auto; line-height: 1.3; font-size: .78em; }
-    #text-draft-recovery { position: relative; flex-shrink: 0; margin: 2px; color: var(--vscode-descriptionForeground); font-size: .8em; }
-    #text-draft-recovery > summary { cursor: pointer; width: fit-content; margin-left: auto; }
-    #text-draft-body { position: absolute; bottom: 100%; right: 0; z-index: 12; width: min(340px, calc(100vw - 40px)); max-height: min(240px, 50vh); overflow-y: auto; padding: 8px; border: 1px solid var(--vscode-contrastBorder, var(--pi-border)); border-radius: 7px; background: var(--vscode-editor-background); }
-    #text-draft-body p { margin: 0; }
+    #file-discovery-hint { margin: 8px 0; line-height: 1.5; }
+    #text-draft-recovery > summary, #composer-help > summary { cursor: pointer; }
+    #text-draft-body p { margin: 8px 0; }
+    #text-draft-notice { align-self: flex-start; max-width: 100%; margin-top: 4px; white-space: normal; text-align: left; }
     #composer-status { margin: 4px 2px 0; max-height: 3.6em; overflow-y: auto; overflow-wrap: anywhere; color: var(--vscode-descriptionForeground); font-size: .82em; }
     #jump-to-latest { position: sticky; bottom: 0; display: flex; margin: 4px auto 0; max-width: 100%; background: var(--vscode-editor-background); border-color: var(--vscode-contrastBorder, var(--pi-border)); font-size: .85em; }
     #model-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #model-picker .icon { width: 12px; height: 12px; }
-    #runtime { position: relative; display: flex; flex-wrap: wrap; min-width: 0; gap: 6px; align-items: center; margin-top: 7px; padding: 7px 2px 0; color: var(--vscode-descriptionForeground); border-top: 1px solid var(--pi-border); font-size: .82em; }
+    #runtime { position: relative; display: flex; flex-wrap: wrap; min-width: 0; gap: 6px; align-items: center; margin-top: 7px; padding: 7px 2px; color: var(--vscode-descriptionForeground); font-size: .82em; }
     .status-dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--vscode-descriptionForeground); }
     #runtime[data-connection="connected"] .status-dot { background: var(--vscode-testing-iconPassed, var(--pi-accent)); }
     #runtime[data-connection="busy"] .status-dot { background: var(--vscode-progressBar-background); }
@@ -132,13 +126,21 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     #status { flex: 1 1 70px; }
     #session-details { min-width: 0; }
     #session-details > summary { cursor: pointer; }
-    .session-details-content { position: absolute; bottom: 100%; right: 0; z-index: 11; width: min(300px, calc(100vw - 32px)); padding: 8px; border: 1px solid var(--vscode-contrastBorder, var(--pi-border)); border-radius: 7px; background: var(--vscode-editor-background); }
+    .session-details-content { min-width: 0; padding: 8px 0; }
     #session { width: 100%; min-width: 0; color: var(--vscode-input-foreground); background: var(--vscode-input-background); font: inherit; }
     #usage { font-variant-numeric: tabular-nums; }
+    #conversation-details { width: min(480px, calc(100vw - 24px)); max-width: 100%; max-height: calc(100vh - 24px); padding: 14px; overflow-y: auto; overflow-wrap: anywhere; border: 1px solid var(--vscode-contrastBorder, var(--pi-border)); border-radius: 9px; color: var(--vscode-foreground); background: var(--vscode-editor-background); }
+    #conversation-details::backdrop { background: rgba(0, 0, 0, .45); }
+    .details-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+    #conversation-details-title { flex: 1; min-width: 0; margin: 0; font: inherit; font-weight: 600; }
+    #conversation-details > details, #conversation-details > section { margin: 12px 0; }
+    #conversation-details .extension-ui-block { max-height: 35vh; font-size: inherit; }
+    #composer-hint { margin-top: 8px; }
     #runtime button { min-height: 24px; padding: 2px 6px; font-size: inherit; }
     #conversation { min-width: 0; overflow-y: auto; overflow-anchor: none; padding: 18px 2px 24px; scrollbar-width: thin; }
     #messages { min-width: 0; }
     #messages.is-empty { min-height: 100%; display: flex; }
+    #conversation:has(#runtime:not([hidden])) #messages.is-empty { min-height: 0; }
     .empty { width: 100%; max-width: 380px; margin: auto; padding: 24px 8px 40px; text-align: center; color: var(--vscode-descriptionForeground); }
     .welcome-mark { display: grid; place-items: center; width: 44px; height: 44px; margin: 0 auto 18px; border: 1px solid var(--pi-border); border-radius: 12px; background: var(--vscode-editor-background); color: var(--pi-accent); font: 30px Georgia, serif; }
     .empty h2 { margin: 0 0 8px; color: var(--vscode-foreground); font-size: 1.65em; font-weight: 600; letter-spacing: -.035em; line-height: 1.25; }
@@ -241,7 +243,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     #slash-commands button[aria-selected="true"] { color: var(--vscode-editorSuggestWidget-selectedForeground, var(--vscode-list-activeSelectionForeground)); background: var(--vscode-editorSuggestWidget-selectedBackground, var(--vscode-list-activeSelectionBackground)); }
     .slash-name { flex: 0 0 auto; font-family: var(--vscode-editor-font-family); }
     .slash-description { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .75; }
-    /* Reserve short/zoomed view space for the session header, help, notices and runtime footer. */
+    /* Reserve short/zoomed view space for the session header and necessary notices. */
     .composer-box { position: relative; display: flex; flex: 0 0 auto; flex-direction: column; min-height: 0; max-height: max(200px, min(60vh, calc(100vh - 210px))); overflow: hidden; background: var(--pi-composer-background); border: 1px solid var(--vscode-input-border, var(--pi-border)); border-radius: 14px; box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, .2)); }
     .composer-box:focus-within { border-color: var(--vscode-focusBorder); box-shadow: 0 6px 20px var(--vscode-widget-shadow, rgba(0, 0, 0, .24)); }
     textarea { display: block; width: 100%; height: 42px; min-height: 42px; max-height: min(220px, 28vh); resize: none; padding: 11px 13px 7px; color: var(--vscode-input-foreground); background: transparent; border: 0; border-radius: 14px 14px 6px 6px; font: inherit; line-height: 1.5; scrollbar-width: thin; }
@@ -255,11 +257,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .pending-queue-text { min-width: 0; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
     .composer-box > .proposal-actions { padding: 0 10px; }
     .composer-actions { display: flex; flex-shrink: 0; flex-wrap: wrap; min-width: 0; gap: 6px; padding: 3px 8px 8px; align-items: center; }
-    .composer-actions > button, .composer-actions > select { min-height: 30px; border-radius: 8px; }
-    #add-context { flex: 0 1 auto; min-width: 30px; border-color: transparent; color: var(--vscode-descriptionForeground); font-size: .9em; }
-    .composer-spacer { min-width: 0; flex: 1; }
-    #model-picker, #thinking-level { border-color: var(--pi-control-border); background: var(--pi-control-background); }
-    #model-picker:hover:not(:disabled), #thinking-level:hover:not(:disabled) { background: var(--vscode-list-hoverBackground, var(--vscode-toolbar-hoverBackground)); }
+    .composer-submit-actions { display: flex; flex: 1 1 0; min-width: 0; max-width: 100%; gap: 6px; align-items: center; justify-content: flex-end; }
+    .composer-actions > button, .composer-submit-actions > button { min-height: 30px; border-radius: 8px; }
+    #add-context { flex: 0 0 30px; width: 30px; min-width: 30px; padding: 6px; border-color: transparent; color: var(--vscode-descriptionForeground); }
+    #model-picker { border-color: transparent; background: transparent; }
+    #model-picker:hover:not(:disabled) { background: var(--vscode-list-hoverBackground, var(--vscode-toolbar-hoverBackground)); }
     #send { width: 30px; flex: 0 0 30px; padding: 6px; }
     #send:disabled { border-color: var(--pi-control-border); color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground)); background: transparent; }
     #send.queue-action { width: auto; flex: 0 0 auto; }
@@ -268,9 +270,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     #send.queue-action #submission-label { display: inline; }
     #send.queue-action .icon { display: none; }
     #cancel { border-color: var(--pi-control-border); font-size: .9em; }
-    #composer-help { position: relative; flex-shrink: 0; margin: 4px; color: var(--vscode-descriptionForeground); font-size: .8em; }
-    #composer-help > summary { cursor: pointer; width: fit-content; margin-left: auto; }
-    #composer-hint { position: absolute; bottom: 100%; right: 0; z-index: 12; width: min(340px, calc(100vw - 40px)); padding: 8px; border: 1px solid var(--vscode-contrastBorder, var(--pi-border)); border-radius: 7px; background: var(--vscode-editor-background); line-height: 1.4; overflow-wrap: anywhere; }
     #notice { max-height: 12vh; overflow-y: auto; padding: 7px 2px 0; color: var(--vscode-descriptionForeground); font-size: .85em; overflow-wrap: anywhere; }
     #notice:empty { display: none; }
     #notice.error { color: var(--vscode-errorForeground); }
@@ -286,11 +285,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     body.vscode-high-contrast .welcome-action, body.vscode-high-contrast-light .welcome-action,
     body.vscode-high-contrast .attachment-image, body.vscode-high-contrast-light .attachment-image { border-color: var(--vscode-contrastBorder); }
     body.vscode-high-contrast .composer-box:focus-within, body.vscode-high-contrast-light .composer-box:focus-within { border-color: var(--vscode-focusBorder); }
-    @media (max-width: 340px) { #app { padding: 0 8px 8px; } .sessions-actions { gap: 0; } .thinking-caption { display: none; } .composer-actions { gap: 4px; padding-left: 6px; padding-right: 6px; } #add-context span { display: none; } #model-picker { flex: 1; } .empty { padding-left: 2px; padding-right: 2px; } .empty h2 { font-size: 1.5em; } button.welcome-action { gap: 9px; padding: 10px; } }
-    @media (max-width: 600px) { .model-settings { flex: 1 0 100%; } #model-picker { flex: 1; } }
-    @media (max-width: 240px) { #cancel { padding: 4px; } #after-this { padding: 4px; } .composer-actions { gap: 3px; } }
-    @media (max-width: 200px) { .sessions-actions .icon-button { width: 24px; padding: 3px; } }
-    @media (max-height: 500px) { #file-discovery-hint { max-height: 1.3em; } textarea { max-height: 18vh; } #attachments { max-height: 16vh; } .empty { padding-top: 8px; padding-bottom: 16px; } .welcome-mark { display: none; } .empty-actions { margin-top: 16px; } }
+    @media (max-width: 340px) { #app { padding: 0 8px 8px; } .sessions-actions { gap: 0; } .composer-actions { gap: 4px; padding-left: 6px; padding-right: 6px; } .composer-submit-actions { gap: 4px; } .empty { padding-left: 2px; padding-right: 2px; } .empty h2 { font-size: 1.5em; } button.welcome-action { gap: 9px; padding: 10px; } }
+    @media (max-width: 240px) { #cancel, #after-this { padding: 4px; } .composer-actions, .composer-submit-actions { gap: 3px; } #thinking-label { display: none; } }
+    @media (max-width: 300px) { .composer-submit-actions:has(#send.queue-action) { flex-wrap: wrap; justify-content: flex-end; } }
+    @media (max-width: 200px) { .sessions-actions .icon-button { width: 24px; padding: 3px; } .composer-submit-actions:has(#send.queue-action) { display: contents; } .composer-actions:has(#send.queue-action) { justify-content: flex-end; } .composer-actions:has(#send.queue-action) #model-picker { flex: 1 1 0; } }
+    @media (max-height: 500px) { textarea { max-height: 18vh; } #attachments { max-height: 16vh; } .empty { padding-top: 8px; padding-bottom: 16px; } .welcome-mark { display: none; } .empty-actions { margin-top: 16px; } }
     @media (prefers-reduced-motion: no-preference) { button { transition: background-color .12s ease, border-color .12s ease, transform .08s ease; } .composer-box { transition: border-color .12s ease, box-shadow .12s ease; } }
   </style>
 </head>
@@ -324,6 +323,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       ${conversationHistoryControlsHtml()}
       <section id="messages" aria-live="off"></section>
       <details id="tools-group" hidden><summary id="tools-group-toggle"><span id="tools-summary">Tool activity</span><span id="tools-running"></span><span id="tools-failed"></span></summary><section id="tools" aria-label="Pi tool activity"></section></details>
+      <div id="runtime"><span class="status-dot" aria-hidden="true"></span><span id="status" role="status" aria-live="polite">Connecting…</span><button id="retry" class="secondary" type="button" hidden>Retry</button><button id="refresh-history" class="secondary" type="button" hidden>Refresh history</button><button id="reconnect" class="secondary" type="button" hidden>Reconnect</button></div>
       <button id="jump-to-latest" class="secondary" type="button" hidden>Jump to latest</button>
     </section>
     <section id="activity" aria-label="Pi workflow activity" hidden>
@@ -333,7 +333,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     </section>
     <section id="composer" aria-label="Message composer">
       <div id="slash-commands" role="listbox" aria-label="Slash commands" hidden></div>
-      <section id="extension-ui-above" class="extension-ui-block" tabindex="0" aria-label="Pi extension status and widgets above editor" hidden></section>
+      <section id="extension-ui-above" class="extension-ui-block" tabindex="0" aria-label="Pi extension widgets above editor" hidden></section>
       <div id="file-completions" role="listbox" aria-label="Workspace files" hidden></div>
       <div class="composer-box">
         <div id="attachments" aria-label="Attachments for the next message" hidden></div>
@@ -346,27 +346,29 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           <button id="recover-queue" class="secondary" type="button" hidden>Restore drafts</button>
         </div>
         <div class="composer-actions">
-          <div class="model-settings">
-          <button id="model-picker" class="secondary" type="button" aria-label="Change Pi model"><span id="model-label">Choose model…</span>${icon("chevron")}</button>
-          <label for="thinking-level" class="sr-only">Pi thinking level</label>
-          <span class="thinking-caption" aria-hidden="true">Thinking</span><span class="thinking-picker"><select id="thinking-level" aria-label="Pi thinking level" title="Pi thinking level"><option value="">—</option></select>${icon("chevron")}</span>
-          </div>
-          <button id="add-context" class="secondary" type="button" title="Attach code, files, or images">${icon("attachment")}<span>Attach</span></button>
-          <span class="composer-spacer"></span>
+          <button id="add-context" class="secondary" type="button" title="Attach code, files, or images" aria-label="Attach code, files, or images">${icon("attachment")}</button>
+          <div class="composer-submit-actions">
+          <button id="model-picker" class="secondary" type="button" aria-label="Change Pi model and thinking level" aria-haspopup="dialog"><span id="model-label">Choose model…</span><span id="thinking-label"></span>${icon("chevron")}</button>
           <button id="cancel" class="secondary" type="button" aria-label="Cancel Pi response" hidden>${icon("stop")}<span>Stop</span></button>
           <button id="after-this" class="secondary" type="button" aria-describedby="composer-status" aria-label="After this: send when Pi finishes responding" hidden>After this</button>
           <button id="send" type="button" aria-describedby="composer-status" aria-label="Send message" title="Send message" disabled>${icon("send")}<span id="submission-label">Next</span></button>
+          </div>
         </div>
       </div>
       <section id="extension-ui-below" class="extension-ui-block" tabindex="0" aria-label="Pi extension widgets below editor" hidden></section>
       <p id="composer-status" role="status" aria-live="polite" aria-atomic="true" hidden></p>
       <p id="settings-description" class="sr-only"></p>
-      <p id="file-discovery-hint" class="proposal-meta">Checking workspace file completion.</p>
-      <details id="composer-help"><summary>Submission help</summary><div id="composer-hint">Enter to send · Shift+Enter for a new line</div><p>Idle session only: !command includes model context; !!command excludes model context, not history. Remove attachments. Every command needs approval. Prefix ! with a backslash to send literal text.</p></details>
     </section>
     <div id="notice" role="status" aria-live="polite"></div>
-    <div id="runtime"><span class="status-dot" aria-hidden="true"></span><span id="status" role="status" aria-live="polite">Connecting…</span><details id="session-details" hidden><summary>Session details</summary><div class="session-details-content"><label for="session">Session ID (select to copy)</label><input id="session" readonly></div></details><span id="usage"></span><button id="retry" class="secondary" type="button" hidden>Retry</button><button id="refresh-history" class="secondary" type="button" hidden>Refresh history</button><button id="reconnect" class="secondary" type="button" hidden>Reconnect</button></div>
   </main>
+  <dialog id="conversation-details" aria-labelledby="conversation-details-title">
+    <div class="details-header"><h2 id="conversation-details-title">Conversation details</h2><button id="conversation-details-close" class="secondary" type="button">Close</button></div>
+    <details id="composer-help"><summary>Submission help</summary><div id="composer-hint">Enter to send · Shift+Enter for a new line</div><p>Idle session only: !command includes model context; !!command excludes model context, not history. Remove attachments. Every command needs approval. Prefix ! with a backslash to send literal text.</p></details>
+    <p id="file-discovery-hint">Checking workspace file completion.</p>
+    <details id="session-details" hidden><summary>Session details</summary><div class="session-details-content"><label for="session">Session ID (select to copy)</label><input id="session" readonly></div></details>
+    <section aria-label="Context usage"><h2 class="section-heading">Context usage</h2><p id="usage">Context usage is unavailable.</p></section>
+    <section id="extension-status" class="extension-ui-block" tabindex="0" aria-label="Pi extension status" hidden></section>
+  </dialog>
   <dialog id="image-preview" aria-labelledby="preview-label">
     <div class="preview-header"><span id="preview-label"></span><button id="preview-close" class="secondary" type="button" aria-label="Close image preview">Close</button></div>
     <img id="preview-image" alt="">
@@ -397,7 +399,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     const sendButton = $('send');
     const cancelButton = $('cancel');
     const notice = $('notice');
-    const thinkingLevel = $('thinking-level');
+    const conversationDetails = $('conversation-details');
     const clientPlatform = typeof navigator.userAgentData?.platform === 'string'
       ? navigator.userAgentData.platform
       : navigator.platform || '';
@@ -431,9 +433,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let messageHeadingSequence = 0;
     let wrapReadingAnchor;
     let wrapReadingTop;
-    let updatingControls = false;
-    let thinkingSelectable = false;
     let thinkingUnavailableReason = '';
+    let modelTitle = 'Choose Pi model and thinking level';
     let latestStatus = 'Connecting…';
     let conversationPinnedToBottom = true;
     let programmaticConversationScrollTop;
@@ -456,9 +457,15 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let sessionButtons = [];
 
     function showNotice(message, level, detailsAvailable = false, transientLock = false) {
+      notice.replaceChildren();
       notice.textContent = message;
       notice.className = level || '';
       notice.dataset.transientLock = transientLock ? 'true' : '';
+      if (level === 'info' || level === 'success') {
+        const dismiss = document.createElement('button');
+        dismiss.className = 'secondary'; dismiss.type = 'button'; dismiss.textContent = 'Dismiss';
+        dismiss.dataset.noticeDismiss = 'true'; notice.appendChild(dismiss);
+      }
       if (detailsAvailable) {
         const details = document.createElement('button');
         details.className = 'secondary';
@@ -487,6 +494,10 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
             : latestStatus;
       if ($('status').textContent !== displayed) $('status').textContent = displayed;
       $('status').title = displayed;
+      const wasHidden = $('runtime').hidden;
+      $('runtime').hidden = connected && !busy && !imageLoading && !backgroundSubmissionPending && !submissionPending
+        && displayed === 'Ready' && $('retry').hidden && $('refresh-history').hidden;
+      if (wasHidden !== $('runtime').hidden && conversationPinnedToBottom) scrollConversationToBottom();
     }
 
     function setConversationScrollTop(scrollTop) {
@@ -1260,29 +1271,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         ? runtime.availableThinkingLevels.filter(level => typeof level === 'string')
         : [];
       const current = typeof runtime.thinkingLevel === 'string' ? runtime.thinkingLevel : '';
-      const levels = current && !available.includes(current) ? [current, ...available] : available;
-      const signature = levels.join('|');
-      if (thinkingLevel.dataset.levels !== signature) {
-        thinkingLevel.replaceChildren();
-        if (levels.length === 0) {
-          const option = document.createElement('option');
-          option.value = '';
-          option.textContent = '—';
-          thinkingLevel.appendChild(option);
-        } else {
-          for (const level of levels) {
-            const option = document.createElement('option');
-            option.value = level;
-            option.textContent = formatThinkingLevel(level);
-            thinkingLevel.appendChild(option);
-          }
-        }
-        thinkingLevel.dataset.levels = signature;
-      }
-      thinkingSelectable = levels.length > 1;
-      thinkingUnavailableReason = !levels.length ? 'Thinking is unavailable for this model.' : !thinkingSelectable ? 'Only one thinking level is available.' : '';
-      thinkingLevel.value = current || levels[0] || '';
-      thinkingLevel.title = current ? 'Pi thinking level: ' + formatThinkingLevel(current) : 'Pi thinking level unavailable';
+      $('thinking-label').textContent = current ? formatThinkingLevel(current) : '';
+      thinkingUnavailableReason = !available.length ? 'Thinking is unavailable for this model.'
+        : available.length === 1 ? 'Only one thinking level is available.' : '';
     }
 
     function formatSessionAge(updatedAt) {
@@ -1348,7 +1339,13 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('session-header-title').title = sessionsLayerVisible ? '' : current?.title || '';
       for (const id of ['history-search-open', 'history-earlier', 'history-latest']) $(id).hidden = sessionsLayerVisible;
       input.placeholder = sessionsLayerVisible ? 'Start a new session…' : busy ? 'Write a follow-up…' : 'Ask Pi anything…';
-      if (sessionsLayerVisible) renderSessions();
+      const runtime = $('runtime');
+      if (sessionsLayerVisible) {
+        if (runtime.parentElement !== appElement) appElement.appendChild(runtime);
+        renderSessions();
+      } else if (runtime.parentElement !== conversationElement) {
+        conversationElement.append(runtime, $('jump-to-latest'));
+      }
     }
 
     function showSessionDetail() {
@@ -1440,10 +1437,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const interactionLocked = isInteractionLocked();
       if (!interactionLocked && notice.dataset.transientLock === 'true') clearNotice();
       $('model-picker').disabled = interactionLocked || !connected;
-      thinkingLevel.disabled = interactionLocked || !connected || !thinkingSelectable;
       $('new-session').disabled = interactionLocked;
       $('delete-session').disabled = interactionLocked || !connected || !deletableSession;
-      $('more').disabled = interactionLocked || !connected;
+      $('more').disabled = false;
       $('recover-queue').disabled = interactionLocked;
       for (const button of sessionButtons) button.disabled = interactionLocked || Boolean(sessionSwitchPending);
       input.disabled = Boolean(recoveredDraftPending);
@@ -1463,9 +1459,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const settingsReason = !connected ? 'Reconnect to change settings.' : interactionLocked ? 'Settings are locked during active work.' : '';
       $('settings-description').textContent = [settingsReason, thinkingUnavailableReason].filter(Boolean).join(' ');
       $('model-picker').setAttribute('aria-describedby', 'settings-description');
-      $('model-picker').parentElement?.setAttribute('title', settingsReason);
-      thinkingLevel.setAttribute('aria-describedby', 'settings-description');
-      thinkingLevel.title = (thinkingLevel.value ? 'Pi thinking level: ' + formatThinkingLevel(thinkingLevel.value) : 'Pi thinking level unavailable for this model.') + (settingsReason ? ' ' + settingsReason : '');
+      $('model-picker').title = modelTitle + (settingsReason ? ' · ' + settingsReason : '');
       // Priority is shared by the visible status and disabled-button titles.
       const blocker = !connected ? 'Pi is disconnected. Use Reconnect before sending.'
         : composerDraft?.blocked() ? 'Draft context changed. Wait for the transition, or verify the session and clear the kept text.'
@@ -1485,8 +1479,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         : '';
       const composerStatus = $('composer-status');
       if (composerStatus.textContent !== blocker) composerStatus.textContent = blocker;
-      composerStatus.hidden = !blocker;
-      composerStatus.dataset.state = !input.value.trim() && !attachedItems && blocker === 'Enter a message or attach context to send.' ? 'empty' : blocker ? 'blocked' : 'ready';
+      const emptyDraft = blocker === 'Enter a message or attach context to send.';
+      composerStatus.hidden = !blocker || emptyDraft;
+      composerStatus.dataset.state = emptyDraft ? 'empty' : blocker ? 'blocked' : 'ready';
       sendButton.title = blocker || (canQueue ? 'Send after the current tool finishes (Enter)' : !input.value.trim() && attachedItems ? 'Send attachments' : sessionsLayerVisible ? 'Start new session' : 'Send message');
       if (blocker) $('after-this').title = blocker;
       $('composer-hint').textContent = imageLoading
@@ -1515,19 +1510,21 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       renderedExtensionUi = serialized;
       const above = $('extension-ui-above');
       const below = $('extension-ui-below');
+      const status = $('extension-status');
       above.replaceChildren();
       below.replaceChildren();
+      status.replaceChildren();
       function heading(parent, text) {
         const node = document.createElement('h2');
         node.textContent = text;
         parent.append(node);
       }
       if ((ui.statuses || []).length) {
-        heading(above, 'Extension status');
+        heading(status, 'Extension status');
         for (const entry of ui.statuses) {
           const row = document.createElement('p');
           row.textContent = entry.key + ': ' + entry.text;
-          above.append(row);
+          status.append(row);
         }
       }
       for (const placement of ['aboveEditor', 'belowEditor']) {
@@ -1545,10 +1542,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       if (ui.diagnostic) {
         const diagnostic = document.createElement('p');
         diagnostic.textContent = ui.diagnostic;
-        above.append(diagnostic);
+        status.append(diagnostic);
       }
       above.hidden = !above.children.length;
       below.hidden = !below.children.length;
+      status.hidden = !status.children.length;
     }
 
     function render(state) {
@@ -1606,13 +1604,14 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         ? 'About ' + (estimate.estimatedTextTokens || 0) + ' attachment text tokens (estimated); image tokens not included. Attach → View attachments for details.'
         : '';
       $('activity').hidden = ![state.proposals, state.changes, state.backgroundTasks].some(items => items && items.length);
-      updatingControls = true;
       renderThinkingLevel(state.runtime);
-      updatingControls = false;
       const currentModel = state.runtime.model || {};
       $('model-label').textContent = currentModel.name || currentModel.id || 'Choose model…';
-      $('model-picker').title = currentModel.provider && currentModel.id ? currentModel.provider + '/' + currentModel.id : 'Choose Pi model';
-      $('model-picker').setAttribute('aria-label', 'Pi model: ' + (currentModel.name || currentModel.id || 'Choose model'));
+      const modelName = currentModel.name || currentModel.id || 'Choose model';
+      const modelIdentity = currentModel.provider && currentModel.id ? currentModel.provider + '/' + currentModel.id : modelName;
+      const thinkingName = $('thinking-label').textContent || 'Unavailable';
+      modelTitle = modelName + ' · ' + modelIdentity + ' · Thinking: ' + thinkingName;
+      $('model-picker').setAttribute('aria-label', 'Pi model: ' + modelName + ' · ' + modelIdentity + ' · Thinking: ' + thinkingName + '. Change model or thinking level');
       $('delete-session').hidden = !deletableSession;
       $('runtime').dataset.connection = !connected ? 'disconnected' : busy ? 'busy' : 'connected';
       const status = busy && (!state.status || state.status === 'Ready') ? 'Working…' : state.status || 'Ready';
@@ -1621,7 +1620,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('session-details').hidden = !state.runtime.sessionId;
       const context = (state.runtime.stats || {}).contextUsage || {};
       const hasContextUsage = typeof context.percent === 'number';
-      $('usage').textContent = hasContextUsage ? 'Context ' + Math.round(context.percent) + '%' : '';
+      $('usage').textContent = hasContextUsage ? 'Context ' + Math.round(context.percent) + '%' : 'Context usage is unavailable.';
       $('usage').title = hasContextUsage ? 'Share of the model’s context window currently in use' : '';
       $('reconnect').hidden = connected;
       $('retry').hidden = !state.retryAvailable;
@@ -1701,6 +1700,19 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     $('preview-image').addEventListener('error', () => { if (previewAssetId) rejectImageAsset(previewAssetId); });
     $('preview-close').addEventListener('click', closeImagePreview);
 
+    function showConversationDetails() {
+      closeSlashCommands();
+      if (!conversationDetails.open) conversationDetails.showModal();
+      $('conversation-details-close').focus();
+    }
+    function closeConversationDetails(focusComposer = false) {
+      if (conversationDetails.open) conversationDetails.close();
+      // Native close events are deferred. Restore focus once, not again after later navigation.
+      (focusComposer === true ? input : $('more')).focus();
+    }
+    conversationDetails.addEventListener('cancel', event => { event.preventDefault(); closeConversationDetails(); });
+    $('conversation-details-close').addEventListener('click', closeConversationDetails);
+
     ${composerFileCompletionHtml()}
     ${composerDraftHtml()}
     ${conversationHistoryScript()}
@@ -1717,6 +1729,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       if (message.type === 'state') render(message);
       else if (message.type === 'showSessionDetail') showSessionDetail();
       else if (message.type === 'showSessionsLayer') showSessionsLayer();
+      else if (message.type === 'showConversationDetails') showConversationDetails();
       else if (message.type === 'toggleCodeWrapping') toggleCodeWrapping();
       else if (message.type === 'imageAsset') acceptImageAsset(message);
       else if (message.type === 'notice') showNotice(message.message, message.level, Boolean(message.detailsAvailable));
@@ -1784,7 +1797,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     $('retry').addEventListener('click', () => vscode.postMessage({ type: 'retry' }));
     $('refresh-history').addEventListener('click', () => vscode.postMessage({ type: 'refreshHistory' }));
     $('add-context').addEventListener('click', () => vscode.postMessage({ type: 'pickContext' }));
-    $('model-picker').addEventListener('click', () => vscode.postMessage({ type: 'pickModel' }));
+    $('model-picker').addEventListener('click', () => vscode.postMessage({ type: 'pickComposerSettings' }));
     $('view-all-sessions').addEventListener('click', () => setSessionsExpanded(true));
     $('back-to-sessions').addEventListener('click', () => {
       if (sessionsLayerVisible) setSessionsExpanded(false);
@@ -1806,7 +1819,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     $('delete-session').addEventListener('click', () => vscode.postMessage({ type: 'deleteSession' }));
     $('more').addEventListener('click', () => vscode.postMessage({ type: 'showMoreActions', text: input.value, revision: composerRevision, codeWrapping: messagesElement.classList.contains('wrap-code') }));
     $('source-control').addEventListener('click', () => vscode.postMessage({ type: 'openSourceControl' }));
-    thinkingLevel.addEventListener('change', () => { if (!updatingControls) vscode.postMessage({ type: 'setThinking', level: thinkingLevel.value }); });
     input.addEventListener('input', () => { composerRevision += 1; slashFocused = true; slashDismissed = false; slashIndex = 0; resizeInput(); updateSendState(); });
     input.addEventListener('click', renderSlashCommands);
     input.addEventListener('keyup', event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') renderSlashCommands(); });
@@ -1876,6 +1888,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     notice.addEventListener('click', event => {
       const button = event.target instanceof Element ? event.target.closest('button[data-notice-details]') : undefined;
       if (button) vscode.postMessage({ type: 'showNoticeDetails' });
+      else if (event.target instanceof Element && event.target.closest('button[data-notice-dismiss]')) clearNotice();
     });
     messagesElement.addEventListener('click', event => {
       const target = event.target instanceof Element ? event.target : undefined;

@@ -8,7 +8,7 @@ Host validation remains authoritative. Visible status, local search and native p
 
 ## Submission status priority
 
-The first applicable row supplies both the visible status and disabled-button titles. The input and both submission actions reference this status through `aria-describedby`. A polite live region changes only when its text changes. Empty input is a neutral state, not an error.
+The first applicable row supplies disabled-button titles and the accessible status description. All blockers except neutral empty input also have a visible status row. The input and both submission actions reference this status through `aria-describedby`. A polite live region changes only when its text changes. Empty input is a neutral state, not an error; it does not add a visible hint row.
 
 | Priority | Condition | User action |
 | --- | --- | --- |
@@ -27,7 +27,11 @@ The first applicable row supplies both the visible status and disabled-button ti
 | 13 | Empty text without attachments | Enter a message or attach context. |
 | None | Submission available | No blocker status; titles explain Send, Next or After this. |
 
-Stop is separate from submission. Short-panel styles bound hints and preserve input/action space. Submission help and text-draft details use bounded disclosures rather than moving the primary controls offscreen.
+Stop is separate from submission. The composer has an attachment icon on the left and one model/thinking button with submission controls on the right. Long model labels truncate visually, not in accessible names or tooltips. The button opens a native Change Model / Change Thinking Level picker; each operation changes only the selected value.
+
+More → Conversation details contains Submission help, file-completion instructions, Text draft recovery, Session details, context usage, and extension status. The bounded dialog supports Close/Escape and returns focus to More. Read-only details remain reachable during work or disconnect without authorizing mutation actions. Extension widgets retain their requested editor placement and inert plain-text rendering.
+
+Normal idle Ready status is not visible. One foreground progress line appears at the conversation tail. Recovery controls remain visible when required in both conversation and Sessions views. Blocking errors and cleanup warnings are not dismissible.
 
 ## Latest-output navigation
 
@@ -50,6 +54,8 @@ Only allowlisted text/owner/timestamp records enter `pi.sidebar.drafts.v1` in wo
 
 No attachment, pin, image, extension-dialog value or queue recovery payload enters this key. Removal does not securely erase backups or SQLite free pages. Storage failures can leave older disk bytes and are reported.
 
+Recovery controls are under More → Conversation details → Text draft recovery. A short Retained text available · Review notice appears only for available retained text in the current scope. It does not open the dialog or insert text automatically. Scope transitions hide an old notice until the new binding is known.
+
 | Transition | Ownership and recovery rule |
 | --- | --- |
 | Initial/recreated view | Start with separate Sessions ownership and a fresh random view binding. Do not insert retained text automatically. |
@@ -70,12 +76,12 @@ Other VS Code windows and external storage writers are not serialized by this ex
 
 ## Native session actions
 
-The existing 26 actions remain; Word wrap adds one local conversation-display action. Model/Thinking controls are not equally available when disconnected, and recent Sessions is not equivalent to choosing an arbitrary JSONL file. Return Pi from Terminal must remain available for held ownership recovery.
+Existing actions remain; Word wrap and Conversation details are local conversation-display actions. Model/Thinking mutations require an idle connected runtime and a current picker origin. Read-only details remain available when disconnected. Recent Sessions is not equivalent to choosing an arbitrary JSONL file. Return Pi from Terminal remains available for held ownership recovery.
 
 | Group | Available actions |
 | --- | --- |
 | Session management | Resume; Rename; Compact; Tree/Fork/Clone; Export; Import; Share; Open in Terminal; Return Pi from Terminal. |
-| Conversation display | Word wrap, with the current On/Off state. |
+| Conversation display | Word wrap, with the current On/Off state; Conversation details. |
 | Review and repair | Checkpoints; Review Changes; Show Findings; Diagnostics; Staged Review; Failed-Test Repair; Debug Context. |
 | Background work | Background Agent; Worktree Agent. |
 | Pi configuration | Model; Thinking; Commands/Skills; Reload; Restart; Compatibility; Sign In; Sign Out. |
@@ -94,6 +100,7 @@ The existing routes below retain their guarded handlers. Word wrap sends one fix
 | Open in Terminal | `openInTerminal()`; compatibility handoff | Trusted canonical ownership transfer and cleanup confirmation. |
 | Return from Terminal | `returnFromTerminal()`; palette | Held terminal/recovery ownership and explicit inspection confirmation. |
 | Word wrap | More… → Conversation display; fixed `toggleCodeWrapping` message | Current view/session origin; picker cancellation and stale selections perform no toggle. |
+| Conversation details | More… → Conversation display; fixed `showConversationDetails` message | Read-only opening only; does not restore drafts, submit input, or change configuration. |
 | Checkpoints | `selectCheckpoint()`; More only | No foreground request; captured coverage and guarded restore. |
 | Review Changes | `pi.reviewChanges`; palette | Trusted Git snapshot and confirmation; read-only review. |
 | Show Findings | `pi.showReviewFindings`; palette / Problems | Captured findings with original freshness checks. |
@@ -103,8 +110,8 @@ The existing routes below retain their guarded handlers. Word wrap sends one fix
 | Debug Context | `pi.askDebugContext`; palette | Supported paused Node debugger; capture approval and read-only question. |
 | Background Agent | `runBackground(text, false, revision)` | Bounded non-shell draft; start lock, modal approval and workspace capacity. |
 | Worktree Agent | `runBackground(text, true, revision)` | Background guards plus isolated Git worktree checks. |
-| Model | `pickModel()`; keyboard composer button | Existing catalog/runtime selection; composer alternative is disabled while disconnected. |
-| Thinking | `pickThinkingLevel()`; composer select | Existing supported levels/runtime checks; composer availability differs. |
+| Model | `pickModel()`; combined composer settings picker | Catalog/runtime selection; idle connected runtime and current session/client/view are required after selection. |
+| Thinking | `pickThinkingLevel()`; combined composer settings picker | Available levels and current session/client are rechecked after selection; zero or one level cannot cause an implicit change. |
 | Commands/Skills | `pickPiCommand()`; slash completion | Discovered non-reserved command; inserts a draft, not execution. |
 | Reload | `reloadResources()`; palette / `/reload` | No attachments or foreground work; canonical owner and packaged-policy checks. |
 | Restart | `restartSessionProcess()`; palette | Current-policy modal, session/ownership checks and no replay. |
@@ -130,7 +137,15 @@ More… → Conversation display → Word wrap is a view-local display choice, o
 
 The header/control relocation passed 916 unit tests (3 skipped), the rich-content browser suite and the full Linux native UI suite on VS Code 1.106.0. Browser header checks cover four themes, short/long titles, widths 200/240/280/340/600/960 and the 169 CSS-pixel viewport found at native 200% zoom: 56 layouts. Tests cover disclosure/focus, literal search, conditional feedback, unavailable history, menu state/cancellation/stale views, display-only wrapping, copying and reading-position preservation. Native checks use the real Word wrap Quick Pick and guarded history actions with fixture Pi responses, not a live model. Remote, other-platform and screen-reader checks were not rerun for this relocation.
 
-## Validation evidence
+## Composer cleanup validation (2026-10-19)
+
+The quiet composer passed `npm test`: 84 files, 1,256 tests passed and 3 skipped. The rich-content suite passed 768 interface layouts, 224 extension-widget layouts, details keyboard/focus and draft ownership checks. The combined model/thinking picker passed 864 layouts. Tests include four themes and the 159 × 344 CSS-pixel viewport observed at native 200% zoom. The settings browser suite also passed.
+
+The documented Biome 2.5.13 check passed with 752 warnings and 24 informational diagnostics, not zero diagnostics. Full Linux native UI and isolated Extension Host checks passed on VS Code 1.106.0 and stable 1.142.0 with disposable profiles and fixture Pi responses. Native coverage includes the actual combined settings picker, busy-state Conversation details, session-ID copying, queue actions, Stop/recovery, 200% zoom, actual window reload, and explicit draft Restore/Disable. Native geometry checks use the real webview; keyboard activation avoids Electron CDP mouse-coordinate errors at native zoom.
+
+`npm run package` passed and archive inspection confirmed the changed compiled sidebar modules. The VSIX was not installed. GitHub CI passed Compile and test and Windows process launch. No remote, Windows/macOS UI, screen-reader, audible-output, or live-provider checks were run for this cleanup. Human visual acceptance is pending; the saved implementation plan remains open for that check. The unchanged dependency lockfile reports existing indirect `qs` (moderate) and `shell-quote` (critical) audit findings; dependency updates are outside this UI change.
+
+## Earlier validation evidence
 
 Execution date: 2026-10-18. Runtime: Node.js 26.8.2 with locked dependencies installed using `npm ci`. Compile-based checks run sequentially to avoid shared generated-asset conflicts. The final native, remote and assistive-technology runners used that compiled output.
 
