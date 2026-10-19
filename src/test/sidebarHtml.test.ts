@@ -4,7 +4,7 @@ import { imageAssetId } from "../imageAssets";
 import { getSidebarHtml } from "../sidebarHtml";
 import { installVscodeMock } from "./vscodeMock";
 
-test("composer blockers share a visible explanation and button title for every unavailable state", () => {
+test("composer blockers use the primary status and preserve non-live descriptions and button titles", () => {
   const cases = [
     ["connected = false; pendingImageReads = 1", /disconnected.*Reconnect/, false],
     ["composerDraft = { changed() {}, blocked: () => true }", /Draft context changed.*verify/, false],
@@ -25,8 +25,9 @@ test("composer blockers share a visible explanation and button title for every u
     sidebar.run("connected = true; sessionsLayerVisible = false; input.value = 'Draft'");
     sidebar.run(`${flags}; updateSendState()`);
     const status = sidebar.element("composer-status");
-    assert.equal(status.hidden, false, flags);
+    assert.equal(status.hidden, true, flags);
     assert.match(status.textContent, reason, flags);
+    assert.match(sidebar.element("status").textContent, reason, flags);
     assert.equal(sidebar.element("send").title, status.textContent, flags);
     assert.equal(sidebar.element("after-this").title, status.textContent, flags);
     assert.equal(sidebar.element("send").disabled, true, flags);
@@ -51,7 +52,9 @@ test("composer blockers clear when ready and empty text is neutral, not a failur
   assert.match(sidebar.element("send").title, /after the current tool/);
   assert.match(sidebar.element("after-this").title, /finishes responding/);
   const html = getSidebarHtml(1000, 1024);
-  assert.match(html, /id="composer-status" role="status" aria-live="polite" aria-atomic="true"/);
+  assert.match(html, /id="composer-status" hidden/);
+  assert.doesNotMatch(html, /id="composer-status"[^>]*(?:role="status"|aria-live)/);
+  assert.match(html, /id="status" role="status" aria-live="polite" aria-atomic="true"/);
   for (const id of ["input", "send", "after-this"]) {
     assert.match(html, new RegExp(`id="${id}"[^>]*aria-describedby="[^"]*composer-status`));
   }
@@ -146,7 +149,8 @@ test("retained text notice is session-bound, manual and never opens details or s
   assert.equal(notice.hidden, true);
   assert.equal(sidebar.element("send").disabled, true, "uncertain draft context still blocks submission");
   assert.match(sidebar.element("composer-status").textContent, /Draft context changed/);
-  assert.equal(sidebar.element("composer-status").hidden, false);
+  assert.equal(sidebar.element("composer-status").hidden, true);
+  assert.match(sidebar.element("status").textContent, /Draft context changed/);
   assert.equal(
     sidebar.posted.some((item) => ["send", "sendNewSession", "queueInstruction"].includes(item.type)),
     false,
@@ -185,12 +189,12 @@ test("draft controls keep explicit consent and verified restore returns to the c
   assert.equal(sidebar.posted.at(-1).binding, "session-a");
 });
 
-test("one runtime line follows the conversation tail and keeps Sessions recovery visible", () => {
+test("one reserved runtime area stays in the composer and keeps Sessions recovery visible", () => {
   const sidebar = createSidebarScriptHarness();
   sidebar.receive({ type: "state", status: "Ready", runtime: { connected: true } });
-  assert.equal(sidebar.element("runtime").hidden, true);
-  sidebar.receive({ type: "showSessionDetail" });
-  assert.equal(sidebar.element("runtime").parentElement, sidebar.element("conversation"));
+  assert.equal(sidebar.element("runtime").hidden, false);
+  assert.equal(sidebar.element("status").textContent, "");
+  assert.equal(sidebar.element("runtime-dot").hidden, true);
   for (const state of [
     { status: "Working…", runtime: { connected: true, busy: true, cancellable: true } },
     { status: "Ready", retryAvailable: true, runtime: { connected: true } },
@@ -198,17 +202,198 @@ test("one runtime line follows the conversation tail and keeps Sessions recovery
     { status: "Disconnected", runtime: { connected: false } },
   ]) {
     sidebar.receive({ type: "state", ...state });
-    assert.equal(sidebar.element("runtime").hidden, false);
-    sidebar.receive({ type: "showSessionsLayer" });
-    assert.equal(sidebar.element("runtime").parentElement, sidebar.element("app"));
-    assert.equal(sidebar.element("runtime").hidden, false);
-    assert.equal(sidebar.element("reconnect").hidden, state.runtime.connected);
-    assert.equal(sidebar.element("retry").hidden, !("retryAvailable" in state));
-    assert.equal(sidebar.element("refresh-history").hidden, !("historyRecoveryAvailable" in state));
-    sidebar.receive({ type: "showSessionDetail" });
-    assert.equal(sidebar.element("runtime").parentElement, sidebar.element("conversation"));
+    for (const type of ["showSessionsLayer", "showSessionDetail"]) {
+      sidebar.receive({ type });
+      assert.equal(sidebar.element("runtime").parentElement, sidebar.element("composer"));
+      assert.equal(sidebar.element("runtime").hidden, false);
+      assert.equal(sidebar.element("reconnect").hidden, state.runtime.connected);
+      assert.equal(sidebar.element("retry").hidden, !("retryAvailable" in state));
+      assert.equal(sidebar.element("refresh-history").hidden, !("historyRecoveryAvailable" in state));
+    }
   }
   assert.equal((getSidebarHtml(1000, 1024).match(/id="runtime"/g) || []).length, 1);
+});
+
+test("primary status prioritizes problems, blockers, progress, results, then quiet idle", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "showSessionDetail" });
+  const state = (extra: Record<string, unknown> = {}) =>
+    sidebar.receive({
+      type: "state",
+      status: "Ready",
+      runtime: { connected: true },
+      ...extra,
+    });
+  state();
+  assert.equal(sidebar.element("status").textContent, "", "empty input is neutral");
+  state({ status: "Running read…", runtime: { connected: true, busy: true, queueable: true } });
+  assert.equal(sidebar.element("status").textContent, "Running read…");
+  sidebar.run("input.value = '/compact'; updateSendState()");
+  assert.match(sidebar.element("status").textContent, /Slash commands cannot be queued/);
+  state({ status: "Pi completed · History refresh failed", historyRecoveryAvailable: true });
+  assert.equal(sidebar.element("status").textContent, "Pi completed · History refresh failed");
+  sidebar.run("pendingImageReads = 1; updateSendState()");
+  for (const status of [
+    "Request failed · Retry available",
+    "Request failed · Run the action again",
+    "Pi stopped after tool execution · Retry unavailable",
+    "Pi completed · Follow-up action failed",
+    "Shell execution uncertain · Inspect effects; no automatic retry",
+    "Shell execution uncertain · Inspect effects",
+    "History unavailable · Refresh available",
+    "Context compacted · History refresh failed",
+  ]) {
+    state({ status });
+    assert.equal(sidebar.element("status").textContent, status, "problems cannot be masked by image loading");
+  }
+  state({ status: "Pi resources reloaded", historyRecoveryAvailable: true });
+  assert.equal(
+    sidebar.element("status").textContent,
+    "History unavailable · Refresh available",
+    "an unrelated successful operation cannot hide a remaining history problem",
+  );
+  state({ retryAvailable: true });
+  assert.equal(sidebar.element("status").textContent, "Retry available");
+  state({ status: "Cancelled · Ready to retry", retryAvailable: true });
+  assert.equal(sidebar.element("status").textContent, "Cancelled · Ready to retry");
+  state({ status: "Disconnected · Reconnect available", runtime: { connected: false } });
+  assert.match(sidebar.element("status").textContent, /^Disconnected/);
+  sidebar.run("pendingImageReads = 0; input.value = ''; updateSendState()");
+  for (const status of [
+    "Context compacted",
+    "Stopped · Check history and effects before sending again",
+    "Shell cancelled · Inspect effects",
+  ]) {
+    state({ status });
+    assert.equal(sidebar.element("status").textContent, status);
+  }
+  state();
+  assert.equal(sidebar.element("status").textContent, "");
+  assert.equal(sidebar.element("runtime-dot").hidden, true);
+});
+
+test("recovery controls preserve enablement and move focus only when the active control becomes unavailable", () => {
+  for (const id of ["reconnect", "retry", "refresh-history"]) {
+    const sidebar = createSidebarScriptHarness();
+    const connected = id !== "reconnect";
+    const state = {
+      type: "state",
+      status: "Request failed · Retry available",
+      retryAvailable: true,
+      historyRecoveryAvailable: true,
+      runtime: { connected },
+    };
+    sidebar.receive(state);
+    sidebar.element(id).focus();
+    sidebar.receive(state);
+    assert.equal(sidebar.run(`document.activeElement === $('${id}')`), true);
+    sidebar.receive({ ...state, retryAvailable: false, historyRecoveryAvailable: false, runtime: { connected: true } });
+    assert.equal(sidebar.run("document.activeElement === input"), true);
+    assert.equal(sidebar.element(id).hidden, true);
+  }
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({
+    type: "state",
+    retryAvailable: true,
+    historyRecoveryAvailable: true,
+    runtime: { connected: true },
+  });
+  sidebar.element("refresh-history").focus();
+  sidebar.receive({
+    type: "state",
+    retryAvailable: true,
+    historyRecoveryAvailable: true,
+    runtime: { connected: true, busy: true, queueable: true },
+  });
+  assert.equal(sidebar.element("refresh-history").disabled, true);
+  assert.equal(sidebar.element("retry").disabled, true);
+  assert.equal(sidebar.run("document.activeElement === input"), true);
+});
+
+test("primary status updates preserve reading position, output state, and non-dismissible cleanup warnings", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "showSessionDetail" });
+  const state = {
+    type: "state",
+    runtime: { connected: true, busy: true, queueable: true },
+    messages: [{ id: "reply", role: "assistant", html: "<p>Reply</p>" }],
+  };
+  sidebar.receive(state);
+  const conversation = sidebar.element("conversation");
+  conversation.scrollHeight = 400;
+  conversation.clientHeight = 100;
+  conversation.scrollTop = 40;
+  sidebar.run("conversationPinnedToBottom = false; hasNewTranscriptOutput = false");
+  sidebar.element("input").focus();
+  sidebar.receive({
+    type: "notice",
+    level: "warning",
+    detailsAvailable: true,
+    message: "Pi cleanup is unverified. Check for remaining processes before starting conflicting work.",
+  });
+  for (const status of ["Pi is thinking…", "Running bash…", "Retrying Pi request…", "Cancelling Pi request…"]) {
+    sidebar.receive({ ...state, status });
+    assert.equal(sidebar.element("status").textContent, status);
+    assert.equal(conversation.scrollTop, 40);
+    assert.equal(sidebar.run("conversationPinnedToBottom"), false);
+    assert.equal(sidebar.run("hasNewTranscriptOutput"), false);
+    assert.equal(sidebar.run("document.activeElement === input"), true);
+    assert.match(sidebar.element("notice").textContent, /cleanup is unverified/);
+    assert.deepEqual(
+      sidebar.element("notice").children.map((child) => child.textContent),
+      ["View diagnostic"],
+    );
+  }
+});
+
+test("viewport resize cannot resume paused following or clear unread output after a near-tail clamp", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "showSessionDetail" });
+  sidebar.receive({
+    type: "state",
+    runtime: { connected: true },
+    messages: [{ id: "reply", role: "assistant", html: "<p>Reply</p>" }],
+  });
+  const conversation = sidebar.element("conversation");
+  conversation.scrollHeight = 400;
+  conversation.clientHeight = 100;
+  conversation.scrollTop = 280;
+  conversation.listeners.get("scroll")!({ isTrusted: true });
+  sidebar.run("hasNewTranscriptOutput = true");
+  // A shorter status expands the viewport. The browser clamps the old offset to the new maximum.
+  conversation.clientHeight = 132;
+  conversation.scrollTop = 268;
+  conversation.listeners.get("scroll")!({ isTrusted: true });
+  assert.equal(conversation.scrollTop, 268);
+  assert.equal(sidebar.run("conversationPinnedToBottom"), false);
+  assert.equal(sidebar.run("hasNewTranscriptOutput"), true);
+  assert.equal(sidebar.element("jump-to-latest").hidden, false);
+  assert.equal(sidebar.element("jump-to-latest").textContent, "Jump to latest · New output");
+  // The next actual reading movement can resume following; stale resize bookkeeping cannot swallow it.
+  conversation.scrollTop = 220;
+  conversation.listeners.get("scroll")!({ isTrusted: true });
+  conversation.scrollTop = 268;
+  conversation.listeners.get("scroll")!({ isTrusted: true });
+  assert.equal(sidebar.run("conversationPinnedToBottom"), true);
+});
+
+test("layout scroll sentinels cannot resume following but permit a later real scroll to the bottom", () => {
+  const sidebar = createSidebarScriptHarness();
+  const conversation = sidebar.element("conversation");
+  conversation.scrollHeight = 400;
+  conversation.clientHeight = 100;
+  conversation.scrollTop = 300;
+  sidebar.run(
+    "conversationPinnedToBottom = false; hasNewTranscriptOutput = true; programmaticConversationScrollTop = 300",
+  );
+  conversation.listeners.get("scroll")!({ isTrusted: true });
+  assert.equal(sidebar.run("conversationPinnedToBottom"), false);
+  assert.equal(sidebar.run("hasNewTranscriptOutput"), true);
+  conversation.scrollTop = 280;
+  conversation.listeners.get("scroll")!({ isTrusted: true });
+  conversation.scrollTop = 300;
+  conversation.listeners.get("scroll")!({ isTrusted: true });
+  assert.equal(sidebar.run("conversationPinnedToBottom"), true);
 });
 
 test("only non-blocking informational notices can be dismissed", () => {
@@ -320,7 +505,7 @@ test("extension status and widgets render as inert ordered text without changing
   assert.equal(below.innerHTML, "");
   assert.equal(sidebar.element("cancel").hidden, false);
   assert.equal(sidebar.element("notice").textContent, "Queued delivery is uncertain. Check history.");
-  assert.equal(sidebar.element("status").textContent, "Pi is working…");
+  assert.match(sidebar.element("status").textContent, /cannot accept queued messages/);
   const retained = above.children[0];
   sidebar.receive(state);
   assert.equal(above.children[0], retained, "identical updates preserve keyboard/scroll targets");
@@ -419,7 +604,7 @@ test("sidebar places model and thinking controls before submission and exposes r
   assert.match(html, /delete-session'\)\.disabled = interactionLocked \|\| !connected \|\| !deletableSession/);
   assert.match(html, /id="more"/);
   assert.match(html, /<main id="app" class="sessions-layer">/);
-  assert.match(html, /#app\.sessions-layer > :not\(#sessions\):not\(#composer\):not\(#notice\):not\(#runtime\)/);
+  assert.match(html, /#app\.sessions-layer > :not\(#sessions\):not\(#composer\):not\(#notice\) \{/);
   assert.match(html, /id="sessions" aria-label="Pi sessions"/);
   assert.match(html, /id="session-header-title"[^>]*>Sessions</);
   assert.match(html, /id="back-to-sessions"[^>]*aria-label="Back to Sessions"/);
@@ -490,8 +675,17 @@ test("sidebar preserves hidden semantics, themed layout, and keyboard accessibil
   const runtimePosition = html.indexOf('id="runtime"');
 
   assert.ok(
-    runtimePosition < composerPosition && composerPosition < noticePosition,
-    "one runtime line belongs at the conversation tail, not in a composer footer",
+    composerPosition < runtimePosition &&
+      runtimePosition < html.indexOf('<div class="composer-box">') &&
+      runtimePosition < noticePosition,
+    "one runtime area belongs above the composer box outside the transcript",
+  );
+  assert.match(html, /#runtime \{[^}]*min-height: calc\(1\.5em \+ 14px\)/);
+  assert.match(html, /#status \{[^}]*overflow-wrap: anywhere;[^}]*white-space: normal/);
+  assert.doesNotMatch(html, /appendChild\(runtime\)|append\(runtime,/);
+  assert.ok(
+    html.indexOf('id="extension-ui-above"') < runtimePosition,
+    "extension widgets keep their above-editor placement",
   );
   assert.match(html, /grid-template-rows: auto minmax\(0, 1fr\) auto minmax\(0, auto\) auto;/);
   assert.doesNotMatch(html, /#runtime \{[^}]*border-top/);
@@ -1042,9 +1236,10 @@ function createSidebarScriptHarness(clientPlatform = "Linux x86_64", userAgent =
     return item;
   };
   const elements = new Map(
-    Array.from(html.matchAll(/\bid="([^"]+)"/g), (match) => {
+    Array.from(html.matchAll(/<[a-z][^>]*\bid="([^"]+)"([^>]*)>/g), (match) => {
       const item = makeElement();
       item.id = match[1];
+      item.hidden = /(?:^|\s)hidden(?:\s|$)/.test(match[2]);
       return [match[1], item];
     }),
   );
@@ -1053,6 +1248,10 @@ function createSidebarScriptHarness(clientPlatform = "Linux x86_64", userAgent =
     assert.ok(result, `missing sidebar element: ${id}`);
     return result;
   };
+  // Model this static parent only when it exists in the actual markup.
+  if (/<section id="composer"[\s\S]*?id="runtime"[\s\S]*?<div class="composer-box">/.test(html)) {
+    element("composer").append(element("runtime"));
+  }
   let receive: ((event: { data: unknown }) => void) | undefined;
   const posted: any[] = [];
   const context = createContext({
@@ -1991,7 +2190,7 @@ test("an attachment removal race can release a pending submission", () => {
 
   sidebar.element("send").listeners.get("click")!();
   assert.equal(sidebar.run("submissionPending"), true);
-  assert.equal(sidebar.element("status").textContent, "Sending to Pi…");
+  assert.equal(sidebar.element("status").textContent, "Sending this message. Wait for Pi to accept it.");
 
   sidebar.receive({
     type: "state",
@@ -2001,7 +2200,7 @@ test("an attachment removal race can release a pending submission", () => {
   });
   sidebar.receive({ type: "sendRejected" });
   assert.equal(sidebar.run("submissionPending"), false);
-  assert.equal(sidebar.element("status").textContent, "Ready");
+  assert.equal(sidebar.element("status").textContent, "");
 });
 
 for (const reason of ["eviction", "rejection"] as const) {
@@ -2373,7 +2572,13 @@ test("busy, settling, cancellation, failure, and reconnection states expose one 
     connected = true,
     backgroundSubmissionPending = false,
   ) =>
-    sidebar.receive({ type: "state", status, backgroundSubmissionPending, runtime: { busy, cancellable, connected } });
+    sidebar.receive({
+      type: "state",
+      status,
+      backgroundSubmissionPending,
+      runtime: { busy, cancellable, connected, queueable: busy },
+    });
+  sidebar.receive({ type: "showSessionDetail" });
   for (const status of [
     "Sending to Pi…",
     "Pi is working…",
@@ -2383,7 +2588,7 @@ test("busy, settling, cancellation, failure, and reconnection states expose one 
   ]) {
     state(status, true, true);
     assert.equal(sidebar.element("cancel").hidden, false, status);
-    assert.equal(sidebar.element("send").hidden, true, status);
+    assert.equal(sidebar.element("send").hidden, false, status);
     assert.equal(sidebar.element("status").textContent, status);
   }
   state("Request failed · Retry available", false, false);
@@ -2396,7 +2601,7 @@ test("busy, settling, cancellation, failure, and reconnection states expose one 
   state("Ready", false, false, true, true);
   assert.equal(
     sidebar.element("status").textContent,
-    "Starting background agent…",
+    "Starting a background agent. Wait for startup to finish.",
     "Ready is not shown beside a wait state",
   );
   state("Disconnected · Reconnect available", false, false, false);

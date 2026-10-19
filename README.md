@@ -67,8 +67,9 @@ Use `@pi` in VS Code's native Chat view when you prefer the native participant w
 
 ### Conversation controls
 
-- An idle composer has no hint rows or Ready footer. The disabled Send button explains an empty draft through its tooltip and accessible description. Other submission blockers remain visible and give a next action. The host still validates every request.
-- Foreground progress appears once at the conversation tail; Stop remains in the composer. Reconnect, Retry, and Refresh history appear when needed, including in Sessions.
+- One primary status area stays inside the composer, directly above the composer box and outside the transcript and workflow scrollers. Its location is the same in Sessions and conversations. Idle reserves one line without Ready text or a dot; single-line progress does not move the composer box. Long actionable text and recovery buttons can wrap and increase its height.
+- Status priority is problems, submission blockers, progress, non-Ready results, then quiet idle. Empty input is neutral: its disabled-send explanation uses only an accessible description and tooltip, never a visible hint or a replacement for progress. The host still validates every request.
+- Stop remains in the composer actions. Reconnect, Retry, and Refresh history stay in the status area with unchanged host availability checks. Blocking errors and cleanup warnings retain their separate non-dismissible notice and diagnostic action; tool output, background cards, and extension widgets keep their placements.
 - **More… → Conversation details** contains submission help, file-completion instructions, text draft recovery, session ID, context usage, and extension status. Close or Escape returns focus to More. Read-only details remain available during work or disconnect; mutation controls retain their host checks.
 - Scroll up without following new output. **Jump to latest** returns to current output and restores automatic following; **New output** indicates a transcript change, not a status update.
 - **More… → Word wrap**, in **Conversation display**, shows On/Off and wraps long code lines for display only. It starts Off and is local to the view, not a saved setting. Source text, copied text, shell cards, and editor files are unchanged.
@@ -242,7 +243,7 @@ Provider-exposed thinking appears as plain text in a collapsed **Thinking** disc
 
 Thinking shares the retained transcript limit of 100 messages and 250,000 text characters. Truncated content is marked. Streaming retains at most 128 text/thinking blocks per assistant message; history retains at most 128 visible thinking blocks per message. Thinking is not saved in VS Code workspace storage, added to prompts, or parsed as an edit proposal. Disclosure state stays in the current panel.
 
-Long assistant prose uses a bounded reading column. Code, tables, math, and diagrams can use the full message width. Foreground progress appears at the conversation tail. **More… → Conversation details** contains context usage and **Session details**, with the copyable session ID. Runtime notices show bounded summaries with **View diagnostic** for raw details. Queue uncertainty never means it is safe to resend.
+Long assistant prose uses a bounded reading column. Code, tables, math, and diagrams can use the full message width. Primary status stays above the composer box, outside the scrolling content. Its single polite, atomic `#status` live region announces only selected-message changes. The nonlive `#composer-status` supplies the submission description for the input, Send, and After this without a second visible row or duplicate announcement. **More… → Conversation details** contains context usage and **Session details**, with the copyable session ID. Runtime notices show bounded summaries with **View diagnostic** for raw details. Queue uncertainty never means it is safe to resend.
 
 The session panel supports Markdown headings, nested lists, task lists, tables, quotes, links, emphasis, and strikethrough. Code highlighting covers Bash, CSS, JavaScript, JSON, Python, TypeScript, and HTML/XML, including their registered aliases. Other languages stay plain text.
 
@@ -385,6 +386,8 @@ npm run test:settings
 ```
 
 The rich-content check tests the sidebar document, CSP, rendering, themes, overflow, and asynchronous lifecycle. It also runs deterministic interface fixtures for responsive actions, attachments, queue submissions, session details, status, and scroll preservation. Extension status/widget fixtures check keyed ordering, removal, text safety, keyboard order, four themes, 224 narrow/short layouts, and host warning/Stop visibility. Run it after renderer changes. Run the thinking-picker check after thinking-picker changes. The settings check tests controls, scopes, reset, external-change conflicts, draft recovery, keyboard navigation, themes, layout, and CSP using the bundled assets. None of these checks uses a live model.
+
+Fixed-status regressions check the permanent composer parent, Sessions parity, reserved idle geometry, message priority, neutral empty input, long text and recovery-button wrapping, unchanged recovery checks, focus, scroll preservation, and no duplicate DOM live announcements. Unit/browser checks and full Linux native UI suites passed on VS Code 1.106.0 and 1.142.0. Real screen-reader, remote, and Windows/macOS UI checks were not rerun for this relocation; see [Composer behavior and validation](docs/COMPOSER_UX.md) for evidence and coverage limits.
 
 Composer completion fixtures cover attachment capture, path-only insertion, failed capture, stale replies, IME, keyboard focus, and narrow layouts without a model.
 

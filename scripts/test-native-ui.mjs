@@ -11,7 +11,11 @@ import extensionUiFixture from "./fixtures/extension-ui.cjs";
 import { assertExtensionEditorDialogs } from "./editor-dialog-fixture.mjs";
 import toolFixture from "./fixtures/tool-activity.cjs";
 import { assertRichContent, richFixture } from "./rich-content-fixture.mjs";
-import { assertComposerNavigation, openConversationDetails } from "./composer-navigation-fixture.mjs";
+import {
+  assertComposerNavigation,
+  assertComposerStatusContract,
+  openConversationDetails,
+} from "./composer-navigation-fixture.mjs";
 import { assertDiscoveryWrap } from "./discovery-wrap-fixture.mjs";
 import { assertNativeConversationHistory, historyFixtureMessages } from "./history-fixture.mjs";
 import { assertSessionActions } from "./session-actions-fixture.mjs";
@@ -321,7 +325,9 @@ try {
   } else {
   // Start a session detail pane, then capture all five provider-backed attachment types.
   let pi = await frame();
-  await until(async () => (await pi.locator("#status").textContent()).includes("Ready"), "Pi runtime ready");
+  await until(async () => (await pi.locator("#runtime").getAttribute("data-connection")) === "connected" &&
+    (await pi.locator("#status").textContent()) === "", "Pi runtime idle with reserved empty status");
+  await assertComposerStatusContract(pi);
   if (!process.argv.includes("editor")) {
     await assertAuthTransferDialogs({ page, directory, workspace, invoke, pick, until, frame });
   }
@@ -741,6 +747,7 @@ try {
   await pi.locator("#after-this").waitFor();
   assert.equal(await pi.locator("#cancel").isVisible(), true);
   assert.match(await pi.locator("#status").innerText(), /working|Sending/i);
+  await assertComposerStatusContract(pi);
   await pi.locator("#extension-ui-above").waitFor();
   await openConversationDetails(pi, page);
   assert.match(await pi.locator("#extension-status").innerText(), /second: Updated status/);
@@ -791,6 +798,7 @@ try {
       "after-this",
       "send",
       "status",
+      "runtime",
       "model-picker",
       "extension-ui-above",
       "extension-ui-below",
@@ -850,6 +858,7 @@ try {
   await invoke("theme", { theme: "Default Dark Modern" });
   await pi.locator("#cancel").click();
   await until(async () => !(await pi.locator("#cancel").isVisible()), "native Stop settlement");
+  await assertComposerStatusContract(pi);
   assert.equal(await pi.locator("#recover-queue").isVisible(), true);
   await rm(path.join(directory, "interface-hold"));
   await until(async () => await pi.locator("#send").isEnabled(), "foreground request owner released after Stop");
@@ -973,7 +982,9 @@ try {
       return next && next.boot !== boot;
     }, "text draft actual window reload", 40_000);
     const next = await frame();
-    await until(async () => (await next.locator("#status").textContent()).includes("Ready"), "draft reload runtime ready");
+    await until(async () => (await next.locator("#runtime").getAttribute("data-connection")) === "connected" &&
+      (await next.locator("#status").textContent()) === "", "draft reload runtime idle");
+    await assertComposerStatusContract(next);
     return next;
   } });
   console.log(

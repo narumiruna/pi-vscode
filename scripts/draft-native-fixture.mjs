@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { openConversationDetails } from "./composer-navigation-fixture.mjs";
+import { assertComposerStatusContract, openConversationDetails } from "./composer-navigation-fixture.mjs";
 
 // Inspect only the active row of the disposable desktop profile, not backups or SQLite free pages.
 async function retainedDesktopDrafts(directory) {
@@ -38,7 +38,9 @@ export async function assertNativeDraftLocalCommands({ pi, page, until, director
   await page.waitForTimeout(250);
   await input.fill("");
   await pi.locator('#composer-status[data-state="empty"]').waitFor({ state: "attached" });
-  assert.equal(await pi.locator("#composer-status").isVisible(), false);
+  await assertComposerStatusContract(pi);
+  assert.equal(await pi.locator("#status").textContent(), "");
+  assert.equal(await pi.locator("#runtime .status-dot").isVisible(), false);
   const session = await pi.locator("#session").inputValue();
   const prompts = () => readFile(path.join(directory, "prompts.jsonl"), "utf8").catch(() => "");
   const before = await prompts();
@@ -55,7 +57,8 @@ export async function assertNativeDraftLocalCommands({ pi, page, until, director
       async () => await pi.locator("#send").isEnabled(),
       `${command} releases the same-binding draft handoff`,
     );
-    assert.equal(await pi.locator("#composer-status").isVisible(), false);
+    await assertComposerStatusContract(pi);
+    assert.equal(await pi.locator("#composer-status").getAttribute("data-state"), "ready");
     assert.equal(await pi.locator("#session").inputValue(), session, "local commands do not create another session");
     assert.ok(((await pi.locator("#app").getAttribute("class")) || "").split(" ").includes("sessions-layer"));
     await input.fill("");
@@ -92,6 +95,7 @@ export async function assertNativeDraftRecovery({ pi, page, reload, until, direc
     const result = await reload();
     if (result) current = result.pi ?? result;
     await current.locator("#input").waitFor({ state: "visible" });
+    await assertComposerStatusContract(current);
   };
   await sessions();
   await expand();
@@ -124,10 +128,19 @@ export async function assertNativeDraftRecovery({ pi, page, reload, until, direc
   );
   assert.equal(await current.locator("#conversation-details").evaluate((node) => node.open), false);
   assert.equal(await current.locator("#input").inputValue(), "", "reload must not insert text automatically");
+  await assertComposerStatusContract(current);
+  assert.equal(await current.locator("#composer-status").getAttribute("data-state"), "empty");
   assert.equal(await log(), before, "recovery must not submit shell syntax or a model request");
   await expand();
   await current.locator("#restore-text-draft").click();
   await until(async () => (await current.locator("#input").inputValue()) === text, "explicit Unicode draft Restore");
+  await assertComposerStatusContract(current);
+  assert.equal(await current.locator("#composer-status").getAttribute("data-state"), "blocked");
+  assert.match(await current.locator("#status").textContent(), /Direct shell.*idle session/);
+  assert.equal(
+    await current.locator("#send").getAttribute("title"),
+    await current.locator("#composer-status").textContent(),
+  );
   assert.equal(await current.locator("#attachments [data-remove-attachment]").count(), 0);
   assert.equal(await log(), before);
   await expand();

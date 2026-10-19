@@ -100,7 +100,8 @@ export async function assertNativeAnnotations({ page, directory, workspace, invo
   await assert.rejects(readFile(path.join(directory, "pids.jsonl")), { code: "ENOENT" });
   await invoke("command", { command: "pi.openChat" });
   let pi = await frame();
-  await until(async () => (await pi.locator("#status").textContent()).includes("Ready"), "annotation foreground ready");
+  await until(async () => (await pi.locator("#runtime").getAttribute("data-connection")) === "connected" &&
+    (await pi.locator("#status").textContent()) === "", "annotation foreground idle");
   await until(async () => (await readFile(path.join(directory, "pids.jsonl"), "utf8").catch(() => "")).trim(), "foreground fixture started");
   await invoke("annotationsOpen", { file: "markdown" });
   await invoke("annotationsOpen", { file: "code" });

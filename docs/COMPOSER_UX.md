@@ -6,9 +6,29 @@ These controls use the existing workspace Extension Host and sidebar webview. VS
 
 Host validation remains authoritative. Visible status, local search and native picker groups do not grant permission to execute a request. Validation uses disposable profiles and deterministic Pi responses, without live model calls, authentication or uploads.
 
-## Submission status priority
+## Primary status
 
-The first applicable row supplies disabled-button titles and the accessible status description. All blockers except neutral empty input also have a visible status row. The input and both submission actions reference this status through `aria-describedby`. A polite live region changes only when its text changes. Empty input is a neutral state, not an error; it does not add a visible hint row.
+One primary status area stays inside `#composer`, after above-editor extension widgets and immediately before `.composer-box`. It is outside the transcript and workflow scrollers and has the same parent and location in Sessions and conversations. It uses normal composer layout, not an overlay or viewport-fixed element.
+
+Idle reserves one text line without Ready text, a dot, or recovery buttons. Changing from idle to single-line progress does not move the composer box. Long actionable text and recovery controls can wrap and increase the area's height at narrow widths or higher zoom; instructions are not clipped and controls do not overlap.
+
+| Priority | Condition | Primary display |
+| --- | --- | --- |
+| 1 | Disconnected, failed request, or history recovery required | Problem text and applicable recovery controls. |
+| 2 | Submission blocked for a non-neutral reason | Blocker text and next action, using the order below. |
+| 3 | Local operation pending or foreground work active | Image loading, message acceptance, background startup, thinking, tool execution, compaction, retry, or cancellation progress. |
+| 4 | Non-Ready operation result | Completion or stopped-result text until the host replaces it. |
+| 5 | Normal idle operation | Empty reserved area. |
+
+One presentation selector supplies the visible message; submission eligibility and its description remain separate. Empty input is neutral. Its disabled-send explanation remains accessible and in the tooltip, but never becomes a visible hint or replaces active progress.
+
+The primary `#status` is the single polite, atomic live region. Its text changes only when the selected message changes. The separate nonlive `#composer-status` supplies the current submission explanation through `aria-describedby` for the input, Send, and After this. It has no separate visible row and does not duplicate live announcements. Disabled-button titles remain available.
+
+Status updates do not steal focus, force a conversation scroll, restore automatic following, or mark New output. If a shorter status expands the viewport near the tail, the browser can clamp the reading offset to the new valid range; that layout change preserves paused following and the New output indicator. A later user scroll to the bottom restores following. Recovery controls remain keyboard-accessible. Before a focused recovery control becomes hidden or disabled, focus returns to the input. Theme tokens, visible focus, plain-text rendering, CSP, and sanitization remain unchanged.
+
+## Submission blocker order
+
+The first applicable row supplies disabled-button titles and the accessible submission description. Non-neutral blockers enter primary-status priority 2, below problems and above progress; empty input supplies only the accessible description and tooltip.
 
 | Priority | Condition | User action |
 | --- | --- | --- |
@@ -31,7 +51,9 @@ Stop is separate from submission. The composer has an attachment icon on the lef
 
 More → Conversation details contains Submission help, file-completion instructions, Text draft recovery, Session details, context usage, and extension status. The bounded dialog supports Close/Escape and returns focus to More. Read-only details remain reachable during work or disconnect without authorizing mutation actions. Extension widgets retain their requested editor placement and inert plain-text rendering.
 
-Normal idle Ready status is not visible. One foreground progress line appears at the conversation tail. Recovery controls remain visible when required in both conversation and Sessions views. Blocking errors and cleanup warnings are not dismissible.
+Stop stays in the composer actions. Reconnect, Retry, and Refresh history stay in the primary status area with unchanged host-derived availability checks. Applicable recovery controls remain reachable even when another message has priority; unavailable actions are not enabled and retry is never automatic.
+
+Blocking errors and process-cleanup warnings retain the separate non-dismissible notice surface and View diagnostic action. Primary-status selection cannot suppress these safety notices. Foreground tool output stays in the conversation flow; background task and proposal cards stay in the workflow area. History notices, retained-draft controls, Pi extension status in Conversation details, and requested above/below-editor widget placements are unchanged.
 
 ## Latest-output navigation
 
@@ -133,11 +155,30 @@ Requests from earlier history acquire the request gate before awaiting a latest-
 
 More… → Conversation display → Word wrap is a view-local display choice, off by default and not saved. It applies to transcript code/source fallbacks only. Shell cards, extension widgets, editor files, source text and copy text are unchanged. Message headings have locally generated unique IDs and accessible role/number labels; unchanged headings retain identity and focus.
 
-## Header controls follow-up (2026-10-19)
+## Fixed-status validation scope
+
+The behavior above describes the fixed composer status contract. The Header controls follow-up and Composer cleanup validation sections below predate this change: they checked conversation-tail progress, runtime movement between views, and the former visible submission row. Their passing results do not validate the fixed-status layout or its announcements.
+
+Required deterministic unit and browser coverage includes the permanent composer parent, Sessions parity, reserved idle line and unchanged idle-to-single-line geometry, simultaneous problem/blocker/progress/result states, neutral empty input, unchanged recovery availability, long text and button wrapping, four themes, narrow/short layouts, focus, unchanged scroll/following/New output state, and a single DOM live announcement surface. Native fixtures must check placement, submission descriptions, recovery controls, Stop, and focus in the actual VS Code webview with fixture Pi responses.
+
+Fixed-status validation passed on Linux on 2026-10-19:
+
+| Check | Result |
+| --- | --- |
+| `npm test` | 84 files, 1,261 tests passed and 3 skipped; includes 76 sidebar HTML tests. |
+| Documented Biome check | Passed with warnings and informational diagnostics; no errors. |
+| `npm run test:rich-content` | Passed: 768 interface layouts, 224 extension-widget layouts, 4 fixed-status idle/progress geometry cases and 16 long-status/recovery/theme/zoom cases. Includes priority, focus, single DOM live region, old-output reading, near-tail clamp and user-scroll recovery. |
+| Linux native UI | Full suites passed on VS Code 1.106.0 and stable 1.142.0 with disposable profiles and fixture Pi responses. Includes fixed placement in both views, submission descriptions, recovery controls, Stop, focus, draft recovery and native 200% zoom geometry. |
+| Linux native Extension Host | Trusted-workspace suites passed on VS Code 1.106.0 and stable 1.142.0, including activation, bridge, cancellation and edit/Undo checks. |
+| Linux native annotations | The isolated `annotations` fixture passed on VS Code 1.106.0 after its idle wait was updated for empty primary status. |
+
+No live model or provider was used. DOM live-region assertions are not real screen-reader evidence. Real screen-reader, remote, Windows/macOS UI, workspace-alias and packaged-install checks were not rerun for this relocation. Earlier Orca and remote results do not establish coverage for the new status area. The screen-reader fixture's idle wait was updated, but its speech checks were not run.
+
+## Header controls follow-up (2026-10-19; before fixed status)
 
 The header/control relocation passed 916 unit tests (3 skipped), the rich-content browser suite and the full Linux native UI suite on VS Code 1.106.0. Browser header checks cover four themes, short/long titles, widths 200/240/280/340/600/960 and the 169 CSS-pixel viewport found at native 200% zoom: 56 layouts. Tests cover disclosure/focus, literal search, conditional feedback, unavailable history, menu state/cancellation/stale views, display-only wrapping, copying and reading-position preservation. Native checks use the real Word wrap Quick Pick and guarded history actions with fixture Pi responses, not a live model. Remote, other-platform and screen-reader checks were not rerun for this relocation.
 
-## Composer cleanup validation (2026-10-19)
+## Composer cleanup validation (2026-10-19; before fixed status)
 
 The quiet composer passed `npm test`: 84 files, 1,256 tests passed and 3 skipped. The rich-content suite passed 768 interface layouts, 224 extension-widget layouts, details keyboard/focus and draft ownership checks. The combined model/thinking picker passed 864 layouts. Tests include four themes and the 159 × 344 CSS-pixel viewport observed at native 200% zoom. The settings browser suite also passed.
 
