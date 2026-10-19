@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0
+
+### Minor Changes
+
+- e3c1089: Require VS Code 1.140.0 or newer and update @types/vscode to 1.140.0. VS Code 1.106–1.139 is no longer supported.
+
+### Patch Changes
+
+- d7c909b: Fix Pi 1.3.0 crashes when starting a new sidebar conversation by disposing outgoing bridge callbacks before session API invalidation and cancelling pending event-bus requests without replay.
+
 ## 0.6.3
 
 ### Patch Changes
