@@ -3,6 +3,8 @@
 This matrix maps the capabilities advertised by the four requested reference extensions to the Pi workflow implemented in this repository.
 Vendor-owned hosted services cannot be reproduced by a local extension, so those rows name the external dependency and the available Pi-local alternative.
 
+The minimum supported VS Code version is 1.140.0, with matching `@types/vscode` declarations. Versions 1.106–1.139 are no longer supported. Validation results for older versions below are historical evidence, not the current compatibility contract.
+
 [Pi terminology](PI_TERMINOLOGY.md) maps core API names to extension-only views and adapters. Public command IDs, settings, stored keys and protocol fields remain stable.
 
 The fixed primary status contract is current behavior; validation results elsewhere in this matrix predate that relocation unless explicitly stated. They do not prove fixed placement, reserved idle geometry, or single-region announcements. Tool output, background/workflow cards, and requested extension-widget placements are unchanged.

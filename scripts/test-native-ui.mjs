@@ -30,7 +30,7 @@ import { assertNativeAnnotations } from "./annotation-native-fixture.mjs";
 
 // Actual Quick Picks, modals, Problems, code actions and webview clicks; only Pi is simulated.
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const version = process.argv[2] ?? "1.106.0";
+const version = process.argv[2] ?? "1.140.0";
 const workspaceAlias = process.argv[3] === "alias";
 const packaged = process.argv.includes("packaged");
 const selectionOnly = process.argv.includes("selection");
@@ -154,7 +154,7 @@ try {
       name: "native-ui-coordinator",
       publisher: "fixture",
       version: "0.0.1",
-      engines: { vscode: "^1.106.0" },
+      engines: { vscode: "^1.140.0" },
       activationEvents: ["onStartupFinished"],
       main: "./main.cjs",
     }),
