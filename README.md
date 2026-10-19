@@ -334,6 +334,8 @@ In PowerShell, use `pi --extension $env:PI_VSCODE_BRIDGE_EXTENSION`.
 
 Other Pi extensions can use `pi.events` to send an allowlisted `vscode:request` and receive a correlated `vscode:response` or `vscode:event`.
 
+Session replacement and resource reload close the outgoing event subscription and cancel its pending event-bus requests before Pi invalidates the old extension API. Late callbacks cannot send events or responses through that API or into the replacement session. Intentional cleanup does not emit `vscode:disconnected`; active connection failures still do. Requests are not replayed.
+
 `vscode_code_context` accepts `definition`, `references`, `callers`, `callees`, or `documentSymbols`, a workspace path and optional one-based line/column. It returns metadata only, with zero-based ranges; source text requires a separate read. The tool is not loaded by independent background/worktree agents.
 
 VS Code extensions in the same Extension Host can activate `narumi.narumi-pi` and call its exported `broadcast(event, data)` API. Event names and payloads are validated and bounded.
@@ -442,6 +444,16 @@ npm run test:screen-reader -- /path/to/orca-prefix stable
 ```
 
 Run screen-reader checks sequentially; Orca does not support concurrent copies in this environment. The runner starts real Orca with a private display, D-Bus session, home, and VS Code profile. It checks structural heading navigation and file-hint announcements through actual Orca-generated speech text. It does not replace speech/navigation functions or use an accessibility-tree snapshot as screen-reader evidence. Speech Dispatcher, audible output, and human usability are not tested. Bounded synthetic diagnostic evidence is retained under the printed temporary path. No live model or file attachment capture is required.
+
+### Bridge lifecycle public contract check
+
+Run the offline check with an explicit Pi 1.3.0 CLI path:
+
+```bash
+node scripts/test-bridge-lifecycle-reference.mjs /path/to/pi-coding-agent/dist/cli.js
+```
+
+The check uses an authenticated loopback fixture and disposable home, configuration, workspace, and session directories. It checks session transitions, resource reload, fresh subscriptions, event delivery, pending-request cancellation, and clean shutdown without credentials or model calls. This is a Pi RPC check, not a native VS Code UI or macOS validation.
 
 ### Direct-shell public contract check
 
