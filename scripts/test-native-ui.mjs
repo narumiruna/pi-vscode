@@ -328,6 +328,60 @@ try {
   await until(async () => (await pi.locator("#runtime").getAttribute("data-connection")) === "connected" &&
     (await pi.locator("#status").textContent()) === "", "Pi runtime idle with reserved empty status");
   await assertComposerStatusContract(pi);
+  // Inspect the VS Code-owned tab without changing shared bar presentation settings.
+  const nativeTab = page.locator(".part.auxiliarybar .composite-bar").getByRole("tab", { name: "Pi", exact: true });
+  await nativeTab.waitFor({ state: "visible" });
+  assert.equal(await nativeTab.count(), 1);
+  assert.equal(await nativeTab.getAttribute("aria-selected"), "true");
+  const accessibleTab = await nativeTab.ariaSnapshot();
+  assert.match(accessibleTab, /^- tab "Pi"/);
+  const nativeLabel = nativeTab.locator(".action-label");
+  assert.equal(await nativeLabel.getAttribute("aria-label"), "Pi");
+  const brand = await nativeLabel.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    return {
+      text: element.textContent.trim(),
+      textWidth: range.getBoundingClientRect().width,
+      visible: element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }),
+      fontSize: style.fontSize,
+      backgroundImage: style.backgroundImage,
+      maskImage: style.maskImage,
+      before: getComputedStyle(element, "::before").content,
+      after: getComputedStyle(element, "::after").content,
+    };
+  });
+  assert.equal(brand.text, "Pi");
+  assert.equal(brand.visible, true);
+  assert.ok(brand.textWidth > 0 && Number.parseFloat(brand.fontSize) > 0, "Pi text must have visible geometry");
+  assert.equal(await nativeTab.locator("img:visible, svg:visible, .codicon:visible").count(), 0);
+  assert.equal(brand.backgroundImage, "none");
+  assert.equal(brand.maskImage, "none");
+  for (const content of [brand.before, brand.after]) assert.ok(["none", "normal", '""'].includes(content));
+  await nativeTab.hover();
+  const nativeTooltip = page.locator(".monaco-hover").filter({ hasText: /^Pi$/ }).last();
+  await nativeTooltip.waitFor({ state: "visible" });
+  const tooltip = (await nativeTooltip.innerText()).trim();
+  assert.equal(tooltip, "Pi");
+  const tabScreenshot = path.join(tmpdir(), `pi-native-tab-${evidenceLabel}.png`);
+  await page.screenshot({ path: tabScreenshot });
+  await page.mouse.move(0, 0);
+  const wasSessions = await pi.locator("#app").evaluate((element) => element.classList.contains("sessions-layer"));
+  const promptsBeforeSessions = await readFile(path.join(directory, "prompts.jsonl"), "utf8").catch(() => "");
+  await invoke("command", { command: "pi.openChat" });
+  pi = await frame();
+  await until(() => pi.locator("#sessions").isVisible(), "Open Sessions from native Pi");
+  assert.equal(await pi.locator("#app").evaluate((element) => element.classList.contains("sessions-layer")), true);
+  assert.equal(await nativeTab.getAttribute("aria-selected"), "true");
+  assert.equal(await readFile(path.join(directory, "prompts.jsonl"), "utf8").catch(() => ""), promptsBeforeSessions);
+  if (!wasSessions) await pi.locator("#recent-session-list .current").click();
+  console.log("PI_NATIVE_TAB", JSON.stringify({
+    version: ready.version, platform: process.platform, accessibleTab, tooltip, brand,
+    visibleBrandElements: "text Pi only; no rendered icon", openSessions: "pi.openChat passed; no prompt",
+    presentation: "unchanged manifest and shared display settings; user acceptance pending",
+    provider: "deterministic fixture; no live model", screenshot: tabScreenshot,
+  }));
   if (!process.argv.includes("editor")) {
     await assertAuthTransferDialogs({ page, directory, workspace, invoke, pick, until, frame });
   }
