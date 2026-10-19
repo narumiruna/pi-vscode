@@ -10,6 +10,7 @@ Pi provider authentication remains in Pi's credential store or provider environm
 The VS Code bridge listens on a random loopback TCP port in the same extension-host environment.
 Each bridge request and event subscription requires a random per-window token passed to foreground Pi processes and future integrated terminals. Independent background/worktree agents receive neither bridge credentials nor the bridge extension.
 Oversized or malformed bridge frames fail closed and terminate their socket.
+Session shutdown and subscription replacement mark outgoing callbacks inactive before destroying their sockets. Pending event-bus requests are cancelled and their late success/error responses are discarded before the old Pi API is invalidated. Intentional cleanup emits no disconnect event and never replays a request into the replacement session; current connection failures still emit one disconnect event.
 Processes in an authenticated terminal can inherit that token. The non-secret `PI_VSCODE_BRIDGE_EXTENSION` variable identifies the bridge bundled with the active VSIX, but users must pass it explicitly with `pi --extension` in an ordinary integrated shell. Requests remain allowlisted and expose no arbitrary command execution or file mutation method.
 The bridge exposes bounded editor context, language-provider navigation metadata, file opening, notifications, and JSON-safe events from same-host VS Code extensions.
 

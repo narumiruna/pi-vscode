@@ -17,32 +17,42 @@ export default function (pi: ExtensionAPI) {
       throw new Error("This capability marker is discovery-only.");
     },
   });
-  let subscription: net.Socket | undefined;
+  let disposeSubscription: (() => void) | undefined;
+  let requests = new AbortController();
+  const disposeSession = () => {
+    // Pi invalidates this API after shutdown. Invalidate callbacks before releasing their sockets.
+    requests.abort();
+    disposeSubscription?.();
+    disposeSubscription = undefined;
+  };
 
   pi.events.on("vscode:request", (value: unknown) => {
-    if (!isRecord(value) || typeof value.method !== "string") {
+    const { signal } = requests;
+    if (signal.aborted || !isRecord(value) || typeof value.method !== "string") {
       return;
     }
     const id = typeof value.id === "string" ? value.id : randomUUID();
     const params = isRecord(value.params) ? value.params : {};
-    void bridgeRequest(value.method, params).then(
-      (result) => pi.events.emit("vscode:response", { id, ok: true, result }),
-      (error) => pi.events.emit("vscode:response", { id, ok: false, error: formatError(error) }),
+    void bridgeRequest(value.method, params, signal).then(
+      (result) => {
+        if (!signal.aborted) pi.events.emit("vscode:response", { id, ok: true, result });
+      },
+      (error) => {
+        if (!signal.aborted) pi.events.emit("vscode:response", { id, ok: false, error: formatError(error) });
+      },
     );
   });
 
   pi.on("session_start", (_event, ctx) => {
-    subscription?.destroy();
-    subscription = subscribeToBridgeEvents(pi, {
+    disposeSession();
+    requests = new AbortController();
+    disposeSubscription = subscribeToBridgeEvents(pi, {
       cwd: ctx.cwd,
       sessionId: ctx.sessionManager.getSessionId(),
     });
   });
 
-  pi.on("session_shutdown", () => {
-    subscription?.destroy();
-    subscription = undefined;
-  });
+  pi.on("session_shutdown", disposeSession);
 
   pi.registerTool({
     name: "vscode_context",
@@ -290,7 +300,7 @@ async function bridgeRequest(method: string, params: Record<string, unknown>, si
 function subscribeToBridgeEvents(
   pi: ExtensionAPI,
   metadata: { cwd: string; sessionId: string },
-): net.Socket | undefined {
+): (() => void) | undefined {
   const connection = bridgeConnection();
   if (!connection) {
     return undefined;
@@ -301,8 +311,15 @@ function subscribeToBridgeEvents(
   const decoder = new StringDecoder("utf8");
   let buffer = "";
   let authenticated = false;
-  let disconnectEmitted = false;
+  let disposed = false;
 
+  const disconnect = (error?: Error) => {
+    if (disposed) return;
+    disposed = true;
+    if (error || authenticated) {
+      pi.events.emit("vscode:disconnected", error ? { error: error.message } : {});
+    }
+  };
   const processLine = (line: string) => {
     let message: unknown;
     try {
@@ -330,6 +347,7 @@ function subscribeToBridgeEvents(
   };
 
   socket.once("connect", () => {
+    if (disposed || socket.destroyed) return;
     socket.write(
       `${JSON.stringify({
         id,
@@ -340,12 +358,13 @@ function subscribeToBridgeEvents(
     );
   });
   socket.on("data", (chunk: Buffer) => {
+    if (disposed || socket.destroyed) return;
     buffer += decoder.write(chunk);
     if (Buffer.byteLength(buffer, "utf8") > responseLimitBytes) {
       socket.destroy(new Error("VS Code bridge event stream exceeded 1 MiB."));
       return;
     }
-    while (true) {
+    while (!disposed && !socket.destroyed) {
       const newline = buffer.indexOf("\n");
       if (newline < 0) {
         break;
@@ -355,16 +374,13 @@ function subscribeToBridgeEvents(
       processLine(line);
     }
   });
-  socket.once("error", (error) => {
-    disconnectEmitted = true;
-    pi.events.emit("vscode:disconnected", { error: error.message });
-  });
-  socket.once("close", () => {
-    if (authenticated && !disconnectEmitted) {
-      pi.events.emit("vscode:disconnected", {});
-    }
-  });
-  return socket;
+  socket.once("error", disconnect);
+  socket.once("close", () => disconnect());
+  return () => {
+    disposed = true;
+    buffer = "";
+    socket.destroy();
+  };
 }
 
 function bridgeConnection(): { port: number; token: string } | undefined {
