@@ -3,6 +3,7 @@ export function conversationHistoryControlsHtml(): string {
     <p id="history-status" role="status" aria-live="polite" hidden></p>
     <div id="history-search-bar" hidden role="search" aria-label="Find conversation text">
       <p id="history-scope">Search current text window only; includes code and diagram source. Excludes thinking, tool details and images.</p>
+      <p id="history-search-note" hidden>Full history is not loaded. Search covers current text only.</p>
       <label for="history-search-input">Find literal text (case-sensitive)</label>
       <input id="history-search-input" type="search" maxlength="256" autocomplete="off" aria-describedby="history-scope" />
       <span id="history-search-count" role="status" aria-live="polite"></span>
@@ -16,7 +17,7 @@ export function conversationHistoryStyles(): string {
   return `
     #history-controls { flex: 0 0 auto; min-width: 0; padding: 6px 12px; border-bottom: 1px solid var(--pi-border); }
     .history-actions { display: flex; flex-wrap: wrap; gap: 4px; }
-    #history-scope, #history-status { margin: 4px 0; font-size: 11px; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
+    #history-scope, #history-search-note, #history-status { margin: 4px 0; font-size: 11px; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
     #history-search-bar label, #history-search-count { display: block; font-size: 11px; }
     #history-search-input { width: 100%; min-width: 0; box-sizing: border-box; margin: 4px 0; }
     ::highlight(pi-conversation-matches) { background: var(--vscode-editor-findMatchHighlightBackground, #785c00); color: var(--vscode-editor-foreground); }
@@ -31,8 +32,8 @@ export function conversationHistoryScript(): string {
       const el = id => document.getElementById(id);
       const bar = el('history-search-bar'), field = el('history-search-input'), count = el('history-search-count');
       const trigger = el('history-search-open'), earlier = el('history-earlier'), latestButton = el('history-latest');
-      const controls = el('history-controls'), status = el('history-status');
-      bar.hidden = status.hidden = controls.hidden = true;
+      const controls = el('history-controls'), status = el('history-status'), note = el('history-search-note');
+      bar.hidden = status.hidden = controls.hidden = note.hidden = true;
       const root = el('messages'), scroller = el('conversation');
       let state = {}, matches = [], selected = -1, session, windowKey, lastContent, lastRoot, followOnLatest = false;
       let hooks = { pauseFollowing() {}, followLatest() {} };
@@ -96,7 +97,14 @@ export function conversationHistoryScript(): string {
         const rect = matches[selected].range.getBoundingClientRect(), viewport = scroller.getBoundingClientRect();
         scroller.scrollTop += rect.top - viewport.top - viewport.height / 2;
       };
-      const syncSurface = () => { controls.hidden = bar.hidden && status.hidden; };
+      const syncSurface = () => {
+        const hidden = bar.hidden || Boolean(state.history?.available || state.history?.loading);
+        if (note.hidden !== hidden) {
+          note.hidden = hidden;
+          field.setAttribute('aria-describedby', hidden ? 'history-scope' : 'history-scope history-search-note');
+        }
+        controls.hidden = bar.hidden && status.hidden;
+      };
       const canNavigate = () => Boolean(state.history?.canNavigate && state.history.available && !state.history.loading
         && state.runtime?.connected && !state.runtime.busy);
       const close = () => {
@@ -147,7 +155,6 @@ export function conversationHistoryScript(): string {
           latestButton.disabled = !canNavigate() || history?.mode !== 'earlier';
           const feedback = [];
           if (history?.loading) feedback.push('Loading history…');
-          else if (!history?.available) feedback.push('Full history unavailable; current text remains searchable.');
           if (history?.available && history.mode === 'earlier') feedback.push('Earlier window: ' + (next.messages?.length || 0)
             + ' of ' + history.total + ' messages. ' + history.omittedBefore + ' earlier; ' + history.omittedAfter + ' later.');
           if (history?.truncated) feedback.push('Text is truncated; omitted portions of long messages cannot be browsed.');

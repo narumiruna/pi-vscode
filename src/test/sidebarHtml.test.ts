@@ -1128,6 +1128,7 @@ class SidebarTestElement {
   dataset: Record<string, string> = {};
   "aria-current"?: string;
   "aria-expanded"?: string;
+  "aria-describedby"?: string;
   classes = new Set<string>();
   classList = {
     toggle: (name: string, force?: boolean) => {
@@ -1314,6 +1315,11 @@ test("conversation header owns one accessible icon per action and no transcript 
   const surface = html.slice(html.indexOf('id="history-controls"'), html.indexOf('<section id="messages"'));
   assert.doesNotMatch(surface, /id="history-(?:search-open|earlier|latest)"/);
   assert.ok(surface.indexOf('id="history-scope"') > surface.indexOf('id="history-search-bar"'));
+  assert.match(
+    surface,
+    /id="history-search-note" hidden>Full history is not loaded\. Search covers current text only\.<\/p>/,
+  );
+  assert.doesNotMatch(surface, /id="history-search-note"[^>]*(?:role=|aria-live=)/);
 });
 
 test("conversation-only header controls follow list and detail navigation", () => {
@@ -1351,6 +1357,94 @@ test("search expands only on request and Escape restores the header trigger", ()
   assert.equal(bar.hidden, true, "the expanded trigger also closes search");
 });
 
+test("unloaded history feedback belongs only to expanded search, without host requests", () => {
+  for (const history of [undefined, { available: false, mode: "latest" }]) {
+    const sidebar = createSidebarScriptHarness();
+    sidebar.receive({ type: "showSessionDetail" });
+    sidebar.receive({ type: "state", messages: [], runtime: { connected: true }, history });
+    const trigger = sidebar.element("history-search-open");
+    const field = sidebar.element("history-search-input");
+    const note = sidebar.element("history-search-note");
+    const controls = sidebar.element("history-controls");
+    assert.equal(controls.hidden, true, "empty conversations have no history strip");
+    assert.equal(sidebar.element("history-status").hidden, true);
+    const before = sidebar.posted.length;
+    trigger.listeners.get("click")!();
+    assert.equal(controls.hidden, false);
+    assert.equal(note.hidden, false);
+    assert.equal(field["aria-describedby"], "history-scope history-search-note");
+    assert.equal(field.focusCount, 1);
+    sidebar.element("history-search-close").listeners.get("click")!();
+    assert.equal(note.hidden, true);
+    assert.equal(controls.hidden, true, "close collapses immediately without a host event");
+    assert.equal(field["aria-describedby"], "history-scope");
+    assert.equal(trigger.focusCount, 1);
+    trigger.listeners.get("click")!();
+    assert.equal(note.hidden, false, "open updates immediately without a host event");
+    sidebar.element("history-search-bar").listeners.get("keydown")!({
+      key: "Escape",
+      preventDefault() {},
+      stopPropagation() {},
+    });
+    assert.equal(note.hidden, true);
+    assert.equal(controls.hidden, true);
+    assert.equal(trigger.focusCount, 2);
+    assert.equal(sidebar.posted.length, before, "search feedback sends no RPC or model request");
+  }
+});
+
+test("search feedback follows loading and availability without resetting search or failure controls", () => {
+  const sidebar = createSidebarScriptHarness();
+  // This fake DOM has no text nodes; real matching and focus retention are checked in Chromium.
+  sidebar.run(
+    "globalThis.NodeFilter = { SHOW_TEXT: 4 }; document.createTreeWalker = () => ({ nextNode: () => null });",
+  );
+  sidebar.receive({ type: "showSessionDetail" });
+  const render = (history: object) =>
+    sidebar.receive({
+      type: "state",
+      messages: [],
+      runtime: { connected: true },
+      status: "Pi completed · History refresh failed",
+      historyRecoveryAvailable: true,
+      history,
+    });
+  render({ loading: true, available: false });
+  sidebar.element("history-search-open").listeners.get("click")!();
+  const field = sidebar.element("history-search-input");
+  field.value = "keep query";
+  let descriptionChanges = 0;
+  const setAttribute = field.setAttribute.bind(field);
+  field.setAttribute = (name, value) => {
+    if (name === "aria-describedby") descriptionChanges++;
+    setAttribute(name, value);
+  };
+  assert.equal(sidebar.element("history-search-note").hidden, true);
+  assert.match(sidebar.element("history-status").textContent, /Loading history/);
+  render({ loading: false, available: false });
+  assert.equal(sidebar.element("history-search-note").hidden, false);
+  assert.equal(sidebar.element("history-status").hidden, true);
+  render({ loading: false, available: false });
+  assert.equal(descriptionChanges, 1, "unchanged state does not repeat description updates");
+  assert.match(sidebar.element("status").textContent, /History refresh failed/);
+  assert.equal(sidebar.element("refresh-history").hidden, false);
+  sidebar.receive({ type: "notice", level: "error", message: "Session restoration failed.", detailsAvailable: true });
+  assert.equal(sidebar.element("notice").textContent, "Session restoration failed.");
+  assert.equal(sidebar.element("notice").children[0].textContent, "View diagnostic");
+  assert.equal(
+    sidebar.element("notice").children.some((child) => child.dataset.noticeDismiss),
+    false,
+  );
+  const before = sidebar.posted.length;
+  render({ loading: false, available: true });
+  assert.equal(sidebar.element("history-search-note").hidden, true);
+  assert.equal(field["aria-describedby"], "history-scope");
+  assert.equal(field.value, "keep query");
+  assert.equal(field.focusCount, 1, "host updates do not move focus");
+  assert.equal(sidebar.element("history-search-bar").hidden, false);
+  assert.equal(sidebar.posted.length, before);
+});
+
 test("header history actions retain navigation guards and conditional feedback", () => {
   const sidebar = createSidebarScriptHarness();
   sidebar.receive({ type: "showSessionDetail" });
@@ -1373,7 +1467,7 @@ test("header history actions retain navigation guards and conditional feedback",
   assert.equal(sidebar.posted.at(-1)?.direction, "latest");
   for (const [overrides, runtime, expected] of [
     [{ loading: true }, { connected: true, busy: false }, /Loading history/],
-    [{ available: false }, { connected: true, busy: false }, /Full history unavailable/],
+    [{ available: false }, { connected: true, busy: false }, undefined],
     [{}, { connected: false, busy: false }, undefined],
     [{}, { connected: true, busy: true }, undefined],
   ] as const) {
