@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { downloadAndUnzipVSCode } from "@vscode/test-electron";
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const version = process.argv[2] ?? "1.106.0";
+const version = process.argv[2] ?? "1.140.0";
 const trusted = process.argv[3] !== "untrusted";
 const directory = await mkdtemp(path.join(tmpdir(), "pi-native-fixture-"));
 try {

@@ -162,7 +162,7 @@ try {
       name: "remote-draft-probe",
       publisher: "fixture",
       version: "0.0.1",
-      engines: { vscode: "^1.106.0" },
+      engines: { vscode: "^1.140.0" },
       main: "./main.cjs",
       extensionKind: ["workspace"],
       activationEvents: ["onStartupFinished"],

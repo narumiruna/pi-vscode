@@ -107,11 +107,13 @@ test("Open Sessions uses explicit light and dark Pi icons with matching shapes",
 });
 
 test("workflow commands are contributed, registered, documented and keep minimum stable workspace-host compatibility", () => {
-  assert.equal(manifest.engines.vscode, "^1.106.0");
+  assert.equal(manifest.engines.vscode, "^1.140.0");
   assert.deepEqual(manifest.extensionKind, ["workspace"]);
   const vscodeTypesVersion = manifest.devDependencies["@types/vscode"];
   assert.match(vscodeTypesVersion, /^\d+\.\d+\.\d+$/);
+  assert.equal(vscodeTypesVersion, manifest.engines.vscode.slice(1), "types must match the minimum VS Code version");
   const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+  assert.equal(lock.packages[""].engines.vscode, manifest.engines.vscode);
   assert.equal(lock.packages[""].devDependencies["@types/vscode"], vscodeTypesVersion);
   assert.equal(lock.packages["node_modules/@types/vscode"].version, vscodeTypesVersion);
   assert.equal(manifest.contributes.configuration.properties["pi.defaultMode"], undefined);

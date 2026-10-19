@@ -1,5 +1,5 @@
 // Real Linux Orca/AT-SPI validation. Never replaces Orca speech or navigation code.
-// After compile: node scripts/test-screen-reader.mjs /path/to/extracted-debs/root [1.106.0|stable]
+// After compile: node scripts/test-screen-reader.mjs /path/to/extracted-debs/root [1.140.0|stable]
 // Requires system Python GI, at-spi2-core, uv, dbus-run-session, Xvfb and extracted Orca/GI/xdotool
 // dependencies. The prefix contains usr/bin/orca and usr/lib/python3/dist-packages/orca.
 // Speech Dispatcher is deliberately unavailable: assertions use Orca's actual SPEECH OUTPUT logs,
@@ -17,7 +17,7 @@ import { chromium } from "playwright-core";
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const isolated = process.argv[2] === "--isolated";
 const prefix = path.resolve(process.argv[isolated ? 4 : 2] ?? "");
-const version = process.argv[isolated ? 5 : 3] ?? "1.106.0";
+const version = process.argv[isolated ? 5 : 3] ?? "1.140.0";
 assert.equal(process.platform, "linux", "This runner checks Linux desktop only.");
 assert.equal(process.arch, "x64", "The extracted dependency layout is Linux x64 only.");
 assert.ok(process.argv[isolated ? 4 : 2], "Supply the extracted Orca dependency prefix.");
@@ -285,7 +285,7 @@ if (!isolated) {
         name: "screen-reader-coordinator",
         publisher: "fixture",
         version: "0.0.1",
-        engines: { vscode: "^1.106.0" },
+        engines: { vscode: "^1.140.0" },
         activationEvents: ["onStartupFinished"],
         main: "./main.cjs",
       }),

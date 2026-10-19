@@ -18,7 +18,7 @@ See the [feature matrix](docs/FEATURE_MATRIX.md) for the complete capability map
 
 ## Requirements
 
-- VS Code 1.106 or newer
+- VS Code 1.140 or newer
 - [Pi](https://pi.dev), installed and authenticated
 
 Confirm that Pi is available in the environment where VS Code runs the extension:
@@ -403,10 +403,10 @@ After compilation, run `node scripts/test-isolated-sdk.mjs <configured-pi-execut
 
 | Command | Purpose |
 | --- | --- |
-| `npm run test:native -- 1.106.0` | Isolated Extension Host assertions against the minimum supported VS Code version. |
-| `xvfb-run -a npm run test:native-ui -- 1.106.0` | Linux UI checks for attachments, image preview/focus, queue controls, status/Stop, session details, deletion confirmation, review confirmations, Problems actions, proposals, multi-file Apply/Undo, and reload. |
+| `npm run test:native -- 1.140.0` | Isolated Extension Host assertions against the minimum supported VS Code version. |
+| `xvfb-run -a npm run test:native-ui -- 1.140.0` | Linux UI checks for attachments, image preview/focus, queue controls, status/Stop, session details, deletion confirmation, review confirmations, Problems actions, proposals, multi-file Apply/Undo, and reload. |
 
-On headless Linux, also prefix `test:native` with `xvfb-run -a`. Replace `1.106.0` with `stable` to check the current VS Code release.
+On headless Linux, also prefix `test:native` with `xvfb-run -a`. Replace `1.140.0` with `stable` to check the current VS Code release.
 
 1. Append `untrusted` to the `test:native` command for Restricted Mode.
 2. Append `alias` to the `test:native-ui` command to test a workspace opened through a directory symlink.
@@ -437,7 +437,7 @@ The runner uses a loopback-only, token-authenticated server, a remote Node Exten
 On Linux x64, supply an extracted compatible Orca dependency prefix, system Python GI, `uv`, `dbus-run-session`, Xvfb, system AT-SPI services, and `xdotool` from that prefix. Compile the prefix's schemas first with `glib-compile-schemas /path/to/orca-prefix/usr/share/glib-2.0/schemas`:
 
 ```bash
-npm run test:screen-reader -- /path/to/orca-prefix 1.106.0
+npm run test:screen-reader -- /path/to/orca-prefix 1.140.0
 npm run test:screen-reader -- /path/to/orca-prefix stable
 ```
 
