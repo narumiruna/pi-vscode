@@ -1,21 +1,28 @@
 # Development and release
 
-Run commands from the repository root. See the [user guide](USER_GUIDE.md) for installation alternatives and the [overview](../README.md) for normal Marketplace installation.
+Run commands from the repository root.
+See the [user guide](USER_GUIDE.md) for installation alternatives and the [overview](../README.md) for normal Marketplace installation.
 
 ## Install from source
 
-Building from source requires Node.js 22.19 or newer, npm, and a POSIX shell available as `sh`. On Windows, install Git for Windows and add its `sh` command to `PATH`.
+Building from source requires Node.js 22.19 or newer, npm, and a POSIX shell available as `sh`.
+On Windows, install Git for Windows and add its `sh` command to `PATH`.
 
 ```bash
 npm ci
 npm run install:extension
 ```
 
-`npm run install:extension` packages and installs the VS Code extension, then removes the exact legacy global bridge filenames created by older releases. It does not install a Pi extension under `${PI_CODING_AGENT_DIR:-~/.pi/agent}`. The extension ID is `narumi.narumi-pi`.
+`npm run install:extension` packages and installs the VS Code extension, then removes the exact legacy global bridge filenames created by older releases.
+It does not install a Pi extension under `${PI_CODING_AGENT_DIR:-~/.pi/agent}`.
+The extension ID is `narumi.narumi-pi`.
 
-Use `npm run install:vsix` to package and install without the legacy global bridge cleanup. `npm ci` installs the locked project dependencies; it does not install the VS Code extension.
+Use `npm run install:vsix` to package and install without the legacy global bridge cleanup.
+`npm ci` installs the locked project dependencies; it does not install the VS Code extension.
 
-Run **Developer: Reload Window** after installation. Use **More… → Open in Terminal** for an automatically bridged Pi session. For an ordinary integrated terminal, see [Extension bridge](USER_GUIDE.md#extension-bridge).
+Run **Developer: Reload Window** after installation.
+Use **More… → Open in Terminal** for an automatically bridged Pi session.
+For an ordinary integrated terminal, see [Extension bridge](USER_GUIDE.md#extension-bridge).
 
 ## Development
 
@@ -32,11 +39,15 @@ npm exec --yes --package=@biomejs/biome@2.5.13 -- biome check src resources
 | Command | Purpose |
 | --- | --- |
 | `npm run compile` | Check host and browser TypeScript; build bundled renderer and settings assets. |
-| `npm run watch` | Watch host TypeScript only. Rerun `compile` after renderer or style changes. |
+| `npm run watch` | Watch host TypeScript only; see [Build order](#build-order). |
 | `npm test` | Compile, then run the Vitest suite without a live model. |
 | `npm run package` | Run the full test suite and create or overwrite `pi.vsix`. |
 
-Run compile-based commands sequentially. Their shared generated assets can conflict when multiple builds run at the same time.
+#### Build order
+
+Rerun `npm run compile` after renderer or style changes when using `npm run watch`.
+Run compile-based commands sequentially.
+Their shared generated assets can conflict when multiple builds run at the same time.
 
 ### Listing screenshots
 
@@ -46,7 +57,12 @@ After compilation, capture the README images with the installed Playwright Chrom
 node scripts/capture-readme.mjs
 ```
 
-This overwrites the two PNG assets in `resources/screenshots/`. The script uses the current sidebar HTML, sample conversation and attachment data, simulated VS Code IPC, and blocked network requests. It checks that Preview is enabled, Apply is disabled before preview, and the Preview button sends the expected action. It does not start Pi, request a model, open a native diff, or apply an edit. The screenshots show the sidebar renderer, not the complete VS Code workbench. Review both images after changing the renderer or capture data.
+This overwrites the two PNG assets in `resources/screenshots/`.
+The script uses the current sidebar HTML, sample conversation and attachment data, simulated VS Code IPC, and blocked network requests.
+It checks that Preview is enabled, Apply is disabled before preview, and the Preview button sends the expected action.
+It does not start Pi, request a model, open a native diff, or apply an edit.
+The screenshots show the sidebar renderer, not the complete VS Code workbench.
+Review both images after changing the renderer or capture data.
 
 ### Browser checks
 
@@ -59,9 +75,17 @@ npm run test:thinking-picker
 npm run test:settings
 ```
 
-The rich-content check tests the sidebar document, CSP, rendering, themes, overflow, and asynchronous lifecycle. It also runs deterministic interface fixtures for responsive actions, attachments, queue submissions, session details, status, and scroll preservation. Extension status/widget fixtures check keyed ordering, removal, text safety, keyboard order, four themes, 224 narrow/short layouts, and host warning/Stop visibility. Run it after renderer changes. Run the thinking-picker check after thinking-picker changes. The settings check tests controls, scopes, reset, external-change conflicts, draft recovery, keyboard navigation, themes, layout, and CSP using the bundled assets. None of these checks uses a live model.
+The rich-content check tests the sidebar document, CSP, rendering, themes, overflow, and asynchronous lifecycle.
+It also runs deterministic interface fixtures for responsive actions, attachments, queue submissions, session details, status, and scroll preservation.
+Extension status/widget fixtures check keyed ordering, removal, text safety, keyboard order, four themes, 224 narrow/short layouts, and host warning/Stop visibility.
+Run it after renderer changes.
+Run the thinking-picker check after thinking-picker changes.
+The settings check tests controls, scopes, reset, external-change conflicts, draft recovery, keyboard navigation, themes, layout, and CSP using the bundled assets.
+None of these checks uses a live model.
 
-Fixed-status regressions check the permanent composer parent, Sessions parity, reserved idle geometry, message priority, neutral empty input, long text and recovery-button wrapping, unchanged recovery checks, focus, scroll preservation, and no duplicate DOM live announcements. Unit/browser checks and full Linux native UI suites passed on VS Code 1.106.0 and 1.142.0. Real screen-reader, remote, and Windows/macOS UI checks were not rerun for this relocation; see [Composer behavior and validation](COMPOSER_UX.md) for evidence and coverage limits.
+Fixed-status regressions check the permanent composer parent, Sessions parity, reserved idle geometry, message priority, neutral empty input, long text and recovery-button wrapping, unchanged recovery checks, focus, scroll preservation, and no duplicate DOM live announcements.
+Unit/browser checks and full Linux native UI suites passed on VS Code 1.106.0 and 1.142.0.
+Real screen-reader, remote, and Windows/macOS UI checks were not rerun for this relocation; see [Composer behavior and validation](COMPOSER_UX.md) for evidence and coverage limits.
 
 Composer completion fixtures cover attachment capture, path-only insertion, failed capture, stale replies, IME, keyboard focus, and narrow layouts without a model.
 
@@ -71,7 +95,10 @@ Direct-shell fixtures check explicit composer guards, context labels, inert card
 
 ### Isolated Pi public-SDK check
 
-After compilation, run `node scripts/test-isolated-sdk.mjs <configured-pi-executable>` to verify the packaged helper against an explicit Pi 1.3.0 installation. This check uses disposable directories and a fixture session. It verifies static provider discovery, active-branch export, complete-tree import and unchanged source bytes without authentication, model calls, or uploads. No installed Pi path is embedded in the extension.
+After compilation, run `node scripts/test-isolated-sdk.mjs <configured-pi-executable>` to verify the packaged helper against an explicit Pi 1.3.0 installation.
+This check uses disposable directories and a fixture session.
+It verifies static provider discovery, active-branch export, complete-tree import and unchanged source bytes without authentication, model calls, or uploads.
+No installed Pi path is embedded in the extension.
 
 ### Native VS Code checks
 
@@ -80,37 +107,71 @@ After compilation, run `node scripts/test-isolated-sdk.mjs <configured-pi-execut
 | `npm run test:native -- 1.140.0` | Isolated Extension Host assertions against the minimum supported VS Code version. |
 | `xvfb-run -a npm run test:native-ui -- 1.140.0` | Linux UI checks for attachments, image preview/focus, queue controls, status/Stop, session details, deletion confirmation, review confirmations, Problems actions, proposals, multi-file Apply/Undo, and reload. |
 
-On headless Linux, also prefix `test:native` with `xvfb-run -a`. Replace `1.140.0` with `stable` to check the current VS Code release.
+On headless Linux, also prefix `test:native` with `xvfb-run -a`.
+Replace `1.140.0` with `stable` to check the current VS Code release.
 
 1. Append `untrusted` to the `test:native` command for Restricted Mode.
 2. Append `alias` to the `test:native-ui` command to test a workspace opened through a directory symlink.
 3. Append `packaged` to the `test:native-ui` command to install and test the local `pi.vsix`.
 
-Append `transfer` to `test:native-ui` for native export/import/sharing/authentication dialogs only. These fixtures use fake credentials, cancel browser/upload approval, and never contact a provider or GitHub.
+Append `transfer` to `test:native-ui` for native export/import/sharing/authentication dialogs only.
+These fixtures use fake credentials, cancel browser/upload approval, and never contact a provider or GitHub.
 
-The current annotation contract uses `pi.annotations.initialState`: `collapsed` (default) leaves `CommentThread.collapsibleState` unset, using the API's collapsed default; `expanded` explicitly sets `CommentThreadCollapsibleState.Expanded`. **Pi Settings → Editor → Annotation initial state** affects only newly created or replaced annotations, not existing handles or user state on redraw. No global VS Code comments settings are written.
+The current annotation contract uses `pi.annotations.initialState`:
 
-Append `annotations` to `test:native-ui` for isolated production editor-annotation checks: the collapsed default, click-to-open, Pi Settings initial-state selection/reset without changing retained state or restarting Pi, whole-line code/Markdown highlights and literal hovers, expanded read-only native comments below range end lines, grouped explanations, Comments panel entries, collapse preservation on redraw, inactive tabs, theme colors, stale-input rejection, clearing and session/client cleanup. The loopback requests originate in the fixture foreground Pi process; registered-tool execution is checked separately in unit tests. Native panel opening and layout or visible-range/scroll changes are permitted, not failures of the revised contract.
+- `collapsed` (default) leaves `CommentThread.collapsibleState` unset, using the API's collapsed default.
+- `expanded` explicitly sets `CommentThreadCollapsibleState.Expanded`.
 
-Append `annotation-prototype` to `test:native-ui` for the separate test-only native-thread fixture. Its earlier no-navigation gate failed when VS Code opened the Comments panel; that requirement is now relaxed by explicit user authorization. A prototype result does not validate production authorization or lifecycle handling. See [Native annotation thread feasibility](ANNOTATION_THREAD_FEASIBILITY.md) for current evidence, reproduction and unverified paths.
+**Pi Settings → Editor → Annotation initial state** affects only newly created or replaced annotations, not existing handles or user state on redraw.
+No global VS Code comments settings are written.
 
-The initial-state production fixture passed on Linux x64 with VS Code 1.140.0 and 1.143.0. Earlier separate prototype results cover initially expanded threads; that fixture was not rerun for this setting change. Source tabs, selections, buffers, files and editor focus remain checked; explicit tab/selection/focus/reveal/scroll operations and settings overrides remain prohibited. Use [Native annotation thread validation](ANNOTATION_THREAD_FEASIBILITY.md) for commands, historical failures and remaining platform/accessibility checks. Report browser, native, remote, platform and live-provider results separately.
+Append `annotations` to `test:native-ui` to check the production editor-annotation workflow in isolation.
+The fixture checks:
 
-Append `selection` to `test:native-ui` to check **Ask About Selection** before the sidebar has opened. This fixture uses the real editor command and question input, then checks the visible conversation and a single read-only request without source changes.
+- The collapsed default and click-to-open behavior.
+- Pi Settings initial-state selection/reset without changing retained state or restarting Pi.
+- Whole-line code/Markdown highlights and literal hovers.
+- Expanded read-only native comments below range end lines, grouped explanations and Comments panel entries.
+- Collapse preservation on redraw, inactive tabs and theme colors.
+- Stale-input rejection, clearing and session/client cleanup.
 
-Append `editor` to `test:native-ui` for the isolated multiline-editor and timed-confirmation fixtures only. They cover exact text, keyboard Submit/Cancel, close/discard, privacy decline, read-only review, timeouts, and process replacement.
+The loopback requests originate in the fixture foreground Pi process; registered-tool execution is checked separately in unit tests.
+Native panel opening and layout or visible-range/scroll changes are permitted, not failures of the revised contract.
 
-Native checks download a VS Code test build into the system temporary cache and use disposable profiles and workspaces. UI checks use a deterministic Pi RPC fixture; Playwright connects only to the disposable profile's loopback debugging endpoint. These checks do not use a live model, your VS Code profile, or your workspace.
+Append `annotation-prototype` to `test:native-ui` for the separate test-only native-thread fixture.
+Its earlier no-navigation gate failed when VS Code opened the Comments panel; that requirement is now relaxed by explicit user authorization.
+A prototype result does not validate production authorization or lifecycle handling.
+See [Native annotation thread feasibility](ANNOTATION_THREAD_FEASIBILITY.md) for current evidence, reproduction and unverified paths.
+
+The initial-state production fixture passed on Linux x64 with VS Code 1.140.0 and 1.143.0.
+Earlier separate prototype results cover initially expanded threads; that fixture was not rerun for this setting change.
+Source tabs, selections, buffers, files and editor focus remain checked; explicit tab/selection/focus/reveal/scroll operations and settings overrides remain prohibited.
+Use [Native annotation thread validation](ANNOTATION_THREAD_FEASIBILITY.md) for commands, historical failures and remaining platform/accessibility checks.
+Report browser, native, remote, platform and live-provider results separately.
+
+Append `selection` to `test:native-ui` to check **Ask About Selection** before the sidebar has opened.
+This fixture uses the real editor command and question input, then checks the visible conversation and a single read-only request without source changes.
+
+Append `editor` to `test:native-ui` for the isolated multiline-editor and timed-confirmation fixtures only.
+They cover exact text, keyboard Submit/Cancel, close/discard, privacy decline, read-only review, timeouts, and process replacement.
+
+Native checks download a VS Code test build into the system temporary cache and use disposable profiles and workspaces.
+UI checks use a deterministic Pi RPC fixture; Playwright connects only to the disposable profile's loopback debugging endpoint.
+These checks do not use a live model, your VS Code profile, or your workspace.
 
 ### Operation diagnostics validation
 
-Append `output-diagnostics` to `test:native-ui` for the isolated **Show Output** fixture. It injects malformed stdout and private stderr into the offline RPC child, then checks the real Sidebar, Pi log file and Output panel. It checks that the short recovery summary remains visible, no raw sentinel reaches the webview or log, no modal/panel/notification or editor-focus change occurs before explicit action, and native Tab/Enter selects **Output → Pi** without taking focus. It also checks that no model prompt or process restart occurs. This selector uses a source development profile, not an installed VSIX.
+Append `output-diagnostics` to `test:native-ui` for the isolated **Show Output** fixture.
+It injects malformed stdout and private stderr into the offline RPC child, then checks the real Sidebar, Pi log file and Output panel.
+It checks that the short recovery summary remains visible, no raw sentinel reaches the webview or log, no modal/panel/notification or editor-focus change occurs before explicit action, and native Tab/Enter selects **Output → Pi** without taking focus.
+It also checks that no model prompt or process restart occurs.
+This selector uses a source development profile, not an installed VSIX.
 
 Checked on Linux x64 with Node.js 26.8.2 on 2026-10-21, sequentially:
 
 | Check | Result |
 | --- | --- |
-| `npm test` | 92 files passed; 1,391 tests passed, 3 Windows-only tests skipped on Linux. Includes logging, activation, privacy, notices, deletion/recovery and runtime/RPC regressions. |
+| `npm test` | 92 files passed; 1,391 tests passed, 3 Windows-only tests skipped on Linux; see [Unit coverage](#unit-coverage). |
 | `npm exec --yes --package=@biomejs/biome@2.5.13 -- biome check src resources` | Passed with no errors; 875 warnings and 24 informational diagnostics. |
 | `npm run test:rich-content` | Passed with local Playwright Chromium, including Show Output keyboard/focus and retained-notice fixtures. |
 | `xvfb-run -a npm run test:native -- 1.140.0` | Passed, VS Code 1.140.0. |
@@ -118,11 +179,32 @@ Checked on Linux x64 with Node.js 26.8.2 on 2026-10-21, sequentially:
 | `xvfb-run -a npm run test:native-ui -- 1.140.0 output-diagnostics` | Passed, VS Code 1.140.0. |
 | `xvfb-run -a npm run test:native-ui -- stable output-diagnostics` | Passed, resolved VS Code 1.143.0. |
 
-Initial checks found outdated constructor/action fixtures and a narrow-panel tab selector; these were corrected before the passing runs. Diff review also found missing history-generation correlation and a late settlement-refresh rejection that could warn a replacement client. History now captures its originating generation, RPC commands use the active request ID when applicable, runtime request diagnostics receive the Sidebar retry contract, and stale refresh failures are discarded with Debug metadata for the old client. Regression tests and all required checks passed after these fixes. Native Output checks use the active **Pi - Output** document and channel selector because narrow panels can collapse the Output tab into **Additional Views**. No package publication, extension installation or live-provider validation was performed.
+#### Unit coverage
 
-Logging ownership is bounded: activation owns channel/stage records; runtime owns lifecycle, deletion/recovery, request and warning records; RPC owns allowlisted command timing/failure records; Sidebar owns UI-action, history/storage and permanent-confirmation records; inline completion owns response/invocation/cancellation records. `src/test/logging.test.ts`, `loggingActivation.test.ts`, `inlineCompletionLogging.test.ts`, `piRpcDiagnostics.test.ts`, `piRuntimeLogging.test.ts` and `sidebarDiagnostics.test.ts` cover metadata projection, warning suppression, disposal/failure isolation, late clients, completed-operation/refresh-failed outcomes and sentinel privacy. Runtime warnings are not logged again by notices.
+The recorded `npm test` run includes logging, activation, privacy, notices, deletion/recovery and runtime/RPC regressions.
 
-Release-maintainer handoff: Windows/macOS and Remote SSH/WSL/container routing, log levels and focus behavior remain unverified. In each environment, use an isolated profile and offline failure to confirm that the Pi channel belongs to the workspace Extension Host, logging does not reveal Output or change focus, and explicit Show Output selects Pi while the Sidebar warning remains visible. Do not infer these results from the Linux checks or claim cross-platform/remote validation before those checks pass. No live-provider check is needed for these deterministic diagnostics.
+Initial checks found outdated constructor/action fixtures and a narrow-panel tab selector; these were corrected before the passing runs.
+Diff review also found missing history-generation correlation and a late settlement-refresh rejection that could warn a replacement client.
+History now captures its originating generation, RPC commands use the active request ID when applicable, runtime request diagnostics receive the Sidebar retry contract, and stale refresh failures are discarded with Debug metadata for the old client.
+Regression tests and all required checks passed after these fixes.
+Native Output checks use the active **Pi - Output** document and channel selector because narrow panels can collapse the Output tab into **Additional Views**.
+No package publication, extension installation or live-provider validation was performed.
+
+Logging ownership is bounded:
+
+- Activation owns channel/stage records.
+- Runtime owns lifecycle, deletion/recovery, request and warning records.
+- RPC owns allowlisted command timing/failure records.
+- Sidebar owns UI-action, history/storage and permanent-confirmation records.
+- Inline completion owns response/invocation/cancellation records.
+
+`src/test/logging.test.ts`, `loggingActivation.test.ts`, `inlineCompletionLogging.test.ts`, `piRpcDiagnostics.test.ts`, `piRuntimeLogging.test.ts` and `sidebarDiagnostics.test.ts` cover metadata projection, warning suppression, disposal/failure isolation, late clients, completed-operation/refresh-failed outcomes and sentinel privacy.
+Runtime warnings are not logged again by notices.
+
+Release-maintainer handoff: Windows/macOS and Remote SSH/WSL/container routing, log levels and focus behavior remain unverified.
+In each environment, use an isolated profile and offline failure to confirm that the Pi channel belongs to the workspace Extension Host, logging does not reveal Output or change focus, and explicit Show Output selects Pi while the Sidebar warning remains visible.
+Do not infer these results from the Linux checks or claim cross-platform/remote validation before those checks pass.
+No live-provider check is needed for these deterministic diagnostics.
 
 ### Remote draft storage check
 
@@ -132,18 +214,30 @@ After compilation, supply a VS Code Server **web** build and local Playwright Ch
 npm run test:remote-drafts -- /path/to/vscode-server-web/bin/code-server
 ```
 
-The runner uses a loopback-only, token-authenticated server, a remote Node Extension Host, and a disposable Chromium profile. It checks consent, the actual draft envelope in client IndexedDB, absence from the server's active storage rows, reload/Restore, and Disable. It uses a synthetic Pi executable with no model calls. It accepts the supplied server build's license terms through `--accept-server-license-terms`; supply only a build whose terms you accept. Test homes, profiles, tokens, processes, and files are isolated and removed. This checks the web-remote topology, not Remote SSH, WSL, containers, or a cross-machine network.
+The runner uses a loopback-only, token-authenticated server, a remote Node Extension Host, and a disposable Chromium profile.
+It checks consent, the actual draft envelope in client IndexedDB, absence from the server's active storage rows, reload/Restore, and Disable.
+It uses a synthetic Pi executable with no model calls.
+It accepts the supplied server build's license terms through `--accept-server-license-terms`; supply only a build whose terms you accept.
+Test homes, profiles, tokens, processes, and files are isolated and removed.
+This checks the web-remote topology, not Remote SSH, WSL, containers, or a cross-machine network.
 
 ### Real screen-reader check
 
-On Linux x64, supply an extracted compatible Orca dependency prefix, system Python GI, `uv`, `dbus-run-session`, Xvfb, system AT-SPI services, and `xdotool` from that prefix. Compile the prefix's schemas first with `glib-compile-schemas /path/to/orca-prefix/usr/share/glib-2.0/schemas`:
+On Linux x64, supply an extracted compatible Orca dependency prefix, system Python GI, `uv`, `dbus-run-session`, Xvfb, system AT-SPI services, and `xdotool` from that prefix.
+Compile the prefix's schemas first with `glib-compile-schemas /path/to/orca-prefix/usr/share/glib-2.0/schemas`:
 
 ```bash
 npm run test:screen-reader -- /path/to/orca-prefix 1.140.0
 npm run test:screen-reader -- /path/to/orca-prefix stable
 ```
 
-Run screen-reader checks sequentially; Orca does not support concurrent copies in this environment. The runner starts real Orca with a private display, D-Bus session, home, and VS Code profile. It checks structural heading navigation and file-hint announcements through actual Orca-generated speech text. It does not replace speech/navigation functions or use an accessibility-tree snapshot as screen-reader evidence. Speech Dispatcher, audible output, and human usability are not tested. Bounded synthetic diagnostic evidence is retained under the printed temporary path. No live model or file attachment capture is required.
+Run screen-reader checks sequentially; Orca does not support concurrent copies in this environment.
+The runner starts real Orca with a private display, D-Bus session, home, and VS Code profile.
+It checks structural heading navigation and file-hint announcements through actual Orca-generated speech text.
+It does not replace speech/navigation functions or use an accessibility-tree snapshot as screen-reader evidence.
+Speech Dispatcher, audible output, and human usability are not tested.
+Bounded synthetic diagnostic evidence is retained under the printed temporary path.
+No live model or file attachment capture is required.
 
 ### Bridge lifecycle public contract check
 
@@ -153,7 +247,9 @@ Run the offline check with an explicit Pi 1.3.0 CLI path:
 node scripts/test-bridge-lifecycle-reference.mjs /path/to/pi-coding-agent/dist/cli.js
 ```
 
-The check uses an authenticated loopback fixture and disposable home, configuration, workspace, and session directories. It checks session transitions, resource reload, fresh subscriptions, event delivery, pending-request cancellation, and clean shutdown without credentials or model calls. This is a Pi RPC check, not a native VS Code UI or macOS validation.
+The check uses an authenticated loopback fixture and disposable home, configuration, workspace, and session directories.
+It checks session transitions, resource reload, fresh subscriptions, event delivery, pending-request cancellation, and clean shutdown without credentials or model calls.
+This is a Pi RPC check, not a native VS Code UI or macOS validation.
 
 ### Direct-shell public contract check
 
@@ -163,9 +259,12 @@ After compiling, run the reference check with an explicit Pi 1.3.0 CLI path:
 node scripts/test-shell-contract.mjs /path/to/pi-coding-agent/dist/cli.js
 ```
 
-This check uses disposable HOME/config directories, offline mode, no MCP servers, no credentials, and no model calls. It verifies actual `user_bash` failure/result contracts, read-only enforcement, and public context conversion with harmless local `printf` commands. It is a validation reference, not another extension runtime dependency.
+This check uses disposable HOME/config directories, offline mode, no MCP servers, no credentials, and no model calls.
+It verifies actual `user_bash` failure/result contracts, read-only enforcement, and public context conversion with harmless local `printf` commands.
+It is a validation reference, not another extension runtime dependency.
 
-The integrated Linux results, exact checked versions, packaging evidence, and unverified platform/provider limits are in [Native parity validation](NATIVE_PARITY_VALIDATION.md). These are historical records; earlier tool/shell approval results do not describe the current permission behavior.
+The integrated Linux results, exact checked versions, packaging evidence, and unverified platform/provider limits are in [Native parity validation](NATIVE_PARITY_VALIDATION.md).
+These are historical records; earlier tool/shell approval results do not describe the current permission behavior.
 
 ### Local installation and debugging
 
@@ -176,12 +275,24 @@ These commands run local processes or change the installed extension; they are n
 
 ## Release
 
-1. Add a repository Actions secret named `PAT_TOKEN`. Use a fine-grained personal access token with **Contents: Read and write** and **Pull requests: Read and write** access to this repository.
-2. Add a repository Actions secret named `VSCE_PAT`. Use an Azure Personal Access Token with **Marketplace (Manage)** scope and access to publisher `narumi`.
+1. Add a repository Actions secret named `PAT_TOKEN`.
+   Use a fine-grained personal access token with **Contents: Read and write** and **Pull requests: Read and write** access to this repository.
+2. Add a repository Actions secret named `VSCE_PAT`.
+   Use an Azure Personal Access Token with **Marketplace (Manage)** scope and access to publisher `narumi`.
 3. For each release-worthy pull request, run `npm run changeset` and commit the generated `.changeset/*.md` file.
-4. Merge the pull request into `main`. The [Publish workflow](../.github/workflows/publish.yml) creates or updates a Version PR when pending changesets exist.
+4. Merge the pull request into `main`.
+   The [Publish workflow](../.github/workflows/publish.yml) creates or updates a Version PR when pending changesets exist.
 5. Review and merge the Version PR to publish the release.
 
-The workflow runs on each push to `main`. The Version PR applies pending changesets, updates `CHANGELOG.md`, `package.json`, and `package-lock.json`, and removes the consumed changesets. A push without a version change only checks for a Version PR; it does not publish a release. If the previous revision or its `package.json` is unavailable, the workflow also checks for a Version PR without publishing because it cannot verify a version change. When the Version PR merges, the workflow checks the version and lockfile, checks that no changesets remain, runs the tests, and packages and verifies the VSIX. The `release` job creates a `v<version>` GitHub release with `pi.vsix` attached. `PAT_TOKEN` authenticates Version PR updates and GitHub release creation. The `publish` job then uses `VSCE_PAT` to publish the same verified VSIX artifact to Visual Studio Marketplace without rebuilding it.
+The workflow runs on each push to `main`.
+The Version PR applies pending changesets, updates `CHANGELOG.md`, `package.json`, and `package-lock.json`, and removes the consumed changesets.
+A push without a version change only checks for a Version PR; it does not publish a release.
+If the previous revision or its `package.json` is unavailable, the workflow also checks for a Version PR without publishing because it cannot verify a version change.
+When the Version PR merges, the workflow checks the version and lockfile, checks that no changesets remain, runs the tests, and packages and verifies the VSIX.
+The `release` job creates a `v<version>` GitHub release with `pi.vsix` attached.
+`PAT_TOKEN` authenticates Version PR updates and GitHub release creation.
+The `publish` job then uses `VSCE_PAT` to publish the same verified VSIX artifact to Visual Studio Marketplace without rebuilding it.
 
-If Marketplace publication fails, the GitHub release remains available. Use **Re-run failed jobs** on the same workflow run to retry `publish` without repeating version updates or release creation. The VSIX artifact must still be available in that run.
+If Marketplace publication fails, the GitHub release remains available.
+Use **Re-run failed jobs** on the same workflow run to retry `publish` without repeating version updates or release creation.
+The VSIX artifact must still be available in that run.

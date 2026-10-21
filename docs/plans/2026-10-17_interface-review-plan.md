@@ -2,38 +2,73 @@
 
 ## Goal
 
-Resolve the findings from the three screenshot reviews. Make attachments, composer actions, model settings, runtime notices, and long responses easier to understand without changing Pi request semantics or security boundaries.
+Resolve the findings from the three screenshot reviews.
+Make attachments, composer actions, model settings, runtime notices, and long responses easier to understand without changing Pi request semantics or security boundaries.
 
-Implementation and local validation are complete. Final acceptance remains blocked on the untested platform, remote, and assistive-technology checks listed below; no deferral has been accepted.
+Implementation and local validation are complete.
+Final acceptance remains blocked on the untested platform, remote, and assistive-technology checks listed below; no deferral has been accepted.
 
 ## Context
 
-The screenshots cover an empty conversation, an attachment draft, a long response, and a running request. Screenshot observations are not proof of runtime defects.
+The screenshots cover an empty conversation, an attachment draft, a long response, and a running request.
+Screenshot observations are not proof of runtime defects.
 
 Repository evidence:
 
-| Area | Current implementation | Consequence for the plan |
-| --- | --- | --- |
-| Layout and controls | `src/sidebarHtml.ts` owns sidebar CSS, markup, and browser interaction. | Keep tightly coupled layout changes here; do not introduce a new UI framework. |
-| Model selection | The picker has a 132px maximum width, an existing provider/model tooltip, and a generic accessible label. | Improve visible identification and accessible value; preserve the existing full-identifier tooltip. |
-| Thinking selection | The select already has `aria-label="Pi thinking level"` and a matching title. | Improve visible context and current-value description; do not describe accessibility labels as absent. |
-| Attachment estimates | The summary reads `state.attachmentEstimate`, not the composer input. | Treat the zero-character observation as ambiguous labeling unless tests prove a counting defect. |
-| Image previews | Composer and transcript images use `object-fit: cover`; transcript images can grow across the grid. A full-image dialog already exists. | Fix thumbnail layout and discovery rather than add a second preview mechanism. |
-| Toolbar | Delete is already hidden when no deletable session exists. | Check actual session state before changing visibility rules. A new-looking session can still have a persistent file. |
-| Runtime notices | `src/sidebar.ts` uses generic warning summaries with bounded details. | Improve known-event summaries without exposing raw diagnostics in the primary notice. |
-| Running requests | Status, Stop, input locks, and hints already use foreground state. | Check visibility and wording across states; do not add a separate progress state machine. |
-| Queue semantics | Enter submits Next after the current tool; the platform-specific alternate shortcut submits After this when the response finishes. | Preserve both behaviors and use the existing platform shortcut selection. |
-| Tests | `src/test/sidebarHtml.test.ts`, `scripts/test-rich-content.mjs`, `scripts/test-thinking-picker.mjs`, and native fixture tests cover relevant surfaces. | Extend these checks instead of relying on screenshots alone. |
+- **Layout and controls**
+  - **Current implementation:** `src/sidebarHtml.ts` owns sidebar CSS, markup, and browser interaction.
+  - **Consequence for the plan:** Keep tightly coupled layout changes here; do not introduce a new UI framework.
 
-The apparent inner scrollbar in the final screenshot may be pixels in the attached image. Do not classify it as nested interactive scrolling without a browser reproduction.
+- **Model selection**
+  - **Current implementation:** The picker has a 132px maximum width, an existing provider/model tooltip, and a generic accessible label.
+  - **Consequence for the plan:** Improve visible identification and accessible value; preserve the existing full-identifier tooltip.
+
+- **Thinking selection**
+  - **Current implementation:** The select already has `aria-label="Pi thinking level"` and a matching title.
+  - **Consequence for the plan:** Improve visible context and current-value description; do not describe accessibility labels as absent.
+
+- **Attachment estimates**
+  - **Current implementation:** The summary reads `state.attachmentEstimate`, not the composer input.
+  - **Consequence for the plan:** Treat the zero-character observation as ambiguous labeling unless tests prove a counting defect.
+
+- **Image previews**
+  - **Current implementation:** Composer and transcript images use `object-fit: cover`; transcript images can grow across the grid.
+    A full-image dialog already exists.
+  - **Consequence for the plan:** Fix thumbnail layout and discovery rather than add a second preview mechanism.
+
+- **Toolbar**
+  - **Current implementation:** Delete is already hidden when no deletable session exists.
+  - **Consequence for the plan:** Check actual session state before changing visibility rules.
+    A new-looking session can still have a persistent file.
+
+- **Runtime notices**
+  - **Current implementation:** `src/sidebar.ts` uses generic warning summaries with bounded details.
+  - **Consequence for the plan:** Improve known-event summaries without exposing raw diagnostics in the primary notice.
+
+- **Running requests**
+  - **Current implementation:** Status, Stop, input locks, and hints already use foreground state.
+  - **Consequence for the plan:** Check visibility and wording across states; do not add a separate progress state machine.
+
+- **Queue semantics**
+  - **Current implementation:** Enter submits Next after the current tool; the platform-specific alternate shortcut submits After this when the response finishes.
+  - **Consequence for the plan:** Preserve both behaviors and use the existing platform shortcut selection.
+
+- **Tests**
+  - **Current implementation:** `src/test/sidebarHtml.test.ts`, `scripts/test-rich-content.mjs`, `scripts/test-thinking-picker.mjs`, and native fixture tests cover relevant surfaces.
+  - **Consequence for the plan:** Extend these checks instead of relying on screenshots alone.
+
+The apparent inner scrollbar in the final screenshot may be pixels in the attached image.
+Do not classify it as nested interactive scrolling without a browser reproduction.
 
 ## Scope and constraints
 
 - Preserve starter cards, conversation titles, attachment removal, focus visibility, and Markdown hierarchy.
 - Preserve trust, permission, read-only, Preview/Apply, stale-content, and deletion confirmation checks in `docs/SECURITY.md`.
 - Preserve image validation, cache limits, metadata-only persistence, CSP, sanitization, and preview focus restoration.
-- Preserve explicit submission, queue limits, queue uncertainty notices, and Stop behavior. Do not retry or resend automatically.
-- Keep changes in source and test files. Do not edit generated assets or VSIX archives.
+- Preserve explicit submission, queue limits, queue uncertainty notices, and Stop behavior.
+  Do not retry or resend automatically.
+- Keep changes in source and test files.
+  Do not edit generated assets or VSIX archives.
 - Do not install the extension, publish a release, or use a live model for validation without separate approval.
 - Do not add settings, feature flags, queue modes, external assets, or provider-specific model aliases for these fixes.
 
@@ -70,8 +105,10 @@ The apparent inner scrollbar in the final screenshot may be pixels in the attach
 
 - [x] Adjust responsive model selection so its identity is readable at ordinary panel widths.
   - Remove the unnecessarily restrictive fixed maximum at wider widths; allow flexible width or a separate settings row at narrow widths.
-  - Use the runtime display name without inventing aliases. Retain the full provider/model identifier in the tooltip.
-  - Include the selected model in the accessible name or description. At extremely narrow widths, truncation is permitted only with the full value available through keyboard access.
+  - Use the runtime display name without inventing aliases.
+    Retain the full provider/model identifier in the tooltip.
+  - Include the selected model in the accessible name or description.
+    At extremely narrow widths, truncation is permitted only with the full value available through keyboard access.
   - Acceptance evidence: browser checks show an uncut representative model name at 600px and 960px, and usable controls at 180–400px with long names.
 - [x] Add visible context to the thinking setting.
   - Show `Thinking` beside the selected value when space permits; keep a compact control at narrow widths.
@@ -85,7 +122,8 @@ The apparent inner scrollbar in the final screenshot may be pixels in the attach
 ### 4. Repair attachment layout and labeling
 
 - [x] Replace ambiguous attachment estimates with explicitly scoped text.
-  - Label counts as attachment text, not prompt text. For image-only drafts, prefer an image count over a misleading zero-text summary.
+  - Label counts as attachment text, not prompt text.
+    For image-only drafts, prefer an image count over a misleading zero-text summary.
   - Move detailed character and estimated-token information into the existing attachment inspection surface where practical.
   - Keep the image-token exclusion explicit wherever text-token estimates appear.
   - Acceptance evidence: tests cover image-only, text-only, mixed, removed, and empty attachments; typing a prompt does not change an attachment-only count.
@@ -125,12 +163,14 @@ The apparent inner scrollbar in the final screenshot may be pixels in the attach
   - Preserve bottom-following readers and the position of users reading older messages; do not force scroll-to-bottom.
   - Acceptance evidence: browser checks cover input resizing, attachment loading/removal, streaming, and manual transcript scrolling at short heights.
 - [x] Reduce toolbar emphasis without removing useful session actions.
-  - Keep Back and New available where they have an effect. Hide or disable invalid actions from actual session state, not visual emptiness.
+  - Keep Back and New available where they have an effect.
+    Hide or disable invalid actions from actual session state, not visual emptiness.
   - Use neutral styling for Delete at rest, with destructive emphasis on hover/focus or confirmation.
   - Preserve modal confirmation, Trash behavior, and the separately confirmed permanent-delete fallback.
   - Acceptance evidence: session-state DOM tests and existing deletion tests pass; native checks confirm confirmation is still required.
 - [x] Simplify persistent footer information.
-  - Keep connection/work status and context usage visible. Move session ID to an explicit details surface or existing session menu while keeping it copyable.
+  - Keep connection/work status and context usage visible.
+    Move session ID to an explicit details surface or existing session menu while keeping it copyable.
   - Reduce permanent shortcut text through contextual help, without hiding submission semantics or recovery actions.
   - Acceptance evidence: users can reach the full session identifier by keyboard; narrow layouts retain status, context, reconnect, and recovery controls without overlap.
 
@@ -141,10 +181,12 @@ The apparent inner scrollbar in the final screenshot may be pixels in the attach
   - Use real browser geometry for layout claims; string snapshots alone are not sufficient.
   - Acceptance evidence: each resolved finding has an automated assertion or an explicit manual review record.
 - [x] Run the local code and browser checks with Node.js 22.19 or newer and locked dependencies.
-  - Use `npm ci` if dependencies need installation. Browser checks require local Playwright Chromium.
+  - Use `npm ci` if dependencies need installation.
+    Browser checks require local Playwright Chromium.
   - Run `npm test` and `npm exec --yes --package=@biomejs/biome@2.5.13 -- biome check src resources`.
   - Run `npm run test:rich-content` and `npm run test:thinking-picker`; both compile first.
-  - Acceptance evidence: record commands, results, and any unavailable prerequisite. Do not mark missing browser checks passed.
+  - Acceptance evidence: record commands, results, and any unavailable prerequisite.
+    Do not mark missing browser checks passed.
 - [x] Run isolated native checks for minimum and current VS Code versions.
   - Extension Host: `xvfb-run -a npm run test:native -- 1.106.0` and `stable` passed on Linux.
   - Native UI: `xvfb-run -a npm run test:native-ui -- 1.106.0` and `stable` passed on Linux.
@@ -152,8 +194,10 @@ The apparent inner scrollbar in the final screenshot may be pixels in the attach
   - Current `stable` resolved to VS Code 1.142.0.
 - [ ] Complete platform, remote, and assistive-technology checks, or obtain explicit user acceptance of deferral.
   - Windows, macOS, and remote Extension Hosts are unavailable in this Linux environment.
-  - Screen-reader spoken labels/announcements require an assistive-technology review. DOM labels, keyboard focus/order, and unchanged-status live-region mutation checks passed; these are not a screen-reader test.
-  - Visual review used browser and native-DOM snapshots. Native geometry was checked at actual 200% zoom; Electron CDP clips iframe screenshots incorrectly at that zoom, so screenshots use the captured native DOM/styles at the measured viewport.
+  - Screen-reader spoken labels/announcements require an assistive-technology review.
+    DOM labels, keyboard focus/order, and unchanged-status live-region mutation checks passed; these are not a screen-reader test.
+  - Visual review used browser and native-DOM snapshots.
+    Native geometry was checked at actual 200% zoom; Electron CDP clips iframe screenshots incorrectly at that zoom, so screenshots use the captured native DOM/styles at the measured viewport.
 
 - [x] Update `README.md` and `docs/FEATURE_MATRIX.md` for the final user-visible behavior and add a `.changeset/*.md` release entry.
   - Document final queue labels, shortcut help, attachment details, and session-details access.
@@ -164,41 +208,100 @@ The apparent inner scrollbar in the final screenshot may be pixels in the attach
 
 ### Finding dispositions
 
-- Attachment counts were attachment-only by design, not a prompt-counting defect. Unit tests now prove that typing does not change them. Image-only drafts show image counts; text counts say `attachment text characters`. Detailed estimates remain in Attach → View attachments and exclude image tokens.
-- Model names come directly from Pi (`name`, then `id`); no aliases were added. The full provider/model tooltip remains. Browser geometry proves a representative name is uncut at 600px and 960px; long-name controls remain usable at narrow widths.
-- Both thinking controls already had accessible labels. The change adds visible Thinking context, current-value/unavailable descriptions, and lock explanations without replacing those labels.
-- Delete visibility already depended on a persistent session file. Empty and persisted-empty fixtures confirm that rule; it was retained. Only resting destructive emphasis changed. Native modal cancellation keeps the session file; existing Trash/permanent-fallback tests pass.
-- Image cropping came from `object-fit: cover`; the filename side column came from the shared horizontal button layout. Thumbnails now use containment, bounded columns, vertical transcript cards, and separate removal controls. The apparent screenshot scrollbar was not reproduced as an interactive image scrollbar; no speculative nested-scroll removal was made.
-- Full-image preview already existed. It was retained, given an explicit accessible action, and tested with Escape/focus restoration. A rapid close/reopen fixture found a deferred-close race; stale close events now leave a newer preview intact.
-- Foreground state already supplied cancellable phases and operation labels. No progress state machine was added. Equal status text no longer mutates the live region during streaming. Fallback active status is Working, not Ready.
-- Queue semantics remain native: Next uses `steer`, After this uses `followUp`, with the same attachment capture and acceptance path. Both visible controls and shortcuts are tested. Slash commands, full queues, disconnected/unsupported states, duplicate acceptance, and image gates remain blocked; the host retains authoritative limits and recovery checks.
-- Native 200% zoom exposed inherited VS Code body padding and short-panel composer clipping. The sidebar now owns its outer padding and bounds shrinkable attachment/queue areas while keeping primary controls visible. Native assertions check both viewport and composer clipping bounds.
-- Long prose is limited to 78ch. Code, tables, math, and diagrams keep their existing local overflow. Resize/stream/image cases preserve bottom-following readers and readers viewing older content.
+- Attachment counts were attachment-only by design, not a prompt-counting defect.
+  Unit tests now prove that typing does not change them.
+  Image-only drafts show image counts; text counts say `attachment text characters`.
+  Detailed estimates remain in Attach → View attachments and exclude image tokens.
+- Model names come directly from Pi (`name`, then `id`); no aliases were added.
+  The full provider/model tooltip remains.
+  Browser geometry proves a representative name is uncut at 600px and 960px; long-name controls remain usable at narrow widths.
+- Both thinking controls already had accessible labels.
+  The change adds visible Thinking context, current-value/unavailable descriptions, and lock explanations without replacing those labels.
+- Delete visibility already depended on a persistent session file.
+  Empty and persisted-empty fixtures confirm that rule; it was retained.
+  Only resting destructive emphasis changed.
+  Native modal cancellation keeps the session file; existing Trash/permanent-fallback tests pass.
+- Image cropping came from `object-fit: cover`; the filename side column came from the shared horizontal button layout.
+  Thumbnails now use containment, bounded columns, vertical transcript cards, and separate removal controls.
+  The apparent screenshot scrollbar was not reproduced as an interactive image scrollbar; no speculative nested-scroll removal was made.
+- Full-image preview already existed.
+  It was retained, given an explicit accessible action, and tested with Escape/focus restoration.
+  A rapid close/reopen fixture found a deferred-close race; stale close events now leave a newer preview intact.
+- Foreground state already supplied cancellable phases and operation labels.
+  No progress state machine was added.
+  Equal status text no longer mutates the live region during streaming.
+  Fallback active status is Working, not Ready.
+- Queue semantics remain native: Next uses `steer`, After this uses `followUp`, with the same attachment capture and acceptance path.
+  Both visible controls and shortcuts are tested.
+  Slash commands, full queues, disconnected/unsupported states, duplicate acceptance, and image gates remain blocked; the host retains authoritative limits and recovery checks.
+- Native 200% zoom exposed inherited VS Code body padding and short-panel composer clipping.
+  The sidebar now owns its outer padding and bounds shrinkable attachment/queue areas while keeping primary controls visible.
+  Native assertions check both viewport and composer clipping bounds.
+- Long prose is limited to 78ch.
+  Code, tables, math, and diagrams keep their existing local overflow.
+  Resize/stream/image cases preserve bottom-following readers and readers viewing older content.
 
 ### Verification results
 
-| Check | Result |
-| --- | --- |
-| Runtime/dependencies | Node.js 26.8.2; existing locked dependencies present; `npm ls --depth=0` passed. No dependency changes. |
-| `npm test` (also run by package and pre-commit) | 48 files, 395 tests passed after rebasing onto current main. |
-| Biome 2.5.13 `check src resources` | Exit 0; 464 warnings and 17 informational diagnostics, no errors. Warnings were not hidden or treated as errors. |
-| `npm run test:rich-content` | Passed: 72 interface layout cases at 180/220/280/400/600/960px and 420/800px; four image cases; eight foreground phases; keyboard, stable live-region, scroll, CSP, sanitization, and rich-renderer lifecycle checks. |
-| `npm run test:thinking-picker` | Passed: 64 browser cases including Max and unsupported state. |
-| `xvfb-run -a npm run test:native -- 1.106.0` | Passed on Linux; 41 encoding cases plus host/workflow safeguards. |
-| `xvfb-run -a npm run test:native -- stable` | Passed on Linux, VS Code 1.142.0. |
-| `xvfb-run -a npm run test:native-ui -- 1.106.0` | Passed, including new interface controls, modal confirmation, native 200% geometry, and reload cleanup. |
-| `xvfb-run -a npm run test:native-ui -- stable` | Passed on Linux, VS Code 1.142.0, with the same interface assertions. |
-| `npm run package` | Passed; local VSIX contains 138 files. Archive inspection confirmed compiled sidebar controls, renderer assets, and fonts. No installation or publication. |
-| Visual/keyboard review | Browser dark/light/high-contrast snapshots and native-DOM 200% snapshots reviewed. Native preview/Escape/focus restoration, session-ID selection, and queue buttons passed. |
-| Screen reader | Not run with assistive technology. DOM names/descriptions and unchanged-live-region tests passed; spoken output is unverified. |
-| Windows/macOS/remote | Not run; explicit acceptance of deferral is required. Windows shortcut selection is unit-tested, not platform-tested. |
-| Live provider | Not run, as required; all model responses came from deterministic fixtures. |
+- **Runtime/dependencies**
+  - **Result:** Node.js 26.8.2; existing locked dependencies present; `npm ls --depth=0` passed.
+    No dependency changes.
 
-The branch was rebased onto main at `d263ed2` after the process-launch refactor merged. Its four existing Biome errors were corrected with import ordering and whitespace only in `piClient.ts`, `piRpcClient.ts`, and `piSpawn.ts`; process-launch behavior was not changed. All listed checks were rerun on this integrated base.
+- **`npm test` (also run by package and pre-commit)**
+  - **Result:** 48 files, 395 tests passed after rebasing onto current main.
 
-During development, checks exposed outdated UI assertions, a concurrent-build race in the generated output directory, missing queue-update events in the new fixture, current-VS-Code chained Quick Pick/focus races, a pending-row presentation race, preview-close timing, and zoom clipping. Tests/builds now run sequentially, fixture acknowledgements match the protocol, and the final runs listed above passed. No failed run is represented as acceptance evidence.
+- **Biome 2.5.13 `check src resources`**
+  - **Result:** Exit 0; 464 warnings and 17 informational diagnostics, no errors.
+    Warnings were not hidden or treated as errors.
 
-Diff review covered correctness, fixed-text diagnostic summaries, existing trust/edit/deletion/queue/image/CSP boundaries, deferred preview events, resize observation, VS Code 1.106 compatibility, rich-content regressions, and scope. No settings, dependencies, model aliases, request modes, version edits, generated assets, or binaries are included.
+- **`npm run test:rich-content`**
+  - **Result:** Passed: 72 interface layout cases at 180/220/280/400/600/960px and 420/800px; four image cases; eight foreground phases; keyboard, stable live-region, scroll, CSP, sanitization, and rich-renderer lifecycle checks.
+
+- **`npm run test:thinking-picker`**
+  - **Result:** Passed: 64 browser cases including Max and unsupported state.
+
+- **`xvfb-run -a npm run test:native -- 1.106.0`**
+  - **Result:** Passed on Linux; 41 encoding cases plus host/workflow safeguards.
+
+- **`xvfb-run -a npm run test:native -- stable`**
+  - **Result:** Passed on Linux, VS Code 1.142.0.
+
+- **`xvfb-run -a npm run test:native-ui -- 1.106.0`**
+  - **Result:** Passed, including new interface controls, modal confirmation, native 200% geometry, and reload cleanup.
+
+- **`xvfb-run -a npm run test:native-ui -- stable`**
+  - **Result:** Passed on Linux, VS Code 1.142.0, with the same interface assertions.
+
+- **`npm run package`**
+  - **Result:** Passed; local VSIX contains 138 files.
+    Archive inspection confirmed compiled sidebar controls, renderer assets, and fonts.
+    No installation or publication.
+
+- **Visual/keyboard review**
+  - **Result:** Browser dark/light/high-contrast snapshots and native-DOM 200% snapshots reviewed.
+    Native preview/Escape/focus restoration, session-ID selection, and queue buttons passed.
+
+- **Screen reader**
+  - **Result:** Not run with assistive technology.
+    DOM names/descriptions and unchanged-live-region tests passed; spoken output is unverified.
+
+- **Windows/macOS/remote**
+  - **Result:** Not run; explicit acceptance of deferral is required.
+    Windows shortcut selection is unit-tested, not platform-tested.
+
+- **Live provider**
+  - **Result:** Not run, as required; all model responses came from deterministic fixtures.
+
+The branch was rebased onto main at `d263ed2` after the process-launch refactor merged.
+Its four existing Biome errors were corrected with import ordering and whitespace only in `piClient.ts`, `piRpcClient.ts`, and `piSpawn.ts`; process-launch behavior was not changed.
+All listed checks were rerun on this integrated base.
+
+During development, checks exposed outdated UI assertions, a concurrent-build race in the generated output directory, missing queue-update events in the new fixture, current-VS-Code chained Quick Pick/focus races, a pending-row presentation race, preview-close timing, and zoom clipping.
+Tests/builds now run sequentially, fixture acknowledgements match the protocol, and the final runs listed above passed.
+No failed run is represented as acceptance evidence.
+
+Diff review covered correctness, fixed-text diagnostic summaries, existing trust/edit/deletion/queue/image/CSP boundaries, deferred preview events, resize observation, VS Code 1.106 compatibility, rich-content regressions, and scope.
+No settings, dependencies, model aliases, request modes, version edits, generated assets, or binaries are included.
 
 ## Completion Checklist
 
@@ -209,4 +312,5 @@ Diff review covered correctness, fixed-text diagnostic summaries, existing trust
 - [ ] Unit, lint, browser, native, and manual-review evidence is recorded; unavailable checks remain open until explicitly accepted as deferred.
 - [x] No trust, edit-review, deletion, queue, image-data, CSP, or sanitization safeguards regress.
 - [x] User documentation and the release changeset are complete, and the diff contains only intended source, test, and documentation changes.
-- [ ] Obtain user acceptance of any remaining deferred checks. When all tasks and completion checks pass, delete this completed plan and report its path.
+- [ ] Obtain user acceptance of any remaining deferred checks.
+  When all tasks and completion checks pass, delete this completed plan and report its path.
