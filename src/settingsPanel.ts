@@ -95,6 +95,7 @@ export class SettingsPanelController implements vscode.Disposable {
     const data = {
       workspace: !!vscode.workspace.workspaceFile || !!vscode.workspace.workspaceFolders?.length,
       trusted: vscode.workspace.isTrusted,
+      nativeFilesAvailable: vscode.workspace.isTrusted && vscode.workspace.workspaceFolders?.[0]?.uri.scheme === "file",
       remote: !!vscode.env.remoteName,
       entries: settingsDescriptors.map((descriptor) => {
         const inspected = config.inspect<SettingValue>(descriptor.key);
@@ -132,6 +133,16 @@ export class SettingsPanelController implements vscode.Disposable {
       }
       if (message.type === "openNative") {
         await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:narumi.narumi-pi");
+        return;
+      }
+      if (message.type === "openPiFile") {
+        if (message.kind !== "settings" && message.kind !== "mcp") throw new Error("Invalid Pi file kind.");
+        if (message.scope !== "global" && message.scope !== "project") throw new Error("Invalid Pi file scope.");
+        if (!this.snapshot().nativeFilesAvailable) throw new Error("Open a trusted file workspace first.");
+        await vscode.commands.executeCommand(
+          message.kind === "settings" ? "pi.openNativeSettings" : "pi.openNativeMcp",
+          message.scope,
+        );
         return;
       }
       if (typeof message.id !== "string" || !/^[a-zA-Z0-9-]{1,80}$/.test(message.id))
