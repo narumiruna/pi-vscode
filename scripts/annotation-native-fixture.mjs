@@ -3,6 +3,19 @@ import { readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 
+// Native comments may open the Comments panel and change layout/visible ranges.
+// Source state, tabs, active editor and selections must still be unchanged.
+function editorIdentity({ visibleRanges: _, editors, ...state }) {
+  return {
+    ...state,
+    editors: editors.map(({ visibleRanges: _, ...editor }) => editor),
+  };
+}
+
+function inputFocus({ tag, className, label }) {
+  return { tag, className, label };
+}
+
 /** Feasibility gate only: test-owned stable Comment API, not the production bridge. */
 export async function assertNativeAnnotationPrototype({ page, workspace, invoke, until, version, evidenceLabel }) {
   const lines = Array.from({ length: 100 }, (_, index) => `export const line${index + 1} = ${index + 1};`);
@@ -68,17 +81,17 @@ export async function assertNativeAnnotationPrototype({ page, workspace, invoke,
         "Native threads must preserve the exact focused element",
       );
       assert.deepEqual(
-        await focus(),
-        beforeFocus.snapshot,
-        "Native threads must not open the Comments panel or change editor focus/geometry/scroll",
+        inputFocus(await focus()),
+        inputFocus(beforeFocus.snapshot),
+        "Native threads must preserve input focus; panel and layout changes are permitted",
       );
     } finally {
       await beforeFocus.element.dispose();
     }
     assert.deepEqual(
-      await settled(),
-      before,
-      "Native threads must preserve the existing tabs/buffers/selection/visible-range contract",
+      editorIdentity(await settled()),
+      editorIdentity(before),
+      "Native threads must preserve tabs, buffers, active editor and selections",
     );
     assert.equal(await readFile(path.join(workspace, "annotations.ts"), "utf8"), code);
     assert.equal(await readFile(path.join(workspace, "annotations.md"), "utf8"), markdown);
@@ -205,8 +218,11 @@ export async function assertNativeAnnotationPrototype({ page, workspace, invoke,
     await literalBodies([chinese]);
   }
   await page.setViewportSize({ width: 720, height: 900 });
+  // Explicit fixture navigation represents a user inspecting the resized native widget.
+  await invoke("annotationsPosition", { file: "markdown", line: 32 });
   await literalBodies([chinese]);
-  await below("Document paragraph line 32.");
+  // In narrow Markdown editors, VS Code wraps the source line across DOM view lines.
+  await below("line 32.");
   assert.ok(
     await bodies()
       .locator("p")
@@ -229,17 +245,20 @@ export async function assertNativeAnnotationPrototype({ page, workspace, invoke,
   await literalBodies(["Modified-side diff explanation"]);
   await below(lines[31]);
   await unchanged(before, beforeFocus);
-  await invoke("command", { command: "workbench.action.showComments" });
+  await invoke("command", { command: "workbench.action.focusCommentsPanel" });
   await until(
-    async () => (await page.locator(".comments-panel").innerText()).includes("Modified-side diff explanation"),
+    async () => (await page.locator(".comments-panel").innerText()).replaceAll("\u00a0", " ").includes("Modified-side diff explanation"),
     "native Comments panel entry",
   );
+  // Return focus to the source as an explicit user action before disposal. A removed
+  // Comments-panel row cannot retain DOM focus after its controller is disposed.
+  await invoke("annotationsPosition", { file: "code", line: 32 });
   before = await settled();
   beforeFocus = await rememberFocus();
   await invoke("annotationPrototype", { operation: "dispose" });
   await until(async () => (await widgets().count()) === 0, "all owned editor widgets removed on disposal");
   await until(
-    async () => !(await page.locator(".comments-panel").innerText()).includes("Modified-side diff explanation"),
+    async () => !(await page.locator(".comments-panel").innerText()).replaceAll("\u00a0", " ").includes("Modified-side diff explanation"),
     "owned Comments panel entry removed",
   );
   await unchanged(before, beforeFocus);
@@ -264,8 +283,8 @@ export async function assertNativeAnnotations({ page, directory, workspace, invo
   const markdownLines = Array.from({ length: 100 }, (_, index) =>
     index === 30 ? "This Markdown paragraph is the annotation target." : `Document paragraph line ${index + 1}.`,
   );
-  const code = `${codeLines.join("\n")}\n`;
-  const markdown = `${markdownLines.join("\n")}\n`;
+  const code = codeLines.join("\n"); // Exercise EOF without a trailing newline.
+  const markdown = markdownLines.join("\n");
   await writeFile(path.join(workspace, "annotations.ts"), code);
   await writeFile(path.join(workspace, "annotations.md"), markdown);
   const literal = "[unsafe](command:workbench.action.closeAllEditors) **not bold** <img src=x> ![remote](https://example.invalid/image.png) https://example.invalid/path www.example.invalid test@example.invalid &copy; &#64; &amp;";
@@ -304,12 +323,30 @@ export async function assertNativeAnnotations({ page, directory, workspace, invo
     const active = document.activeElement;
     return {
       tag: active?.tagName, className: active?.className, label: active?.getAttribute("aria-label"),
-      viewports: Array.from(document.querySelectorAll(".monaco-editor .view-lines")).map((element) => {
-        const bounds = element.getBoundingClientRect();
-        return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
-      }),
+
     };
   });
+  const widgets = () => page.locator(".monaco-editor .review-widget").filter({ hasText: "Pi annotation" });
+  const nativeBodies = async (messages) => {
+    const bodies = widgets().locator(".comment-body");
+    await until(async () => (await bodies.count()) === messages.length, "production expanded native explanations");
+    for (const [index, message] of messages.entries()) {
+      assert.deepEqual(
+        (await bodies.nth(index).locator("p").allTextContents()).map((text) => text.replaceAll("\u00a0", " ")),
+        message.split("\n"),
+      );
+      assert.ok(await bodies.nth(index).isVisible(), "Explanations must display without hover");
+    }
+    assert.equal(await bodies.locator("a, img, strong, code").count(), 0, "Native explanations must remain literal text");
+    assert.equal(await widgets().locator("textarea:visible, [contenteditable=true]:visible").count(), 0);
+    assert.equal(await widgets().getByRole("button", { name: /edit|reply|react|new comment|add comment/i }).count(), 0);
+  };
+  const below = async (target) => {
+    const line = await page.locator(".monaco-editor .view-line").filter({ hasText: target }).first().boundingBox();
+    const widget = await widgets().first().boundingBox();
+    assert.ok(line && widget && widget.height > 0 && widget.y >= line.y + line.height - 2 &&
+      widget.y <= line.y + line.height * 2 + 8, "Native explanation must appear directly below the passage end");
+  };
   // Only decoration-generated whole-line nodes count. An accepted bridge response
   // or a hover provider result alone does not prove that a highlight was painted.
   const decorations = () => page.evaluate(() => Array.from(
@@ -322,11 +359,11 @@ export async function assertNativeAnnotations({ page, directory, workspace, invo
   }).map((element) => ({ className: element.className, background: getComputedStyle(element).backgroundColor })));
   const rendered = async (present = true) => until(async () => {
     const nodes = await decorations();
-    return present ? nodes.length >= 2 && nodes : nodes.length === 0;
-  }, present ? "actual whole-line annotation decoration DOM" : "annotation decoration DOM removed");
+    return present ? nodes.length >= 2 && nodes : nodes.length === 0 && (await widgets().count()) === 0;
+  }, present ? "actual whole-line annotation decoration DOM" : "annotation decorations and native threads removed");
   const unchanged = async (before, beforeFocus) => {
-    assert.deepEqual(await settled(), before, "Annotation calls must preserve tabs, buffers, selection and scroll");
-    assert.deepEqual(await focus(), beforeFocus, "Annotation calls must preserve native input focus and pixel scroll geometry");
+    assert.deepEqual(editorIdentity(await settled()), editorIdentity(before), "Annotation calls must preserve tabs, buffers, active editor and selections");
+    assert.deepEqual(await focus(), beforeFocus, "Annotation calls must preserve native input focus");
     assert.equal(await readFile(path.join(workspace, "annotations.ts"), "utf8"), code);
     assert.equal(await readFile(path.join(workspace, "annotations.md"), "utf8"), markdown);
   };
@@ -362,9 +399,25 @@ export async function assertNativeAnnotations({ page, directory, workspace, invo
   await rendered(false);
   let before = await settled();
   let beforeFocus = await focus();
-  assert.deepEqual(await annotate("code"), { ok: true, count: 1, visible: true });
+  const chinese = "多行中文说明。原始文字必须完整显示。\n第二行说明不得修改源文件。";
+  assert.deepEqual(await annotate("code", [marks(codeLines)[0], { ...marks(codeLines)[0], message: chinese }]),
+    { ok: true, count: 2, visible: true });
   await rendered();
+  await nativeBodies([literal, chinese]);
+  assert.equal(await widgets().count(), 1, "Same-anchor annotations share one native thread in input order");
+  await below(codeLines[31]);
   await unchanged(before, beforeFocus);
+
+  // User collapse survives ordinary editor visibility changes; replacement starts expanded.
+  await widgets().first().getByRole("button", { name: /collapse|hide/i }).click();
+  await until(async () => (await widgets().count()) === 0, "production thread collapsed");
+  await invoke("annotationsOpen", { file: "markdown" });
+  await invoke("annotationsOpen", { file: "code" });
+  assert.equal(await widgets().count(), 0, "Tab changes must not recreate a collapsed thread");
+  assert.deepEqual(await annotate("code"), { ok: true, count: 1, visible: true });
+  await nativeBodies([literal]);
+  before = await settled();
+  beforeFocus = await focus();
 
   // The window token does not authorize a terminal, forged credential, session or cwd.
   for (const reject of ["terminal", "credential", "session", "cwd"]) {
@@ -372,6 +425,7 @@ export async function assertNativeAnnotations({ page, directory, workspace, invo
   }
   assert.deepEqual(await annotate("code", [{ ...marks(codeLines)[0], expectedText: "stale source" }]), { ok: false, stage: "annotate" });
   await rendered();
+  await nativeBodies([literal]);
   await unchanged(before, beforeFocus);
   await hover(codeLines[30]);
 
@@ -382,15 +436,31 @@ export async function assertNativeAnnotations({ page, directory, workspace, invo
   await unchanged(before, beforeFocus);
   await invoke("annotationsOpen", { file: "markdown" });
   await rendered();
+  await nativeBodies([literal]);
+  await below(markdownLines[31]);
   await hover(markdownLines[30]);
   for (const theme of ["Default Light Modern", "Default Dark Modern", "Default High Contrast", "Default High Contrast Light"]) {
     await invoke("theme", { theme });
     await rendered();
+    await nativeBodies([literal]);
   }
   assert.deepEqual(await annotate("markdown", []), { ok: true, count: 0, visible: true });
   await rendered(false);
   await invoke("annotationsOpen", { file: "code" });
   await rendered();
+
+  await invoke("annotationsPosition", { file: "code", line: 100 });
+  before = await settled();
+  beforeFocus = await focus();
+  const eofMessage = "EOF explanation without a trailing newline";
+  assert.deepEqual(await annotate("code", [{ startLine: 100, endLine: 100, expectedText: codeLines[99], message: eofMessage }]),
+    { ok: true, count: 1, visible: true });
+  await nativeBodies([eofMessage]);
+  await below(codeLines[99]);
+  await unchanged(before, beforeFocus);
+  await invoke("annotationsOpen", { file: "code" });
+  assert.deepEqual(await annotate("code"), { ok: true, count: 1, visible: true });
+  await nativeBodies([literal]);
 
   // A user edit clears rather than relocates ranges. Dirty buffers can be marked,
   // but neither marking nor clear saves their text to disk.
@@ -459,15 +529,28 @@ export async function assertNativeAnnotations({ page, directory, workspace, invo
   await rendered(false);
   assert.deepEqual(await annotate("code"), { ok: true, count: 1, visible: true });
   await rendered();
+  // Exercise the production bridge in a real modified-side diff editor as well.
+  await invoke("annotationsDiff");
+  before = await settled();
+  beforeFocus = await focus();
+  assert.deepEqual(await annotate("code"), { ok: true, count: 1, visible: true });
+  await nativeBodies([literal]);
+  await below(codeLines[31]);
+  await unchanged(before, beforeFocus);
+  await invoke("command", { command: "workbench.action.focusCommentsPanel" });
+  await until(async () => (await page.locator(".comments-panel").innerText()).replaceAll("\u00a0", " ").includes(literal),
+    "production Comments panel explanation");
   await invoke("command", { command: "pi.clearAnnotations" });
   await rendered(false);
+  await until(async () => !(await page.locator(".comments-panel").innerText()).replaceAll("\u00a0", " ").includes(literal),
+    "production Comments panel entry removed");
   assert.equal(await prompts(), "", "Annotation, clear and lifecycle checks must not submit any model prompt");
   assert.equal(await readFile(path.join(workspace, "annotations.ts"), "utf8"), code);
   assert.equal(await readFile(path.join(workspace, "annotations.md"), "utf8"), markdown);
   console.log("PI_NATIVE_ANNOTATIONS", JSON.stringify({
     bridge: "foreground child authenticated annotationOrigin + annotate; no tool-registry loading in fixture",
-    rendered: "code and Markdown whole-line decoration DOM, literal safe hover, inactive tab, four themes",
-    preserved: "native focus, multiple selections, visible ranges, tabs, buffer versions and file bytes",
+    rendered: "code/Markdown highlights, expanded native below-code literal/Chinese explanations, same-anchor grouping, collapse retention, EOF, modified-side diff, Comments panel cleanup, safe hover, inactive tab, four themes",
+    preserved: "native focus, multiple selections, active editor, tabs, buffer versions and file bytes; native panel/layout changes permitted",
     cleared: "edit, Undo, close/reopen, empty array, Command Palette, resource reload, cloned session, disconnect/replacement",
     rejected: "terminal-style missing credential, forged credential/session/cwd, stale text, expired origins",
     provider: "no provider and no model prompts",

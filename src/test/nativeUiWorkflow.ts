@@ -38,11 +38,15 @@ export async function run(): Promise<void> {
     active: vscode.window.activeTextEditor?.document.uri.toString(),
     selections: vscode.window.activeTextEditor?.selections,
     visibleRanges: vscode.window.activeTextEditor?.visibleRanges,
-    editors: vscode.window.visibleTextEditors.map((editor) => ({
-      uri: editor.document.uri.toString(),
-      selections: editor.selections,
-      visibleRanges: editor.visibleRanges,
-    })),
+    // Native comments can add internal comment:// input editors even for read-only threads.
+    // Preserve the source-editor contract, not VS Code-owned comment UI bookkeeping.
+    editors: vscode.window.visibleTextEditors
+      .filter((editor) => editor.document.uri.scheme === "file")
+      .map((editor) => ({
+        uri: editor.document.uri.toString(),
+        selections: editor.selections,
+        visibleRanges: editor.visibleRanges,
+      })),
     documents: vscode.workspace.textDocuments
       .filter((document) => ["annotations.ts", "annotations.md"].includes(path.basename(document.uri.fsPath)))
       .map((document) => ({

@@ -169,6 +169,32 @@ test("packaged annotation tool declares bounded editor-only input and useful-pas
   assert.doesNotMatch(JSON.stringify(tool), /PI_VSCODE_ANNOTATION_TOKEN|annotationOrigin|credential|origin/);
 });
 
+test("annotation description discloses native comments and preserves result semantics without a scroll guarantee", async () => {
+  const { description, promptGuidelines } = await registeredTool();
+  for (const required of [
+    /whole-line highlights and hovers/,
+    /expanded read-only native comments below each range/,
+    /grouped at its end line/,
+    /Comments panel also lists explanations/,
+    /may auto-open the Comments panel/,
+    /change editor layout or visible range\/scroll during expansion, replacement or removal/,
+    /no file writes, document\/tab opens, explicit tab\/selection\/focus\/reveal\/scroll operations/,
+    /settings overrides/,
+    /count is accepted annotations, not thread groups/,
+    /visible means a visible editor exists, not that a comment widget is visible/,
+  ])
+    assert.match(description, required);
+  const guidance = promptGuidelines.join(" ");
+  assert.match(guidance, /Pi as author and Pi annotation as label/);
+  assert.match(guidance, /literal untrusted text/);
+  assert.match(guidance, /collapse is preserved on redraw/);
+  assert.match(guidance, /visibility settings may hide widgets/);
+  assert.doesNotMatch(
+    `${description} ${guidance}`,
+    /changes to focus, cursor, or scroll|without (?:changing|moving) (?:the )?scroll|scroll preservation|does not scroll|no editor navigation/i,
+  );
+});
+
 test("registered annotation tool captures launch/session/cwd, resolves @paths and returns final metadata only", async () => {
   let sessionReads = 0;
   const f = await fixture((request) => {
