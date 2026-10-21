@@ -295,7 +295,7 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
         ),
       });
       sourceIndices.set(messages[messages.length - 1]!.id, index);
-      messages = limitSidebarMessages(messages, messageLimit, options.maxCharacters ?? 250_000);
+      messages = limitHistoryMessages(messages, sourceIndices, messageLimit, options.maxCharacters ?? 250_000);
       continue;
     }
     const text = piMessageContentText(value.content);
@@ -348,7 +348,7 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
       }
     }
     if (value.role === "user") sourceIndices.set(messages[messages.length - 1]!.id, index);
-    messages = limitSidebarMessages(messages, messageLimit, options.maxCharacters ?? 250_000);
+    messages = limitHistoryMessages(messages, sourceIndices, messageLimit, options.maxCharacters ?? 250_000);
   }
   if (options.onHistoryWindow) {
     const start = messages.length ? sourceIndices.get(messages[0]!.id)! : end;
@@ -376,6 +376,48 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
   }
   const availableMessages = sidebarMessagesForWebview(messages, (id) => options.imageAssets.has(id));
   return mergeKnownImageLabels(availableMessages, options.knownMessages ?? []);
+}
+
+function limitHistoryMessages(
+  messages: readonly SidebarMessage[],
+  sourceIndices: ReadonlyMap<string, number>,
+  maxMessages: number,
+  maxCharacters: number,
+): SidebarMessage[] {
+  const limited = limitSidebarMessages(messages, maxMessages, maxCharacters);
+  const first = limited[0];
+  if (!first) return limited;
+  const source = sourceIndices.get(first.id);
+  const group = messages.filter((message) => sourceIndices.get(message.id) === source);
+  const retained = new Map(limited.map((message) => [message.id, message]));
+  const characters = (message: SidebarMessage) =>
+    message.content.length +
+    (message.thinking?.reduce((count, block) => count + block.text.length, 0) ?? 0) +
+    (message.tool?.input.length ?? 0) +
+    (message.tool?.output?.length ?? 0);
+  const splitSource = group.some((message) => {
+    const bounded = retained.get(message.id);
+    return !bounded || (group.length > 1 && characters(bounded) < characters(message));
+  });
+  if (!splitSource) return limited;
+
+  // The exclusive source cursor cannot recover an omitted row from a retained source.
+  // Move the whole boundary source to Earlier instead of keeping only its last tools.
+  const later = limited.filter((message) => sourceIndices.get(message.id) !== source);
+  if (later.length) return later;
+
+  // One source can exceed a window by itself. Keep its answer before tool details,
+  // then restore chronological order. The existing truncation notice covers omitted details.
+  const prioritized = limitSidebarMessages(
+    [
+      ...group.filter((message) => message.role !== "assistant"),
+      ...group.filter((message) => message.role === "assistant"),
+    ],
+    maxMessages,
+    maxCharacters,
+  );
+  const byId = new Map(prioritized.map((message) => [message.id, message]));
+  return group.flatMap((message) => byId.get(message.id) ?? []);
 }
 
 function isVisibleHistoryMessage(value: unknown): value is Record<string, unknown> {
