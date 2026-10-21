@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import * as vscode from "vscode";
+import { AnnotationThreadPrototype } from "./annotationThreadPrototype";
 
 export async function run(): Promise<void> {
   const directory = process.env.PI_VSCODE_UI_FIXTURE;
@@ -12,6 +13,7 @@ export async function run(): Promise<void> {
   const source = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(root, "source.ts"));
   const other = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(root, "other.ts"));
   const diagnostics = vscode.languages.createDiagnosticCollection("native-ui-fixture");
+  const annotationPrototype = new AnnotationThreadPrototype();
   const original = [source.getText(), other.getText()];
   const publish = () => {
     for (const [index, document] of [source, other].entries()) {
@@ -36,6 +38,11 @@ export async function run(): Promise<void> {
     active: vscode.window.activeTextEditor?.document.uri.toString(),
     selections: vscode.window.activeTextEditor?.selections,
     visibleRanges: vscode.window.activeTextEditor?.visibleRanges,
+    editors: vscode.window.visibleTextEditors.map((editor) => ({
+      uri: editor.document.uri.toString(),
+      selections: editor.selections,
+      visibleRanges: editor.visibleRanges,
+    })),
     documents: vscode.workspace.textDocuments
       .filter((document) => ["annotations.ts", "annotations.md"].includes(path.basename(document.uri.fsPath)))
       .map((document) => ({
@@ -95,6 +102,34 @@ export async function run(): Promise<void> {
           case "commandResult":
             result = commands.get(request.commandId);
             break;
+          case "annotationPrototype": {
+            if (request.operation === "dispose") annotationPrototype.dispose();
+            else if (request.operation === "clear") annotationPrototype.clear();
+            else {
+              const document = vscode.workspace.textDocuments.find(
+                (document) => document.uri.toString() === annotationUri(request.file).toString(),
+              );
+              assert.ok(document && !document.isClosed, "Prototype requires an already-open fixture document");
+              annotationPrototype.replace(document, request.annotations);
+            }
+            break;
+          }
+          case "annotationsDiff": {
+            await vscode.commands.executeCommand(
+              "vscode.diff",
+              annotationUri("markdown"),
+              annotationUri("code"),
+              "Annotation prototype diff",
+              { preview: false },
+            );
+            const modified = vscode.window.visibleTextEditors.find(
+              (editor) => editor.document.uri.toString() === annotationUri("code").toString(),
+            );
+            assert.ok(modified, "Modified diff document must be visible before the probe");
+            modified.selection = new vscode.Selection(31, 0, 31, 0);
+            modified.revealRange(new vscode.Range(25, 0, 25, 0), vscode.TextEditorRevealType.AtTop);
+            break;
+          }
           case "annotationsState":
             result = annotationState();
             break;
@@ -103,6 +138,14 @@ export async function run(): Promise<void> {
             const editor = await vscode.window.showTextDocument(document, { preview: false });
             editor.selections = [new vscode.Selection(30, 4, 30, 12), new vscode.Selection(32, 2, 32, 7)];
             editor.revealRange(new vscode.Range(25, 0, 25, 0), vscode.TextEditorRevealType.AtTop);
+            break;
+          }
+          case "annotationsPosition": {
+            const document = await vscode.workspace.openTextDocument(annotationUri(request.file));
+            const editor = await vscode.window.showTextDocument(document, { preview: false });
+            const line = request.line - 1;
+            editor.selection = new vscode.Selection(line, 0, line, 0);
+            editor.revealRange(new vscode.Range(line, 0, line, 0), vscode.TextEditorRevealType.InCenter);
             break;
           }
           case "annotationsEdit": {
@@ -372,6 +415,7 @@ export async function run(): Promise<void> {
     throw new Error("Native UI coordinator timed out");
   } finally {
     subscription.dispose();
+    annotationPrototype.dispose();
     diagnostics.dispose();
   }
 }

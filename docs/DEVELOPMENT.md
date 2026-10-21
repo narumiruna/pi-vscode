@@ -90,6 +90,8 @@ Append `transfer` to `test:native-ui` for native export/import/sharing/authentic
 
 Append `annotations` to `test:native-ui` for isolated editor-annotation checks: real code/Markdown decorations and literal hovers, inactive tabs, focus/cursor/scroll preservation, theme colors, stale-input rejection, clearing and session/client cleanup. The loopback requests originate in the fixture foreground Pi process; registered-tool execution is checked separately in unit tests.
 
+Append `annotation-prototype` to `test:native-ui` for the test-only below-code native-thread feasibility gate. It currently **fails** on VS Code 1.140.0 and 1.143.0 because thread creation opens the Comments panel. Production annotations are unchanged; do not integrate this prototype. See [Native annotation thread feasibility](ANNOTATION_THREAD_FEASIBILITY.md) for reproduction, evidence and unverified paths.
+
 Append `selection` to `test:native-ui` to check **Ask About Selection** before the sidebar has opened. This fixture uses the real editor command and question input, then checks the visible conversation and a single read-only request without source changes.
 
 Append `editor` to `test:native-ui` for the isolated multiline-editor and timed-confirmation fixtures only. They cover exact text, keyboard Submit/Cancel, close/discard, privacy decline, read-only review, timeouts, and process replacement.

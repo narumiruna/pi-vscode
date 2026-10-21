@@ -1,6 +1,260 @@
 import assert from "node:assert/strict";
 import { readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { tmpdir } from "node:os";
+
+/** Feasibility gate only: test-owned stable Comment API, not the production bridge. */
+export async function assertNativeAnnotationPrototype({ page, workspace, invoke, until, version, evidenceLabel }) {
+  const lines = Array.from({ length: 100 }, (_, index) => `export const line${index + 1} = ${index + 1};`);
+  const code = lines.join("\n"); // EOF intentionally has no trailing newline.
+  const markdown = lines.map((_, index) => `Document paragraph line ${index + 1}.`).join("\n");
+  await writeFile(path.join(workspace, "annotations.ts"), code);
+  await writeFile(path.join(workspace, "annotations.md"), markdown);
+  const literal =
+    "[unsafe](command:workbench.action.closeAllEditors) **not bold** <img src=x> ![remote](https://example.invalid/image.png) https://example.invalid/path www.example.invalid test@example.invalid &copy; &#64; &amp;";
+  const chinese = "多行中文说明。原始文字必须完整显示。\n第二行说明在窄编辑器中换行，不得修改源文件。";
+  const replace = (file, annotations) => invoke("annotationPrototype", { file, annotations });
+  const clear = () => invoke("annotationPrototype", { operation: "clear" });
+  const widgets = () => page.locator(".monaco-editor .review-widget").filter({ hasText: "Pi annotation" });
+  const bodies = () => widgets().locator(".comment-body");
+  const state = () => invoke("annotationsState");
+  const settled = async () => {
+    let previous;
+    return until(async () => {
+      const next = await state();
+      const serialized = JSON.stringify(next);
+      if (previous === serialized) return next;
+      previous = serialized;
+    }, "prototype editor state settled");
+  };
+  const focus = () =>
+    page.evaluate(() => {
+      const active = document.activeElement;
+      return {
+        tag: active?.tagName,
+        className: active?.className,
+        label: active?.getAttribute("aria-label"),
+        panelVisible: !!document.querySelector(".part.panel")?.checkVisibility(),
+        commentsVisible: !!document.querySelector(".comments-panel")?.checkVisibility(),
+        editors: Array.from(document.querySelectorAll(".monaco-editor"))
+          .filter((editor) => editor.checkVisibility() && editor.getBoundingClientRect().height > 0)
+          .map((editor) => {
+            const viewport = editor.querySelector(".view-lines");
+            const firstLine = viewport?.querySelector(".view-line");
+            const bounds = editor.getBoundingClientRect();
+            const firstBounds = firstLine?.getBoundingClientRect();
+            const scroll = editor.querySelector(".editor-scrollable");
+            return {
+              x: bounds.x,
+              y: bounds.y,
+              width: bounds.width,
+              height: bounds.height,
+              firstLine: firstLine?.textContent,
+              firstX: firstBounds?.x,
+              firstY: firstBounds?.y,
+              scroll: { left: scroll?.scrollLeft, top: scroll?.scrollTop },
+            };
+          }),
+      };
+    });
+  const rememberFocus = async () => ({
+    snapshot: await focus(),
+    element: await page.evaluateHandle(() => document.activeElement),
+  });
+  const unchanged = async (before, beforeFocus) => {
+    try {
+      assert.ok(
+        await beforeFocus.element.evaluate((element) => element === document.activeElement),
+        "Native threads must preserve the exact focused element",
+      );
+      assert.deepEqual(
+        await focus(),
+        beforeFocus.snapshot,
+        "Native threads must not open the Comments panel or change editor focus/geometry/scroll",
+      );
+    } finally {
+      await beforeFocus.element.dispose();
+    }
+    assert.deepEqual(
+      await settled(),
+      before,
+      "Native threads must preserve the existing tabs/buffers/selection/visible-range contract",
+    );
+    assert.equal(await readFile(path.join(workspace, "annotations.ts"), "utf8"), code);
+    assert.equal(await readFile(path.join(workspace, "annotations.md"), "utf8"), markdown);
+  };
+  const literalBodies = async (messages) => {
+    await until(
+      async () => (await bodies().count()) === messages.length,
+      "expanded native comment bodies without hover",
+    );
+    // MarkdownString.appendText maps line breaks to native paragraphs. innerText adds
+    // paragraph spacing; compare each full literal line, not that layout whitespace.
+    for (const [index, message] of messages.entries()) {
+      assert.deepEqual(
+        (await bodies().nth(index).locator("p").allTextContents()).map((text) => text.replaceAll("\u00a0", " ")),
+        message.split("\n"),
+      );
+    }
+    for (const body of await bodies().all())
+      assert.ok(await body.isVisible(), "Native comment body must be visible without hover");
+    assert.equal(
+      await bodies().locator("a, img, strong, code").count(),
+      0,
+      "Model text must not create links, images, commands or Markdown formatting",
+    );
+    assert.equal(
+      await widgets().locator("textarea:visible, [contenteditable=true]:visible").count(),
+      0,
+      "Read-only threads must not expose a reply editor",
+    );
+    assert.equal(
+      await widgets()
+        .getByRole("button", { name: /edit|reply|react|new comment|add comment/i })
+        .count(),
+      0,
+      "Threads must not expose mutation actions",
+    );
+  };
+  const below = async (lineText) => {
+    const line = page.locator(".monaco-editor .view-line").filter({ hasText: lineText }).first();
+    const anchor = await line.boundingBox();
+    const widget = await widgets().first().boundingBox();
+    const editor = await line.evaluate((node) => {
+      const bounds = node.closest(".monaco-editor").getBoundingClientRect();
+      return { x: bounds.x, y: bounds.y, right: bounds.right, bottom: bounds.bottom };
+    });
+    assert.ok(
+      anchor &&
+        widget &&
+        widget.height > 0 &&
+        widget.y >= anchor.y + anchor.height - 2 &&
+        widget.y <= anchor.y + anchor.height * 2 + 8 &&
+        widget.x >= editor.x &&
+        widget.x + widget.width <= editor.right + 1 &&
+        widget.y < editor.bottom &&
+        widget.y + widget.height > editor.y,
+      `Expanded thread must be adjacent to its range end inside the intended editor: ${JSON.stringify({ anchor, widget, editor })}`,
+    );
+  };
+  const clearPreserving = async () => {
+    const before = await settled();
+    const beforeFocus = await rememberFocus();
+    await clear();
+    await until(async () => (await widgets().count()) === 0, "owned native widget disposed");
+    await unchanged(before, beforeFocus);
+  };
+  await invoke("annotationsOpen", { file: "markdown" });
+  await invoke("annotationsOpen", { file: "code" });
+  let before = await settled();
+  let beforeFocus = await rememberFocus();
+  await page.screenshot({ path: path.join(tmpdir(), `pi-annotation-prototype-${evidenceLabel}-before.png`) });
+  await replace("code", [
+    { endLine: 32, message: literal },
+    { endLine: 32, message: chinese },
+  ]);
+  await literalBodies([literal, chinese]);
+  assert.equal(await widgets().count(), 1, "Same-anchor explanations must share one widget in input order");
+  await below(lines[31]);
+  await page.screenshot({ path: path.join(tmpdir(), `pi-annotation-prototype-${evidenceLabel}-expanded.png`) });
+  console.log(
+    "PI_ANNOTATION_PROTOTYPE_PLACEMENT",
+    JSON.stringify({
+      version,
+      platform: process.platform,
+      literal: true,
+      sameAnchor: true,
+      before: { focus: beforeFocus.snapshot, visibleRanges: before.visibleRanges },
+      after: { focus: await focus(), visibleRanges: (await settled()).visibleRanges },
+    }),
+  );
+  await unchanged(before, beforeFocus);
+
+  // User-driven native collapse/reopen must survive tab changes without recreation.
+  await widgets()
+    .first()
+    .getByRole("button", { name: /collapse|hide/i })
+    .click();
+  await until(async () => (await widgets().count()) === 0, "native thread collapsed");
+  await invoke("annotationsOpen", { file: "markdown" });
+  await invoke("annotationsOpen", { file: "code" });
+  assert.equal(await widgets().count(), 0, "Tab changes must preserve collapse state");
+  await page.locator(".comment-range-glyph").first().click();
+  await literalBodies([literal, chinese]);
+  before = await settled();
+  beforeFocus = await rememberFocus();
+  await replace("code", [{ endLine: 32, message: "Replacement explanation" }]);
+  await literalBodies(["Replacement explanation"]);
+  await unchanged(before, beforeFocus);
+  await clearPreserving();
+
+  // Inactive creation must not navigate. Explicit fixture actions represent user navigation.
+  before = await settled();
+  beforeFocus = await rememberFocus();
+  await replace("markdown", [{ endLine: 32, message: chinese }]);
+  await unchanged(before, beforeFocus);
+  await invoke("annotationsOpen", { file: "markdown" });
+  await literalBodies([chinese]);
+  for (const theme of [
+    "Default Light Modern",
+    "Default Dark Modern",
+    "Default High Contrast",
+    "Default High Contrast Light",
+  ]) {
+    await invoke("theme", { theme });
+    await literalBodies([chinese]);
+  }
+  await page.setViewportSize({ width: 720, height: 900 });
+  await literalBodies([chinese]);
+  await below("Document paragraph line 32.");
+  assert.ok(
+    await bodies()
+      .locator("p")
+      .evaluateAll((paragraphs) => paragraphs.every((paragraph) => paragraph.scrollWidth <= paragraph.clientWidth + 1)),
+    "Chinese paragraphs must wrap within the narrow comment body",
+  );
+  await clearPreserving();
+  await invoke("annotationsPosition", { file: "code", line: 100 });
+  before = await settled();
+  beforeFocus = await rememberFocus();
+  await replace("code", [{ endLine: 100, message: "EOF without a trailing newline" }]);
+  await literalBodies(["EOF without a trailing newline"]);
+  await below(lines[99]);
+  await unchanged(before, beforeFocus);
+  await clearPreserving();
+  await invoke("annotationsDiff");
+  before = await settled();
+  beforeFocus = await rememberFocus();
+  await replace("code", [{ endLine: 32, message: "Modified-side diff explanation" }]);
+  await literalBodies(["Modified-side diff explanation"]);
+  await below(lines[31]);
+  await unchanged(before, beforeFocus);
+  await invoke("command", { command: "workbench.action.showComments" });
+  await until(
+    async () => (await page.locator(".comments-panel").innerText()).includes("Modified-side diff explanation"),
+    "native Comments panel entry",
+  );
+  before = await settled();
+  beforeFocus = await rememberFocus();
+  await invoke("annotationPrototype", { operation: "dispose" });
+  await until(async () => (await widgets().count()) === 0, "all owned editor widgets removed on disposal");
+  await until(
+    async () => !(await page.locator(".comments-panel").innerText()).includes("Modified-side diff explanation"),
+    "owned Comments panel entry removed",
+  );
+  await unchanged(before, beforeFocus);
+  assert.equal(await readFile(path.join(workspace, "annotations.ts"), "utf8"), code);
+  assert.equal(await readFile(path.join(workspace, "annotations.md"), "utf8"), markdown);
+  console.log(
+    "PI_ANNOTATION_PROTOTYPE_GATE",
+    JSON.stringify({
+      version,
+      platform: process.platform,
+      result: "passed",
+      provider: "none; test-owned controller only",
+    }),
+  );
+}
 
 /** Actual foreground-child bridge calls and Monaco DOM. No controller access or provider. */
 export async function assertNativeAnnotations({ page, directory, workspace, invoke, until, frame, pick }) {
