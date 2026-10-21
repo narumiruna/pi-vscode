@@ -13,7 +13,7 @@ export function getSettingsHtml(assets: { source: string; script: string; style:
 <header><h1>Pi Settings</h1><button id="native-settings" type="button">Open in VS Code Settings</button></header>
 <div class="scope"><label for="target">Save settings to</label><select id="target"><option value="user">User</option><option value="workspace">Workspace</option></select></div>
 <p id="scope-note">Reset removes only the selected scope's override.</p>
-<p>General, Permissions, and Editor edit VS Code pi.* settings. <strong>Pi Files</strong> opens native forms for global and project settings.json and mcp.json. Opening these forms starts no Pi process or connection. Runtime controls and Apply are separate explicit commands. Startup preferences require <strong>Pi: Restart Pi (Current Launch Policy)</strong>; saving never restarts Pi.</p>
+<p>General, Permissions, and Editor edit VS Code pi.* settings. <strong>Pi Configuration</strong> opens native dialogs for Pi settings and MCP configuration at <strong>Global Pi</strong> or <strong>Project Pi</strong> scope. These dialogs edit settings.json and mcp.json. Opening these dialogs starts no Pi process or connection. Runtime controls and Apply are separate explicit commands. Startup preferences require <strong>Pi: Restart Pi (Current Launch Policy)</strong>; saving never restarts Pi.</p>
 <p id="status" role="status" aria-live="polite">Loading settings…</p>
 <div class="layout"><nav aria-label="Settings categories"></nav><main id="settings"></main></div>
 <script nonce="${nonce}" src="${escapeAttribute(assets.script)}"></script>

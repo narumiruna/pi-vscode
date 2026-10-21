@@ -86,8 +86,9 @@ try {
   await page.goto(origin);
   await page.waitForFunction(() => document.querySelector("nav button") !== null);
   assert.match(await page.locator("body").innerText(), /General, Permissions, and Editor edit VS Code pi\.\* settings/);
-  assert.match(await page.locator("body").innerText(), /Pi Files/);
-  assert.match(await page.locator("body").innerText(), /Opening these forms starts no Pi process or connection/);
+  assert.match(await page.locator("body").innerText(), /Pi Configuration/);
+  assert.match(await page.locator("body").innerText(), /Opening these dialogs starts no Pi process or connection/);
+  assert.doesNotMatch(await page.locator("body").innerText(), /Pi Files/);
   await push();
   assert.equal(await page.locator("section").count(), 4);
   assert.match(await page.locator("main").innerText(), /Used when a Pi process starts; running sessions are unchanged/);
@@ -293,7 +294,7 @@ try {
     });
     for (const width of [280, 400, 650, 1100]) {
       await page.setViewportSize({ width, height: 800 });
-      for (const category of ["General", "Pi Files"]) {
+      for (const category of ["General", "Pi Configuration"]) {
         await page.getByRole("button", { name: category, exact: true }).click();
         assert.ok(
           await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
@@ -319,7 +320,30 @@ try {
   // The native scope is independent of VS Code's User/Workspace target and survives panel recreation.
   await page.reload();
   await push();
-  assert.equal(await page.getByRole("button", { name: "Pi Files", exact: true }).getAttribute("aria-pressed"), "true");
+  assert.equal(
+    await page.getByRole("button", { name: "Pi Configuration", exact: true }).getAttribute("aria-pressed"),
+    "true",
+  );
+  // Keep the selected category when restoring state saved with the old label.
+  const previousState = await page.evaluate(() => {
+    const state = JSON.parse(localStorage.getItem("fixtureState"));
+    localStorage.setItem("fixtureState", JSON.stringify({ ...state, category: "Pi Files" }));
+    return state;
+  });
+  await page.reload();
+  await push();
+  assert.equal(
+    await page.getByRole("button", { name: "Pi Configuration", exact: true }).getAttribute("aria-pressed"),
+    "true",
+  );
+  assert.equal(await page.locator("#target").inputValue(), previousState.target);
+  assert.equal(await page.locator("#target").isDisabled(), true);
+  assert.doesNotMatch(await page.locator("body").innerText(), /Pi Files/);
+  // Saving the new category label must keep existing extension-setting drafts.
+  await page.getByRole("button", { name: "Pi Configuration", exact: true }).click();
+  const restoredState = await page.evaluate(() => JSON.parse(localStorage.getItem("fixtureState")));
+  assert.equal(restoredState.category, "Pi Configuration");
+  assert.deepEqual(restoredState.drafts, previousState.drafts);
   snapshot.nativeFilesAvailable = false;
   snapshot.revision++;
   await push();
@@ -364,7 +388,7 @@ try {
   assert.deepEqual(errors, []);
   await page.close();
   console.log(
-    "Settings browser: controls, scopes, Pi Files routing, reset, conflicts, drafts, keyboard, 24 layouts/themes, CSP and teardown passed.",
+    "Settings browser: controls, scopes, Pi Configuration routing, reset, conflicts, drafts, keyboard, 24 layouts/themes, CSP and teardown passed.",
   );
 } finally {
   await browser?.close();

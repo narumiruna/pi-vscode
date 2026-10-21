@@ -17,7 +17,7 @@ declare function acquireVsCodeApi(): {
   setState(state: unknown): void;
 };
 const api = acquireVsCodeApi();
-const categories = ["General", "Permissions", "Editor", "Pi Files"] as const;
+const categories = ["General", "Permissions", "Editor", "Pi Configuration"] as const;
 type Draft = { raw: string | boolean; base: string };
 const drafts: Record<string, Draft> = {};
 const pending = new Map<string, { id: string }>();
@@ -29,7 +29,8 @@ let counter = 0;
 const instance = crypto.randomUUID();
 const saved = api.getState() as { category?: string; target?: string; drafts?: Record<string, Draft> } | undefined;
 if (saved && serializedSize(saved) <= maxSettingsMessage) {
-  if (categories.some((name) => name === saved.category)) category = saved.category!;
+  const savedCategory = saved.category === "Pi Files" ? "Pi Configuration" : saved.category;
+  if (savedCategory && categories.some((name) => name === savedCategory)) category = savedCategory;
   if (saved.target === "workspace") target = "workspace";
   for (const scope of ["user", "workspace"]) {
     for (const descriptor of settingsDescriptors) {
@@ -55,7 +56,7 @@ function persist(): void {
   if (serializedSize(state) <= maxSettingsMessage) {
     api.setState(state);
     status.textContent =
-      "Extension settings are stored by VS Code. Pi Files uses native forms. Saving starts no Pi process.";
+      "Extension settings are stored by VS Code. Pi Configuration uses native dialogs. Saving starts no Pi process.";
   } else {
     api.setState({ category, target });
     status.textContent = "Drafts exceed the 32 KiB recovery limit. Save or shorten them before hiding this tab.";
@@ -112,11 +113,11 @@ function save(descriptor: SettingDescriptor, entry: SettingEntry, reset = false)
 }
 function render(): void {
   scope.value = target;
-  scope.disabled = category === "Pi Files";
+  scope.disabled = category === "Pi Configuration";
   scope.querySelector<HTMLOptionElement>('option[value="workspace"]')!.disabled = !snapshot?.workspace;
   document.querySelector<HTMLElement>("#scope-note")!.textContent =
-    category === "Pi Files"
-      ? "Pi Files uses Global Pi or Project Pi below, not the VS Code User/Workspace target."
+    category === "Pi Configuration"
+      ? "Pi Configuration uses Global Pi or Project Pi below, not the VS Code User/Workspace target."
       : snapshot?.remote
         ? "Remote window: use VS Code Settings for local-user versus remote-user scope. Reset removes only this page's selected override."
         : "Reset removes only the selected scope's override. User edits can be overridden by Workspace settings.";
@@ -135,11 +136,11 @@ function render(): void {
   }
   main.replaceChildren(element("h2", category));
   if (!snapshot) return;
-  if (category === "Pi Files") {
+  if (category === "Pi Configuration") {
     main.append(
       element(
         "p",
-        "Edit native Pi configuration through host-native forms. Native file contents and secrets are not sent to this page.",
+        "Edit Pi settings and MCP configuration in native dialogs. Configuration contents and secrets are not sent to this page.",
       ),
       element(
         "p",
@@ -151,7 +152,7 @@ function render(): void {
       ),
     );
     if (!snapshot.nativeFilesAvailable)
-      main.append(element("p", "Open a trusted, file-backed workspace to edit native Pi files."));
+      main.append(element("p", "Open a trusted, file-backed workspace to edit Pi configuration."));
     for (const fileScope of ["global", "project"] as const) {
       const section = element("section");
       section.className = "setting";
@@ -308,7 +309,7 @@ window.addEventListener("message", (event: MessageEvent) => {
       persist();
     }
     status.textContent =
-      "Extension settings are stored by VS Code. Pi Files uses native forms. Saving starts no Pi process.";
+      "Extension settings are stored by VS Code. Pi Configuration uses native dialogs. Saving starts no Pi process.";
     render();
   } else if (data?.type === "result") {
     const match = [...pending].find(([, item]) => item.id === data.id);

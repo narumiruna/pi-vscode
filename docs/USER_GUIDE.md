@@ -235,7 +235,7 @@ Links permit only HTTP, HTTPS, and email targets. Raw HTML and Markdown images a
 
 ## Settings
 
-Run **Pi: Open Settings** or select the gear in the Pi view title to open a dedicated settings tab. Use **General**, **Permissions**, and **Editor** to edit the existing VS Code extension settings. **Pi Files** opens native Pi file controls described [below](#native-pi-settings-and-mcp). Opening or saving this page does not start Pi or send a model request.
+Run **Pi: Open Settings** or select the gear in the Pi view title to open a dedicated settings tab. Use **General**, **Permissions**, and **Editor** to edit the existing VS Code extension settings. **Pi Configuration** opens native Pi file controls described [below](#native-pi-settings-and-mcp). Opening or saving this page does not start Pi or send a model request.
 
 For VS Code configuration, choose **User** or **Workspace** before editing. Text, number, and list fields have a **Save** button; checkboxes and selects save on change. If an automatic save fails, use **Retry save** to submit the same value again. A full host queue returns an error and leaves the row available for retry. Lists use one item per line; empty lines are omitted. **Reset** removes only the selected scope's override. Inherited and effective values remain visible. A newer external edit keeps your draft but requires **Reload row** before saving. Small drafts survive hiding the tab; closing it discards them. The page warns if drafts exceed the 32 KiB recovery limit.
 
@@ -260,7 +260,7 @@ Additional settings control inline-completion delay, minimum prefix length, and 
 
 ### Native Pi settings and MCP
 
-Open **Pi Settings → Pi Files** for **Global Pi** and **Project Pi** cards. Each card has **Edit … settings.json** and **Edit … mcp.json** buttons. Each button opens the existing host-native dialogs at that card's fixed scope, not an inline file editor. User/Workspace applies only to VS Code configuration; it does not select Pi file scope. The Command Palette commands below remain available. No schema duplication or new VS Code configuration keys are added.
+Open **Pi Settings → Pi Configuration** for **Global Pi** and **Project Pi** cards. Each card has **Edit … settings.json** and **Edit … mcp.json** buttons. Each button opens the existing host-native dialogs at that card's fixed scope, not an inline file editor. User/Workspace applies only to VS Code configuration; it does not select Pi file scope. The Command Palette commands below remain available. No schema duplication or new VS Code configuration keys are added.
 
 Global Pi uses the Extension Host's `~/.pi/agent`, or `PI_CODING_AGENT_DIR` when set. Project Pi uses the current launch workspace's `.pi`: the existing first workspace folder behavior, not multi-root selection. Remote windows use the remote Extension Host's paths. Native controls require a trusted, file-backed workspace, including for Global Pi.
 

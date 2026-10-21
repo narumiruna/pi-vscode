@@ -80,6 +80,8 @@ test("Settings host validates, scopes, synchronizes, serializes, and disposes wi
     assert.equal(panel.options.localResourceRoots[0].fsPath, path.join(process.cwd(), "out/settings"));
     assert.ok(panel.webview.html.includes("default-src 'none'"));
     assert.ok(!panel.webview.html.includes("unsafe-inline"));
+    assert.ok(panel.webview.html.includes("Pi Configuration"));
+    assert.ok(!panel.webview.html.includes("Pi Files"));
     panel.receive({ type: "ready" });
     await flush();
     const state = () => panel.webview.messages.filter((item: any) => item.type === "snapshot").at(-1);
