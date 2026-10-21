@@ -71,6 +71,16 @@ export const settingsDescriptors: SettingDescriptor[] = [
     default: [".env", "credential", "secret", "id_rsa", "id_ed25519"],
   },
   {
+    key: "annotations.initialState",
+    category: "Editor",
+    label: "Annotation initial state",
+    description:
+      "Collapsed uses the VS Code API default. Expanded opens new explanations below the marked text. Changes affect only new or replaced annotations, not existing threads or shared Comments settings.",
+    type: "string",
+    default: "collapsed",
+    enum: ["collapsed", "expanded"],
+  },
+  {
     key: "inlineCompletions.enabled",
     category: "Editor",
     label: "Automatic inline completion",

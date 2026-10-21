@@ -384,6 +384,59 @@ export async function assertNativeAnnotations({ page, directory, workspace, invo
     action: "stale", path: "annotations.ts", annotations: marks(codeLines),
   }), { ok: false, stage: "annotate" });
   const prompts = () => readFile(path.join(directory, "prompts.jsonl"), "utf8").catch(() => "");
+  const glyph = () => page.locator(".monaco-editor .comment-range-glyph").first();
+  const collapsed = async () => {
+    await rendered();
+    await glyph().waitFor({ state: "visible" });
+    await settled();
+    assert.equal(await widgets().count(), 0, "Collapsed annotations must not display an explanation until clicked");
+  };
+  // Use the production Settings page, never a configuration write in the coordinator.
+  // Only the disposable workspace override changes; User and global comments settings stay untouched.
+  const userSettings = path.join(directory, "user", "User", "settings.json");
+  const originalUserSettings = await readFile(userSettings, "utf8");
+  const workspaceSettings = path.join(workspace, ".vscode", "settings.json");
+  const originalWorkspaceSettings = await readFile(workspaceSettings, "utf8").then(JSON.parse).catch((error) => {
+    if (error.code !== "ENOENT") throw error;
+    return {};
+  });
+  const initialState = async (value) => {
+    const pids = await readFile(path.join(directory, "pids.jsonl"), "utf8");
+    await invoke("command", { command: "pi.openSettings" });
+    const settings = await until(async () => {
+      for (const candidate of page.frames()) {
+        try {
+          if (await candidate.locator("#native-settings").count()) return candidate;
+        } catch (error) {
+          if (!candidate.isDetached()) throw error;
+        }
+      }
+    }, "annotation Settings webview");
+    await settings.locator("#target").selectOption("workspace");
+    await settings.getByRole("button", { name: "Editor", exact: true }).click();
+    const row = settings.locator('section[data-key="annotations.initialState"]');
+    const control = row.getByLabel("Annotation initial state", { exact: true });
+    await control.waitFor();
+    assert.deepEqual(await control.locator("option").evaluateAll((options) => options.map((option) => option.value)),
+      ["collapsed", "expanded"]);
+    if (value === "reset") await row.getByRole("button", { name: "Reset", exact: true }).click();
+    else await control.selectOption(value);
+    const expected = value === "reset" ? "collapsed" : value;
+    await until(async () => (await row.locator(".row-status").innerText()).includes("Saved") &&
+      (await control.inputValue()) === expected &&
+      (await row.locator(".meta").innerText()) ===
+        `${value === "reset" ? "Inherited" : "Set in Workspace"} · Effective: ${JSON.stringify(expected)}`,
+    "annotation initial state saved in Workspace scope");
+    assert.equal(await row.getByRole("button", { name: "Reset", exact: true }).isDisabled(), value === "reset");
+    await invoke("command", { command: "workbench.action.closeActiveEditor" });
+    await invoke("annotationsOpen", { file: "code" });
+    assert.equal(await readFile(userSettings, "utf8"), originalUserSettings, "Annotation settings must not write User or global comments settings");
+    assert.deepEqual(JSON.parse(await readFile(workspaceSettings, "utf8")), {
+      ...originalWorkspaceSettings,
+      ...(value === "reset" ? {} : { "pi.annotations.initialState": value }),
+    }, "Only the annotation initial state workspace override may change");
+    assert.equal(await readFile(path.join(directory, "pids.jsonl"), "utf8"), pids, "Annotation settings must not restart Pi");
+  };
 
   // Clear is local, including before any foreground Pi process exists.
   await assert.rejects(readFile(path.join(directory, "pids.jsonl")), { code: "ENOENT" });
@@ -402,20 +455,40 @@ export async function assertNativeAnnotations({ page, directory, workspace, invo
   const chinese = "多行中文说明。原始文字必须完整显示。\n第二行说明不得修改源文件。";
   assert.deepEqual(await annotate("code", [marks(codeLines)[0], { ...marks(codeLines)[0], message: chinese }]),
     { ok: true, count: 2, visible: true });
-  await rendered();
+  // The default leaves native threads collapsed, but highlights, glyphs and literal hovers work.
+  await collapsed();
+  await unchanged(before, beforeFocus);
+  await hover(codeLines[30]);
+  assert.equal(await widgets().count(), 0, "Hover must not expand a collapsed annotation");
+  await glyph().click();
   await nativeBodies([literal, chinese]);
   assert.equal(await widgets().count(), 1, "Same-anchor annotations share one native thread in input order");
   await below(codeLines[31]);
-  await unchanged(before, beforeFocus);
 
-  // User collapse survives ordinary editor visibility changes; replacement starts expanded.
+  // User collapse survives ordinary editor visibility and setting changes.
   await widgets().first().getByRole("button", { name: /collapse|hide/i }).click();
   await until(async () => (await widgets().count()) === 0, "production thread collapsed");
   await invoke("annotationsOpen", { file: "markdown" });
   await invoke("annotationsOpen", { file: "code" });
   assert.equal(await widgets().count(), 0, "Tab changes must not recreate a collapsed thread");
+  await initialState("expanded");
+  await collapsed();
   assert.deepEqual(await annotate("code"), { ok: true, count: 1, visible: true });
   await nativeBodies([literal]);
+
+  // Reset removes only the workspace override. Retained expanded threads stay open;
+  // replacement uses the collapsed default. A later expanded setting also leaves it closed.
+  await initialState("reset");
+  await nativeBodies([literal]);
+  assert.deepEqual(await annotate("code"), { ok: true, count: 1, visible: true });
+  await collapsed();
+  await initialState("expanded");
+  await collapsed();
+  before = await settled();
+  beforeFocus = await focus();
+  assert.deepEqual(await annotate("code"), { ok: true, count: 1, visible: true });
+  await nativeBodies([literal]);
+  await unchanged(before, beforeFocus);
   before = await settled();
   beforeFocus = await focus();
 
@@ -549,6 +622,7 @@ export async function assertNativeAnnotations({ page, directory, workspace, invo
   assert.equal(await readFile(path.join(workspace, "annotations.md"), "utf8"), markdown);
   console.log("PI_NATIVE_ANNOTATIONS", JSON.stringify({
     bridge: "foreground child authenticated annotationOrigin + annotate; no tool-registry loading in fixture",
+    initialState: "default collapsed glyph/highlight/hover and click-to-open; Pi Settings Workspace expanded/reset apply only to new/replaced threads, not retained collapse/expansion; no User settings writes or Pi restart",
     rendered: "code/Markdown highlights, expanded native below-code literal/Chinese explanations, same-anchor grouping, collapse retention, EOF, modified-side diff, Comments panel cleanup, safe hover, inactive tab, four themes",
     preserved: "native focus, multiple selections, active editor, tabs, buffer versions and file bytes; native panel/layout changes permitted",
     cleared: "edit, Undo, close/reopen, empty array, Command Palette, resource reload, cloned session, disconnect/replacement",

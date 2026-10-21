@@ -2,11 +2,11 @@
 
 ## Current outcome
 
-Production `vscode_annotate` now adds initially expanded, read-only native comment threads below marked passages. Whole-line highlights and literal hovers remain available. Messages with the same end line share one thread in input order. Tool parameters, limits and `{ count, visible }` results are unchanged.
+Production `vscode_annotate` adds read-only native comment threads below marked passages. `pi.annotations.initialState` accepts `collapsed` (default) or `expanded`, exposed as **Pi Settings → Editor → Annotation initial state**. `collapsed` leaves `CommentThread.collapsibleState` unset, using the API's collapsed default; `expanded` explicitly sets `CommentThreadCollapsibleState.Expanded`. This applies only to newly created or replaced annotations, not existing thread handles or user state on redraw. No global VS Code comments settings are written. Whole-line highlights and literal hovers remain available. Messages with the same end line share one thread in input order. Tool parameters, limits and `{ count, visible }` results are unchanged.
 
 The user explicitly accepted native Comments panel opening and editor layout, visible-range and scroll changes during expansion, replacement and removal. These effects are no longer a feasibility failure. The extension does not open documents/tabs, change selections, request focus, issue reveal/scroll commands or override user settings. Native controls follow VS Code behavior; a removed Comments panel row cannot retain DOM focus.
 
-The revised production and prototype fixtures pass on Linux x64 with VS Code **1.140.0** and **1.143.0**. This does not establish macOS, Windows, remote-host, accessibility or live-provider behavior.
+The production fixture verifies the collapsed default and the initial-state setting on Linux x64 with VS Code **1.140.0** and **1.143.0**. Earlier expanded-thread and prototype results remain recorded separately below. These checks do not establish macOS, Windows, remote-host, accessibility or live-provider behavior.
 
 ## Production implementation
 
@@ -16,7 +16,22 @@ The controller validates complete lines, trust, workspace/file identity, documen
 
 `count` counts accepted input annotations, not grouped threads. `visible` means that the document has a visible text editor; user comment visibility settings can hide its native widgets.
 
-## Revised validation
+## Initial-state setting validation
+
+Environment: Linux x64, Node.js **26.8.2**, npm **11.19.1**, local Playwright Chromium, Xvfb and disposable VS Code profiles. No extension installation, publication or live provider was used.
+
+- `npm test`: **86 files, 1,327 passed, 3 skipped**, including compilation.
+- `npm run test:settings`: passed; collapsed/expanded selection, User/Workspace scope, reset/inheritance and existing Settings checks.
+- `npm run test:rich-content`: passed; standalone browser renderer regression checks.
+- `npm exec --yes --package=@biomejs/biome@2.5.13 -- biome check src resources`: exit 0, **809 warnings and 24 informational diagnostics**, no errors.
+- After compilation, `env -u ELECTRON_RUN_AS_NODE xvfb-run -a node scripts/test-native-ui.mjs 1.140.0 annotations` and the same command with `stable`: passed; stable resolved to **1.143.0**. The first minimum-version launch inherited `ELECTRON_RUN_AS_NODE` and failed before UI startup; removing that variable permitted the native check.
+- Script syntax checks and `git diff --check`: passed.
+
+The production native fixture checks default-collapsed glyphs, highlights, literal hover without expansion and click-to-open. The actual Pi Settings page changes only the disposable Workspace override. Expanded selection and reset affect replacements, while retained user collapse/expansion survives setting and tab changes. User settings bytes, shared Comments settings and Pi process identity remain unchanged. The existing production rendering, authorization and cleanup cases also pass. The native Extension Host-only and separate prototype suites were not rerun for this setting change.
+
+Main unit, browser, rich-content, lint and stable native logs use `/tmp/pi-annotation-settings-*.log`. Disposable native profiles are removed by the runner.
+
+## Earlier revised validation
 
 Environment: Linux x64, Node.js **26.8.2**, npm **11.19.1**, Xvfb, local Playwright Chromium and disposable VS Code profiles. Existing locked dependencies were used. No live provider, extension installation or publication was involved.
 
@@ -56,6 +71,6 @@ Initial local verification used macOS arm64 with Node.js 26.10.0/npm 11.19.1 and
 - Maintainers with macOS/Windows and remote-host environments must check native rendering and cleanup. Linux local Extension Host checks are not remote-host evidence.
 - Accessibility reviewers must check native keyboard/screen-reader behavior and coexistence with another comment provider. These checks remain unverified.
 - Comment visibility-setting combinations are not exhaustively checked; the extension must not override them.
-- No standalone rich-content browser test, package installation, publication or live-provider test was run for this change. Native UI tests use Playwright to inspect the actual Electron workbench with fixture Pi responses.
+- No package installation, publication or live-provider test was run. Browser Settings/rich-content and native UI checks are separate; native UI tests inspect the actual Electron workbench with fixture Pi responses.
 
 These are separate platform/usability checks, not evidence that the former panel-opening blocker remains in effect.

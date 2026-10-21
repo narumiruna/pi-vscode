@@ -134,7 +134,7 @@ function render(): void {
     main.append(
       element(
         "p",
-        "Changes affect later completion requests. In-flight requests and cached results can remain unchanged.",
+        "Annotation changes affect only new or replaced annotations. Completion changes affect later requests; in-flight requests and cached results can remain unchanged.",
       ),
     );
   for (const descriptor of settingsDescriptors.filter((item) => item.category === category)) {

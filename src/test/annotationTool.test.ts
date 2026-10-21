@@ -173,7 +173,11 @@ test("annotation description discloses native comments and preserves result sema
   const { description, promptGuidelines } = await registeredTool();
   for (const required of [
     /whole-line highlights and hovers/,
-    /expanded read-only native comments below each range/,
+    /read-only native comments below each range/,
+    /Threads start collapsed by default/,
+    /pi\.annotations\.initialState accepts collapsed or expanded/,
+    /setting affects newly created or replaced annotations only/,
+    /No global VS Code comments settings are written/,
     /grouped at its end line/,
     /Comments panel also lists explanations/,
     /may auto-open the Comments panel/,

@@ -208,13 +208,15 @@ export class EditorAnnotations implements vscode.Disposable {
           rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
         });
         this.commentController ??= vscode.comments.createCommentController("pi.annotations", "Pi annotations");
+        const expand = vscode.workspace.getConfiguration("pi").get("annotations.initialState") === "expanded";
         for (const { range, comments } of groups.values()) {
           const thread = this.commentController.createCommentThread(document.uri, range, comments);
           // Own each handle before setting properties so setter failures also release it.
           threads.push(thread);
           thread.label = "Pi annotation";
           thread.canReply = false;
-          thread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
+          // Otherwise leave the API default (Collapsed) unchanged.
+          if (expand) thread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
         }
       }
       // Native UI preparation must not authorize stale work. No await separates these checks and commit.

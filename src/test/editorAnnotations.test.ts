@@ -62,6 +62,7 @@ async function fixture(
     document: ReturnType<typeof documentFor>;
     editor: ReturnType<typeof editorFor>;
     controller: InstanceType<typeof EditorAnnotations>;
+    settings: Map<string, unknown>;
     origin: { cwd: string; root: string; assertCurrent: () => void };
     annotate: (annotations?: unknown, extra?: Record<string, unknown>) => Promise<{ count: number; visible: boolean }>;
   }) => Promise<void>,
@@ -92,6 +93,12 @@ async function fixture(
   vscode.workspace.fs = { readFile: forbidden, writeFile: forbidden };
   vscode.window.showTextDocument = forbidden;
   vscode.commands.executeCommand = forbidden;
+  const settings = new Map<string, unknown>();
+  const getConfiguration = vscode.workspace.getConfiguration;
+  vscode.workspace.getConfiguration = (section: string) => {
+    assert.equal(section, "pi", "Annotation display must not change shared Comments settings.");
+    return { get: (key: string) => settings.get(key) };
+  };
   const controller = new EditorAnnotations();
   const origin = { cwd: root, root: canonical, assertCurrent() {} };
   try {
@@ -103,12 +110,14 @@ async function fixture(
       document,
       editor,
       controller,
+      settings,
       origin,
       annotate: (annotations = [mark()], extra = {}) =>
         controller.annotate({ path: file, annotations, ...extra }, origin),
     });
   } finally {
     controller.dispose();
+    vscode.workspace.getConfiguration = getConfiguration;
     vscode.window.tabGroups.all = [];
     await rm(directory, { recursive: true, force: true });
   }
@@ -298,7 +307,7 @@ test("native threads group by validated end line and keep messages in input orde
       assert.equal(thread.uri, document.uri);
       assert.equal(thread.label, "Pi annotation");
       assert.equal(thread.canReply, false);
-      assert.equal(thread.collapsibleState, vscode.CommentThreadCollapsibleState.Expanded);
+      assert.equal(thread.collapsibleState, vscode.CommentThreadCollapsibleState.Collapsed);
       for (const comment of thread.comments) {
         assert.equal(comment.mode, vscode.CommentMode.Preview);
         assert.deepEqual(comment.author, { name: "Pi" });
@@ -307,6 +316,76 @@ test("native threads group by validated end line and keep messages in input orde
       }
     }
     assert.deepEqual((controller as any).entries.get(document).threads, threads);
+  }));
+
+test.each([undefined, "collapsed", "expanded", "invalid", false])(
+  "native thread initial state follows the setting with a safe API default: %j",
+  async (value) =>
+    fixture(async ({ annotate, settings }) => {
+      settings.set("annotations.initialState", value);
+      await annotate();
+      const thread = vscode.comments.controllers[0].threads[0];
+      assert.equal(
+        thread.collapsibleState,
+        value === "expanded"
+          ? vscode.CommentThreadCollapsibleState.Expanded
+          : vscode.CommentThreadCollapsibleState.Collapsed,
+      );
+    }),
+);
+
+test("default annotations do not assign the API collapsible state", async () =>
+  fixture(async ({ annotate }) => {
+    await annotate();
+    const native = vscode.comments.controllers[0];
+    const create = native.createCommentThread;
+    native.createCommentThread = function (...args: any[]) {
+      const thread = create.apply(this, args);
+      Object.defineProperty(thread, "collapsibleState", {
+        get: () => vscode.CommentThreadCollapsibleState.Collapsed,
+        set: () => {
+          throw new Error("The API default must not be overwritten.");
+        },
+      });
+      return thread;
+    };
+    try {
+      await annotate();
+    } finally {
+      native.createCommentThread = create;
+    }
+  }));
+
+test("display changes affect new replacements without resetting retained user state", async () =>
+  fixture(async ({ annotate, settings, document, editor }) => {
+    await annotate();
+    const native = vscode.comments.controllers[0];
+    const first = native.threads[0];
+    first.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
+    settings.set("annotations.initialState", "expanded");
+    vscode.configurationEvents.emit("change", { affectsConfiguration: () => true });
+    vscode.window.visibleTextEditors = [];
+    vscode.workspaceEvents.emit("visibleEditors", []);
+    vscode.window.visibleTextEditors = [editor];
+    vscode.workspaceEvents.emit("visibleEditors", [editor]);
+    assert.equal(native.threads.length, 1);
+    assert.equal(first.collapsibleState, vscode.CommentThreadCollapsibleState.Expanded);
+    await annotate();
+    const second = native.threads[1];
+    assert.equal(second.collapsibleState, vscode.CommentThreadCollapsibleState.Expanded);
+    assert.equal(first.disposeCalls, 1);
+    second.collapsibleState = vscode.CommentThreadCollapsibleState.Collapsed;
+    vscode.workspaceEvents.emit("visibleEditors", [editor]);
+    assert.equal(second.collapsibleState, vscode.CommentThreadCollapsibleState.Collapsed);
+    settings.delete("annotations.initialState");
+    vscode.configurationEvents.emit("change", { affectsConfiguration: () => true });
+    assert.equal(second.disposed, false);
+    assert.equal(native.threads.length, 2);
+    await annotate();
+    const third = native.threads[2];
+    assert.equal(third.collapsibleState, vscode.CommentThreadCollapsibleState.Collapsed);
+    assert.equal(third.uri, document.uri);
+    assert.equal(second.disposeCalls, 1);
   }));
 
 test.each(["", "last", "last\n"])("native EOF anchors stay inside complete lines: %j", async (text) =>
@@ -392,7 +471,8 @@ test("accepted handles stay retained until all replacement threads are prepared"
 test.each(["create-first", "create-second", "label", "canReply", "collapsibleState"])(
   "failed native replacement releases partial handles and keeps accepted state: %s",
   async (failure) =>
-    fixture(async ({ annotate, document, editor, controller }) => {
+    fixture(async ({ annotate, document, editor, controller, settings }) => {
+      settings.set("annotations.initialState", "expanded");
       await annotate();
       const native = vscode.comments.controllers[0];
       const previous = (controller as any).entries.get(document);

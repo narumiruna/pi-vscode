@@ -492,6 +492,15 @@
           ],
           "description": "Best-effort warnings for attachment labels containing these names. Inspect/redact before transmission."
         },
+        "pi.annotations.initialState": {
+          "type": "string",
+          "default": "collapsed",
+          "enum": [
+            "collapsed",
+            "expanded"
+          ],
+          "description": "Initial state of new or replaced Pi annotation threads. Collapsed uses the VS Code API default; expanded opens explanations below the marked text. Does not change existing threads or shared Comments settings."
+        },
         "pi.inlineCompletions.enabled": {
           "type": "boolean",
           "default": false,

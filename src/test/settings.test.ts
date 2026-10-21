@@ -102,6 +102,15 @@ test("Settings host validates, scopes, synchronizes, serializes, and disposes wi
     assert.equal((await send({ key: "inlineCompletions.enabled", value: false })).ok, true);
     assert.equal((await send({ key: "inlineCompletions.minimumPrefixLength", value: 0 })).ok, true);
     assert.equal((await send({ key: "inlineCompletions.excludedLanguages", value: [] })).ok, true);
+    assert.equal(state().entries.find((entry: any) => entry.key === "annotations.initialState").effective, "collapsed");
+    assert.equal((await send({ key: "annotations.initialState", value: "expanded" })).ok, true);
+    assert.equal(user.get("annotations.initialState"), "expanded");
+    assert.equal((await send({ key: "annotations.initialState", value: "collapsed", target: "workspace" })).ok, true);
+    assert.equal(state().entries.find((entry: any) => entry.key === "annotations.initialState").effective, "collapsed");
+    assert.equal((await send({ type: "reset", key: "annotations.initialState", target: "workspace" })).ok, true);
+    assert.equal(state().entries.find((entry: any) => entry.key === "annotations.initialState").effective, "expanded");
+    assert.equal((await send({ type: "reset", key: "annotations.initialState" })).ok, true);
+    assert.equal(state().entries.find((entry: any) => entry.key === "annotations.initialState").effective, "collapsed");
     assert.equal((await send({ value: "workspace-model", target: "workspace" })).ok, true);
     assert.equal((await send({ value: "user-model" })).ok, true);
     assert.equal(state().entries.find((entry: any) => entry.key === "provider").effective, "workspace-model");
@@ -119,6 +128,8 @@ test("Settings host validates, scopes, synchronizes, serializes, and disposes wi
       { value: "x".repeat(4097) },
       { value: "a\0b" },
       { key: "thinkingLevel", value: "invalid" },
+      { key: "annotations.initialState", value: "invalid" },
+      { key: "annotations.initialState", value: true },
       { key: "inlineCompletions.debounceMilliseconds", value: 99 },
       { key: "inlineCompletions.minimumPrefixLength", value: Infinity },
       { type: "executeCommand" },
