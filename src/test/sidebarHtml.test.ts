@@ -980,6 +980,47 @@ test("manual tool disclosure survives insertion, settlement and full output upda
   assert.equal(sidebar.element("tools").children[0]?.open, false);
 });
 
+test("completed and failed tools collapse during later calls without changing manual disclosures", () => {
+  const sidebar = createSidebarScriptHarness();
+  const tool = { name: "bash", input: "npm test", output: "Running", status: "running" };
+  const send = (tools: any[]) => sidebar.receive({ type: "state", runtime: { busy: true, connected: true }, tools });
+  const tools = ["success", "error", "manual-open", "manual-closed"].map((id) => ({ ...tool, id }));
+  send(tools);
+  const rows = sidebar.element("tools").children;
+  const succeeded = rows[0]!;
+  const failed = rows[1]!;
+  const manualOpen = rows[2]!;
+  const manualClosed = rows[3]!;
+  manualOpen.children[0]!.listeners.get("click")!();
+  manualOpen.open = false;
+  manualOpen.children[0]!.listeners.get("click")!();
+  manualOpen.open = true;
+  manualClosed.children[0]!.listeners.get("click")!();
+  manualClosed.open = false;
+
+  const completed = tools.map((entry) => ({
+    ...entry,
+    status: entry.id === "error" ? "error" : "success",
+    output: entry.id === "error" ? "Failed" : "Passed",
+  }));
+  const next = { ...tool, id: "next" };
+  send([...completed, next]);
+  assert.equal(sidebar.element("tools-group").open, true);
+  assert.equal(succeeded.open, false);
+  assert.equal(failed.open, false);
+  assert.equal(failed.children[1]?.textContent, "Failed");
+  assert.equal(manualOpen.open, true);
+  assert.equal(manualClosed.open, false);
+  assert.equal(rows[4]?.open, true, "the next running call opens automatically");
+
+  send([...completed, { ...next, output: "More output" }]);
+  assert.equal(rows[0], succeeded);
+  assert.equal(succeeded.open, false, "later updates must not reopen completed calls");
+  assert.equal(failed.open, false);
+  assert.equal(manualOpen.open, true);
+  assert.equal(manualClosed.open, false);
+});
+
 test("tool retention removes only expired rows and a replaced request clears group intent", () => {
   const sidebar = createSidebarScriptHarness();
   const tool = { id: "old", name: "read", input: "file", status: "success" };
@@ -2418,7 +2459,7 @@ test("bottom-following scroll includes newly rendered tool activity", () => {
   assert.equal(conversation.scrollTop, 180);
 });
 
-test("tool activity preserves manual group opening but collapses untouched calls at settlement", () => {
+test("tool activity preserves manual group opening but collapses untouched calls on completion", () => {
   const sidebar = createSidebarScriptHarness();
   const state = (phase: "running" | "tool-complete" | "settled", html: string) =>
     sidebar.receive({
@@ -2449,8 +2490,8 @@ test("tool activity preserves manual group opening but collapses untouched calls
 
   group.open = true;
   state("tool-complete", "<p>Preparing conclusion</p>");
-  assert.equal(group.open, true, "completed tool output remains visible while the request is active");
-  assert.equal(tool.open, true);
+  assert.equal(group.open, true, "the group stays open while the request is active");
+  assert.equal(tool.open, false, "completed calls collapse before the response settles");
 
   state("settled", "<p>Final conclusion</p>");
   assert.equal(group.open, true, "manual opening survives request settlement");
