@@ -298,31 +298,59 @@ const onLine = (line) => {
       timestamp: Date.now(),
     };
     append(user);
-    append(assistant);
     emit({ type: "agent_start" });
     emit({ type: "message_end", message: user });
     const toolsFile = path.join(directory, "tools.json");
     const calls = fs.existsSync(toolsFile) ? JSON.parse(fs.readFileSync(toolsFile, "utf8")) : [];
-    if (calls.length) fs.unlinkSync(toolsFile);
+    if (calls.length) {
+      fs.unlinkSync(toolsFile);
+      const toolTurn = {
+        role: "assistant",
+        content: calls.map(([name, args], index) => ({
+          type: "toolCall", id: `native-tool-${index}`, name, arguments: args,
+        })),
+        stopReason: "toolUse",
+        timestamp: Date.now(),
+      };
+      append(toolTurn);
+      emit({ type: "message_start", message: { role: "assistant", content: [], timestamp: toolTurn.timestamp } });
+      emit({ type: "message_end", message: toolTurn });
+    }
+    const recordResult = (index) => {
+      const [toolName, , result, isError] = calls[index];
+      const message = {
+        role: "toolResult", toolCallId: `native-tool-${index}`, toolName,
+        content: result.content ?? [{ type: "text", text: JSON.stringify(result) }],
+        isError: !!isError, timestamp: Date.now(),
+      };
+      append(message);
+      emit({ type: "message_end", message });
+    };
     calls.forEach(([toolName, args, result, isError], index) => {
       const toolCallId = `native-tool-${index}`;
       emit({ type: "tool_execution_start", toolName, args, toolCallId });
       emit({ type: "tool_execution_update", toolCallId, partialResult: result });
-      if (index < calls.length - 1) emit({ type: "tool_execution_end", toolCallId, result, isError: !!isError });
+      if (index < calls.length - 1) {
+        emit({ type: "tool_execution_end", toolCallId, result, isError: !!isError });
+        recordResult(index);
+      }
     });
     if (calls.length) {
       emit({ type: "message_start", message: { role: "assistant", content: [] } });
       emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: text } });
     }
+    append(assistant);
     emit({ type: "message_end", message: assistant });
     const finish = () => {
-      if (calls.length)
+      if (calls.length) {
         emit({
           type: "tool_execution_end",
           toolCallId: `native-tool-${calls.length - 1}`,
           result: calls.at(-1)[2],
-          isError: false,
+          isError: !!calls.at(-1)[3],
         });
+        recordResult(calls.length - 1);
+      }
       emit({ type: "agent_end", messages });
       emit({ type: "agent_settled" });
     };

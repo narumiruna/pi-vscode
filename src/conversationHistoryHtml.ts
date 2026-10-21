@@ -59,6 +59,7 @@ export function conversationHistoryScript(): string {
         if (bar.hidden || !query) { selected = -1; paint(); return; }
         let budget = 250000;
         for (const article of root.children) {
+          if (article.classList.contains('tool-message')) continue;
           const content = article.querySelector('.content');
           if (!content || budget <= 0 || matches.length >= 1000) continue;
           const nodes = [], walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, {

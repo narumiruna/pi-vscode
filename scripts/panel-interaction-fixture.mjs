@@ -37,17 +37,22 @@ export async function assertPanelInteractions(browser, html, renderSafeMarkdown,
     const history = await open();
     const batch = [
       message("history-diagram-1", "```mermaid\nflowchart TD\nA-->B\n```"),
+      {
+        id: "tool-history", role: "tool", html: "",
+        tool: { id: "history", name: "read", status: "success", input: "file.ts", output: "file contents" },
+      },
       message("history-prose", "A message after the first diagram."),
       message("history-diagram-2", "```mermaid\nflowchart LR\nC-->D\n```"),
     ];
     await post(history, state(batch));
     await history.waitForFunction(() => {
       const articles = document.querySelectorAll("#messages article");
-      return articles.length === 3 && articles[0].querySelector(".mermaid-preview svg")
-        && articles[2].querySelector(".mermaid-preview svg");
+      return articles.length === 4 && articles[0].querySelector(".mermaid-preview svg")
+        && articles[3].querySelector(".mermaid-preview svg");
     });
     await history.evaluate(() => {
       window.historyDiagrams = Array.from(document.querySelectorAll("#messages .mermaid-preview svg"));
+      window.historyTool = document.querySelector("#messages .tool-message");
     });
     await post(history, state(batch));
     await post(history, state([
@@ -60,9 +65,13 @@ export async function assertPanelInteractions(browser, html, renderSafeMarkdown,
       diagrams: document.querySelectorAll("#messages .mermaid-preview svg").length,
       existingDiagramsRetained: window.historyDiagrams.every((svg, index) =>
         document.querySelectorAll("#messages .mermaid-preview svg")[index] === svg),
+      toolRetained: document.querySelector("#messages .tool-message") === window.historyTool,
+      toolCollapsed: !document.querySelector("#messages details.tool").open,
     }));
     assert.equal(evidence.historyBatch.diagrams, 3, "initial and appended batches must render every diagram");
     assert.equal(evidence.historyBatch.existingDiagramsRetained, true, "later batches must retain completed diagrams");
+    assert.equal(evidence.historyBatch.toolRetained, true, "diagram batches must retain inline tool articles");
+    assert.equal(evidence.historyBatch.toolCollapsed, true, "diagram batches must not expand tool details");
 
     const page = await open();
     const older = message("older", "Selected passage must remain selected.\n\n" + "Older paragraph.\n\n".repeat(60));
@@ -163,10 +172,14 @@ export async function assertPanelInteractions(browser, html, renderSafeMarkdown,
     const clipboard = await open();
     const output = "Literal <output> 日本語\nSecond line";
     await post(clipboard, {
-      ...state([]),
+      ...state([{
+        id: "tool-copy-tool", role: "tool", html: "",
+        tool: { id: "copy-tool", name: "bash", status: "running", input: "printf fixture", output },
+      }]),
       runtime: { connected: true, busy: true },
-      tools: [{ id: "copy-tool", name: "bash", status: "running", input: "printf fixture", output }],
     });
+    assert.equal(await clipboard.locator("details.tool").evaluate((node) => node.open), false);
+    await clipboard.locator("details.tool > summary").click();
     const outputSection = clipboard.locator(".tool-section").filter({ has: clipboard.getByRole("button", { name: "Copy Output", exact: true }) });
     const copy = outputSection.getByRole("button", { name: "Copy Output", exact: true });
     const feedback = outputSection.locator('[role="status"]');

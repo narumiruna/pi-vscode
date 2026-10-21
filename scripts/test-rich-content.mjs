@@ -103,26 +103,41 @@ try {
         }),
       );
     }, renderSafeMarkdown(markdown));
-  // Completed calls must collapse before the overall request settles.
+  // Tools appear at their chronological message positions and start collapsed.
   const sendTools = (tools) =>
     page.evaluate((value) => {
+      const messages = [
+        { id: "thinking", role: "assistant", html: "", thinking: [{ contentIndex: 0, text: "Inspect the project." }] },
+        ...value.flatMap((tool, index) => [
+          { id: `tool-${tool.id}`, role: "tool", html: "", tool },
+          { id: `step-${index}`, role: "assistant", html: `<p>Step ${index + 1}</p>` },
+        ]),
+      ];
       window.dispatchEvent(new MessageEvent("message", {
-        data: { type: "state", runtime: { connected: true, busy: true }, tools: value },
+        data: { type: "state", runtime: { connected: true, busy: true }, messages },
       }));
     }, tools);
   const runningTools = ["success", "error", "manual-open", "manual-closed"].map((id) => ({
-    id, name: "bash", status: "running", input: "npm test", output: "Running",
+    id, name: "bash", status: "running", input: "npm test", output: id === "manual-open" ? "line\n".repeat(200) : "Running",
   }));
   await sendTools(runningTools);
   const toolRows = page.locator(".tool");
-  assert.deepEqual(await toolRows.evaluateAll((nodes) => nodes.map((node) => node.open)), [true, true, true, true]);
+  assert.deepEqual(await toolRows.evaluateAll((nodes) => nodes.map((node) => node.open)), [false, false, false, false]);
+  assert.equal(await page.locator("#tools-group").count(), 0);
+  assert.deepEqual(await page.locator("#messages > article").evaluateAll((nodes) => nodes.map((node) => node.messageId)),
+    ["thinking", "tool-success", "step-0", "tool-error", "step-1", "tool-manual-open", "step-2", "tool-manual-closed", "step-3"]);
   const manualToggle = toolRows.nth(2).locator(":scope > summary");
   await manualToggle.focus();
   await page.keyboard.press("Enter");
-  assert.equal(await toolRows.nth(2).evaluate((node) => node.open), false);
-  await page.keyboard.press("Enter");
   assert.equal(await toolRows.nth(2).evaluate((node) => node.open), true);
+  const toolOutput = toolRows.nth(2).locator(".tool-section").nth(1);
+  assert.ok(await toolOutput.locator(":scope > pre").evaluate((node) => node.getBoundingClientRect().height <= 102));
+  assert.equal(await toolOutput.locator(":scope > pre").evaluate((node) => getComputedStyle(node).overflowY), "hidden");
+  await toolOutput.locator(".tool-full > summary").click();
+  assert.equal(await toolOutput.locator(".tool-full > pre").evaluate((node) => getComputedStyle(node).overflowY), "visible");
   await toolRows.nth(3).locator(":scope > summary").focus();
+  await page.keyboard.press("Space");
+  assert.equal(await toolRows.nth(3).evaluate((node) => node.open), true);
   await page.keyboard.press("Space");
   assert.equal(await toolRows.nth(3).evaluate((node) => node.open), false);
   const completedTools = runningTools.map((tool) => ({
@@ -130,11 +145,22 @@ try {
   }));
   const nextTool = { ...runningTools[0], id: "next" };
   await sendTools([...completedTools, nextTool]);
-  assert.deepEqual(await toolRows.evaluateAll((nodes) => nodes.map((node) => node.open)), [false, false, true, false, true]);
-  assert.equal(await page.locator("#tools-group").evaluate((node) => node.open), true);
+  assert.deepEqual(await toolRows.evaluateAll((nodes) => nodes.map((node) => node.open)), [false, false, true, false, false]);
+  assert.equal(await toolRows.nth(3).locator(":scope > summary").evaluate((node) => node === document.activeElement), true);
   await sendTools([...completedTools, { ...nextTool, output: "More output" }]);
-  assert.deepEqual(await toolRows.evaluateAll((nodes) => nodes.map((node) => node.open)), [false, false, true, false, true]);
-  console.log("PI_TOOL_DISCLOSURE_BROWSER_EVIDENCE success/error collapse during work; keyboard choices preserved: passed");
+  assert.deepEqual(await toolRows.evaluateAll((nodes) => nodes.map((node) => node.open)), [false, false, true, false, false]);
+  assert.equal(await toolRows.nth(3).locator(":scope > summary").evaluate((node) => node === document.activeElement), true);
+  await page.locator("#history-search-open").click();
+  await page.locator("#history-search-input").fill("npm test");
+  assert.equal(await page.locator("#history-search-count").innerText(), "No matches in this window.");
+  await page.locator("#history-search-close").click();
+  for (const theme of ["vscode-light", "vscode-dark", "vscode-high-contrast", "vscode-high-contrast-light"]) {
+    await page.evaluate((name) => { document.body.className = name; }, theme);
+    await page.setViewportSize({ width: 280, height: 800 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  }
+  await page.setViewportSize({ width: 600, height: 800 });
+  console.log("PI_TOOL_DISCLOSURE_BROWSER_EVIDENCE chronological collapsed tools; keyboard, focus and theme checks: passed");
 
   await send(richFixture);
   const evidence = await assertRichContent(page).catch(async (error) => {
