@@ -34,7 +34,7 @@ export type WebviewMessage =
         | "retry"
         | "newSession"
         | "deleteSession"
-        | "showNoticeDetails"
+        | "showOutput"
         | "pickContext"
         | "pickModel"
         | "pickComposerSettings"
@@ -167,7 +167,7 @@ export function isWebviewMessage(value: unknown, maxImageBytes: number): value i
     "retry",
     "newSession",
     "deleteSession",
-    "showNoticeDetails",
+    "showOutput",
     "pickContext",
     "pickModel",
     "pickComposerSettings",

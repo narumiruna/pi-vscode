@@ -328,7 +328,7 @@ test("primary status updates preserve reading position, output state, and non-di
   sidebar.receive({
     type: "notice",
     level: "warning",
-    detailsAvailable: true,
+    outputAvailable: true,
     message: "Pi cleanup is unverified. Check for remaining processes before starting conflicting work.",
   });
   for (const status of ["Pi is thinking…", "Running bash…", "Retrying Pi request…", "Cancelling Pi request…"]) {
@@ -341,7 +341,7 @@ test("primary status updates preserve reading position, output state, and non-di
     assert.match(sidebar.element("notice").textContent, /cleanup is unverified/);
     assert.deepEqual(
       sidebar.element("notice").children.map((child) => child.textContent),
-      ["View diagnostic"],
+      ["Show Output"],
     );
   }
 });
@@ -408,13 +408,13 @@ test("only non-blocking informational notices can be dismissed", () => {
     ["warning", "Cleanup is unverified."],
     ["warning", "Queue delivery is uncertain."],
   ]) {
-    sidebar.receive({ type: "notice", level, message, detailsAvailable: true });
+    sidebar.receive({ type: "notice", level, message, outputAvailable: true });
     assert.equal(sidebar.element("notice").textContent, message);
     assert.equal(
       sidebar.element("notice").children.some((child) => child.dataset.noticeDismiss),
       false,
     );
-    assert.equal(sidebar.element("notice").children[0].textContent, "View diagnostic");
+    assert.equal(sidebar.element("notice").children[0].textContent, "Show Output");
   }
 });
 
@@ -1469,9 +1469,9 @@ test("search feedback follows loading and availability without resetting search 
   assert.equal(descriptionChanges, 1, "unchanged state does not repeat description updates");
   assert.match(sidebar.element("status").textContent, /History refresh failed/);
   assert.equal(sidebar.element("refresh-history").hidden, false);
-  sidebar.receive({ type: "notice", level: "error", message: "Session restoration failed.", detailsAvailable: true });
+  sidebar.receive({ type: "notice", level: "error", message: "Session restoration failed.", outputAvailable: true });
   assert.equal(sidebar.element("notice").textContent, "Session restoration failed.");
-  assert.equal(sidebar.element("notice").children[0].textContent, "View diagnostic");
+  assert.equal(sidebar.element("notice").children[0].textContent, "Show Output");
   assert.equal(
     sidebar.element("notice").children.some((child) => child.dataset.noticeDismiss),
     false,
@@ -2729,10 +2729,12 @@ test("busy, settling, cancellation, failure, and reconnection states expose one 
   state("Request failed · Retry available", false, false);
   assert.equal(sidebar.element("cancel").hidden, true);
   assert.equal(sidebar.element("send").hidden, false);
-  sidebar.receive({ type: "notice", message: "Pi request failed.", level: "error", detailsAvailable: true });
-  const details = sidebar.element("notice").children[0]!;
-  sidebar.element("notice").listeners.get("click")!({ target: details });
-  assert.equal(sidebar.posted.at(-1).type, "showNoticeDetails");
+  sidebar.receive({ type: "notice", message: "Pi request failed.", level: "error", outputAvailable: true });
+  const output = sidebar.element("notice").children[0]!;
+  assert.equal(output.textContent, "Show Output");
+  assert.notEqual(sidebar.posted.at(-1)?.type, "showOutput", "a notice never opens Output automatically");
+  sidebar.element("notice").listeners.get("click")!({ target: output });
+  assert.equal(sidebar.posted.at(-1).type, "showOutput");
   state("Ready", false, false, true, true);
   assert.equal(
     sidebar.element("status").textContent,

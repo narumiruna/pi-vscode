@@ -27,6 +27,7 @@ import { assertThinkingDisclosure } from "./thinking-fixture.mjs";
 import { assertNativeDirectShell } from "./direct-shell-fixture.mjs";
 import { assertAuthTransferDialogs, seedTransferSession } from "./auth-transfer-native-fixture.mjs";
 import { assertNativeAnnotationPrototype, assertNativeAnnotations } from "./annotation-native-fixture.mjs";
+import { assertNativeOutputDiagnostics } from "./output-diagnostics-native-fixture.mjs";
 
 // Actual Quick Picks, modals, Problems, code actions and webview clicks; only Pi is simulated.
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -34,9 +35,11 @@ const version = process.argv[2] ?? "1.140.0";
 const workspaceAlias = process.argv[3] === "alias";
 const packaged = process.argv.includes("packaged");
 const selectionOnly = process.argv.includes("selection");
+const outputDiagnosticsOnly = process.argv.includes("output-diagnostics");
+if (outputDiagnosticsOnly && packaged) throw new Error("Output diagnostics uses a source development profile only.");
 const annotationPrototypeOnly = process.argv.includes("annotation-prototype");
 const annotationsOnly = process.argv.includes("annotations") || annotationPrototypeOnly;
-const evidenceLabel = `${version}${workspaceAlias ? "-alias" : ""}${packaged ? "-packaged" : ""}${selectionOnly ? "-selection" : ""}${annotationsOnly ? "-annotations" : ""}${annotationPrototypeOnly ? "-prototype" : ""}`;
+const evidenceLabel = `${version}${workspaceAlias ? "-alias" : ""}${packaged ? "-packaged" : ""}${selectionOnly ? "-selection" : ""}${annotationsOnly ? "-annotations" : ""}${annotationPrototypeOnly ? "-prototype" : ""}${outputDiagnosticsOnly ? "-output-diagnostics" : ""}`;
 if (process.platform !== "linux") throw new Error("The native UI runner currently supports Linux only.");
 const directory = await realpath(await mkdtemp(path.join(tmpdir(), "pi-native-ui-")));
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -84,6 +87,7 @@ try {
   await mkdir(workspace);
   if (selectionOnly) await writeFile(path.join(directory, "selection-first-open"), "selection");
   if (annotationsOnly) await writeFile(path.join(directory, "annotations-only"), "annotations");
+  if (outputDiagnosticsOnly) await writeFile(path.join(directory, "output-diagnostics-only"), "output-diagnostics");
   if (workspaceAlias) await symlink(workspace, openedWorkspace, "junction");
   await mkdir(path.join(userData, "User"), { recursive: true });
   const executableFixture = path.join(directory, "pi-fixture");
@@ -97,7 +101,7 @@ try {
   // Fail closed even if an upload approval regression invokes gh. Never delegates to real gh.
   await writeFile(path.join(fixtureBin, "gh"), `#!/bin/sh\nprintf invoked >> '${path.join(directory, "gh-invoked")}'\nexit 91\n`, { mode: 0o700 });
   await respond("Native fixture explanation.");
-  if (!selectionOnly && !annotationsOnly) await writeFile(path.join(directory, "extension-ui.json"), JSON.stringify(extensionUiFixture));
+  if (!selectionOnly && !annotationsOnly && !outputDiagnosticsOnly) await writeFile(path.join(directory, "extension-ui.json"), JSON.stringify(extensionUiFixture));
   await writeFile(
     path.join(userData, "User", "settings.json"),
     JSON.stringify({
@@ -279,7 +283,9 @@ try {
       "Quick Pick accepted or advanced",
     );
   };
-  if (annotationPrototypeOnly) {
+  if (outputDiagnosticsOnly) {
+    await assertNativeOutputDiagnostics({ page, directory, userData, invoke, until, frame, version: ready.version });
+  } else if (annotationPrototypeOnly) {
     await assertNativeAnnotationPrototype({ page, workspace, invoke, until, version: ready.version, evidenceLabel });
   } else if (annotationsOnly) {
     await assertNativeAnnotations({ page, directory, workspace, invoke, until, frame, pick });

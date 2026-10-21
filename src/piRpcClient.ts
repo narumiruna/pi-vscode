@@ -9,6 +9,14 @@ import {
   shellExecutionDeadlineMs,
   validateShellCommand,
 } from "./directShell";
+import {
+  type ErrorCategory,
+  type Logger,
+  type LogMetadata,
+  nullLogger,
+  type OperationId,
+  safeRpcCommand,
+} from "./logging";
 import { type PiSessionTree, parseSessionTree, validId } from "./piControl";
 import { PiProcessOwner } from "./piProcess";
 import { buildPiProcessEnvironment, planPiSpawn } from "./piSpawn";
@@ -64,11 +72,17 @@ export interface PiRpcClientOptions {
   readonly unsetEnv?: readonly string[];
 }
 
+export interface PiRpcDiagnostics {
+  readonly logger: Logger;
+  readonly generation: number;
+  readonly operationId?: OperationId;
+}
+
 interface PendingRequest {
   readonly command: string;
   readonly timer: NodeJS.Timeout;
   readonly resolve: (response: PiRpcResponse) => void;
-  readonly reject: (error: Error) => void;
+  readonly reject: (error: Error, category?: ErrorCategory) => void;
 }
 
 interface PiRpcResponse {
@@ -139,7 +153,10 @@ export class PiRpcClient {
   private owner: PiProcessOwner | undefined;
   private exitExpected: boolean | undefined;
 
-  public constructor(private readonly options: PiRpcClientOptions) {}
+  public constructor(
+    private readonly options: PiRpcClientOptions,
+    private readonly diagnosticContext: PiRpcDiagnostics = { logger: nullLogger, generation: 0 },
+  ) {}
 
   public get isRunning(): boolean {
     return this.process !== undefined && this.process.exitCode === null;
@@ -199,11 +216,14 @@ export class PiRpcClient {
     });
     child.stdin.on("error", (error) => {
       if (this.process !== child) return;
-      this.failProcess(new Error(`Pi RPC stdin failed: ${error.message}`));
+      this.failProcess(new Error(`Pi RPC stdin failed: ${error.message}`), "disconnect");
     });
     child.once("error", (error) => {
       if (this.process !== child) return;
-      this.failProcess(new Error(`Could not start Pi RPC using '${this.options.executablePath}': ${error.message}`));
+      this.failProcess(
+        new Error(`Could not start Pi RPC using '${this.options.executablePath}': ${error.message}`),
+        "disconnect",
+      );
     });
     child.once("exit", (code, signal) => {
       if (this.process !== child) return;
@@ -472,31 +492,71 @@ export class PiRpcClient {
     fields: Record<string, unknown> = {},
     options: { readonly id?: string; readonly timeoutMs?: number } = {},
   ): Promise<PiRpcResponse> {
+    const startedAt = Date.now();
+    let operationId = this.diagnosticContext.operationId;
+    try {
+      if (this.diagnosticContext.logger !== nullLogger) operationId ??= this.diagnosticContext.logger.operation();
+    } catch {
+      // An unavailable logger must not prevent command submission.
+    }
+    const metadata = {
+      command: safeRpcCommand(type),
+      generation: this.diagnosticContext.generation,
+      operationId,
+    };
+    this.logCommand({ ...metadata, result: "started" });
+    const failed = (category: ErrorCategory) =>
+      this.logCommand({ ...metadata, result: "failed", category, durationMs: Date.now() - startedAt });
     const child = this.process;
     if (!child || child.exitCode !== null || child.stdin.destroyed || !child.stdin.writable) {
+      failed("disconnect");
       return Promise.reject(new Error(`Pi RPC is not running.${formatDiagnostics(this.stderr)}`));
     }
 
     const id = options.id ?? `vscode_${++this.requestId}`;
     const request = { ...fields, id, type };
     return new Promise((resolve, reject) => {
+      const rejectCommand = (error: Error, category: ErrorCategory = "unknown") => {
+        failed(category);
+        reject(error);
+      };
       const timer = setTimeout(
         () => {
           this.pending.delete(id);
-          reject(new Error(`Timed out waiting for Pi RPC command '${type}'.${formatDiagnostics(this.stderr)}`));
+          rejectCommand(
+            new Error(`Timed out waiting for Pi RPC command '${type}'.${formatDiagnostics(this.stderr)}`),
+            "timeout",
+          );
         },
         options.timeoutMs ?? this.options.requestTimeoutMs ?? defaultRequestTimeoutMs,
       );
-      this.pending.set(id, { command: type, timer, resolve, reject });
+      this.pending.set(id, {
+        command: type,
+        timer,
+        resolve: (response) => {
+          this.logCommand({ ...metadata, result: "completed", durationMs: Date.now() - startedAt });
+          resolve(response);
+        },
+        reject: rejectCommand,
+      });
       try {
         this.writeRecord(request);
       } catch (error) {
         const pending = this.pending.get(id);
         this.pending.delete(id);
         clearTimeout(timer);
-        pending?.reject(asError(error));
+        pending?.reject(asError(error), "disconnect");
       }
     });
+  }
+
+  private logCommand(metadata: LogMetadata): void {
+    if (this.diagnosticContext.logger === nullLogger) return;
+    try {
+      this.diagnosticContext.logger.record(metadata.result === "failed" ? "error" : "debug", "rpc-command", metadata);
+    } catch {
+      // Diagnostics must not change command results or cleanup.
+    }
   }
 
   private writeRecord(record: Record<string, unknown>): void {
@@ -530,7 +590,10 @@ export class PiRpcClient {
         clearTimeout(pending.timer);
         const response = value as unknown as PiRpcResponse;
         if (response.command !== pending.command || typeof response.success !== "boolean") {
-          pending.reject(new Error("Invalid Pi RPC command acknowledgement; acceptance is uncertain."));
+          pending.reject(
+            new Error("Invalid Pi RPC command acknowledgement; acceptance is uncertain."),
+            "invalid-frame",
+          );
         } else if (response.success) {
           pending.resolve(response);
         } else {
@@ -556,16 +619,16 @@ export class PiRpcClient {
     }
   }
 
-  private failProcess(error: Error): void {
-    this.rejectPending(error);
+  private failProcess(error: Error, category: "invalid-frame" | "disconnect" = "invalid-frame"): void {
+    this.rejectPending(error, category);
     this.emit({ type: "protocol_error", message: error.message });
     if (!this.stopping) void this.stop();
   }
 
-  private rejectPending(error: Error): void {
+  private rejectPending(error: Error, category: "invalid-frame" | "disconnect" = "disconnect"): void {
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
-      pending.reject(error);
+      pending.reject(error, category);
     }
     this.pending.clear();
   }

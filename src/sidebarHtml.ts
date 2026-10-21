@@ -453,7 +453,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let recoveredDraftPending;
     let sessionButtons = [];
 
-    function showNotice(message, level, detailsAvailable = false, transientLock = false) {
+    function showNotice(message, level, outputAvailable = false, transientLock = false) {
       notice.replaceChildren();
       notice.textContent = message;
       notice.className = level || '';
@@ -463,13 +463,13 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         dismiss.className = 'secondary'; dismiss.type = 'button'; dismiss.textContent = 'Dismiss';
         dismiss.dataset.noticeDismiss = 'true'; notice.appendChild(dismiss);
       }
-      if (detailsAvailable) {
-        const details = document.createElement('button');
-        details.className = 'secondary';
-        details.type = 'button';
-        details.textContent = 'View diagnostic';
-        details.dataset.noticeDetails = 'true';
-        notice.appendChild(details);
+      if (outputAvailable) {
+        const output = document.createElement('button');
+        output.className = 'secondary';
+        output.type = 'button';
+        output.textContent = 'Show Output';
+        output.dataset.noticeOutput = 'true';
+        notice.appendChild(output);
       }
     }
 
@@ -1734,7 +1734,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       else if (message.type === 'showConversationDetails') showConversationDetails();
       else if (message.type === 'toggleCodeWrapping') toggleCodeWrapping();
       else if (message.type === 'imageAsset') acceptImageAsset(message);
-      else if (message.type === 'notice') showNotice(message.message, message.level, Boolean(message.detailsAvailable));
+      else if (message.type === 'notice') showNotice(message.message, message.level, Boolean(message.outputAvailable));
       else if (message.type === 'appendDraft') {
         if (composerRevision === message.expectedRevision && !recoveredDraftPending) {
           if (message.recoveredDraftId) {
@@ -1898,8 +1898,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       }
     });
     notice.addEventListener('click', event => {
-      const button = event.target instanceof Element ? event.target.closest('button[data-notice-details]') : undefined;
-      if (button) vscode.postMessage({ type: 'showNoticeDetails' });
+      const button = event.target instanceof Element ? event.target.closest('button[data-notice-output]') : undefined;
+      if (button) vscode.postMessage({ type: 'showOutput' });
       else if (event.target instanceof Element && event.target.closest('button[data-notice-dismiss]')) clearNotice();
     });
     messagesElement.addEventListener('click', event => {

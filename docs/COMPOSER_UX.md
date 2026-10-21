@@ -53,7 +53,7 @@ More → Conversation details contains Submission help, file-completion instruct
 
 Stop stays in the composer actions. Reconnect, Retry, and Refresh history stay in the primary status area with unchanged host-derived availability checks. Applicable recovery controls remain reachable even when another message has priority; unavailable actions are not enabled and retry is never automatic.
 
-Blocking errors and process-cleanup warnings retain the separate non-dismissible notice surface and View diagnostic action. Primary-status selection cannot suppress these safety notices. Foreground tool output stays in the conversation flow; background task and proposal cards stay in the workflow area. History notices, retained-draft controls, Pi extension status in Conversation details, and requested above/below-editor widget placements are unchanged.
+Blocking errors and process-cleanup warnings retain the separate non-dismissible notice surface and Show Output action. Primary-status selection cannot suppress these safety notices. Foreground tool output stays in the conversation flow; background task and proposal cards stay in the workflow area. History notices, retained-draft controls, Pi extension status in Conversation details, and requested above/below-editor widget placements are unchanged.
 
 ## Latest-output navigation
 
