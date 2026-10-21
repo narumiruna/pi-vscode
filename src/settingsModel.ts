@@ -52,17 +52,6 @@ export const settingsDescriptors: SettingDescriptor[] = [
     launch: true,
   },
   {
-    key: "agent.confirmToolCalls",
-    category: "Permissions",
-    label: "Tool confirmation",
-    description:
-      "Built-in bash, edit, and write only; extension tools manage their own permissions. Off removes per-tool approval. Dangerous confirms dangerous shell commands and sensitive or out-of-workspace writes. All confirms every mutating tool call.",
-    type: "string",
-    default: "dangerous",
-    enum: ["off", "dangerous", "all"],
-    launch: true,
-  },
-  {
     key: "approveProjectResources",
     category: "Permissions",
     label: "Approve project resources",

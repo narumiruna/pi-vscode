@@ -58,7 +58,6 @@ async function fixture(saved = true) {
       [
         ["vscode-pi-control", "pi-control.ts"],
         ["vscode-pi-bridge-ready", "pi-bridge.ts"],
-        ["vscode-pi-permission-ready", "pi-permission-gate.ts"],
         ["vscode-pi-read-only-ready", "pi-read-only-gate.ts"],
       ].map(([name, file]) => ({
         name,

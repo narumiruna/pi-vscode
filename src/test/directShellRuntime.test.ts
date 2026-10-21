@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { shellExecutionDeadlineMs, shellPolicyTitle } from "../directShell";
+import { shellExecutionDeadlineMs } from "../directShell";
 import { acquireOperation, hasOperation } from "../operationLocks";
 import { installVscodeMock, MockUri } from "./vscodeMock";
 
@@ -10,20 +10,16 @@ const vscode = installVscodeMock();
 const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
 
 async function fixture(action: (f: any) => Promise<void>): Promise<void> {
-  const root = await mkdtemp(path.join(tmpdir(), "pi-shell-runtime-"));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "pi-shell-runtime-")));
   const extensionRoot = path.join(root, "extension");
   await mkdir(path.join(extensionRoot, "resources"), { recursive: true });
-  await Promise.all(
-    ["pi-permission-gate.ts", "pi-read-only-gate.ts"].map((name) =>
-      writeFile(path.join(extensionRoot, "resources", name), "// fixture policy identity"),
-    ),
-  );
+  await writeFile(path.join(extensionRoot, "resources", "pi-read-only-gate.ts"), "// fixture policy identity");
   const folder = { uri: MockUri.file(root) };
   vscode.workspace.workspaceFolders = [folder];
   vscode.workspace.getWorkspaceFolder = () => folder;
   vscode.workspace.isTrusted = true;
   vscode.workspace.getConfiguration = () => ({ get: (_key: string, fallback: unknown) => fallback });
-  vscode.window.showWarningMessage = async () => "Run Shell";
+  vscode.window.showWarningMessage = async () => assert.fail("Direct shell must not request host confirmation");
   const runtime = new PiRuntimeManager({
     extensionUri: MockUri.file(extensionRoot),
     workspaceState: { get: () => undefined, update: async () => {} },
@@ -36,14 +32,8 @@ async function fixture(action: (f: any) => Promise<void>): Promise<void> {
   const result = { output: "fixture output", exitCode: 0, cancelled: false, truncated: false };
   const descriptors = [
     {
-      name: "vscode-pi-permission-ready",
-      description: "VS Code direct-shell policy; Pi 1.3.0",
-      source: "extension",
-      sourceInfo: { path: path.join(extensionRoot, "resources", "pi-permission-gate.ts") },
-    },
-    {
       name: "vscode-pi-read-only-ready",
-      description: "VS Code read-only direct-shell policy v1",
+      description: "VS Code read-only direct-shell policy v1; Pi 1.3.0",
       source: "extension",
       sourceInfo: { path: path.join(extensionRoot, "resources", "pi-read-only-gate.ts") },
     },
@@ -55,17 +45,7 @@ async function fixture(action: (f: any) => Promise<void>): Promise<void> {
     getCommands: async () => descriptors,
     getState: async () => ({ sessionId: "fixture-session" }),
     sendExtensionUiResponse: (id: string, fields: any) => responses.push({ id, ...fields }),
-    bash: async (command: string, excludeFromContext: boolean, update: (value: unknown) => void) => {
-      await internal.authorizeShellPolicy(
-        {
-          type: "extension_ui_request",
-          id: "policy",
-          method: "confirm",
-          message: JSON.stringify({ command, cwd: root, excludeFromContext, sessionId: "fixture-session" }),
-        },
-        client,
-      );
-      if (!responses.at(-1)?.confirmed) throw new Error("Fixture policy denied");
+    bash: async (_command: string, _excludeFromContext: boolean, update: (value: unknown) => void) => {
       executions++;
       update(result);
       return result;
@@ -109,28 +89,41 @@ test("direct shell is available before the first model turn writes a session fil
   });
 });
 
-test("every direct shell has full host approval independent of tool mode, with canonical operation and foreground ownership", async () => {
+test("direct shell dispatches without host confirmation and retains locks while bash is pending", async () => {
   await fixture(async (f) => {
-    let approvals = 0;
-    vscode.window.showWarningMessage = async (message: string, options: any, label: string) => {
-      approvals++;
-      assert.match(message, /printf harmless/);
-      assert.ok(message.includes(f.root));
-      assert.match(message, /remain in Pi history/);
-      assert.equal(options.modal, true);
-      assert.equal(label, "Run Shell");
+    const bash = f.client.bash;
+    for (const exclude of [false, true]) {
+      let ready!: () => void;
+      const started = new Promise<void>((resolve) => {
+        ready = resolve;
+      });
+      let finish!: () => void;
+      const pending = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      f.client.bash = async (command: string, excludeFromContext: boolean, update: (value: unknown) => void) => {
+        assert.equal(command, "printf harmless");
+        assert.equal(excludeFromContext, exclude);
+        ready();
+        await pending;
+        return bash(command, excludeFromContext, update);
+      };
+      let accepted = 0;
+      const execution = f.runtime.executeBash("printf harmless", exclude, () => accepted++);
+      await started;
+      assert.equal(accepted, 1);
       assert.equal(f.runtime.currentState.busy, true);
       assert.equal(f.runtime.currentState.queueable, false);
       assert.equal(hasOperation(f.root), true);
       await assert.rejects(f.runtime.prompt("conflict"), /current Pi request|session operation/);
       await assert.rejects(f.runtime.newSession(), /current Pi request|session operation/);
+      await assert.rejects(f.runtime.executeBash("conflict", false), /current Pi request|session operation/);
       assert.throws(() => acquireOperation(f.root, "Apply/import/restore"), /direct shell/);
       await assert.rejects(f.runtime.queueInstruction("steer", "conflict"), /Only an active ordinary/);
-      return "Run Shell";
-    };
-    for (const exclude of [false, true])
-      assert.deepEqual(await f.runtime.executeBash("printf harmless", exclude), f.result);
-    assert.equal(approvals, 2);
+      finish();
+      assert.deepEqual(await execution, f.result);
+    }
+    assert.deepEqual(f.responses, [], "No shell authorization handshake is sent");
     assert.equal(f.executions(), 2);
     assert.equal(hasOperation(f.root), false);
     assert.equal(f.runtime.currentState.busy, false);
@@ -138,11 +131,8 @@ test("every direct shell has full host approval independent of tool mode, with c
   });
 });
 
-test("rejected/stale approval and unsupported policy discovery run no shell", async () => {
+test("origin changes during asynchronous command discovery run no shell", async () => {
   await fixture(async (f) => {
-    vscode.window.showWarningMessage = async () => undefined;
-    assert.equal(await f.runtime.executeBash("printf harmless", false), undefined);
-    assert.equal(f.executions(), 0);
     for (const mutate of [
       () => {
         vscode.workspace.isTrusted = false;
@@ -163,98 +153,76 @@ test("rejected/stale approval and unsupported policy discovery run no shell", as
       vscode.workspace.getConfiguration = () => ({ get: (_key: string, fallback: unknown) => fallback });
       f.internal.client = f.client;
       f.internal.state.sessionId = "fixture-session";
-      vscode.window.showWarningMessage = async () => {
+      f.client.getCommands = async () => {
+        await Promise.resolve();
         mutate();
-        return "Run Shell";
+        return f.descriptors;
       };
-      await assert.rejects(f.runtime.executeBash("printf harmless", false), /origin|trusted|policy|workspace/i);
+      let accepted = false;
+      await assert.rejects(
+        f.runtime.executeBash("printf harmless", false, () => {
+          accepted = true;
+        }),
+        /origin|trusted|policy|workspace/i,
+      );
+      assert.equal(accepted, false);
       assert.equal(f.executions(), 0);
       assert.equal(hasOperation(f.root), false);
     }
-    vscode.workspace.getConfiguration = () => ({ get: (_key: string, fallback: unknown) => fallback });
-    f.internal.client = f.client;
-    f.internal.state.sessionId = "fixture-session";
-    vscode.window.showWarningMessage = async () => assert.fail("Unsupported runtime must not offer execution");
-    f.descriptors[0].description = "VS Code direct-shell policy; Pi 1.2.0";
-    await assert.rejects(f.runtime.executeBash("printf harmless", false), /verified Pi 1.3.0/);
-    assert.equal(f.executions(), 0);
   });
 });
 
-test("policy discovery rejects duplicates and foreign sources, but accepts canonical packaged aliases", async () => {
+test("read-only discovery rejects duplicate, missing, incompatible and foreign metadata without executing", async () => {
   await fixture(async (f) => {
-    f.descriptors.push({ ...f.descriptors[0] });
-    await assert.rejects(f.runtime.executeBash("printf harmless", false), /verified Pi 1.3.0/);
-    f.descriptors.pop();
-    const original = f.descriptors[0].sourceInfo.path;
-    f.descriptors[0].sourceInfo.path = f.descriptors[1].sourceInfo.path;
-    await assert.rejects(f.runtime.executeBash("printf harmless", false), /verified Pi 1.3.0/);
-    f.descriptors[0].sourceInfo.path = original;
+    const descriptor = f.descriptors[0];
+    const foreign = path.join(f.root, "foreign-policy.ts");
+    await writeFile(foreign, "// foreign policy");
+    for (const descriptors of [
+      [],
+      [descriptor, { ...descriptor }],
+      [{ ...descriptor, description: "VS Code read-only direct-shell policy v1" }],
+      [{ ...descriptor, description: "VS Code read-only direct-shell policy v1; Pi 1.2.0" }],
+      [{ ...descriptor, description: "VS Code read-only direct-shell policy v1; Pi unknown" }],
+      [{ ...descriptor, source: "prompt" }],
+      [{ ...descriptor, sourceInfo: undefined }],
+      [{ ...descriptor, sourceInfo: {} }],
+      [{ ...descriptor, sourceInfo: { path: foreign } }],
+      [{ ...descriptor, sourceInfo: { path: path.join(f.root, "missing.ts") } }],
+      [{ ...descriptor, name: "vscode-pi-permission-ready" }],
+    ]) {
+      f.client.getCommands = async () => descriptors;
+      await assert.rejects(f.runtime.executeBash("printf harmless", false), /verified Pi 1.3.0/);
+      assert.equal(f.executions(), 0);
+      assert.equal(hasOperation(f.root), false);
+    }
+    f.client.getCommands = async () => [descriptor];
+    assert.deepEqual(await f.runtime.executeBash("printf harmless", false), f.result);
+    assert.equal(f.executions(), 1, "Only the read-only sentinel is required");
     if (process.platform !== "win32") {
-      const alias = path.join(f.root, "permission-alias.ts");
-      await symlink(original, alias);
-      f.descriptors[0].sourceInfo.path = alias;
+      const alias = path.join(f.root, "read-only-alias.ts");
+      await symlink(descriptor.sourceInfo.path, alias);
+      f.client.getCommands = async () => [{ ...descriptor, sourceInfo: { path: alias } }];
       assert.deepEqual(await f.runtime.executeBash("printf harmless", false), f.result);
+      assert.equal(f.executions(), 2);
     }
   });
 });
 
-test("wrong origin and replayed user_bash approval requests fail closed", async () => {
+test("origin changes during final asynchronous validation prevent dispatch", async () => {
   await fixture(async (f) => {
-    const event = {
-      type: "extension_ui_request",
-      id: "wrong-origin",
-      method: "confirm",
-      message: JSON.stringify({
-        command: "printf harmless",
-        cwd: f.root,
-        excludeFromContext: false,
-        sessionId: "fixture-session",
-      }),
+    let discovered = false;
+    f.client.getCommands = async () => {
+      discovered = true;
+      return f.descriptors;
     };
-    await f.internal.authorizeShellPolicy(event, f.client);
-    assert.equal(f.responses.at(-1).confirmed, false, "no active command");
-    f.client.bash = async () => {
-      for (const message of [
-        "x".repeat(40_001),
-        JSON.stringify({
-          command: "printf harmless",
-          cwd: f.root,
-          excludeFromContext: false,
-          sessionId: "fixture-session",
-          extra: "rejected",
-        }),
-      ]) {
-        await f.internal.authorizeShellPolicy({ ...event, message }, f.client);
-        assert.equal(f.responses.at(-1).confirmed, false);
-      }
-      for (const [key, value] of [
-        ["command", "wrong"],
-        ["sessionId", "wrong"],
-        ["cwd", tmpdir()],
-        ["excludeFromContext", true],
-      ]) {
-        const payload = {
-          command: "printf harmless",
-          cwd: f.root,
-          excludeFromContext: false,
-          sessionId: "fixture-session",
-          [key as string]: value,
-        };
-        await f.internal.authorizeShellPolicy({ ...event, message: JSON.stringify(payload) }, f.client);
-        assert.equal(f.responses.at(-1).confirmed, false);
-        f.internal.shellActive.consumed = false;
-      }
-      await f.internal.authorizeShellPolicy(event, { ...f.client });
-      assert.equal(f.responses.at(-1).confirmed, false);
-      await f.internal.authorizeShellPolicy(event, f.client);
-      assert.equal(f.responses.at(-1).confirmed, true);
-      await f.internal.authorizeShellPolicy(event, f.client);
-      assert.equal(f.responses.at(-1).confirmed, false, "approval is one-shot");
-      return f.result;
+    f.client.getState = async () => {
+      await Promise.resolve();
+      if (discovered) f.internal.state.sessionId = "replacement";
+      return { sessionId: "fixture-session" };
     };
-    await f.runtime.executeBash("printf harmless", false);
-    assert.equal(shellPolicyTitle, "PI_VSCODE_DIRECT_SHELL_V1");
+    await assert.rejects(f.runtime.executeBash("printf harmless", false), /origin|session.*changed/i);
+    assert.equal(f.executions(), 0);
+    assert.equal(hasOperation(f.root), false);
   });
 });
 
@@ -357,15 +325,28 @@ test("execution deadline requests abort, requires final settlement and never rep
   });
 });
 
-test("Stop during modal approval preserves the draft and executes no command", async () => {
+test("Stop during final asynchronous validation keeps the submission unaccepted and runs no command", async () => {
   await fixture(async (f) => {
-    vscode.window.showWarningMessage = async () => {
-      await f.runtime.abort();
-      return "Run Shell";
+    let stopped = false;
+    let accepted = false;
+    f.client.getState = async () => {
+      if (f.internal.shellActive) {
+        await f.runtime.abort();
+        stopped = true;
+      }
+      return { sessionId: "fixture-session" };
     };
-    assert.equal(await f.runtime.executeBash("printf harmless", false), undefined);
+    await assert.rejects(
+      f.runtime.executeBash("printf harmless", false, () => {
+        accepted = true;
+      }),
+      /origin|stale|cancel/i,
+    );
+    assert.equal(stopped, true);
+    assert.equal(accepted, false);
     assert.equal(f.executions(), 0);
     assert.equal(hasOperation(f.root), false);
+    assert.equal(f.internal.shellActive, undefined);
   });
 });
 
@@ -427,7 +408,7 @@ test("history replacement stays inside the canonical owner and final session ide
   });
 });
 
-test("canonical workspace aliases retain their binding and a replaced alias rejects approval", async () => {
+test("canonical workspace aliases retain their binding and replacement during discovery prevents dispatch", async () => {
   if (process.platform === "win32") return;
   await fixture(async (f) => {
     const alias = `${f.root}-alias`;
@@ -436,10 +417,10 @@ test("canonical workspace aliases retain their binding and a replaced alias reje
       f.folder.uri = MockUri.file(alias);
       f.internal.control.clientStarted();
       assert.deepEqual(await f.runtime.executeBash("printf harmless", false), f.result);
-      vscode.window.showWarningMessage = async () => {
+      f.client.getCommands = async () => {
         await rm(alias);
         await symlink(tmpdir(), alias, "dir");
-        return "Run Shell";
+        return f.descriptors;
       };
       await assert.rejects(f.runtime.executeBash("printf harmless", false), /origin|workspace|directory/i);
       assert.equal(f.executions(), 1);

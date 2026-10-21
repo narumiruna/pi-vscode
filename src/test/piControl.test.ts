@@ -192,7 +192,7 @@ async function fixture(storage = new Map<string, unknown>()) {
       extensions: packagedCommands.map(([, file]) => path.join(resources, file)),
       approveProjectResources: false,
       sessionPath: "/session path/session.jsonl",
-      env: { PI_VSCODE_PERMISSION_MODE: "all", PI_VSCODE_BRIDGE_TOKEN: "fixture-token" },
+      env: { PI_VSCODE_BRIDGE_TOKEN: "fixture-token" },
     }),
   };
   const control: PiRuntimeControl = new PiRuntimeControl(host);
@@ -245,7 +245,7 @@ test("ordinary runtime prompts cannot invoke the reserved control namespace", as
     environmentVariableCollection: { clear() {} },
   } as unknown as vscode.ExtensionContext);
   try {
-    for (const text of ["/vscode-pi-control {}", "/vscode-pi-permission-ready", " /VSCODE-PI-control {}"])
+    for (const text of ["/vscode-pi-control {}", "/vscode-pi-read-only-ready", " /VSCODE-PI-control {}"])
       await assert.rejects(runtime.prompt(text), /reserved/);
     assert.equal(runtime.currentState.connected, false);
   } finally {
@@ -499,7 +499,11 @@ test("terminal handoff stops writer, retains canonical ownership, forwards polic
     assert.equal(hasOperation(root), true);
     assert.ok(options.shellArgs.includes("--no-approve"));
     assert.ok(options.shellArgs.includes("/session path/session.jsonl"));
-    assert.equal(options.env.PI_VSCODE_PERMISSION_MODE, "all");
+    assert.equal(options.env.PI_VSCODE_PERMISSION_MODE, undefined);
+    assert.equal(
+      options.shellArgs.some((arg: string) => arg.endsWith("pi-permission-gate.ts")),
+      false,
+    );
     assert.equal(options.env.PI_VSCODE_BRIDGE_TOKEN, "fixture-token");
     assert.equal(
       options.env.PI_VSCODE_ANNOTATION_TOKEN,
@@ -675,7 +679,12 @@ test("restart explicitly accepts changed launch policy without replay and cancel
 });
 
 test("missing-control catalog race is consumed by independent input policy without model fallback", async () => {
-  const source = stripTypeScriptTypes(readFileSync(path.join(resources, "pi-read-only-gate.ts"), "utf8"));
+  const source = stripTypeScriptTypes(
+    readFileSync(path.join(resources, "pi-read-only-gate.ts"), "utf8").replace(
+      'import * as piPackage from "@earendil-works/pi-coding-agent";',
+      'const piPackage = { VERSION: "1.3.0" };',
+    ),
+  );
   const { default: policy } = await import(`data:text/javascript,${encodeURIComponent(source)}`);
   const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
   policy({

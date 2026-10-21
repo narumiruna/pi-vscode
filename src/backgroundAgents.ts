@@ -135,11 +135,7 @@ export class BackgroundAgentManager implements vscode.Disposable {
       model: invocation.model,
       thinkingLevel: invocation.thinkingLevel,
       appendSystemPrompt: "This is an independent background task. Work only in the provided working directory.",
-      extensions: [path.join(this.context.extensionUri.fsPath, "resources", "pi-permission-gate.ts")],
       approveProjectResources: configuration.get<boolean>("approveProjectResources", false),
-      env: {
-        PI_VSCODE_PERMISSION_MODE: configuration.get<string>("agent.confirmToolCalls", "dangerous"),
-      },
       unsetEnv: [
         vscodeBridgePortEnvironmentKey,
         vscodeBridgeTokenEnvironmentKey,

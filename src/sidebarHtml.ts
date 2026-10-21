@@ -360,7 +360,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
   </main>
   <dialog id="conversation-details" aria-labelledby="conversation-details-title">
     <div class="details-header"><h2 id="conversation-details-title">Conversation details</h2><button id="conversation-details-close" class="secondary" type="button">Close</button></div>
-    <details id="composer-help"><summary>Submission help</summary><div id="composer-hint">Enter to send · Shift+Enter for a new line</div><p>Idle session only: !command includes model context; !!command excludes model context, not history. Remove attachments. Every command needs approval. Prefix ! with a backslash to send literal text.</p></details>
+    <details id="composer-help"><summary>Submission help</summary><div id="composer-hint">Enter to send · Shift+Enter for a new line</div><p>Idle session only: !command includes model context; !!command excludes model context, not history. Remove attachments. Pi and installed extensions control execution permissions. Prefix ! with a backslash to send literal text.</p></details>
     <p id="file-discovery-hint">Checking workspace file completion.</p>
     <details id="session-details" hidden><summary>Session details</summary><div class="session-details-content"><label for="session">Session ID (select to copy)</label><input id="session" readonly></div></details>
     <section aria-label="Context usage"><h2 class="section-heading">Context usage</h2><p id="usage">Context usage is unavailable.</p></section>
@@ -1500,7 +1500,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
                 ? 'Next: after the current tool · After this: after the response · Enter / ' + followUpShortcutLabel + ' · Shift+Enter for a new line'
                 : busy
                   ? 'Wait for Pi to finish before sending'
-                  : shellInput ? 'Direct shell: ! includes model context · !! excludes model context, not history · Approval required' : 'Enter to send · Shift+Enter for a new line';
+                  : shellInput ? 'Direct shell: ! includes model context · !! excludes model context, not history' : 'Enter to send · Shift+Enter for a new line';
       updateRuntimeStatus(emptyDraft ? '' : blocker);
       renderSlashCommands();
       fileCompletion?.refresh();
@@ -1561,7 +1561,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const names = new Set();
       slashCommands = catalog.filter(command => {
         if (!command || typeof command.name !== 'string' || !/^[^\\s/]+$/.test(command.name) || names.has(command.name)) return false;
-        if (command.name === 'vscode-pi-permission-ready' || command.name === 'vscode-pi-read-only-ready') return false;
+        if (command.name === 'vscode-pi-read-only-ready') return false;
         names.add(command.name);
         return true;
       });
