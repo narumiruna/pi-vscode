@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.1
+
+### Patch Changes
+
+- a6940af: Show tool calls in conversation order between assistant responses instead of a separate activity group. Start each call collapsed, preserve manual disclosure choices during updates, and restore retained calls from Pi history without caching tool payloads in VS Code workspace storage. Keep assistant answers accessible through Earlier when inline tools reach history window limits.
+- ef5af91: Show temporary Pi passage explanations in read-only native comments below code, while retaining whole-line highlights and hovers. Use the API's collapsed default and add `pi.annotations.initialState` in Pi Settings → Editor to choose collapsed or expanded for new or replaced annotations. Keep existing thread state and shared VS Code Comments settings unchanged. Group threads at range end lines and label them Pi annotation with Pi as author. Explanations also appear in the native Comments panel. VS Code may open that panel and change editor layout or visible range/scroll; comments visibility settings may hide widgets. Keep existing authorization, stale-content checks, limits, result semantics and clearing rules, including thread disposal.
+- 851c16a: Rename the Pi Settings category from Pi Files to Pi Configuration. Clarify that it edits Pi settings and MCP configuration at Global Pi or Project Pi scope. Keep the selected category when restoring state saved with the old label.
+- 0ec9bd0: Add Pi Files to Pi Settings with Global Pi and Project Pi editors for settings.json and mcp.json. Create missing files only on explicit override save. Keep native configuration in host dialogs, show inactive project MCP entries for editing, and add an advanced MCP file editor. Saving does not restart Pi or connect servers.
+- 3c5f308: Share safe operation diagnostics through Output → Pi. Replace the operational diagnostic modal with explicit Show Output navigation while retaining Sidebar results and recovery instructions.
+- 5d073ae: Preserve conversation scroll, text selection and completed rich content when messages arrive. Use the VS Code clipboard for tool Copy buttons, retain text in mixed image pastes, and prevent delayed send acceptance from taking transcript focus. Keep drafts until Pi accepts them and preserve IME commit behavior. Attach message articles before rendering diagram batches so later messages do not discard pending diagrams.
+
 ## 0.8.0
 
 ### Minor Changes
