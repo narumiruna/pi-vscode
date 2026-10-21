@@ -63,6 +63,20 @@ class MessageNode {
   replaceChildren(): void {
     this.children = [];
   }
+  contains(node: MessageNode): boolean {
+    return this === node || this.children.some((child) => child.contains(node));
+  }
+  removeChild(node: MessageNode): void {
+    this.children = this.children.filter((child) => child !== node);
+  }
+  insertBefore(node: MessageNode, reference: MessageNode | null): void {
+    this.removeChild(node);
+    const index = reference ? this.children.indexOf(reference) : -1;
+    this.children.splice(index < 0 ? this.children.length : index, 0, node);
+  }
+  getBoundingClientRect(): { top: number; bottom: number } {
+    return { top: 0, bottom: 100 };
+  }
   setAttribute(name: string, value: string): void {
     this.attributes[name] = value;
   }
@@ -79,7 +93,8 @@ test("message headings retain locally generated identity and focus through strea
   const context = createContext({
     document,
     messagesElement,
-    conversationElement: { scrollTop: 42 },
+    conversationElement: { scrollTop: 42, getBoundingClientRect: () => ({ top: 0 }) },
+    imageTargets: new Map(),
     conversationPinnedToBottom: false,
     lastTranscriptSignature: "",
     hasNewTranscriptOutput: false,

@@ -360,6 +360,22 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       return;
     }
 
+    if (message.type === "copyText") {
+      const view = this.view;
+      if (this.disposed || !view) return;
+      let ok = false;
+      try {
+        await vscode.env.clipboard.writeText(message.text);
+        ok = true;
+      } catch {
+        // Do not expose clipboard diagnostics or copied content to the transcript.
+      }
+      if (!this.disposed && this.view === view) {
+        void view.webview.postMessage({ type: "copyTextResult", requestId: message.requestId, ok });
+      }
+      return;
+    }
+
     if (
       message.type === "fileCompletionQuery" ||
       message.type === "fileCompletionSelect" ||

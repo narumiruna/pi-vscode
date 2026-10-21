@@ -74,6 +74,7 @@ export type WebviewMessage =
       readonly codeWrapping?: boolean;
     }
   | { readonly type: "pasteImage"; readonly data: string; readonly mimeType: string; readonly fileName?: string }
+  | { readonly type: "copyText"; readonly requestId: number; readonly text: string }
   | { readonly type: "setModel"; readonly provider: string; readonly modelId: string }
   | { readonly type: "setThinking"; readonly level: string }
   | { readonly type: "imageAssetEvicted" | "imageAssetRejected"; readonly id: string }
@@ -123,6 +124,8 @@ export function isWebviewMessage(value: unknown, maxImageBytes: number): value i
       (value.codeWrapping === undefined || typeof value.codeWrapping === "boolean")
     );
   }
+  if (value.type === "copyText")
+    return typeof value.text === "string" && value.text.length <= 8_000 && isComposerRevision(value.requestId);
   if (value.type === "pasteImage") {
     return (
       typeof value.data === "string" &&
