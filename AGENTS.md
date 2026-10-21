@@ -1,5 +1,22 @@
 # Repository guidance
 
+## Language and Terminology
+
+- Follow ASD-STE100 (Simplified Technical English) for English technical prose when applicable.
+  - Use approved vocabulary and sentence structures where practical.
+  - Preserve technical accuracy when ASD-STE100 conflicts with established terminology.
+- Keep proper nouns and technical terms in English.
+- Use terminology consistently throughout the response.
+
+## Technical Documentation
+
+- Make rules specific, actionable, and verifiable.
+- Use indented sub-items for rules that depend on a parent rule.
+- Put each prose sentence on a separate source line.
+- Use Mermaid syntax for diagrams when a diagram improves clarity.
+- Prefer concrete explanations and examples over abstract descriptions.
+- Do not add diagrams, examples, or sections that provide no useful information.
+
 ## Documentation
 
 - Read `README.md` for development commands and `docs/SECURITY.md` before changing process, trust, context, or edit workflows.
