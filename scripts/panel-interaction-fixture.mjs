@@ -34,6 +34,36 @@ export async function assertPanelInteractions(browser, html, renderSafeMarkdown,
   });
   const message = (id, markdown) => ({ id, role: "assistant", html: renderSafeMarkdown(markdown) });
   try {
+    const history = await open();
+    const batch = [
+      message("history-diagram-1", "```mermaid\nflowchart TD\nA-->B\n```"),
+      message("history-prose", "A message after the first diagram."),
+      message("history-diagram-2", "```mermaid\nflowchart LR\nC-->D\n```"),
+    ];
+    await post(history, state(batch));
+    await history.waitForFunction(() => {
+      const articles = document.querySelectorAll("#messages article");
+      return articles.length === 3 && articles[0].querySelector(".mermaid-preview svg")
+        && articles[2].querySelector(".mermaid-preview svg");
+    });
+    await history.evaluate(() => {
+      window.historyDiagrams = Array.from(document.querySelectorAll("#messages .mermaid-preview svg"));
+    });
+    await post(history, state(batch));
+    await post(history, state([
+      ...batch,
+      message("appended-diagram", "```mermaid\nflowchart TD\nE-->F\n```"),
+      message("appended-prose", "A message after the appended diagram."),
+    ]));
+    await history.waitForFunction(() => document.querySelectorAll("#messages .mermaid-preview svg").length === 3);
+    evidence.historyBatch = await history.evaluate(() => ({
+      diagrams: document.querySelectorAll("#messages .mermaid-preview svg").length,
+      existingDiagramsRetained: window.historyDiagrams.every((svg, index) =>
+        document.querySelectorAll("#messages .mermaid-preview svg")[index] === svg),
+    }));
+    assert.equal(evidence.historyBatch.diagrams, 3, "initial and appended batches must render every diagram");
+    assert.equal(evidence.historyBatch.existingDiagramsRetained, true, "later batches must retain completed diagrams");
+
     const page = await open();
     const older = message("older", "Selected passage must remain selected.\n\n" + "Older paragraph.\n\n".repeat(60));
     await post(page, state([older]));

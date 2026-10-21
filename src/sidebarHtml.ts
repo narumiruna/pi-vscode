@@ -709,6 +709,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         focused: Boolean(wrapper.thinkingDisclosure && wrapper.thinkingDisclosure.children[0] === document.activeElement),
       }]));
       const nextWrappers = [];
+      const contentUpdates = [];
       emptyActionButtons.length = 0;
       if (visibleMessages.length === 0) {
         const empty = document.createElement('div');
@@ -741,7 +742,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           retained.delete(messageKey);
           if (previous?.wrapper.structureKey === structureKeys[index]) {
             const wrapper = previous.wrapper;
-            if (wrapper.renderedHtml !== html[index]) setMessageContent(wrapper.children[1], html[index]);
+            if (wrapper.renderedHtml !== html[index]) contentUpdates.push([wrapper.children[1], html[index]]);
             wrapper.renderedHtml = html[index];
             wrapper.children[0].setAttribute('aria-label', (message.role === 'user' ? 'You' : message.role === 'shell' ? 'Shell' : 'Pi') + ' message ' + (index + 1));
             renderThinking(wrapper, message.thinking);
@@ -775,7 +776,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           wrapper.setAttribute('aria-labelledby', role.id);
           const content = document.createElement('div');
           content.className = 'content';
-          setMessageContent(content, html[index]);
+          contentUpdates.push([content, html[index]]);
           wrapper.append(role, content);
           renderThinking(wrapper, message.thinking);
           if (wrapper.thinkingDisclosure && previous) wrapper.thinkingDisclosure.open = Boolean(previous.open);
@@ -833,6 +834,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           messagesElement.insertBefore(nextWrappers[index], messagesElement.children[index] || null);
         }
       }
+      // The rich renderer removes pending jobs for detached targets on each update.
+      // Connect every article before rendering so later messages cannot drop earlier diagram jobs.
+      for (const [content, value] of contentUpdates) setMessageContent(content, value);
       if (focusToRestore && document.activeElement !== focusToRestore && messagesElement.contains(focusToRestore)) focusToRestore.focus({ preventScroll: true });
       for (const [assetId, targets] of imageTargets) {
         const kept = targets.filter(target => target.composer || messagesElement.contains(target.button));

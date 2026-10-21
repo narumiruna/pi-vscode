@@ -2703,6 +2703,40 @@ test("streamed state patches stable conversation, tool, and attachment nodes in 
   assert.equal(output.scrollTop, 400, "tool output follows updates when already at the bottom");
 });
 
+test("message reconciliation connects all articles before rendering their rich content", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.run(`
+    globalThis.renderedContents = [];
+    window.piRichContent = {
+      setContent(content, html) {
+        if (!messagesElement.contains(content)) throw new Error('Rich content target is detached');
+        content.innerHTML = html;
+        renderedContents.push(content);
+      }
+    };
+  `);
+  const messages = [
+    { id: "diagram-1", role: "assistant", html: '<pre class="mermaid-source"><code>flowchart TD; A-->B</code></pre>' },
+    { id: "prose", role: "assistant", html: "<p>Following message</p>" },
+    { id: "diagram-2", role: "assistant", html: '<pre class="mermaid-source"><code>flowchart LR; X-->Y</code></pre>' },
+  ];
+  const state = (items: typeof messages) =>
+    sidebar.receive({ type: "state", runtime: { connected: true }, messages: items });
+  state(messages);
+  const first = sidebar.element("messages").children[0]!;
+  assert.equal(sidebar.run("renderedContents.length"), 3);
+  state(messages);
+  assert.equal(sidebar.run("renderedContents.length"), 3, "unchanged history must not render again");
+  state([
+    messages[0]!,
+    { ...messages[1]!, html: "<p>Updated following message</p>" },
+    messages[2]!,
+    { id: "new", role: "assistant", html: "<p>Appended message</p>" },
+  ]);
+  assert.equal(sidebar.element("messages").children[0], first);
+  assert.equal(sidebar.run("renderedContents.length"), 5, "changed and new content must render after attachment");
+});
+
 test("message reconciliation preserves retained articles and the reading anchor when history is trimmed", () => {
   const sidebar = createSidebarScriptHarness();
   sidebar.receive({ type: "showSessionDetail" });
