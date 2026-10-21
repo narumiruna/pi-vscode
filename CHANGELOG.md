@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.0
+
+### Minor Changes
+
+- c857c44: Remove pi-vscode's built-in tool and shell permission confirmations, including the `pi.agent.confirmToolCalls` setting, `PI_VSCODE_PERMISSION_MODE`, the packaged `pi-permission-gate`, and the shell approval handshake. Pi and installed extensions now own permissions. Without a permission policy, tools and commands can run with no confirmation. Sidebar and controlled-terminal `!` / `!!` execution no longer requires extra pi-vscode approval.
+  
+  Existing Pi-requested dialogs remain unchanged. Workspace trust, project-resource approvals, read-only proposal enforcement, Preview/Apply, stale-content checks, and other workflow confirmations remain in place. Direct-shell Pi 1.3.0 compatibility uses read-only sentinel version metadata without an execution probe. Earlier validation records remain historical evidence.
+
+### Patch Changes
+
+- c2c20ae: Simplify the Marketplace overview with direct installation steps, feature-specific Pi compatibility requirements, clear edit-permission boundaries, and offline sidebar screenshots. Move detailed usage and development guidance into linked documents.
+- 6e4b4c0: Collapse each completed tool call while Pi continues working, while preserving manual disclosure choices.
+
 ## 0.7.1
 
 ### Patch Changes
