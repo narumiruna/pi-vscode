@@ -62,6 +62,7 @@ async function fixture(
     document: ReturnType<typeof documentFor>;
     editor: ReturnType<typeof editorFor>;
     controller: InstanceType<typeof EditorAnnotations>;
+    settings: Map<string, unknown>;
     origin: { cwd: string; root: string; assertCurrent: () => void };
     annotate: (annotations?: unknown, extra?: Record<string, unknown>) => Promise<{ count: number; visible: boolean }>;
   }) => Promise<void>,
@@ -83,6 +84,7 @@ async function fixture(
   vscode.window.activeTextEditor = editor;
   vscode.window.tabGroups.all = [{ tabs: [{ input: new vscode.TabInputText(document.uri) }] }];
   vscode.window.decorationTypes = [];
+  vscode.comments.controllers = [];
   const forbidden = () => {
     throw new Error("No file/editor actions are permitted.");
   };
@@ -91,6 +93,12 @@ async function fixture(
   vscode.workspace.fs = { readFile: forbidden, writeFile: forbidden };
   vscode.window.showTextDocument = forbidden;
   vscode.commands.executeCommand = forbidden;
+  const settings = new Map<string, unknown>();
+  const getConfiguration = vscode.workspace.getConfiguration;
+  vscode.workspace.getConfiguration = (section: string) => {
+    assert.equal(section, "pi", "Annotation display must not change shared Comments settings.");
+    return { get: (key: string) => settings.get(key) };
+  };
   const controller = new EditorAnnotations();
   const origin = { cwd: root, root: canonical, assertCurrent() {} };
   try {
@@ -102,12 +110,14 @@ async function fixture(
       document,
       editor,
       controller,
+      settings,
       origin,
       annotate: (annotations = [mark()], extra = {}) =>
         controller.annotate({ path: file, annotations, ...extra }, origin),
     });
   } finally {
     controller.dispose();
+    vscode.workspace.getConfiguration = getConfiguration;
     vscode.window.tabGroups.all = [];
     await rm(directory, { recursive: true, force: true });
   }
@@ -166,7 +176,8 @@ test.each([false, true])("annotations use dirty whole lines and every visible ed
     assert.equal(vscode.window.activeTextEditor, editor);
     assert.equal(await readFile(file, "utf8"), original);
     const retained = [...(controller as any).entries.values()];
-    assert.deepEqual(Object.keys(retained[0]).sort(), ["options", "version"]);
+    assert.deepEqual(Object.keys(retained[0]).sort(), ["options", "threads", "version"]);
+    assert.equal(retained[0].threads[0], vscode.comments.controllers[0].threads[0]);
     assert.doesNotMatch(JSON.stringify(retained), /expectedText|first|second/);
     const style = vscode.window.decorationTypes[0].options;
     assert.equal(style.rangeBehavior, vscode.DecorationRangeBehavior.ClosedClosed);
@@ -230,6 +241,357 @@ test("inactive documents render when visible without opening or activating them"
     assert.equal(lastOptions(second), lastOptions(editor));
   }));
 
+test("native controller is lazy, uses a fixed Pi id, and is disposed only with its owner", async () =>
+  fixture(async ({ annotate, controller }) => {
+    controller.clear();
+    await annotate([]);
+    await assert.rejects(annotate([mark({ expectedText: "stale" })]));
+    assert.equal(vscode.comments.controllers.length, 0);
+    await annotate();
+    const native = vscode.comments.controllers[0];
+    assert.equal(native.id, "pi.annotations");
+    assert.equal(native.label, "Pi annotations");
+    assert.equal(native.commentingRangeProvider, undefined);
+    assert.equal(native.reactionHandler, undefined);
+    const first = native.threads[0];
+    await annotate([]);
+    assert.equal(first.disposeCalls, 1);
+    assert.equal(native.disposed, false);
+    await annotate();
+    const second = native.threads[1];
+    controller.clear();
+    controller.clear();
+    assert.equal(second.disposeCalls, 1);
+    assert.equal(native.disposed, false);
+    await annotate();
+    controller.dispose();
+    controller.dispose();
+    assert.equal(vscode.comments.controllers.length, 1);
+    assert.equal(native.disposeCalls, 1);
+    assert.ok(native.threads.every((thread: any) => thread.disposeCalls === 1));
+  }));
+
+test("native threads group by validated end line and keep messages in input order", async () =>
+  fixture(async ({ annotate, document, controller }) => {
+    const result = await annotate([
+      mark({ startLine: 4, endLine: 4, expectedText: "last", message: "EOF" }),
+      mark({ message: "First passage" }),
+      mark({ startLine: 2, expectedText: "second", message: "Same end line" }),
+      mark({ startLine: 3, endLine: 3, expectedText: "", message: "Blank line" }),
+    ]);
+    assert.deepEqual(result, { count: 4, visible: true }, "Count inputs, not groups.");
+    const threads = vscode.comments.controllers[0].threads;
+    assert.equal(threads.length, 3);
+    assert.deepEqual(
+      threads.map((thread: any) => [thread.range.start, thread.range.end]),
+      [
+        [
+          { line: 3, character: 4 },
+          { line: 3, character: 4 },
+        ],
+        [
+          { line: 1, character: 6 },
+          { line: 1, character: 6 },
+        ],
+        [
+          { line: 2, character: 0 },
+          { line: 2, character: 0 },
+        ],
+      ],
+    );
+    assert.deepEqual(
+      threads[1].comments.map((comment: any) => comment.body.appendedText),
+      [["First passage"], ["Same end line"]],
+    );
+    for (const thread of threads) {
+      assert.equal(thread.uri, document.uri);
+      assert.equal(thread.label, "Pi annotation");
+      assert.equal(thread.canReply, false);
+      assert.equal(thread.collapsibleState, vscode.CommentThreadCollapsibleState.Collapsed);
+      for (const comment of thread.comments) {
+        assert.equal(comment.mode, vscode.CommentMode.Preview);
+        assert.deepEqual(comment.author, { name: "Pi" });
+        assert.equal(comment.command, undefined);
+        assert.equal(comment.contextValue, undefined);
+      }
+    }
+    assert.deepEqual((controller as any).entries.get(document).threads, threads);
+  }));
+
+test.each([undefined, "collapsed", "expanded", "invalid", false])(
+  "native thread initial state follows the setting with a safe API default: %j",
+  async (value) =>
+    fixture(async ({ annotate, settings }) => {
+      settings.set("annotations.initialState", value);
+      await annotate();
+      const thread = vscode.comments.controllers[0].threads[0];
+      assert.equal(
+        thread.collapsibleState,
+        value === "expanded"
+          ? vscode.CommentThreadCollapsibleState.Expanded
+          : vscode.CommentThreadCollapsibleState.Collapsed,
+      );
+    }),
+);
+
+test("default annotations do not assign the API collapsible state", async () =>
+  fixture(async ({ annotate }) => {
+    await annotate();
+    const native = vscode.comments.controllers[0];
+    const create = native.createCommentThread;
+    native.createCommentThread = function (...args: any[]) {
+      const thread = create.apply(this, args);
+      Object.defineProperty(thread, "collapsibleState", {
+        get: () => vscode.CommentThreadCollapsibleState.Collapsed,
+        set: () => {
+          throw new Error("The API default must not be overwritten.");
+        },
+      });
+      return thread;
+    };
+    try {
+      await annotate();
+    } finally {
+      native.createCommentThread = create;
+    }
+  }));
+
+test("display changes affect new replacements without resetting retained user state", async () =>
+  fixture(async ({ annotate, settings, document, editor }) => {
+    await annotate();
+    const native = vscode.comments.controllers[0];
+    const first = native.threads[0];
+    first.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
+    settings.set("annotations.initialState", "expanded");
+    vscode.configurationEvents.emit("change", { affectsConfiguration: () => true });
+    vscode.window.visibleTextEditors = [];
+    vscode.workspaceEvents.emit("visibleEditors", []);
+    vscode.window.visibleTextEditors = [editor];
+    vscode.workspaceEvents.emit("visibleEditors", [editor]);
+    assert.equal(native.threads.length, 1);
+    assert.equal(first.collapsibleState, vscode.CommentThreadCollapsibleState.Expanded);
+    await annotate();
+    const second = native.threads[1];
+    assert.equal(second.collapsibleState, vscode.CommentThreadCollapsibleState.Expanded);
+    assert.equal(first.disposeCalls, 1);
+    second.collapsibleState = vscode.CommentThreadCollapsibleState.Collapsed;
+    vscode.workspaceEvents.emit("visibleEditors", [editor]);
+    assert.equal(second.collapsibleState, vscode.CommentThreadCollapsibleState.Collapsed);
+    settings.delete("annotations.initialState");
+    vscode.configurationEvents.emit("change", { affectsConfiguration: () => true });
+    assert.equal(second.disposed, false);
+    assert.equal(native.threads.length, 2);
+    await annotate();
+    const third = native.threads[2];
+    assert.equal(third.collapsibleState, vscode.CommentThreadCollapsibleState.Collapsed);
+    assert.equal(third.uri, document.uri);
+    assert.equal(second.disposeCalls, 1);
+  }));
+
+test.each(["", "last", "last\n"])("native EOF anchors stay inside complete lines: %j", async (text) =>
+  fixture(async ({ annotate, document }) => {
+    const lines = text.split("\n");
+    document.lineCount = lines.length;
+    document.lineAt = (line: number) => {
+      assert.ok(line >= 0 && line < lines.length, "Do not request a synthetic line after EOF.");
+      return { text: lines[line]! };
+    };
+    await annotate([mark({ startLine: 1, endLine: lines.length, expectedText: text })]);
+    const range = vscode.comments.controllers[0].threads[0].range;
+    const anchor = { line: lines.length - 1, character: lines.at(-1)!.length };
+    assert.deepEqual(range.start, anchor);
+    assert.deepEqual(range.end, anchor);
+  }),
+);
+
+test("native bodies use the same literal Markdown escaping as hovers", async () =>
+  fixture(async ({ annotate, editor }) => {
+    const message =
+      "[execute](command:evil) <img src=x> **bold** $(zap) https://example.invalid www.example.invalid a@example.invalid\n&copy; &#64; &amp;";
+    await annotate([mark({ message })]);
+    const body = vscode.comments.controllers[0].threads[0].comments[0].body;
+    const hover = lastOptions(editor)![0].hoverMessage;
+    assert.equal(body.isTrusted, false);
+    assert.equal(body.supportHtml, false);
+    assert.deepEqual(body.appendedText, [message.replace(/&/g, "&amp;")]);
+    assert.equal(hover.value, `Pi annotation\n\n${body.value}`);
+    const { marked } = await import("marked");
+    const html = marked.parse(body.value) as string;
+    assert.doesNotMatch(html, /<(a|img|strong)\b/i);
+    assert.ok(html.includes("https://example.invalid"));
+    assert.ok(html.includes("www.example.invalid"));
+    assert.ok(html.includes("a@example.invalid"));
+    assert.ok(html.includes("&amp;copy; &amp;#64; &amp;amp;"));
+  }));
+
+test("redraw retains native handles and the user's collapsed state across hidden and split editors", async () =>
+  fixture(async ({ annotate, document, editor, file, controller }) => {
+    await annotate();
+    const native = vscode.comments.controllers[0];
+    const threads = (controller as any).entries.get(document).threads;
+    threads[0].collapsibleState = vscode.CommentThreadCollapsibleState.Collapsed;
+    vscode.window.visibleTextEditors = [];
+    vscode.workspaceEvents.emit("visibleEditors", []);
+    const second = editorFor(document);
+    vscode.window.visibleTextEditors = [editor, second];
+    vscode.workspaceEvents.emit("visibleEditors", [editor, second]);
+    editor.document = documentFor(path.join(path.dirname(file), "reused.ts"));
+    vscode.workspaceEvents.emit("visibleEditors", [editor, second]);
+    assert.deepEqual(lastOptions(editor), []);
+    assert.equal(lastOptions(second)?.length, 1);
+    assert.equal(native.threads.length, 1);
+    assert.equal((controller as any).entries.get(document).threads, threads);
+    assert.equal(threads[0].disposed, false);
+    assert.equal(threads[0].collapsibleState, vscode.CommentThreadCollapsibleState.Collapsed);
+  }));
+
+test("accepted handles stay retained until all replacement threads are prepared", async () =>
+  fixture(async ({ annotate, document, editor, controller }) => {
+    await annotate();
+    const native = vscode.comments.controllers[0];
+    const previous = (controller as any).entries.get(document);
+    const create = native.createCommentThread;
+    const options = lastOptions(editor);
+    native.createCommentThread = function (...args: any[]) {
+      assert.equal((controller as any).entries.get(document), previous);
+      assert.equal(previous.threads[0].disposed, false);
+      assert.equal(lastOptions(editor), options);
+      return create.apply(this, args);
+    };
+    try {
+      await annotate([mark({ message: "New" }), mark({ startLine: 4, endLine: 4, expectedText: "last" })]);
+    } finally {
+      native.createCommentThread = create;
+    }
+    assert.equal(previous.threads[0].disposeCalls, 1);
+    assert.equal((controller as any).entries.get(document).threads.length, 2);
+    assert.ok(native.threads.slice(1).every((thread: any) => !thread.disposed));
+  }));
+
+test.each(["create-first", "create-second", "label", "canReply", "collapsibleState"])(
+  "failed native replacement releases partial handles and keeps accepted state: %s",
+  async (failure) =>
+    fixture(async ({ annotate, document, editor, controller, settings }) => {
+      settings.set("annotations.initialState", "expanded");
+      await annotate();
+      const native = vscode.comments.controllers[0];
+      const previous = (controller as any).entries.get(document);
+      const options = lastOptions(editor);
+      const revision = (controller as any).revisions.get(document);
+      const create = native.createCommentThread;
+      let calls = 0;
+      native.createCommentThread = function (...args: any[]) {
+        calls++;
+        if ((failure === "create-first" && calls === 1) || (failure === "create-second" && calls === 2))
+          throw new Error("Native creation failed.");
+        const thread = create.apply(this, args);
+        if (!failure.startsWith("create-") && calls === 2)
+          Object.defineProperty(thread, failure, {
+            set() {
+              throw new Error("Native property failed.");
+            },
+          });
+        return thread;
+      };
+      try {
+        await assert.rejects(annotate([mark(), mark({ startLine: 4, endLine: 4, expectedText: "last" })]), /Native/);
+      } finally {
+        native.createCommentThread = create;
+      }
+      assert.equal((controller as any).entries.get(document), previous);
+      assert.equal((controller as any).revisions.get(document), revision);
+      assert.equal(lastOptions(editor), options);
+      assert.equal(previous.threads[0].disposed, false);
+      assert.ok(native.threads.slice(1).every((thread: any) => thread.disposeCalls === 1));
+      await annotate();
+      assert.equal(previous.threads[0].disposeCalls, 1);
+      assert.equal(native.threads.at(-1).disposed, false);
+    }),
+);
+
+test("native controller creation failure can be retried without retained state", async () =>
+  fixture(async ({ annotate, controller, editor }) => {
+    const create = vscode.comments.createCommentController;
+    vscode.comments.createCommentController = () => {
+      throw new Error("Controller unavailable.");
+    };
+    try {
+      await assert.rejects(annotate(), /Controller unavailable/);
+    } finally {
+      vscode.comments.createCommentController = create;
+    }
+    assert.equal((controller as any).entries.size, 0);
+    assert.equal(editor.calls.length, 0);
+    await annotate();
+    assert.equal(vscode.comments.controllers.length, 1);
+  }));
+
+test.each(["origin", "trust", "content", "version", "clear", "edit", "close", "tabs", "dispose"])(
+  "final checks reject invalidation during native preparation and release new handles: %s",
+  async (kind) =>
+    fixture(async ({ annotate, controller, document, origin, editor }) => {
+      await annotate();
+      const native = vscode.comments.controllers[0];
+      const previous = (controller as any).entries.get(document);
+      const options = lastOptions(editor);
+      const create = native.createCommentThread;
+      native.createCommentThread = function (...args: any[]) {
+        const thread = create.apply(this, args);
+        if (kind === "origin")
+          origin.assertCurrent = () => {
+            throw new Error("Expired origin.");
+          };
+        if (kind === "trust") vscode.workspace.isTrusted = false;
+        if (kind === "content") document.lineAt = () => ({ text: "changed" });
+        if (kind === "version") document.version++;
+        if (kind === "clear") controller.clear();
+        if (kind === "edit") vscode.workspaceEvents.emit("changeDocument", { document, contentChanges: [{}] });
+        if (kind === "close") {
+          document.isClosed = true;
+          vscode.workspaceEvents.emit("closeDocument", document);
+        }
+        if (kind === "tabs") vscode.window.tabGroups.all = [];
+        if (kind === "dispose") controller.dispose();
+        return thread;
+      };
+      try {
+        await assert.rejects(annotate());
+      } finally {
+        native.createCommentThread = create;
+      }
+      const invalidated = ["clear", "edit", "close", "dispose"].includes(kind);
+      assert.equal((controller as any).entries.get(document), invalidated ? undefined : previous);
+      assert.equal(previous.threads[0].disposed, invalidated);
+      assert.equal(native.threads[1].disposed, true);
+      if (!invalidated) assert.equal(lastOptions(editor), options);
+    }),
+);
+
+test("native preparation, final checks and commit have no asynchronous gap", async () =>
+  fixture(async ({ annotate, controller, document, origin }) => {
+    await annotate();
+    const native = vscode.comments.controllers[0];
+    const previous = (controller as any).entries.get(document);
+    const create = native.createCommentThread;
+    let committed = false;
+    native.createCommentThread = function (...args: any[]) {
+      const thread = create.apply(this, args);
+      queueMicrotask(() => {
+        committed = (controller as any).entries.get(document) !== previous && previous.threads[0].disposed;
+        origin.assertCurrent = () => {
+          throw new Error("Expired after synchronous commit.");
+        };
+      });
+      return thread;
+    };
+    try {
+      assert.equal((await annotate()).count, 1);
+      assert.equal(committed, true);
+    } finally {
+      native.createCommentThread = create;
+    }
+  }));
+
 const invalidAnnotations = [
   null,
   {},
@@ -267,9 +629,12 @@ test.each(invalidAnnotations.map((value, index) => [index, value] as const))(
       await annotate();
       const options = lastOptions(editor);
       const calls = editor.calls.length;
+      const thread = vscode.comments.controllers[0].threads[0];
       await assert.rejects(annotate(annotations));
       assert.equal(editor.calls.length, calls);
       assert.equal(lastOptions(editor), options);
+      assert.equal(thread.disposed, false);
+      assert.equal(vscode.comments.controllers[0].threads.length, 1);
     }),
 );
 
@@ -280,6 +645,7 @@ test.each([{ path: "source.ts" }, { path: "/bad\0path" }, { path: 5 }, { path: "
       await assert.rejects(annotate([mark()], extra));
       assert.equal(editor.calls.length, 0);
       assert.equal(vscode.window.decorationTypes.length, 0);
+      assert.equal(vscode.comments.controllers.length, 0);
     }),
 );
 
@@ -382,6 +748,8 @@ test.each(["edit", "close", "clear", "dispose", "version-on-redraw"])(
   async (kind) =>
     fixture(async ({ annotate, document, editor, controller }) => {
       await annotate();
+      const native = vscode.comments.controllers[0];
+      const thread = native.threads[0];
       if (kind === "edit") vscode.workspaceEvents.emit("changeDocument", { document, contentChanges: [{}] });
       if (kind === "close") vscode.workspaceEvents.emit("closeDocument", document);
       if (kind === "clear") controller.clear();
@@ -391,6 +759,8 @@ test.each(["edit", "close", "clear", "dispose", "version-on-redraw"])(
         vscode.workspaceEvents.emit("visibleEditors", [editor]);
       }
       assert.deepEqual(lastOptions(editor), []);
+      assert.equal(thread.disposeCalls, 1);
+      assert.equal(native.disposed, kind === "dispose");
       const newcomer = editorFor(document);
       vscode.window.visibleTextEditors = [newcomer];
       vscode.workspaceEvents.emit("visibleEditors", [newcomer]);
@@ -402,6 +772,7 @@ test.each(["edit", "close", "clear", "dispose", "version-on-redraw"])(
 test.each(["edit", "close"])("inactive document %s cleanup cannot restore annotations on visibility", async (kind) =>
   fixture(async ({ annotate, document, editor }) => {
     await annotate();
+    const thread = vscode.comments.controllers[0].threads[0];
     vscode.window.visibleTextEditors = [];
     if (kind === "edit") vscode.workspaceEvents.emit("changeDocument", { document, contentChanges: [{}] });
     else vscode.workspaceEvents.emit("closeDocument", document);
@@ -410,6 +781,7 @@ test.each(["edit", "close"])("inactive document %s cleanup cannot restore annota
     vscode.workspaceEvents.emit("visibleEditors", [newcomer]);
     assert.deepEqual(lastOptions(newcomer), []);
     assert.equal(editor.calls.length, 1);
+    assert.equal(thread.disposeCalls, 1);
   }),
 );
 
@@ -428,9 +800,15 @@ test("manual clear removes cached decorations when the same hidden editor become
 test("save-only dirty-state events preserve annotations and pending replacements", async () =>
   fixture(async ({ annotate, document, editor }) => {
     await annotate();
+    const native = vscode.comments.controllers[0];
+    const thread = native.threads[0];
+    thread.collapsibleState = vscode.CommentThreadCollapsibleState.Collapsed;
     document.isDirty = false;
     vscode.workspaceEvents.emit("changeDocument", { document, contentChanges: [] });
     assert.equal(lastOptions(editor)?.length, 1);
+    assert.equal(thread.disposed, false);
+    assert.equal(thread.collapsibleState, vscode.CommentThreadCollapsibleState.Collapsed);
+    assert.equal(native.threads.length, 1);
     const pause = pauseFilesystem("realpath");
     const pending = annotate([mark({ message: "Kept after save" })]);
     try {
@@ -438,6 +816,8 @@ test("save-only dirty-state events preserve annotations and pending replacements
       vscode.workspaceEvents.emit("changeDocument", { document, contentChanges: [] });
       pause.release();
       assert.deepEqual(await pending, { count: 1, visible: true });
+      assert.equal(thread.disposeCalls, 1);
+      assert.equal(native.threads[1].disposed, false);
     } finally {
       pause.release();
       pause.restore();
@@ -509,6 +889,7 @@ test("dispose removes listeners and clear requires neither Pi nor decoration cre
   fixture(async ({ controller, annotate }) => {
     controller.clear();
     assert.equal(vscode.window.decorationTypes.length, 0);
+    assert.equal(vscode.comments.controllers.length, 0);
     assert.ok(vscode.workspaceEvents.listenerCount("changeDocument") > 0);
     controller.dispose();
     controller.dispose();
@@ -545,9 +926,12 @@ test.each(["clear", "edit", "close", "dispose", "version", "removed", "trust", "
         if (kind === "cwd") origin.cwd = `${root}/changed`;
         if (kind === "root") origin.root = directory;
         const calls = editor.calls.length;
+        const native = vscode.comments.controllers[0];
+        const handles = [...native.threads];
         pause.release();
         await assert.rejects(pending);
         assert.equal(editor.calls.length, calls, "Late validation cannot draw again.");
+        assert.deepEqual(native.threads, handles, "Late validation cannot create native threads.");
       } finally {
         pause.release();
         pause.restore();
@@ -563,9 +947,13 @@ test.each([false, true])("concurrent stale replacement cannot overwrite newer an
       await pause.reached;
       await annotate([mark({ message: "New" })]);
       const options = lastOptions(editor);
+      const native = vscode.comments.controllers[0];
+      const thread = native.threads[0];
       pause.release();
       await assert.rejects(older, /changed/);
       assert.equal(lastOptions(editor), options);
+      assert.equal(native.threads.length, 1);
+      assert.equal(thread.disposed, false);
       assert.equal(options![0].hoverMessage.appendedText[1], "New");
     } finally {
       pause.release();
@@ -647,6 +1035,7 @@ test.each(["alias", "leaf-link", "leaf-hardlink", "leaf-replaced", "version", "o
         pause.release();
         await assert.rejects(pending);
         assert.equal(editor.calls.length, 0);
+        assert.equal(vscode.comments.controllers.length, 0);
       } finally {
         pause.release();
         pause.restore();
@@ -671,11 +1060,22 @@ test("100 retained annotations are capped atomically without eviction", async ()
     const extra = documentFor(extraFile);
     vscode.workspace.textDocuments.push(extra);
     vscode.window.tabGroups.all[0].tabs.push({ input: new vscode.TabInputText(extra.uri) });
+    const native = vscode.comments.controllers[0];
+    const retained = [...native.threads];
+    assert.equal(retained.length, 5, "Twenty messages sharing each anchor use one thread per document.");
+    assert.ok(retained.every((thread: any) => thread.comments.length === 20));
     await assert.rejects(controller.annotate({ path: extraFile, annotations: [mark()] }, origin), /retention/);
+    assert.deepEqual(native.threads, retained, "Retention rejection creates no handles and evicts none.");
+    assert.ok(retained.every((thread: any) => !thread.disposed));
     assert.equal(lastOptions(editor)?.length, 20);
     await annotate(twenty);
+    assert.equal(retained[0].disposeCalls, 1);
+    assert.ok(retained.slice(1).every((thread: any) => !thread.disposed));
+    const replacement = native.threads.at(-1);
     await annotate([mark()]);
+    assert.equal(replacement.disposeCalls, 1);
     await controller.annotate({ path: extraFile, annotations: [mark()] }, origin);
+    assert.equal(native.threads.filter((thread: any) => !thread.disposed).length, 6);
   }));
 
 test("20 retained documents are capped and clearing a document frees its slot", async () =>
@@ -696,6 +1096,9 @@ test("20 retained documents are capped and clearing a document frees its slot", 
       }
     }
     assert.equal((controller as any).entries.size, 20);
+    const threads = vscode.comments.controllers[0].threads.filter((thread: any) => !thread.disposed);
+    assert.equal(threads.length, 20);
     controller.clear();
     assert.equal((controller as any).entries.size, 0);
+    assert.ok(threads.every((thread: any) => thread.disposeCalls === 1));
   }));

@@ -26,7 +26,7 @@ import thinkingFixture from "./fixtures/thinking.cjs";
 import { assertThinkingDisclosure } from "./thinking-fixture.mjs";
 import { assertNativeDirectShell } from "./direct-shell-fixture.mjs";
 import { assertAuthTransferDialogs, seedTransferSession } from "./auth-transfer-native-fixture.mjs";
-import { assertNativeAnnotations } from "./annotation-native-fixture.mjs";
+import { assertNativeAnnotationPrototype, assertNativeAnnotations } from "./annotation-native-fixture.mjs";
 
 // Actual Quick Picks, modals, Problems, code actions and webview clicks; only Pi is simulated.
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -34,8 +34,9 @@ const version = process.argv[2] ?? "1.140.0";
 const workspaceAlias = process.argv[3] === "alias";
 const packaged = process.argv.includes("packaged");
 const selectionOnly = process.argv.includes("selection");
-const annotationsOnly = process.argv.includes("annotations");
-const evidenceLabel = `${version}${workspaceAlias ? "-alias" : ""}${packaged ? "-packaged" : ""}${selectionOnly ? "-selection" : ""}${annotationsOnly ? "-annotations" : ""}`;
+const annotationPrototypeOnly = process.argv.includes("annotation-prototype");
+const annotationsOnly = process.argv.includes("annotations") || annotationPrototypeOnly;
+const evidenceLabel = `${version}${workspaceAlias ? "-alias" : ""}${packaged ? "-packaged" : ""}${selectionOnly ? "-selection" : ""}${annotationsOnly ? "-annotations" : ""}${annotationPrototypeOnly ? "-prototype" : ""}`;
 if (process.platform !== "linux") throw new Error("The native UI runner currently supports Linux only.");
 const directory = await realpath(await mkdtemp(path.join(tmpdir(), "pi-native-ui-")));
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -148,6 +149,7 @@ try {
   const helper = path.join(directory, "coordinator");
   await mkdir(helper);
   await copyFile(path.join(repository, "out", "test", "nativeUiWorkflow.js"), path.join(helper, "workflow.js"));
+  await copyFile(path.join(repository, "out", "test", "annotationThreadPrototype.js"), path.join(helper, "annotationThreadPrototype.js"));
   await writeFile(
     path.join(helper, "package.json"),
     JSON.stringify({
@@ -277,7 +279,9 @@ try {
       "Quick Pick accepted or advanced",
     );
   };
-  if (annotationsOnly) {
+  if (annotationPrototypeOnly) {
+    await assertNativeAnnotationPrototype({ page, workspace, invoke, until, version: ready.version, evidenceLabel });
+  } else if (annotationsOnly) {
     await assertNativeAnnotations({ page, directory, workspace, invoke, until, frame, pick });
   } else if (selectionOnly) {
     // No pi.openChat, view focus, or webview message may prepare this first-open command.

@@ -49,6 +49,45 @@ export function installVscodeMock(): any {
     ViewColumn: { Active: -1 },
     StatusBarAlignment: { Left: 1, Right: 2 },
     DecorationRangeBehavior: { ClosedClosed: 1 },
+    CommentMode: { Editing: 0, Preview: 1 },
+    CommentThreadCollapsibleState: { Collapsed: 0, Expanded: 1 },
+    comments: {
+      controllers: [],
+      createCommentController: (id: string, label: string) => {
+        const controller = {
+          id,
+          label,
+          threads: [] as any[],
+          disposed: false,
+          disposeCalls: 0,
+          createCommentThread(uri: MockUri, range: unknown, comments: unknown[]) {
+            const thread = {
+              uri,
+              range,
+              comments,
+              label: undefined as string | undefined,
+              canReply: true,
+              collapsibleState: 0,
+              disposed: false,
+              disposeCalls: 0,
+              dispose() {
+                this.disposed = true;
+                this.disposeCalls++;
+              },
+            };
+            this.threads.push(thread);
+            return thread;
+          },
+          dispose() {
+            this.disposed = true;
+            this.disposeCalls++;
+            for (const thread of this.threads) if (!thread.disposed) thread.dispose();
+          },
+        };
+        mock.comments.controllers.push(controller);
+        return controller;
+      },
+    },
     ThemeColor: class {
       constructor(public id: string) {}
     },

@@ -13,6 +13,7 @@ interface Annotation {
 interface RetainedAnnotations {
   readonly version: number;
   readonly options: vscode.DecorationOptions[];
+  readonly threads: vscode.CommentThread[];
 }
 
 /** Temporary, buffer-only annotations. The runtime supplies the foreground authorization check. */
@@ -21,6 +22,7 @@ export class EditorAnnotations implements vscode.Disposable {
   private readonly revisions = new WeakMap<vscode.TextDocument, number>();
   private readonly subscriptions: vscode.Disposable[];
   private decoration: vscode.TextEditorDecorationType | undefined;
+  private commentController: vscode.CommentController | undefined;
   private generation = 0;
   private disposed = false;
 
@@ -135,23 +137,32 @@ export class EditorAnnotations implements vscode.Disposable {
         throw new Error("Annotation document changed during validation.");
     };
     checkDocument();
+    const checkContent = () => {
+      for (const annotation of annotations) {
+        if (annotation.endLine > document.lineCount) throw new Error("Annotation range is outside the document.");
+        const expectedLines = annotation.expectedText.replace(/\r\n/g, "\n").split("\n");
+        if (
+          expectedLines.length !== annotation.endLine - annotation.startLine + 1 ||
+          expectedLines.some((text, index) => document.lineAt(annotation.startLine - 1 + index).text !== text)
+        )
+          throw new Error("Annotation expected text does not match the current complete lines.");
+      }
+    };
+    checkContent();
+    const groups = new Map<number, { range: vscode.Range; comments: vscode.Comment[] }>();
     const options = annotations.map((annotation): vscode.DecorationOptions => {
-      if (annotation.endLine > document.lineCount) throw new Error("Annotation range is outside the document.");
-      const expectedLines = annotation.expectedText.replace(/\r\n/g, "\n").split("\n");
-      if (
-        expectedLines.length !== annotation.endLine - annotation.startLine + 1 ||
-        expectedLines.some((text, index) => document.lineAt(annotation.startLine - 1 + index).text !== text)
-      )
-        throw new Error("Annotation expected text does not match the current complete lines.");
-      const hover = new vscode.MarkdownString();
-      hover.isTrusted = false;
-      hover.supportHtml = false;
-      hover.appendText("Pi annotation\n\n");
-      // appendText escapes Markdown syntax but leaves HTML character references intact.
-      hover.appendText(annotation.message.replace(/&/g, "&amp;"));
-      // VS Code's Markdown renderer also linkifies bare URLs and email addresses in escaped text.
-      // Escape their punctuation before parsing; Markdown renders the same literal characters.
-      hover.value = hover.value.replace(/[:@.]/g, (character) => `&#${character.charCodeAt(0)};`);
+      const line = annotation.endLine - 1;
+      const end = document.lineAt(line).text.length;
+      let group = groups.get(line);
+      if (!group) {
+        group = { range: new vscode.Range(line, end, line, end), comments: [] };
+        groups.set(line, group);
+      }
+      group.comments.push({
+        body: literalMarkdown(annotation.message),
+        mode: vscode.CommentMode.Preview,
+        author: { name: "Pi" },
+      });
       return {
         range: new vscode.Range(
           annotation.startLine - 1,
@@ -159,7 +170,7 @@ export class EditorAnnotations implements vscode.Disposable {
           annotation.endLine - 1,
           document.lineAt(annotation.endLine - 1).text.length,
         ),
-        hoverMessage: hover,
+        hoverMessage: literalMarkdown("Pi annotation\n\n", annotation.message),
       };
     });
     await checked(() => assertSafeFile(root, relative));
@@ -177,6 +188,7 @@ export class EditorAnnotations implements vscode.Disposable {
     const bindings = await checked(() => Promise.all([realpath(folder.uri.fsPath), realpath(cwd)]));
     if (bindings.some((binding) => binding !== root)) throw new Error("Annotation workspace root binding changed.");
     checkDocument();
+    checkContent();
     const previous = this.entries.get(document);
     const total = [...this.entries.values()].reduce((count, entry) => count + entry.options.length, 0);
     if (
@@ -184,20 +196,40 @@ export class EditorAnnotations implements vscode.Disposable {
       (options.length > 0 && !previous && this.entries.size >= 20)
     )
       throw new Error("Annotation retention limit exceeded.");
-    if (options.length > 0) {
-      this.decoration ??= vscode.window.createTextEditorDecorationType({
-        isWholeLine: true,
-        backgroundColor: new vscode.ThemeColor("editor.findMatchHighlightBackground"),
-        borderColor: new vscode.ThemeColor("editor.findMatchHighlightBorder"),
-        borderStyle: "solid",
-        borderWidth: "1px",
-        rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
-      });
-      this.entries.set(document, { version, options });
-    } else {
-      this.entries.delete(document);
+    const threads: vscode.CommentThread[] = [];
+    try {
+      if (options.length > 0) {
+        this.decoration ??= vscode.window.createTextEditorDecorationType({
+          isWholeLine: true,
+          backgroundColor: new vscode.ThemeColor("editor.findMatchHighlightBackground"),
+          borderColor: new vscode.ThemeColor("editor.findMatchHighlightBorder"),
+          borderStyle: "solid",
+          borderWidth: "1px",
+          rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+        });
+        this.commentController ??= vscode.comments.createCommentController("pi.annotations", "Pi annotations");
+        const expand = vscode.workspace.getConfiguration("pi").get("annotations.initialState") === "expanded";
+        for (const { range, comments } of groups.values()) {
+          const thread = this.commentController.createCommentThread(document.uri, range, comments);
+          // Own each handle before setting properties so setter failures also release it.
+          threads.push(thread);
+          thread.label = "Pi annotation";
+          thread.canReply = false;
+          // Otherwise leave the API default (Collapsed) unchanged.
+          if (expand) thread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
+        }
+      }
+      // Native UI preparation must not authorize stale work. No await separates these checks and commit.
+      checkDocument();
+      checkContent();
+    } catch (error) {
+      for (const thread of threads) thread.dispose();
+      throw error;
     }
+    if (options.length > 0) this.entries.set(document, { version, options, threads });
+    else this.entries.delete(document);
     this.revisions.set(document, revision + 1);
+    for (const thread of previous?.threads ?? []) thread.dispose();
     this.render(document, options);
     return {
       count: options.length,
@@ -207,6 +239,7 @@ export class EditorAnnotations implements vscode.Disposable {
 
   public clear(): void {
     this.generation++;
+    for (const entry of this.entries.values()) for (const thread of entry.threads) thread.dispose();
     this.entries.clear();
     if (this.decoration)
       for (const editor of vscode.window.visibleTextEditors) editor.setDecorations(this.decoration, []);
@@ -219,11 +252,15 @@ export class EditorAnnotations implements vscode.Disposable {
     for (const subscription of this.subscriptions) subscription.dispose();
     this.decoration?.dispose();
     this.decoration = undefined;
+    this.commentController?.dispose();
+    this.commentController = undefined;
   }
 
   private remove(document: vscode.TextDocument): void {
     this.revisions.set(document, (this.revisions.get(document) ?? 0) + 1);
+    const retained = this.entries.get(document);
     this.entries.delete(document);
+    for (const thread of retained?.threads ?? []) thread.dispose();
     this.render(document, []);
   }
 
@@ -257,6 +294,17 @@ export class EditorAnnotations implements vscode.Disposable {
     for (const editor of vscode.window.visibleTextEditors)
       editor.setDecorations(this.decoration, this.entries.get(editor.document)?.options ?? []);
   }
+}
+
+function literalMarkdown(...parts: string[]): vscode.MarkdownString {
+  const markdown = new vscode.MarkdownString();
+  markdown.isTrusted = false;
+  markdown.supportHtml = false;
+  // appendText escapes Markdown syntax but leaves HTML character references intact.
+  for (const part of parts) markdown.appendText(part.replace(/&/g, "&amp;"));
+  // Disable bare URL/email autolinks while preserving the literal displayed characters.
+  markdown.value = markdown.value.replace(/[:@.]/g, (character) => `&#${character.charCodeAt(0)};`);
+  return markdown;
 }
 
 function textTabUris(input: unknown): string[] {

@@ -91,11 +91,13 @@ Automatic inline completions are disabled by default. Enable `pi.inlineCompletio
 
 ### Temporary passage annotations
 
-The foreground sidebar agent can use `vscode_annotate` to highlight whole-line passages in already-open code or text documents and attach a labelled, plain-text hover explanation. This does not write files, open tabs, move the cursor, scroll, or change focus. Inactive open tabs show their annotations when you return to them. Cached documents with no open text or diff tab are not eligible.
+The foreground sidebar agent can use `vscode_annotate` in already-open code or text documents. Whole-line highlights and hovers remain available. Read-only native comments contain explanations below each range, grouped at its end line, with **Pi** as author and **Pi annotation** as label. They start collapsed by default. In **Pi Settings → Editor → Annotation initial state**, choose `collapsed` (default) or `expanded` for `pi.annotations.initialState`. The setting applies only to newly created or replaced annotations; it does not change existing thread handles or user state on redraw. Explanations are literal untrusted text, not verified diagnostics, and have no reply or edit actions. The native Comments panel also lists them. User collapse is preserved on redraw.
 
-Each call replaces the annotations for one file; an empty annotation list clears that file. The agent must supply the exact current lines. Stale text, invalid ranges and unsafe paths are rejected without replacing existing annotations. Use **Pi: Clear Annotations** to remove all annotations locally, even when Pi is disconnected.
+VS Code may auto-open the Comments panel and change editor layout or visible range/scroll during expansion, replacement or removal. The extension does not write files, open documents/tabs, perform explicit tab/selection/focus/reveal/scroll operations, or override VS Code comments settings. No global VS Code comments settings are written. VS Code comments visibility settings may hide widgets. Inactive open tabs show annotations when you return to them, subject to those settings. Cached documents with no open text or diff tab are not eligible.
 
-Annotations are memory-only. Editing a document or closing its last text/diff tab removes its annotations. Saving without text changes keeps them. Session or branch changes, resource reload, client replacement, disconnect, terminal handoff and window reload remove all annotations. Hiding the sidebar does not remove them. The first version requires a trusted, matching file-backed workspace and the foreground sidebar runtime; terminal and background agents cannot use it with their ordinary bridge credentials.
+Each call replaces the annotations for one file; an empty annotation list clears that file. The agent must supply the exact current lines. Stale text, invalid ranges and unsafe paths are rejected without replacing existing annotations. Use **Pi: Clear Annotations** to remove all highlights, hovers and native threads locally, even when Pi is disconnected. The tool's result fields are unchanged: `count` is the number of accepted annotations, not thread groups; `visible` means a visible editor exists for the document, not that a comment widget is visible.
+
+Annotations are memory-only. Editing a document or closing its last text/diff tab removes its annotations. Saving without text changes keeps them. Session or branch changes, resource reload, client replacement, disconnect, terminal handoff and window reload remove all annotations. Hiding the sidebar does not remove them. Annotations require a trusted, matching file-backed workspace and the foreground sidebar runtime; terminal and background agents cannot use them with their ordinary bridge credentials.
 
 Limits: 20 annotations per call, 200 lines and 10,000 expected-text characters per annotation, 1,000 explanation characters, and 100 retained annotations across 20 documents. The temporary editor UI is not persisted; ordinary Pi tool arguments and history have their normal retention.
 
@@ -252,6 +254,7 @@ Page edits allow up to 4,096 characters per string, 100 list items, and 16 KiB o
 | `pi.approveProjectResources` | `false` | Allow trusted project-local Pi settings, extensions, skills, and prompts. |
 | `pi.sensitiveContextNames` | Sensitive filename fragments | Add best-effort warnings to matching attachment labels. |
 | `pi.inlineCompletions.enabled` | `false` | Enable automatic inline completions. |
+| `pi.annotations.initialState` | `collapsed` | Initial native annotation state: `collapsed` or `expanded`. **Editor → Annotation initial state** applies only to newly created or replaced annotations, not existing threads or user state on redraw. |
 
 Additional settings control inline-completion delay, minimum prefix length, and excluded languages.
 
