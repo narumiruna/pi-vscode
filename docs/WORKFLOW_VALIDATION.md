@@ -1,68 +1,132 @@
 # Workflow Validation — 2026-09-12
 
-Scope: all eight milestones from `docs/plans/2026-09-12_workflow-features-plan.md`, implemented on `narumi/feat/workflow-features` from `origin/main` (`6a405a9`). The completed plan is removed after its evidence audit. The user explicitly delegated acceptance and deferred interactive/manual VS Code and remote checks to later real-world use; those paths are not claimed as passed.
+Scope: all eight milestones from `docs/plans/2026-09-12_workflow-features-plan.md`, implemented on `narumi/feat/workflow-features` from `origin/main` (`6a405a9`).
+The completed plan is removed after its evidence audit.
+The user explicitly delegated acceptance and deferred interactive/manual VS Code and remote checks to later real-world use; those paths are not claimed as passed.
 
 ## Automated evidence
 
-`npm test` compiles the complete extension and explicitly executes all registered Node test files without a live model. Baseline: 73 passing tests. Workflow candidate: 105 passing tests, zero failures/skips. `GIT_INDEX_FILE=.git/index npm test` also passes all 105: an initial pre-commit run correctly blocked five worktree fixtures inheriting Git hook state; both runtime worktree commands and fixture Git commands now sanitize inherited `GIT_*` variables. The hook is not bypassed.
+`npm test` compiles the complete extension and explicitly executes all registered Node test files without a live model.
+Baseline: 73 passing tests.
+Workflow candidate: 105 passing tests, zero failures/skips.
+`GIT_INDEX_FILE=.git/index npm test` also passes all 105: an initial pre-commit run correctly blocked five worktree fixtures inheriting Git hook state; both runtime worktree commands and fixture Git commands now sanitize inherited `GIT_*` variables.
+The hook is not bypassed.
 
-| Milestone | Evidence in `src/test/` |
-| --- | --- |
-| Staged review | `gitReview.test.ts`: real temporary repositories, unchanged index/worktree hashes, partial staging, unborn/empty HEAD, multiple roots, rename/deletion, Unicode/tab/newline paths, invalid UTF-8 rejection, binary/oversized/symlink/submodule exclusions, malformed findings, cancellation and stale index. `workflowControllers.test.ts`: confirmation denial, immutable finding navigation, stale capture and trust/virtual rejection. |
-| Selective edits | `editHunks.test.ts`, `editProposals.test.ts`: deterministic newline/Unicode/repeated-line/size fallback, selection revision, empty/invented IDs, serialization, failure, disposal and whole-edit compatibility. `editorWorkflow.test.ts`: actual registered action with fake host/model, selected Preview matches one workspace edit; a later manual buffer edit prevents all Apply. Native Undo remains an interactive check. |
-| Task import | `backgroundResults.test.ts`: actual detached worktrees, task commits/untracked/deleted files, unchanged unrelated edits/index, duplicate imports, dirty/stale/unsafe inputs, executable-bit exclusions, partial I/O recovery, configured Git filters/fsmonitor/external-diff helper non-execution. `backgroundManager.test.ts`: legacy/interrupted/PID/missing/invalid metadata, cancelled-task results, preview expiry, persisted import report, explicit owned-path cleanup, retained source and in-progress review eviction protection. `backgroundAgentLifecycle.test.ts`: startup acceptance, failures, active capacity and eviction. |
-| Context | `contextInspector.test.ts`, `attachmentUtils.test.ts`: exact multilingual byte counts, source/range/revision metadata, malformed timestamps, truncation, image bounds/unknown usage, host edit/redact/pin and accepted-ID consumption. Foreground/background paths both use the attachment manager's current text snapshots; failed submissions do not consume them. `sidebarHtml.test.ts`: executed composer revision guards preserve newer drafts. |
-| Test repair | `testRepair.test.ts`: command validation, redaction, log bounds, no-test matches, finite attempts and observed process statuses; missing executable, timeout, cancellation, output cap, descendant termination and escaped-pipe cleanup fallback. `workflowControllers.test.ts`: a real deliberately failing Node test, fixture-model read-only repair, Preview/Apply, approved save and unchanged-command passing rerun; denial starts no further process. |
-| Checkpoints | `checkpointHistory.test.ts`: real subprocess writes before tool notification but after request-start capture; deterministic restore, dirty/external/shell/custom-tool/symlink rejection, request-start overflow, process-exit status, retained recovery bytes, newer dependencies, count/byte bounds and reload expiry. Recovery-protected history cannot leak an evicted incoming payload outside its budget. |
-| Queue | `workflowProtocol.test.ts`: fake RPC process, ordering/duplicates, acceptance before delivery, clear-before-abort, unknown command/timeout/exit without replay, bounded complete/partial/EOF frames and forced shutdown settlement. `workflowHost.test.ts`: callback-owned queue rejection, busy through continuations, serialized session/model/compaction operations, recovered drafts, unsupported-clear disconnect and session-workspace headers. `sidebarHtml.test.ts`: executed Enter-to-steer plus client-platform Alt+Enter and Windows Ctrl+Q follow-up paths, including remote-host-independent detection, immediate idle sends, keyboard-only queue dispatch, revision-safe clear/append and no local duplicate transcript entries. |
-| Debug | `debugContext.test.ts`: fake DAP read-command allowlist, count/value/total/deadline bounds, lazy/environment omissions, cyclic/malformed/unavailable responses and continue/step/restart invalidation. `workflowControllers.test.ts`: actual command adapter, cancellation/unsupported adapter/resume during inspection never submits to Pi. No live debugger/model session is implied. |
+Evidence in `src/test/`:
 
-`workflowHost.test.ts` also executes the packaged read-only gate against a default Pi toolset and proves mutating/custom tools are blocked until `agent_settled`. `manifest.test.ts` verifies command contribution/registration/documentation, unchanged engine/host kind and pinned minimum declarations. Existing 73 regression tests remain registered.
+- **Staged review:** `gitReview.test.ts`: real temporary repositories, unchanged index/worktree hashes, partial staging, unborn/empty HEAD, multiple roots, rename/deletion, Unicode/tab/newline paths, invalid UTF-8 rejection, binary/oversized/symlink/submodule exclusions, malformed findings, cancellation and stale index.
+  `workflowControllers.test.ts`: confirmation denial, immutable finding navigation, stale capture and trust/virtual rejection.
+- **Selective edits:** `editHunks.test.ts`, `editProposals.test.ts`: deterministic newline/Unicode/repeated-line/size fallback, selection revision, empty/invented IDs, serialization, failure, disposal and whole-edit compatibility.
+  `editorWorkflow.test.ts`: actual registered action with fake host/model, selected Preview matches one workspace edit; a later manual buffer edit prevents all Apply.
+  Native Undo remains an interactive check at this milestone.
+- **Task import:** `backgroundResults.test.ts`: actual detached worktrees, task commits/untracked/deleted files, unchanged unrelated edits/index, duplicate imports, dirty/stale/unsafe inputs, executable-bit exclusions, partial I/O recovery, configured Git filters/fsmonitor/external-diff helper non-execution.
+  `backgroundManager.test.ts`: legacy/interrupted/PID/missing/invalid metadata, cancelled-task results, preview expiry, persisted import report, explicit owned-path cleanup, retained source and in-progress review eviction protection.
+  `backgroundAgentLifecycle.test.ts`: startup acceptance, failures, active capacity and eviction.
+- **Context:** `contextInspector.test.ts`, `attachmentUtils.test.ts`: exact multilingual byte counts, source/range/revision metadata, malformed timestamps, truncation, image bounds/unknown usage, host edit/redact/pin and accepted-ID consumption.
+  Foreground/background paths both use the attachment manager's current text snapshots; failed submissions do not consume them.
+  `sidebarHtml.test.ts`: executed composer revision guards preserve newer drafts.
+- **Test repair:** `testRepair.test.ts`: command validation, redaction, log bounds, no-test matches, finite attempts and observed process statuses; missing executable, timeout, cancellation, output cap, descendant termination and escaped-pipe cleanup fallback.
+  `workflowControllers.test.ts`: a real deliberately failing Node test, fixture-model read-only repair, Preview/Apply, approved save and unchanged-command passing rerun; denial starts no further process.
+- **Checkpoints:** `checkpointHistory.test.ts`: real subprocess writes before tool notification but after request-start capture; deterministic restore, dirty/external/shell/custom-tool/symlink rejection, request-start overflow, process-exit status, retained recovery bytes, newer dependencies, count/byte bounds and reload expiry.
+  Recovery-protected history cannot leak an evicted incoming payload outside its budget.
+- **Queue:** `workflowProtocol.test.ts`: fake RPC process, ordering/duplicates, acceptance before delivery, clear-before-abort, unknown command/timeout/exit without replay, bounded complete/partial/EOF frames and forced shutdown settlement.
+  `workflowHost.test.ts`: callback-owned queue rejection, busy through continuations, serialized session/model/compaction operations, recovered drafts, unsupported-clear disconnect and session-workspace headers.
+  `sidebarHtml.test.ts`: executed Enter-to-steer plus client-platform Alt+Enter and Windows Ctrl+Q follow-up paths, including remote-host-independent detection, immediate idle sends, keyboard-only queue dispatch, revision-safe clear/append and no local duplicate transcript entries.
+- **Debug:** `debugContext.test.ts`: fake DAP read-command allowlist, count/value/total/deadline bounds, lazy/environment omissions, cyclic/malformed/unavailable responses and continue/step/restart invalidation.
+  `workflowControllers.test.ts`: actual command adapter, cancellation/unsupported adapter/resume during inspection never submits to Pi.
+  No live debugger/model session is implied.
+
+`workflowHost.test.ts` also executes the packaged read-only gate against a default Pi toolset and proves mutating/custom tools are blocked until `agent_settled`.
+`manifest.test.ts` verifies command contribution/registration/documentation, unchanged engine/host kind and pinned minimum declarations.
+Existing 73 regression tests remain registered.
 
 ## Compatibility and UI
 
-- Compilation uses exactly `@types/vscode@1.106.0`, TypeScript 5.9.3. `engines.vscode` remains `^1.106.0`, `extensionKind` remains `workspace`; no proposed API, browser entry or SDK migration.
-- The minimum stable declarations include `debug.activeStackItem`, `DebugStackFrame`, `onDidChangeActiveStackItem`, `DebugSession.customRequest` and debug adapter trackers. Tests compile against those declarations, not newer installed API types.
-- Checked js-debug variable read paths: [`variableStore.ts` at `41bd9bb`](https://github.com/microsoft/vscode-js-debug/blob/41bd9bb831a46c2668cab14d8455e8e3bff58477/src/adapter/variableStore.ts), alongside the adapter's documented custom generators. Only Node/js-debug local-scope capture is enabled; custom generators/automatic getters are blocked. Adapter work is not guaranteed inert across versions.
-- Headless Chrome 148.0.7778.167 rendered the generated Sidebar with a mocked VS Code bridge at 280px and 400px in light, dark and high-contrast theme-variable fixtures. All six cases passed no-horizontal-overflow, keyboard focus, proposal/import gates and queue-control assertions; screenshots were inspected. This is browser smoke coverage, not an Extension Host or native Quick Pick/Undo test.
-- Test environment: Linux, Node.js 26.8.2, npm 11.19.1, Git 2.43.0. Real Windows, minimum/current VS Code, SSH/container hosts, provider integration and live Node debugger behavior remain unverified.
+- Compilation uses exactly `@types/vscode@1.106.0`, TypeScript 5.9.3.
+  `engines.vscode` remains `^1.106.0`, `extensionKind` remains `workspace`; no proposed API, browser entry or SDK migration.
+- The minimum stable declarations include `debug.activeStackItem`, `DebugStackFrame`, `onDidChangeActiveStackItem`, `DebugSession.customRequest` and debug adapter trackers.
+  Tests compile against those declarations, not newer installed API types.
+- Checked js-debug variable read paths: [`variableStore.ts` at `41bd9bb`](https://github.com/microsoft/vscode-js-debug/blob/41bd9bb831a46c2668cab14d8455e8e3bff58477/src/adapter/variableStore.ts), alongside the adapter's documented custom generators.
+  Only Node/js-debug local-scope capture is enabled; custom generators/automatic getters are blocked.
+  Adapter work is not guaranteed inert across versions.
+- Headless Chrome 148.0.7778.167 rendered the generated Sidebar with a mocked VS Code bridge at 280px and 400px in light, dark and high-contrast theme-variable fixtures.
+  All six cases passed no-horizontal-overflow, keyboard focus, proposal/import gates and queue-control assertions; screenshots were inspected.
+  This is browser smoke coverage, not an Extension Host or native Quick Pick/Undo test.
+- Test environment: Linux, Node.js 26.8.2, npm 11.19.1, Git 2.43.0.
+  Real Windows, minimum/current VS Code, SSH/container hosts, provider integration and live Node debugger behavior remain unverified.
 
 ## Package and review
 
-- `npm run package` passes the complete test suite and produces a local VSIX. Inspection finds 52 archive entries, 42 compiled runtime modules and all new workflow modules plus packaged permission/read-only gates. Source/tests/docs, fixture repositories, raw debug/checkpoint data, source maps and development dependencies are excluded.
-- The packager's existing missing-`repository` manifest warning is retained and disclosed; packaging succeeds. No package installation/publication, version tag or release workflow is performed. The pre-existing ignored VSIX is restored after validation.
-- `npm audit --omit=dev`: zero vulnerabilities. Full development audit still reports three pre-existing transitive advisories: `fast-uri` and `js-yaml` (high), `qs` (moderate). They are not shipped in the VSIX; this work changes only the VS Code type dependency and does not silently upgrade unrelated tooling.
-- `git diff --check` and complete diff review cover identifier/path validation, read-only provider policy, process cleanup, before-prompt capture, dirty/stale/dependency gates, partial failures, retention/disposal, queue/session ownership, minimum API and scope. Import/restore are deliberately nontransactional against external writers or another window; no broader atomicity or complete shell rollback is claimed.
+- `npm run package` passes the complete test suite and produces a local VSIX.
+  Inspection finds 52 archive entries, 42 compiled runtime modules and all new workflow modules plus packaged permission/read-only gates.
+  Source/tests/docs, fixture repositories, raw debug/checkpoint data, source maps and development dependencies are excluded.
+- The packager's existing missing-`repository` manifest warning is retained and disclosed; packaging succeeds.
+  No package installation/publication, version tag or release workflow is performed.
+  The pre-existing ignored VSIX is restored after validation.
+- `npm audit --omit=dev`: zero vulnerabilities.
+  Full development audit still reports three pre-existing transitive advisories: `fast-uri` and `js-yaml` (high), `qs` (moderate).
+  They are not shipped in the VSIX; this work changes only the VS Code type dependency and does not silently upgrade unrelated tooling.
+- `git diff --check` and complete diff review cover identifier/path validation, read-only provider policy, process cleanup, before-prompt capture, dirty/stale/dependency gates, partial failures, retention/disposal, queue/session ownership, minimum API and scope.
+  Import/restore are deliberately nontransactional against external writers or another window; no broader atomicity or complete shell rollback is claimed.
 
 ## PR #12 review follow-up
 
-- Fixed the leading space in warning-free snapshot confirmation messages. The new formatting regression failed on the original code, then passed with the conditional warning prefix. Two added controller tests cover zero/one/multiple warnings, inspection before approval, unchanged Send/Redact actions, redaction reinspection, cancellation, unmatched redaction and transmission bounds.
-- Revalidation: 5/5 focused controller tests; 107/107 tests in both `npm test` and `GIT_INDEX_FILE=.git/index npm test`; `npm run package` passes all 107 tests. Compilation still uses `@types/vscode@1.106.0`. Archive inspection confirms the corrected prompt in the VSIX, 52 entries/42 runtime modules and no source/tests/docs/development dependencies. The original ignored VSIX is restored byte-for-byte. Production audit reports zero vulnerabilities; `git diff --check` passes.
-- The repair picker wildcard feedback is not a demonstrated defect: [VS Code 1.106.0's simplified dialog](https://github.com/microsoft/vscode/blob/1.106.0/src/vs/workbench/services/dialogs/browser/simpleFileDialog.ts#L1059-L1071) explicitly matches `*` against any file; its native path forwards extensions to [Electron, which documents `*` as the all-files wildcard](https://www.electronjs.org/docs/latest/api/dialog). The filter is unchanged. This is platform-source/contract evidence, not a live native-dialog test. Review outcomes are recorded on [PR #12](https://github.com/narumiruna/picode/pull/12).
+- Fixed the leading space in warning-free snapshot confirmation messages.
+  The new formatting regression failed on the original code, then passed with the conditional warning prefix.
+  Two added controller tests cover zero/one/multiple warnings, inspection before approval, unchanged Send/Redact actions, redaction reinspection, cancellation, unmatched redaction and transmission bounds.
+- Revalidation: 5/5 focused controller tests; 107/107 tests in both `npm test` and `GIT_INDEX_FILE=.git/index npm test`; `npm run package` passes all 107 tests.
+  Compilation still uses `@types/vscode@1.106.0`.
+  Archive inspection confirms the corrected prompt in the VSIX, 52 entries/42 runtime modules and no source/tests/docs/development dependencies.
+  The original ignored VSIX is restored byte-for-byte.
+  Production audit reports zero vulnerabilities; `git diff --check` passes.
+- The repair picker wildcard feedback is not a demonstrated defect: [VS Code 1.106.0's simplified dialog](https://github.com/microsoft/vscode/blob/1.106.0/src/vs/workbench/services/dialogs/browser/simpleFileDialog.ts#L1059-L1071) explicitly matches `*` against any file; its native path forwards extensions to [Electron, which documents `*` as the all-files wildcard](https://www.electronjs.org/docs/latest/api/dialog).
+  The filter is unchanged.
+  This is platform-source/contract evidence, not a live native-dialog test.
+  Review outcomes are recorded on [PR #12](https://github.com/narumiruna/picode/pull/12).
 
 ### Subsequent review findings
 
 Eight additional findings were independently reproduced and fixed: source/version binding around test runs; Git index modes on Windows or `core.filemode=false`; retained-only import byte accounting; single-owner failed queue recovery; debug-workspace-scoped getter guards; summary-only no-test detection; multiline failure-log file input; and isolated-task Resume visibility/host rejection.
 
-- `workflowControllers.test.ts` rejects dirty/changed test sources before provider submission, preserves supplied CRLF/LF/Unicode logs, rejects missing/binary/oversized logs, and blocks getter expansion in the debug workspace or after approval-time setting changes. The existing real failing-test → repair → passing-rerun fixture still passes.
-- `backgroundResults.test.ts` captures/imports content-only executable changes with `core.filemode=false`, rejects actual indexed mode changes/additions, and retains a later fitting file after an oversized candidate (360,020 retained bytes). This exercises the index-mode path on Linux, not native Windows.
-- `workflowHost.test.ts` covers malformed/missing queue acknowledgements, clear/abort failures, cleared-then-failed abort, consumed pending text and concurrent cancellation without duplicate recovery or unnecessary history eviction. `testRepair.test.ts` distinguishes runner summaries from test names/diagnostics. Executed `sidebarHtml.test.ts` and manager tests preserve ordinary Resume but route isolated-session use through Open Worktree.
-- Running the new regressions against pre-fix compiled runtime code produced nine expected failing tests covering the eight concerns. Recompilation restored the candidate: 28/28 focused tests; 112/112 full-suite, Git-hook-environment and package tests. VSIX inspection confirms all fixes, 52 entries/42 runtime modules and the same source/test/dependency exclusions. The user's ignored VSIX is preserved byte-for-byte; production audit remains clean. Native VS Code, Windows, remote, provider and debugger paths remain deferred, not claimed passed.
+- `workflowControllers.test.ts` rejects dirty/changed test sources before provider submission, preserves supplied CRLF/LF/Unicode logs, rejects missing/binary/oversized logs, and blocks getter expansion in the debug workspace or after approval-time setting changes.
+  The existing real failing-test → repair → passing-rerun fixture still passes.
+- `backgroundResults.test.ts` captures/imports content-only executable changes with `core.filemode=false`, rejects actual indexed mode changes/additions, and retains a later fitting file after an oversized candidate (360,020 retained bytes).
+  This exercises the index-mode path on Linux, not native Windows.
+- `workflowHost.test.ts` covers malformed/missing queue acknowledgements, clear/abort failures, cleared-then-failed abort, consumed pending text and concurrent cancellation without duplicate recovery or unnecessary history eviction.
+  `testRepair.test.ts` distinguishes runner summaries from test names/diagnostics.
+  Executed `sidebarHtml.test.ts` and manager tests preserve ordinary Resume but route isolated-session use through Open Worktree.
+- Running the new regressions against pre-fix compiled runtime code produced nine expected failing tests covering the eight concerns.
+  Recompilation restored the candidate: 28/28 focused tests; 112/112 full-suite, Git-hook-environment and package tests.
+  VSIX inspection confirms all fixes, 52 entries/42 runtime modules and the same source/test/dependency exclusions.
+  The user's ignored VSIX is preserved byte-for-byte; production audit remains clean.
+  Native VS Code, Windows, remote, provider and debugger paths remain deferred, not claimed passed.
 
 ### Budget and subfolder follow-up
 
-Five later findings were independently reproduced and fixed. Staged capture now charges only fully retained file pairs; checkpoint capture charges only accepted candidates. Real Git tests retain a valid 200,000-byte staged pair after oversized/binary omissions without changing the index; checkpoint tests retain a later small file after aggregate/per-side overflow. Finding navigation selects through the captured final line, covering before/after sides, same-line/multiline findings, CRLF, UTF-16 characters and missing final newlines.
+Five later findings were independently reproduced and fixed.
+Staged capture now charges only fully retained file pairs; checkpoint capture charges only accepted candidates.
+Real Git tests retain a valid 200,000-byte staged pair after oversized/binary omissions without changing the index; checkpoint tests retain a later small file after aggregate/per-side overflow.
+Finding navigation selects through the captured final line, covering before/after sides, same-line/multiline findings, CRLF, UTF-16 characters and missing final newlines.
 
-Root and subfolder controller fixtures verify staged review/navigation without changing Pi's runtime workspace/session. Import compares complete Git identities, rejects another worktree, names the actual repository destination in approval, and owns both repository and active-cwd operation gates; failed acquisition releases the first gate. Regressions produced five expected failures against pre-fix code, then passed 17/17 focused tests and 116/116 full-suite/Git-hook-environment/package tests after recompilation. Archive inspection confirms the fixes in 52 entries/42 runtime modules with source/tests/docs/development dependencies excluded; the original ignored VSIX is restored unchanged and production audit reports zero vulnerabilities.
+Root and subfolder controller fixtures verify staged review/navigation without changing Pi's runtime workspace/session.
+Import compares complete Git identities, rejects another worktree, names the actual repository destination in approval, and owns both repository and active-cwd operation gates; failed acquisition releases the first gate.
+Regressions produced five expected failures against pre-fix code, then passed 17/17 focused tests and 116/116 full-suite/Git-hook-environment/package tests after recompilation.
+Archive inspection confirms the fixes in 52 entries/42 runtime modules with source/tests/docs/development dependencies excluded; the original ignored VSIX is restored unchanged and production audit reports zero vulnerabilities.
 
 ## Default Pi composer controls
 
-- Foreground and background RPC argument tests verify there is no fixed `--tools` argument. Foreground startup has no appended mode prompt; background/worktree startup retains only its independent-task working-directory instruction. The removed runtime profile source/test and `picode.defaultMode` manifest contribution are asserted absent.
-- Conversation-controller tests verify every non-read-only request begins conservative change tracking and any tool start, including `read` or an unknown extension tool, disables automatic retry. The packaged read-only and built-in mutation permission gates remain covered with their documented scopes.
+- Foreground and background RPC argument tests verify there is no fixed `--tools` argument.
+  Foreground startup has no appended mode prompt; background/worktree startup retains only its independent-task working-directory instruction.
+  The removed runtime profile source/test and `picode.defaultMode` manifest contribution are asserted absent.
+- Conversation-controller tests verify every non-read-only request begins conservative change tracking and any tool start, including `read` or an unknown extension tool, disables automatic retry.
+  The packaged read-only and built-in mutation permission gates remain covered with their documented scopes.
 - Executed webview tests verify model → thinking level → Send DOM order, no mode/handoff controls or protocol messages, narrow-width no-wrap/truncation rules, ordinary welcome drafts, idle sends, busy steering/follow-up dispatch, Shift+Enter newline, IME handling, nonqueueable draft preservation, and revision-safe accepted/rejected submissions.
-- Pi's own `steeringMode` and `followUpMode` settings are not read or overridden by Pi; their one-at-a-time defaults and user configuration remain native Pi behavior.
-- `npm test` and the package run pass 120/120 tests. VSIX inspection finds 51 entries, 41 compiled runtime modules, both packaged gates, the new composer behavior, no `--tools` RPC path, and no stale runtime profile, source, or test files. The pre-existing ignored VSIX is restored byte-for-byte after inspection; packaging retains the existing missing-`repository` warning.
-- Headless Chrome checks at 280px and 220px report no composer-row or document horizontal overflow and preserve Add Context → spacer → Stop → model → thinking → Send DOM order. This is generated-webview layout evidence, not a live Extension Development Host or native Windows/WSL shortcut test.
+- Pi's own `steeringMode` and `followUpMode` settings are not read or overridden by the VS Code extension; their one-at-a-time defaults and user configuration remain native Pi behavior.
+- `npm test` and the package run pass 120/120 tests.
+  VSIX inspection finds 51 entries, 41 compiled runtime modules, both packaged gates, the new composer behavior, no `--tools` RPC path, and no stale runtime profile, source, or test files.
+  The pre-existing ignored VSIX is restored byte-for-byte after inspection; packaging retains the existing missing-`repository` warning.
+- Headless Chrome checks at 280px and 220px report no composer-row or document horizontal overflow and preserve Add Context → spacer → Stop → model → thinking → Send DOM order.
+  This is generated-webview layout evidence, not a live Extension Development Host or native Windows/WSL shortcut test.
 
 ## Chat transcript UX — 2026-09-14
 
@@ -72,12 +136,19 @@ The transcript UX work keeps image bytes outside persisted/routine state and cov
 - `imageAssets.test.ts` covers MIME/Base64/decoded-size/header/dimension validation, the 16,777,216-pixel boundary, SHA-256 deduplication, bounded browser-rejection retention and re-admission blocking, oldest-first byte/count eviction, failed-delivery retry, repeated-state deduplication, missing assets, and Webview-lifecycle reset.
 - `sidebarHelpers.test.ts` covers Pi's observed text-plus-image history shape, pre-decode retained-suffix bounds, a 25 MiB aggregate per-sync processing budget prioritized newest-first, nested-warning queue uncertainty, duplicate images, unsupported/malformed payload placeholders, cache eviction, generic labels, and stable-ID label merge.
 - `contextInspector.test.ts` covers accepted-only snapshot consumption, rejected/cancelled retention, retry descriptor retention, and attachments added during startup remaining on the next draft.
-- `sidebarHtml.test.ts` executes generated client state transitions and image delivery. It covers DOM-only attachment labels, full-label tooltips, loading/unavailable states, data-URL validation, thumbnail/preview decode rejection, modal close/Escape/focus return, concise error details, cancellable Stop visibility, stale-lock clearing, compact composer/inline code, responsive grid CSS, in-flow tool ordering, and delayed-decode scroll rules.
+- `sidebarHtml.test.ts` executes generated client state transitions and image delivery.
+  It covers DOM-only attachment labels, full-label tooltips, loading/unavailable states, data-URL validation, thumbnail/preview decode rejection, modal close/Escape/focus return, concise error details, cancellable Stop visibility, stale-lock clearing, compact composer/inline code, responsive grid CSS, in-flow tool ordering, and delayed-decode scroll rules.
 - `piRuntimeDeletion.test.ts` covers narrow Trash-unavailable classification, original-session binding across replacement startup, replacement identity detection for Sidebar reconciliation, explicit `useTrash: false` routing, cancel-with-conversation-kept, separately confirmed permanent success, and both ordinary/permanent failure outcomes.
 
-The final suite passes 150 tests across 30 files. `npm run package` repeats the suite and produces a 53-entry VSIX with 42 compiled runtime modules, including `imageAssets.js`; archive inspection finds no source, tests, docs, source maps, or development dependencies. Adding the existing repository URL to package metadata was required because current `vsce` treated the README's relative `LICENSE` link as a packaging error.
+The final suite passes 150 tests across 30 files.
+`npm run package` repeats the suite and produces a 53-entry VSIX with 42 compiled runtime modules, including `imageAssets.js`; archive inspection finds no source, tests, docs, source maps, or development dependencies.
+Adding the existing repository URL to package metadata was required because current `vsce` treated the README's relative `LICENSE` link as a packaging error.
 
-Chrome for Testing 153 rendered the generated Webview at 280, 400, and 600 px in light, dark, and high-contrast token fixtures. All nine cases had zero document/app/composer horizontal overflow, a 42 px empty composer, two decoded thumbnails, full context tooltip/preview labels, keyboard Enter/Space preview, Escape/close focus return, and tool activity geometrically after the response. Three representative screenshots were inspected for truncation, focus visibility, contrast structure, tool spacing, and composer layout. This is real browser rendering of packaged-equivalent HTML, not an interactive Extension Development Host. Native screen-reader output, pointer interaction, a live Pi provider history/reload/session-resume cycle, and a real remote file provider's Trash error remain deferred and are not claimed as manually passed.
+Chrome for Testing 153 rendered the generated Webview at 280, 400, and 600 px in light, dark, and high-contrast token fixtures.
+All nine cases had zero document/app/composer horizontal overflow, a 42 px empty composer, two decoded thumbnails, full context tooltip/preview labels, keyboard Enter/Space preview, Escape/close focus return, and tool activity geometrically after the response.
+Three representative screenshots were inspected for truncation, focus visibility, contrast structure, tool spacing, and composer layout.
+This is real browser rendering of packaged-equivalent HTML, not an interactive Extension Development Host.
+Native screen-reader output, pointer interaction, a live Pi provider history/reload/session-resume cycle, and a real remote file provider's Trash error remain deferred and are not claimed as manually passed.
 
 ## Queued attachments — 2026-09-16
 
@@ -87,182 +158,411 @@ Pi Chat now applies the ordinary composer attachment snapshot to native Pi steer
 - `contextInspector.test.ts` verifies attachment-only prompt generation, text-context framing, slash-command rejection, accepted-ID consumption, restoration of text/image snapshots, preservation of newer and pinned items, and atomic failure when current draft limits are occupied.
 - `workflowHost.test.ts` verifies image handoff, duplicate text, one-at-a-time and grouped queue delivery, clear-before-abort recovery, delivery/acceptance races, uncertain disconnects, count/30 MiB recovery bounds, one-shot restoration handles, no automatic replay, and exclusion of image bytes from public runtime state.
 - `sidebarHtml.test.ts` executes attachment-only Enter steering and Alt+Enter follow-up, pending-image and model-capability gates, and attachment-aware queue status while preserving keyboard-only queue dispatch and composer revision guards.
-- Review follow-up tests verify exact pinned-snapshot recovery, atomic validation of both cleared and ordinary queue updates, release of orphaned recovery handles after conversation deletion, attachment-only queueing after Sidebar conflict resolution, and a locked two-phase recovery handshake that commits text only after attachment restoration succeeds. A rejected image preview retains its unavailable transcript descriptor and recovery ownership; the proposed loss path was not reproduced. Focused validation passes 53 tests across five files after integrating current `main`. The complete suite and `npm run package` each pass 177 tests across 33 files; `git diff --check` passes and `npm audit --omit=dev` reports zero vulnerabilities.
-- The inspected VSIX (`15c72c910dec24398a8c9ec52cc7973c740e20119d8d9976ebd337e0b0706a14`) contains 57 entries and 44 compiled runtime JavaScript files with the queued-attachment markers. It contains no source, tests, docs, source maps or `node_modules`. Live-provider delivery, native Extension Development Host interaction, Windows/WSL shortcuts, remote hosts and recovery across reload are not claimed by these automated checks.
+- Review follow-up tests verify exact pinned-snapshot recovery, atomic validation of both cleared and ordinary queue updates, release of orphaned recovery handles after conversation deletion, attachment-only queueing after Sidebar conflict resolution, and a locked two-phase recovery handshake that commits text only after attachment restoration succeeds.
+  A rejected image preview retains its unavailable transcript descriptor and recovery ownership; the proposed loss path was not reproduced.
+  Focused validation passes 53 tests across five files after integrating current `main`.
+  The complete suite and `npm run package` each pass 177 tests across 33 files; `git diff --check` passes and `npm audit --omit=dev` reports zero vulnerabilities.
+- The inspected VSIX (`15c72c910dec24398a8c9ec52cc7973c740e20119d8d9976ebd337e0b0706a14`) contains 57 entries and 44 compiled runtime JavaScript files with the queued-attachment markers.
+  It contains no source, tests, docs, source maps or `node_modules`.
+  Live-provider delivery, native Extension Development Host interaction, Windows/WSL shortcuts, remote hosts and recovery across reload are not claimed by these automated checks.
 
 ### Post-merge queue recovery follow-up
 
-Three post-merge findings are covered by host regressions. Process-exit recovery now recognizes a shortened remote queue as the undelivered suffix, so a delivered prefix is not duplicated and the remaining item keeps its attachment restoration handle. An empty snapshot caused by an attachment-removal race explicitly rejects the Webview submission and releases its pending lock. Queued attachment resources are forwarded to the runtime and rejected before queue mutation when their workspace differs from the active Pi session.
+Three post-merge findings are covered by host regressions.
+Process-exit recovery now recognizes a shortened remote queue as the undelivered suffix, so a delivered prefix is not duplicated and the remaining item keeps its attachment restoration handle.
+An empty snapshot caused by an attachment-removal race explicitly rejects the Webview submission and releases its pending lock.
+Queued attachment resources are forwarded to the runtime and rejected before queue mutation when their workspace differs from the active Pi session.
 
-Focused validation passes 45 tests across `workflowHost.test.ts`, `sidebarHtml.test.ts`, and `contextInspector.test.ts`. The complete suite and `npm run package` each pass 181 tests across 33 files. `git diff --check` and Biome pass, and `npm audit --omit=dev` reports zero vulnerabilities. The inspected VSIX (`3f31525c591c1b0a0440bb5c52ccf1dfef51b727718943716913e000a3aa093f`) contains 57 entries and 44 top-level compiled runtime JavaScript files, including the workspace and rejection markers; source, tests, docs, source maps, and `node_modules` are excluded while the three required TypeScript resource gates remain packaged. The pre-existing ignored VSIX is restored after inspection. Live provider and Extension Development Host paths remain unverified.
+Focused validation passes 45 tests across `workflowHost.test.ts`, `sidebarHtml.test.ts`, and `contextInspector.test.ts`.
+The complete suite and `npm run package` each pass 181 tests across 33 files.
+`git diff --check` and Biome pass, and `npm audit --omit=dev` reports zero vulnerabilities.
+The inspected VSIX (`3f31525c591c1b0a0440bb5c52ccf1dfef51b727718943716913e000a3aa093f`) contains 57 entries and 44 top-level compiled runtime JavaScript files, including the workspace and rejection markers; source, tests, docs, source maps, and `node_modules` are excluded while the three required TypeScript resource gates remain packaged.
+The pre-existing ignored VSIX is restored after inspection.
+Live provider and Extension Development Host paths remain unverified.
 
 ## Queue transcript parity — 2026-09-17
 
 Pi Chat now keeps steering and follow-up text visible with Pi-compatible labels until Pi emits the authoritative queued user-message start, then promotes that instruction into the transcript before assistant continuation output.
 
 - `workflowHost.test.ts` covers grouped and one-at-a-time removal/start sequences, FIFO duplicate text, queue removal without a user start, settlement recovery, delivery before command acknowledgement, malformed acknowledgement after confirmed delivery, the shared 30 MiB attachment budget across queued/awaiting/recovered records, bounded public summaries without image bytes, exact-once Sidebar promotion, initial-prompt non-duplication, context/image descriptors, and stable image-label reconciliation during authoritative history replacement.
-- `sidebarHtml.test.ts` executes pending-list add/update/removal with duplicate, multiline and HTML-like text, attachment indicators, Pi-style labels, narrow overflow constraints, DOM text-node rendering, keyboard-only queue submission, and the pending-to-transcript transition. No fallback Pi-message parser was needed because the runtime's stable instruction ID is the only delivery path.
-- Focused validation passes 53 tests across `workflowHost.test.ts`, `sidebarHtml.test.ts`, and `sidebarHelpers.test.ts`. The complete suite and final `npm run package` each pass 184 tests across 33 files. `git diff --check` and Biome pass, and `npm audit --omit=dev` reports zero vulnerabilities.
-- The inspected VSIX (`32a9d2f4a06e04b44a75e2e04f368495e8423fd01fcd85bb0ef701dcdcbf9bff`) contains 57 entries and 44 compiled runtime JavaScript files, including the delivery event, awaiting-delivery budget accounting, and pending-list markers. It excludes source, tests, docs, source maps, and `node_modules`, while retaining the three required TypeScript resource gates. No pre-existing VSIX was present, and the generated artifact was removed after inspection.
-- An interactive Extension Development Host and live provider were unavailable in this noninteractive execution environment. The requested tool-boundary timing, duplicate-text/image interaction, native Windows/WSL shortcuts, remote hosts, and live provider behavior are explicitly unverified rather than claimed as passed; deterministic RPC, host, generated-Webview and package checks cover the implemented lifecycle.
+- `sidebarHtml.test.ts` executes pending-list add/update/removal with duplicate, multiline and HTML-like text, attachment indicators, Pi-style labels, narrow overflow constraints, DOM text-node rendering, keyboard-only queue submission, and the pending-to-transcript transition.
+  No fallback Pi-message parser was needed because the runtime's stable instruction ID is the only delivery path.
+- Focused validation passes 53 tests across `workflowHost.test.ts`, `sidebarHtml.test.ts`, and `sidebarHelpers.test.ts`.
+  The complete suite and final `npm run package` each pass 184 tests across 33 files.
+  `git diff --check` and Biome pass, and `npm audit --omit=dev` reports zero vulnerabilities.
+- The inspected VSIX (`32a9d2f4a06e04b44a75e2e04f368495e8423fd01fcd85bb0ef701dcdcbf9bff`) contains 57 entries and 44 compiled runtime JavaScript files, including the delivery event, awaiting-delivery budget accounting, and pending-list markers.
+  It excludes source, tests, docs, source maps, and `node_modules`, while retaining the three required TypeScript resource gates.
+  No pre-existing VSIX was present, and the generated artifact was removed after inspection.
+- An interactive Extension Development Host and live provider were unavailable in this noninteractive execution environment.
+  The requested tool-boundary timing, duplicate-text/image interaction, native Windows/WSL shortcuts, remote hosts, and live provider behavior are explicitly unverified rather than claimed as passed; deterministic RPC, host, generated-Webview and package checks cover the implemented lifecycle.
 
 ## Process-local VS Code bridge — 2026-09-20
 
-The VS Code bridge now ships only inside the VSIX and is passed to foreground RPC and **Open in Terminal** Pi processes through `--extension`. New release/source installations do not create a Pi extension directory; upgrade cleanup removes only the historical `extensions/picode.ts` and `extensions/pi-vscode.ts` paths.
+The VS Code bridge now ships only inside the VSIX and is passed to foreground RPC and **Open in Terminal** Pi processes through `--extension`.
+New release/source installations do not create a Pi extension directory; upgrade cleanup removes only the historical `extensions/picode.ts` and `extensions/pi-vscode.ts` paths.
 
-- An isolated `PI_CODING_AGENT_DIR` probe copied the same extension factory to a global discovery path and a different explicit `--extension` path. Pi executed both factories, with the explicit path first, proving that different paths are not deduplicated and that legacy cleanup is required before process-local loading.
-- A real Pi RPC startup with the bundled `resources/picode-bridge.ts` plus a `session_start` probe reported `vscode_context`, `vscode_notify`, and `vscode_open_file` in `pi.getAllTools()`. The same isolated RPC startup without the bridge reported only the built-in tools. This verifies process-local registration and the documented ordinary-terminal opt-in without invoking a provider.
-- `workflowHost.test.ts` verifies the workspace-host VSIX path, a path containing spaces, all three future-terminal environment variables, foreground extension ordering, authenticated environment forwarding, and direct argument-array construction for terminal handoff with session resume. `backgroundManager.test.ts` verifies background/worktree launch options omit the bridge and explicitly delete inherited bridge port, token, and path variables before spawn. `piRpcClient.test.ts` covers the environment-removal helper.
-- `installer.test.ts` runs both the source cleanup helper and release shell installer against temporary clean/upgrade directories. Clean installation creates no Pi configuration path; upgrade cleanup removes only the two historical bridge filenames and preserves another extension. `manifest.test.ts` verifies the obsolete installer helper is gone and the bundled bridge remains a required asset.
-- Review follow-up: extension activation now performs the same exact-path migration before constructing the runtime, covering direct VSIX and Marketplace upgrades that do not run installer scripts. `legacyBridge.test.ts` verifies explicit/default Pi agent-directory resolution, no configuration creation on a clean install, preservation of unrelated extensions, removal of both historical files, and fail-closed handling of a directory at a legacy file path. `manifest.test.ts` verifies cleanup precedes runtime construction.
-- `npm test` and the final `npm run package` each pass 195 tests across 34 files. `npm audit --omit=dev` reports zero vulnerabilities, and `git diff --check` passes.
-- The inspected VSIX (`c0e25f19e4c42b4f4b75ff7a0dd01e67bfc4713bd074751eb1e2cbd36bac6ff9`) contains 58 entries, 45 top-level compiled runtime JavaScript files, exactly one `extension/resources/picode-bridge.ts`, and the activation-cleanup markers. It contains no source, tests, docs, source maps, `node_modules`, or obsolete/new installer helper scripts.
-- A native interactive Extension Development Host, Windows PowerShell terminal, and SSH/container host were unavailable in this noninteractive environment. The real Pi RPC registration probe and mocked VS Code terminal/runtime checks cover the implemented process and argument boundaries; native host placement and UI interaction remain explicitly unverified.
+- An isolated `PI_CODING_AGENT_DIR` probe copied the same extension factory to a global discovery path and a different explicit `--extension` path.
+  Pi executed both factories, with the explicit path first, proving that different paths are not deduplicated and that legacy cleanup is required before process-local loading.
+- A real Pi RPC startup with the bundled `resources/picode-bridge.ts` plus a `session_start` probe reported `vscode_context`, `vscode_notify`, and `vscode_open_file` in `pi.getAllTools()`.
+  The same isolated RPC startup without the bridge reported only the built-in tools.
+  This verifies process-local registration and the documented ordinary-terminal opt-in without invoking a provider.
+- `workflowHost.test.ts` verifies the workspace-host VSIX path, a path containing spaces, all three future-terminal environment variables, foreground extension ordering, authenticated environment forwarding, and direct argument-array construction for terminal handoff with session resume.
+  `backgroundManager.test.ts` verifies background/worktree launch options omit the bridge and explicitly delete inherited bridge port, token, and path variables before spawn.
+  `piRpcClient.test.ts` covers the environment-removal helper.
+- `installer.test.ts` runs both the source cleanup helper and release shell installer against temporary clean/upgrade directories.
+  Clean installation creates no Pi configuration path; upgrade cleanup removes only the two historical bridge filenames and preserves another extension.
+  `manifest.test.ts` verifies the obsolete installer helper is gone and the bundled bridge remains a required asset.
+- Review follow-up: extension activation now performs the same exact-path migration before constructing the runtime, covering direct VSIX and Marketplace upgrades that do not run installer scripts.
+  `legacyBridge.test.ts` verifies explicit/default Pi agent-directory resolution, no configuration creation on a clean install, preservation of unrelated extensions, removal of both historical files, and fail-closed handling of a directory at a legacy file path.
+  `manifest.test.ts` verifies cleanup precedes runtime construction.
+- `npm test` and the final `npm run package` each pass 195 tests across 34 files.
+  `npm audit --omit=dev` reports zero vulnerabilities, and `git diff --check` passes.
+- The inspected VSIX (`c0e25f19e4c42b4f4b75ff7a0dd01e67bfc4713bd074751eb1e2cbd36bac6ff9`) contains 58 entries, 45 top-level compiled runtime JavaScript files, exactly one `extension/resources/picode-bridge.ts`, and the activation-cleanup markers.
+  It contains no source, tests, docs, source maps, `node_modules`, or obsolete/new installer helper scripts.
+- A native interactive Extension Development Host, Windows PowerShell terminal, and SSH/container host were unavailable in this noninteractive environment.
+  The real Pi RPC registration probe and mocked VS Code terminal/runtime checks cover the implemented process and argument boundaries; native host placement and UI interaction remain explicitly unverified.
 
 ## Semantic context, change review and diagnostic repair — 2026-09-21
 
-Branch: `narumi/feat/semantic-context-review-diagnostics`, based on `origin/main` at `e4a3816`. Baseline: 195 tests / 34 files. Candidate: **214 tests / 41 files**, passing in both `npm test` and `GIT_INDEX_FILE=.git/index npm test`. Compilation remains pinned to VS Code 1.106 declarations, with unchanged engine and workspace-host placement.
+Branch: `narumi/feat/semantic-context-review-diagnostics`, based on `origin/main` at `e4a3816`.
+Baseline: 195 tests / 34 files.
+Candidate: **214 tests / 41 files**, passing in both `npm test` and `GIT_INDEX_FILE=.git/index npm test`.
+Compilation remains pinned to VS Code 1.106 declarations, with unchanged engine and workspace-host placement.
 
 ### Deterministic and real-process checks
 
-- `semanticContext.test.ts`: Location/LocationLink normalization, nested/flat symbols, incoming/outgoing call commands, deterministic deduplication, malformed/cross-workspace/symlink filtering, missing providers, 50-result bound, version changes, cancellation and deadline cleanup; bounded semantic attachment consumption and authenticated TCP bridge rejection/metadata-only responses. Existing attachment tests retain inspect/redact/pin and revision coverage.
-- `gitReviewScopes.test.ts`: real temporary repositories distinguish partial staging and final worktree text, preserve the original index/worktree, handle unborn state, deletion/rename, Unicode/tab paths, ignored/untracked files, local/remote base refs, detached HEAD and moved HEAD/base. Binary, oversized, symlink and submodule exclusions, cancellation and configured helper non-execution are asserted. Scope-independent parser fixtures reject invented paths/sides/ranges in all four scopes. Existing staged-budget, unusual-path, rename-side and subfolder tests remain unchanged.
+- `semanticContext.test.ts`: Location/LocationLink normalization, nested/flat symbols, incoming/outgoing call commands, deterministic deduplication, malformed/cross-workspace/symlink filtering, missing providers, 50-result bound, version changes, cancellation and deadline cleanup; bounded semantic attachment consumption and authenticated TCP bridge rejection/metadata-only responses.
+  Existing attachment tests retain inspect/redact/pin and revision coverage.
+- `gitReviewScopes.test.ts`: real temporary repositories distinguish partial staging and final worktree text, preserve the original index/worktree, handle unborn state, deletion/rename, Unicode/tab paths, ignored/untracked files, local/remote base refs, detached HEAD and moved HEAD/base.
+  Binary, oversized, symlink and submodule exclusions, cancellation and configured helper non-execution are asserted.
+  Scope-independent parser fixtures reject invented paths/sides/ranges in all four scopes.
+  Existing staged-budget, unusual-path, rename-side and subfolder tests remain unchanged.
 - `reviewFindings.test.ts` and `reviewActions.test.ts`: captured Problems ranges/text, replacement/retention/disposal, Ask/Fix availability, divergent after-images, symlinks, subfolder workspace ownership and stale-index rejection before Apply.
-- `workspaceDiagnostics.test.ts`, `workspaceDiagnosticsController.test.ts`, and `multiFileProposal.test.ts`: exact file/diagnostic/serialized-size bounds, strict replacement parsing, unknown/duplicate/binary/operation rejection, valid partial-file output, cancelled/empty selection, multi-root/URI filtering, duplicate diagnostics, dirty-buffer snapshots, approval denial, stale responses and two-file read-only request/Preview/Apply/diagnostic observations. Hunk selection, CRLF, read-only/stale/foreign files, operation conflicts, false Apply and disposal are covered.
-- Final review caught a nested operation-lock conflict between Sidebar dispatch and multi-file Apply. The store now delegates the captured-root Apply lock to the adapter without taking a second lock. The regression exercises the exact Sidebar/store dispatch method; minimum/current native tests also use this method and verify one native Undo restores both files. Existing single-file proposal/store tests remain unchanged.
-- An isolated, noninteractive Pi **0.86.1** RPC registration probe (no model request) loaded the packaged bridge and observed `vscode_context`, `vscode_code_context`, `vscode_open_file`, and `vscode_notify`. An independent startup without the bridge had no `vscode_*` tools. Runtime/background tests verify credential and extension isolation; the packaged read-only gate permits code-context lookup but still blocks mutating/custom tools.
+- `workspaceDiagnostics.test.ts`, `workspaceDiagnosticsController.test.ts`, and `multiFileProposal.test.ts`: exact file/diagnostic/serialized-size bounds, strict replacement parsing, unknown/duplicate/binary/operation rejection, valid partial-file output, cancelled/empty selection, multi-root/URI filtering, duplicate diagnostics, dirty-buffer snapshots, approval denial, stale responses and two-file read-only request/Preview/Apply/diagnostic observations.
+  Hunk selection, CRLF, read-only/stale/foreign files, operation conflicts, false Apply and disposal are covered.
+- Final review caught a nested operation-lock conflict between Sidebar dispatch and multi-file Apply.
+  The store now delegates the captured-root Apply lock to the adapter without taking a second lock.
+  The regression exercises the exact Sidebar/store dispatch method; minimum/current native tests also use this method and verify one native Undo restores both files.
+  Existing single-file proposal/store tests remain unchanged.
+- An isolated, noninteractive Pi **0.86.1** RPC registration probe (no model request) loaded the packaged bridge and observed `vscode_context`, `vscode_code_context`, `vscode_open_file`, and `vscode_notify`.
+  An independent startup without the bridge had no `vscode_*` tools.
+  Runtime/background tests verify credential and extension isolation; the packaged read-only gate permits code-context lookup but still blocks mutating/custom tools.
 
 ### Native Extension Host observations
 
-`npm run test:native -- <version> [untrusted]` creates an isolated fixture, extension directory and profile; on headless Linux it runs under `xvfb-run -a`. It invokes real provider commands and editor APIs without a model. It does not simulate user approval of every controller dialog.
+`npm run test:native -- <version> [untrusted]` creates an isolated fixture, extension directory and profile; on headless Linux it runs under `xvfb-run -a`.
+It invokes real language-provider commands and editor APIs without a live model provider.
+It does not simulate user approval of every controller dialog.
 
 | Environment | Observed evidence |
 | --- | --- |
 | Linux VS Code **1.106.0** | Trusted TypeScript definition/reference/symbol/call-hierarchy commands, authenticated `codeContext`, cancellation, all four Git captures, native Problems collection and captured-document opening/disposal, native diffs, two-file Apply through the locked store route and native Undo all pass. |
 | Linux current stable **1.138.0** | Same final native assertions pass. |
 | Linux **1.106.0 and 1.138.0 Restricted Mode** | Separate launches without `--disable-workspace-trust`; asserted `workspace.isTrusted === false`, and semantic lookup rejected before invoking a provider. |
-| Windows desktop **1.138.0** | Isolated Windows profile and copied development extension, real Windows Git, TypeScript providers, authenticated bridge, four Git scopes, Problems/captured document, two-file native diff/Apply and Undo assertions pass (`process.platform === "win32"`). This run exercised adapter callbacks; the later locked-store regression was rerun on Linux and in deterministic host tests. Runner cleanup failed on VS Code Git askpass directories, not feature assertions; the isolated runner was stopped. Two fixture directory trees remain under `%TEMP%\\pi-native-windows-{i0YYIk,lTq1XT}` due access-denied cleanup. No existing user profile was changed. |
-| SSH into disposable Ubuntu 24.04 container, VS Code **1.138.0**, Remote-SSH **0.128.0** | Real remote Extension Host (`vscode.env.remoteName === "ssh-remote"`) ran TypeScript providers, authenticated loopback code-context lookup, all Git scopes, Problems/captured-document opening, native diffs, two-file Apply and Undo successfully. The test extension/workspace lived under `/home/fixture` in the container, not on the UI host. The container, temporary SSH key and client profile were removed. Remote-SSH also logged a missing `remote-internal.setActiveFolders` command; it did not fail these assertions. |
+| Windows desktop **1.138.0** | Native assertions passed; see [Windows API details](#windows-api-details) for scope and cleanup limits. |
+| SSH into disposable Ubuntu 24.04 container, VS Code **1.138.0**, Remote-SSH **0.128.0** | Remote API assertions passed; see [SSH API details](#ssh-api-details). |
+
+#### Windows API details
+
+An isolated Windows profile and copied development extension passed assertions with real Windows Git, TypeScript providers, authenticated bridge, four Git scopes, Problems/captured document, two-file native diff/Apply and Undo (`process.platform === "win32"`).
+This run exercised adapter callbacks; the later locked-store regression was rerun on Linux and in deterministic host tests.
+Runner cleanup failed on VS Code Git askpass directories, not feature assertions; the isolated runner was stopped.
+Two fixture directory trees remain under `%TEMP%\\pi-native-windows-{i0YYIk,lTq1XT}` due access-denied cleanup.
+No existing user profile was changed.
+
+#### SSH API details
+
+The real remote Extension Host (`vscode.env.remoteName === "ssh-remote"`) ran TypeScript providers, authenticated loopback code-context lookup, all Git scopes, Problems/captured-document opening, native diffs, two-file Apply and Undo successfully.
+The test extension/workspace lived under `/home/fixture` in the container, not on the UI host.
+The container, temporary SSH key and client profile were removed.
+Remote-SSH also logged a missing `remote-internal.setActiveFolders` command; it did not fail these assertions.
 
 ### Integrated native UI walkthrough
 
-`xvfb-run -a npm run test:native-ui -- <version>` now passes on Linux **1.106.0** and **1.138.0**. Playwright 1.63.0 connects to the disposable development window's loopback CDP endpoint and drives actual controls. A disposable coordinator extension supplies fixture diagnostics and reads native editor state; a deterministic RPC subprocess supplies model responses. `--extensionTestsPath` is deliberately not used here because VS Code disables confirmation dialogs in that mode. No live provider requests are made.
+`xvfb-run -a npm run test:native-ui -- <version>` now passes on Linux **1.106.0** and **1.138.0**.
+Playwright 1.63.0 connects to the disposable development window's loopback CDP endpoint and drives actual controls.
+A disposable coordinator extension supplies fixture diagnostics and reads native editor state; a deterministic RPC subprocess supplies model responses.
+`--extensionTestsPath` is deliberately not used here because VS Code disables confirmation dialogs in that mode.
+No live provider requests are made.
 
 Observed on both versions:
 
-- **Attach** opens the real Quick Pick; Definition, References, Callers and Document Symbols produce visible attachments. Callees correctly reports no outgoing calls for the fixture. No attachment sends a prompt by itself.
-- Cancelling the scope picker sends no RPC prompt. All four scope selections inspect immutable context, require the native Send confirmation and produce four distinct captured Problems entries. The branch picker selects the enumerated `base` ref.
-- Double-clicking the Problems row opens `picode-review` text. The **Problems row's** Quick Fix menu executes Ask and Fix through the real Sidebar/RPC route. The immutable editor is read-only, so its ordinary editor Quick Fix command is not the supported entry point. Fix initially disables Apply, enables it only after a native Preview, and supports Reject.
-- Two fixture diagnostics in separate files are selected and explicitly sent. The response produces three hunks; deselecting the unrelated tail change leaves **2/3 selected**. Native diffs open for both files; one Apply changes exactly the selected text. The notification reports **1 disappeared, 1 still present, 0 not revalidated**, explicitly not test evidence. One native Undo restores both buffers.
-- Reload clears captured Problems/proposal callbacks and terminates the old RPC child. Exactly seven approved read-only prompts were sent: four reviews, Ask, Fix and batch repair. No tool or provider executes in the fixture.
-- Native testing reproduced an Apply stuck at `Applying…` while the diagnostic notification remained open. Both diagnostic reporting and review-result notifications now release operation/request locks without waiting for dismissal. Pending-notification regressions pass in `workspaceDiagnosticsController.test.ts` and `reviewActions.test.ts`; native assertions require completion before closing notifications. False/throwing native Apply also disposes its pre-Apply diagnostic observer immediately, while preserving retry and stale checks. Delayed review notification actions retain only a review ID and revalidate it, not an evicted raw snapshot.
+- **Attach** opens the real Quick Pick; Definition, References, Callers and Document Symbols produce visible attachments.
+  Callees correctly reports no outgoing calls for the fixture.
+  No attachment sends a prompt by itself.
+- Cancelling the scope picker sends no RPC prompt.
+  All four scope selections inspect immutable context, require the native Send confirmation and produce four distinct captured Problems entries.
+  The branch picker selects the enumerated `base` ref.
+- Double-clicking the Problems row opens `picode-review` text.
+  The **Problems row's** Quick Fix menu executes Ask and Fix through the real Sidebar/RPC route.
+  The immutable editor is read-only, so its ordinary editor Quick Fix command is not the supported entry point.
+  Fix initially disables Apply, enables it only after a native Preview, and supports Reject.
+- Two fixture diagnostics in separate files are selected and explicitly sent.
+  The response produces three hunks; deselecting the unrelated tail change leaves **2/3 selected**.
+  Native diffs open for both files; one Apply changes exactly the selected text.
+  The notification reports **1 disappeared, 1 still present, 0 not revalidated**, explicitly not test evidence.
+  One native Undo restores both buffers.
+- Reload clears captured Problems/proposal callbacks and terminates the old RPC child.
+  Exactly seven approved read-only prompts were sent: four reviews, Ask, Fix and batch repair.
+  No Pi tool or live model provider executes in the fixture.
+- Native testing reproduced an Apply stuck at `Applying…` while the diagnostic notification remained open.
+  Both diagnostic reporting and review-result notifications now release operation/request locks without waiting for dismissal.
+  Pending-notification regressions pass in `workspaceDiagnosticsController.test.ts` and `reviewActions.test.ts`; native assertions require completion before closing notifications.
+  False/throwing native Apply also disposes its pre-Apply diagnostic observer immediately, while preserving retry and stale checks.
+  Delayed review notification actions retain only a review ID and revalidate it, not an evicted raw snapshot.
 
-Concise notes above are the durable evidence; successful runner screenshots were also captured at `/tmp/pi-native-ui-1.106.0.png` and `/tmp/pi-native-ui-1.138.0.png`. This is automated interaction with native UI, not a human accessibility walkthrough or model-quality evaluation. Native API tests cover bridge/provider contracts separately, including missing providers and cancellation. Windows/SSH results above cover native APIs, not this Linux-only UI runner.
+Concise notes above are the durable evidence; successful runner screenshots were also captured at `/tmp/pi-native-ui-1.106.0.png` and `/tmp/pi-native-ui-1.138.0.png`.
+This is automated interaction with native UI, not a human accessibility walkthrough or model-quality evaluation.
+Native API tests cover bridge/provider contracts separately, including missing providers and cancellation.
+Windows/SSH results above cover native APIs, not this Linux-only UI runner.
 
-Final runners isolate Git configuration and VS Code's shared application-data directory as well as workspace/profile/extensions/Pi state. Initial 1.138 launches accessed VS Code's default shared application store despite `--user-data-dir`; final runs add `--shared-data-dir`. That shared store was not deleted or rolled back. Fixture workspaces/profiles are removed; the earlier Windows askpass cleanup limitation remains as recorded above.
+Final runners isolate Git configuration and VS Code's shared application-data directory as well as workspace/profile/extensions/Pi state.
+Initial 1.138 launches accessed VS Code's default shared application store despite `--user-data-dir`; final runs add `--shared-data-dir`.
+That shared store was not deleted or rolled back.
+Fixture workspaces/profiles are removed; the earlier Windows askpass cleanup limitation remains as recorded above.
 
 ### Verification and acceptance status
 
-- `npm audit --omit=dev`: zero vulnerabilities. `git diff --check`: passes. Final `npm run package` passes all 214 tests and produces a 63-entry / 50-runtime-module VSIX (`15d3dfb182b6c24edc5c0387d98eef1f84758f8e720d2f476eefdec2fe79e8d0`). The original ignored VSIX is restored byte-for-byte. Archive inspection verifies all five new compiled modules, locked proposal dispatch and the three packaged TypeScript bridge/gate resources, excluding source/tests/docs/scripts/source maps, Changesets and `node_modules`. `changeset status` recognizes the new release note without changing versions.
-- **Whole-repository Biome passes after the continuation.** Reproducible command: `npm exec --yes --package=@biomejs/biome@2.5.13 -- biome check src resources` (the manifest does not install a `biome` binary). The initial run had 151 errors versus 153 on the archived base. The follow-up applies mechanical formatting/import/declaration cleanup, adds explicit filesystem types and SVG titles, and documents two narrow exceptions for intentional NUL/ANSI regex matching without disabling any rule globally. Emitted-JavaScript/AST review accounts for import reordering/merging, split declarations, equivalent regex escaping and a test callback's unused return. Both normal and hook-environment suites retain 214 passing tests. The final run reports zero errors, 379 warnings and 9 infos; warnings are not hidden or treated as errors.
-- The base branch adopted Changesets after this plan was drafted. `.changeset/semantic-review-diagnostics.md` supplies the release note; `CHANGELOG.md` is generated by the release workflow and is intentionally not manually versioned. No version bump, publication, tag or release dispatch is performed.
-- Final verification passes: `npm test`, `GIT_INDEX_FILE=.git/index npm test`, whole-repository Biome, production audit, `git diff --check`, package/archive inspection, minimum/current native API and UI runners, both Restricted Mode launches, and the real Pi registration probe. Final diff review covers command parity, trust/URI/path/race guards, operation ownership, notification/observer disposal, resource bounds, remote placement and backwards compatibility. The formatting-only follow-up is isolated in its own commit.
-- Full development audit still reports the same three pre-existing transitive advisories (`fast-uri`, `js-yaml`, `qs`); none are shipped in the VSIX. Live provider quality, a human accessibility walkthrough and broad third-party language-extension compatibility are outside these assertions. No current-plan acceptance criterion is waived.
-- Handoff: signed commits are pushed to [PR #36](https://github.com/narumiruna/pi-vscode/pull/36), ready for review against `main`. No repository CI checks are configured on this PR; the verification above is local evidence. The completed `docs/plans/2026-09-21_semantic-context-review-diagnostics-plan.md` is removed after all checkboxes and PR handoff pass; this section retains the evidence.
+- `npm audit --omit=dev`: zero vulnerabilities.
+  `git diff --check`: passes.
+  Final `npm run package` passes all 214 tests and produces a 63-entry / 50-runtime-module VSIX (`15d3dfb182b6c24edc5c0387d98eef1f84758f8e720d2f476eefdec2fe79e8d0`).
+  The original ignored VSIX is restored byte-for-byte.
+  Archive inspection verifies all five new compiled modules, locked proposal dispatch and the three packaged TypeScript bridge/gate resources, excluding source/tests/docs/scripts/source maps, Changesets and `node_modules`.
+  `changeset status` recognizes the new release note without changing versions.
+- **Whole-repository Biome passes after the continuation.**
+  Reproducible command: `npm exec --yes --package=@biomejs/biome@2.5.13 -- biome check src resources` (the manifest does not install a `biome` binary).
+  The initial run had 151 errors versus 153 on the archived base.
+  The follow-up applies mechanical formatting/import/declaration cleanup, adds explicit filesystem types and SVG titles, and documents two narrow exceptions for intentional NUL/ANSI regex matching without disabling any rule globally.
+  Emitted-JavaScript/AST review accounts for import reordering/merging, split declarations, equivalent regex escaping and a test callback's unused return.
+  Both normal and hook-environment suites retain 214 passing tests.
+  The final run reports zero errors, 379 warnings and 9 infos; warnings are not hidden or treated as errors.
+- The base branch adopted Changesets after this plan was drafted.
+  `.changeset/semantic-review-diagnostics.md` supplies the release note; `CHANGELOG.md` is generated by the release workflow and is intentionally not manually versioned.
+  No version bump, publication, tag or release dispatch is performed.
+- Final verification passes: `npm test`, `GIT_INDEX_FILE=.git/index npm test`, whole-repository Biome, production audit, `git diff --check`, package/archive inspection, minimum/current native API and UI runners, both Restricted Mode launches, and the real Pi registration probe.
+  Final diff review covers command parity, trust/URI/path/race guards, operation ownership, notification/observer disposal, resource bounds, remote placement and backwards compatibility.
+  The formatting-only follow-up is isolated in its own commit.
+- Full development audit still reports the same three pre-existing transitive advisories (`fast-uri`, `js-yaml`, `qs`); none are shipped in the VSIX.
+  Live provider quality, a human accessibility walkthrough and broad third-party language-extension compatibility are outside these assertions.
+  No current-plan acceptance criterion is waived.
+- Handoff: signed commits are pushed to [PR #36](https://github.com/narumiruna/pi-vscode/pull/36), ready for review against `main`.
+  No repository CI checks are configured on this PR; the verification above is local evidence.
+  The completed `docs/plans/2026-09-21_semantic-context-review-diagnostics-plan.md` is removed after all checkboxes and PR handoff pass; this section retains the evidence.
 
 ### PR #36 review follow-up
 
-All three submitted findings were independently reproduced and fixed; the [review ledger](https://github.com/narumiruna/pi-vscode/blob/ef2acdc79ec2f40ae02d700adf814d8d234aec39/docs/reviews/2026-09-21_pr-36-review.md) records scope, severity and outcomes. Semantic lookup no longer disables otherwise attributable checkpoints. Semantic source/target/excerpt and diagnostic paths now use the selected folder's URI spelling while retaining canonical filesystem checks. Multi-file proposals bind that spelling to the captured canonical root, keep canonical operation locking, and reject retargeting before or during asynchronous Apply preflight. Nested file/directory symlinks remain excluded.
+All three submitted findings were independently reproduced and fixed; the [review ledger](https://github.com/narumiruna/pi-vscode/blob/ef2acdc79ec2f40ae02d700adf814d8d234aec39/docs/reviews/2026-09-21_pr-36-review.md) records scope, severity and outcomes.
+Semantic lookup no longer disables otherwise attributable checkpoints.
+Semantic source/target/excerpt and diagnostic paths now use the selected folder's URI spelling while retaining canonical filesystem checks.
+Multi-file proposals bind that spelling to the captured canonical root, keep canonical operation locking, and reject retargeting before or during asynchronous Apply preflight.
+Nested file/directory symlinks remain excluded.
 
-Four regression assertions failed against the reviewed production code, then passed after the fixes. A collector-only diagnostic fix still failed proposal creation, proving the adapter change was necessary. Focused validation passes 15 tests; normal, Git-hook-environment and package suites pass **217 tests / 41 files**. Biome passes with zero errors (380 warnings / 9 infos), production audit reports zero vulnerabilities, and `git diff --check` passes. The inspected VSIX (`0603bf82cbe7641840f2566263631676004a1c3ecaaeb2a64a7255b2b191f22c`) retains 63 entries / 50 runtime modules and all prior exclusions; the existing ignored artifact is unchanged.
+Four regression assertions failed against the reviewed production code, then passed after the fixes.
+A collector-only diagnostic fix still failed proposal creation, proving the adapter change was necessary.
+Focused validation passes 15 tests; normal, Git-hook-environment and package suites pass **217 tests / 41 files**.
+Biome passes with zero errors (380 warnings / 9 infos), production audit reports zero vulnerabilities, and `git diff --check` passes.
+The inspected VSIX (`0603bf82cbe7641840f2566263631676004a1c3ecaaeb2a64a7255b2b191f22c`) retains 63 entries / 50 runtime modules and all prior exclusions; the existing ignored artifact is unchanged.
 
-On Linux **1.106.0 and 1.138.0**, the complete native UI runner passes both ordinarily and with `alias` appended, asserting the actual Extension Host workspace URI retains the directory alias. Semantic attachments, review/Problems actions, diagnostic selection/send, selected-hunk Preview/Apply, one Undo and reload all pass. Both Restricted Mode launches and the real Pi registration probe pass. The model responses are deterministic RPC fixtures. No live-provider, native Windows/SSH alias or human accessibility verification is newly claimed; prior environment observations and limitations remain above.
+On Linux **1.106.0 and 1.138.0**, the complete native UI runner passes both ordinarily and with `alias` appended, asserting the actual Extension Host workspace URI retains the directory alias.
+Semantic attachments, review/Problems actions, diagnostic selection/send, selected-hunk Preview/Apply, one Undo and reload all pass.
+Both Restricted Mode launches and the real Pi registration probe pass.
+The model responses are deterministic RPC fixtures.
+No live-provider, native Windows/SSH alias or human accessibility verification is newly claimed; prior environment observations and limitations remain above.
 
 ### PR #36 finding-fix buffer follow-up
 
-The next review reproduced a separate canonical document bypassing unsaved content in a workspace-root alias. Finding fixes now validate canonical containment, then open the selected-folder-relative URI so the existing editor buffer/version controls availability, response validation, Preview and Apply. This also supports a selected aliased repository subfolder without allowing fixes outside it. Diff review independently found an asynchronous writable-check race; the after-image comparison now runs after that check and rejects changes before sending a fix request.
+The next review reproduced a separate canonical document bypassing unsaved content in a workspace-root alias.
+Finding fixes now validate canonical containment, then open the selected-folder-relative URI so the existing editor buffer/version controls availability, response validation, Preview and Apply.
+This also supports a selected aliased repository subfolder without allowing fixes outside it.
+Diff review independently found an asynchronous writable-check race; the after-image comparison now runs after that check and rejects changes before sending a fix request.
 
-The original URI bug fails a distinct-buffer regression and an actual VS Code 1.106.0 alias run. The writable-check race independently fails all three ordinary/alias/subfolder fixtures. After both fixes, **23 focused tests / 6 files** and **219 full-suite tests / 41 files** pass, including Git-hook-environment and package runs. Biome reports zero errors (374 warnings / 9 infos), production audit reports zero vulnerabilities, and `git diff --check` passes. The inspected 63-entry / 50-runtime-module VSIX (`800dd5d3c5dfa3c2be8faea6d936fb64705b7e359352c9b1d7eed2975a5889cb`) contains both fixes and retains all prior exclusions; the original ignored artifact is checksum-verified unchanged.
+The original URI bug fails a distinct-buffer regression and an actual VS Code 1.106.0 alias run.
+The writable-check race independently fails all three ordinary/alias/subfolder fixtures.
+After both fixes, **23 focused tests / 6 files** and **219 full-suite tests / 41 files** pass, including Git-hook-environment and package runs.
+Biome reports zero errors (374 warnings / 9 infos), production audit reports zero vulnerabilities, and `git diff --check` passes.
+The inspected 63-entry / 50-runtime-module VSIX (`800dd5d3c5dfa3c2be8faea6d936fb64705b7e359352c9b1d7eed2975a5889cb`) contains both fixes and retains all prior exclusions; the original ignored artifact is checksum-verified unchanged.
 
-On Linux **1.106.0 and 1.138.0**, ordinary and alias native UI runs now verify dirty finding buffers are Ask-only and direct Fix commands reject without a prompt. After Undo, actual Problems Fix → Preview → Apply changes the workspace document, and one native Undo restores it. The existing semantic, four review scopes, partial-hunk diagnostic repair, cancellation and reload assertions still pass with exactly seven approved read-only fixture prompts. This round does not newly claim Windows/SSH alias, live-provider or human accessibility coverage. The [review ledger](https://github.com/narumiruna/pi-vscode/blob/ef2acdc79ec2f40ae02d700adf814d8d234aec39/docs/reviews/2026-09-21_pr-36-review.md) records all four submitted findings plus the independently discovered race and their evidence.
+On Linux **1.106.0 and 1.138.0**, ordinary and alias native UI runs now verify dirty finding buffers are Ask-only and direct Fix commands reject without a prompt.
+After Undo, actual Problems Fix → Preview → Apply changes the workspace document, and one native Undo restores it.
+The existing semantic, four review scopes, partial-hunk diagnostic repair, cancellation and reload assertions still pass with exactly seven approved read-only fixture prompts.
+This round does not newly claim Windows/SSH alias, live-provider or human accessibility coverage.
+The [review ledger](https://github.com/narumiruna/pi-vscode/blob/ef2acdc79ec2f40ae02d700adf814d8d234aec39/docs/reviews/2026-09-21_pr-36-review.md) records all four submitted findings plus the independently discovered race and their evidence.
 
 ### PR #36 semantic ordering follow-up
 
-Semantic ranges now sort numerically by start line/column and end line/column after file path, before the existing result and excerpt limits. Two regressions fail against `4de0acb` and pass after correction: they cover all four coordinates, reversed provider order, duplicate locations, path precedence, the exact earliest 50 results from 101 unique locations, and the first 20 attachment excerpt headings. Deduplication keys, safety guards and resource limits are unchanged.
+Semantic ranges now sort numerically by start line/column and end line/column after file path, before the existing result and excerpt limits.
+Two regressions fail against `4de0acb` and pass after correction: they cover all four coordinates, reversed provider order, duplicate locations, path precedence, the exact earliest 50 results from 101 unique locations, and the first 20 attachment excerpt headings.
+Deduplication keys, safety guards and resource limits are unchanged.
 
-Validation passes **24 focused tests / 4 files** and **221 full-suite tests / 41 files**, including normal, Git-hook-environment and package runs. Biome has zero errors (374 warnings / 9 infos); production audit has zero vulnerabilities; `git diff --check` passes. Native Linux Extension Host API smoke tests pass on **1.106.0 and 1.138.0**. The deterministic fixtures prove numeric ordering; the native runs separately verify real provider/bridge/API compatibility. Native UI walkthroughs, Windows/SSH and live-provider quality were not rerun for this comparator-only change.
+Validation passes **24 focused tests / 4 files** and **221 full-suite tests / 41 files**, including normal, Git-hook-environment and package runs.
+Biome has zero errors (374 warnings / 9 infos); production audit has zero vulnerabilities; `git diff --check` passes.
+Native Linux Extension Host API smoke tests pass on **1.106.0 and 1.138.0**.
+The deterministic fixtures prove numeric ordering; the native runs separately verify real provider/bridge/API compatibility.
+Native UI walkthroughs, Windows/SSH and live-provider quality were not rerun for this comparator-only change.
 
-The inspected VSIX (`8c3391db976f9fa3260e51fc5561a59a03458c39eb69f63f818478d85b818f81`) contains the numeric comparisons and unchanged deduplication/limit paths, retains 63 entries / 50 runtime modules and all prior exclusions. The original ignored VSIX is checksum-verified unchanged. All five submitted findings and the independently discovered writable-check race have evidence-backed outcomes in the [review ledger](https://github.com/narumiruna/pi-vscode/blob/ef2acdc79ec2f40ae02d700adf814d8d234aec39/docs/reviews/2026-09-21_pr-36-review.md).
+The inspected VSIX (`8c3391db976f9fa3260e51fc5561a59a03458c39eb69f63f818478d85b818f81`) contains the numeric comparisons and unchanged deduplication/limit paths, retains 63 entries / 50 runtime modules and all prior exclusions.
+The original ignored VSIX is checksum-verified unchanged.
+All five submitted findings and the independently discovered writable-check race have evidence-backed outcomes in the [review ledger](https://github.com/narumiruna/pi-vscode/blob/ef2acdc79ec2f40ae02d700adf814d8d234aec39/docs/reviews/2026-09-21_pr-36-review.md).
 
 ### PR #36 worktree containment follow-up
 
-A P1 review finding was reproduced against `dfca1f3`: replacing an already-checked parent directory could put outside-file bytes into the unstaged/working-tree provider context, even through final recapture validation. The reader now retains the root/ancestor identities and nanosecond change/modification times, checks canonical containment and named/opened identity before reading, then repeats containment/ancestor checks before retaining bytes. Opened file type, link count and size are rechecked; POSIX nonblocking opens reject a substituted FIFO without waiting for a writer. Rejected descriptors are closed.
+A P1 review finding was reproduced against `dfca1f3`: replacing an already-checked parent directory could put outside-file bytes into the unstaged/working-tree provider context, even through final recapture validation.
+The reader now retains the root/ancestor identities and nanosecond change/modification times, checks canonical containment and named/opened identity before reading, then repeats containment/ancestor checks before retaining bytes.
+Opened file type, link count and size are rechecked; POSIX nonblocking opens reject a substituted FIFO without waiting for a writer.
+Rejected descriptors are closed.
 
-Ten real-filesystem swap cases span five interleavings in both scopes; four fail before the fix and all pass afterward. Additional tests retain ordinary nested files and workspace-root aliases, reject opened-file growth before reading and reject/close a substituted FIFO. **35 focused tests / 4 files** and **235 full-suite tests / 41 files** pass in normal, Git-hook-environment and package runs. Biome has zero errors (374 warnings / 9 infos); production audit has zero vulnerabilities; `git diff --check` passes. Linux **1.106.0 and 1.138.0** native API tests and complete alias-workspace UI walkthroughs pass.
+Ten real-filesystem swap cases span five interleavings in both scopes; four fail before the fix and all pass afterward.
+Additional tests retain ordinary nested files and workspace-root aliases, reject opened-file growth before reading and reject/close a substituted FIFO.
+**35 focused tests / 4 files** and **235 full-suite tests / 41 files** pass in normal, Git-hook-environment and package runs.
+Biome has zero errors (374 warnings / 9 infos); production audit has zero vulnerabilities; `git diff --check` passes.
+Linux **1.106.0 and 1.138.0** native API tests and complete alias-workspace UI walkthroughs pass.
 
-An isolated Windows Node 24.18.1 runner executes 13 of the same compiled filesystem fixtures against native Windows Git and NTFS junctions. Six junction-swap variants execute and are rejected by the capture guards; Windows denies the other four after-open/during-read rename variants. All retain zero foreign descriptor reads and balanced closes. Two canonical/alias controls and opened-size rejection also pass. The test-owned descriptor cleanup was corrected after an initial denied-rename attempt; final runner/workspace cleanup succeeds. This is not a new Windows Extension Host UI claim; the POSIX FIFO case runs only on Linux. SSH/macOS/live-provider paths were not rerun. Other processes still prevent any filesystem-wide atomicity guarantee.
+An isolated Windows Node 24.18.1 runner executes 13 of the same compiled filesystem fixtures against native Windows Git and NTFS junctions.
+Six junction-swap variants execute and are rejected by the capture guards; Windows denies the other four after-open/during-read rename variants.
+All retain zero foreign descriptor reads and balanced closes.
+Two canonical/alias controls and opened-size rejection also pass.
+The test-owned descriptor cleanup was corrected after an initial denied-rename attempt; final runner/workspace cleanup succeeds.
+This is not a new Windows Extension Host UI claim; the POSIX FIFO case runs only on Linux.
+SSH/macOS/live-provider paths were not rerun.
+Other processes still prevent any filesystem-wide atomicity guarantee.
 
-The inspected VSIX (`8c038d7644d57ef926f62d9c1311b3400cae4c19a595f2ffda9f158a6f4f8bec`) contains the containment, ancestor, opened-file and nonblocking checks, retains 63 entries / 50 runtime modules and prior exclusions, and leaves the original ignored VSIX checksum unchanged. All six submitted findings plus the independently discovered writable-check race have evidence-backed outcomes in the [review ledger](https://github.com/narumiruna/pi-vscode/blob/ef2acdc79ec2f40ae02d700adf814d8d234aec39/docs/reviews/2026-09-21_pr-36-review.md).
+The inspected VSIX (`8c038d7644d57ef926f62d9c1311b3400cae4c19a595f2ffda9f158a6f4f8bec`) contains the containment, ancestor, opened-file and nonblocking checks, retains 63 entries / 50 runtime modules and prior exclusions, and leaves the original ignored VSIX checksum unchanged.
+All six submitted findings plus the independently discovered writable-check race have evidence-backed outcomes in the [review ledger](https://github.com/narumiruna/pi-vscode/blob/ef2acdc79ec2f40ae02d700adf814d8d234aec39/docs/reviews/2026-09-21_pr-36-review.md).
 
 ### PR #36 diagnostic capture follow-up (after merge)
 
-The latest P1 feedback was independently reproduced after PR #36 merged: a file/parent substitution between validation and VS Code opening a closed file could send outside bytes, including after restoring the parent or making the new document dirty. The fix is isolated on `narumi/fix/diagnostic-file-identity`, based on `main` at `80c5507`, for a new follow-up PR.
+The latest P1 feedback was independently reproduced after PR #36 merged: a file/parent substitution between validation and VS Code opening a closed file could send outside bytes, including after restoring the parent or making the new document dirty.
+The fix is isolated on `narumi/fix/diagnostic-file-identity`, based on `main` at `80c5507`, for a new follow-up PR.
 
-Clean/new documents now have to match a safely captured, bounded disk snapshot before inspection or transmission. `workspaceFiles.ts` shares the prior descriptor/ancestor guards without changing Git text decoding or limits. All already-dirty sources are frozen before filesystem awaits and reused without reopening; changes to a later file during an earlier file's check are rejected. Root aliases, BOMs, configured supported encodings and editor EOL normalization remain supported; unverifiable decoding fails closed. The reader is not a filesystem-wide atomicity guarantee.
+Clean/new documents now have to match a safely captured, bounded disk snapshot before inspection or transmission.
+`workspaceFiles.ts` shares the prior descriptor/ancestor guards without changing Git text decoding or limits.
+All already-dirty sources are frozen before filesystem awaits and reused without reopening; changes to a later file during an earlier file's check are rejected.
+Root aliases, BOMs, configured supported encodings and editor EOL normalization remain supported; unverifiable decoding fails closed.
+The reader is not a filesystem-wide atomicity guarantee.
 
-Four pre-fix disclosure fixtures fail; the expanded **29 capture tests** now pass, including eight ordinary/alias substitution cases, dirty/disk divergence, stale/closed buffers, root retargeting, deletion, byte/character bounds, UTF BOMs, mixed EOLs and malformed/unsupported encodings. **54 focused tests / 5 files** and **264 full-suite tests / 42 files** pass, including normal, Git-hook-environment and package runs. Biome has zero errors (389 warnings / 9 infos); production audit has zero vulnerabilities; diff checks pass. Linux VS Code **1.106.0 and 1.138.0** native API and complete alias UI runs pass with deterministic RPC responses, including actual Preview/Apply/Undo and reload cleanup.
+Four pre-fix disclosure fixtures fail; the expanded **29 capture tests** now pass, including eight ordinary/alias substitution cases, dirty/disk divergence, stale/closed buffers, root retargeting, deletion, byte/character bounds, UTF BOMs, mixed EOLs and malformed/unsupported encodings.
+**54 focused tests / 5 files** and **264 full-suite tests / 42 files** pass, including normal, Git-hook-environment and package runs.
+Biome has zero errors (389 warnings / 9 infos); production audit has zero vulnerabilities; diff checks pass.
+Linux VS Code **1.106.0 and 1.138.0** native API and complete alias UI runs pass with deterministic RPC responses, including actual Preview/Apply/Undo and reload cleanup.
 
-An isolated Windows Node **24.18.1** run passes **40 compiled filesystem fixtures**: 13 shared-reader/worktree cases and 27 diagnostic cases. The two diagnostic leaf-symlink variants cannot execute because this account's native `symlink` returns `EPERM`; both pass on Linux. All six diagnostic parent-junction/restoration/new-dirty variants execute on Windows and reject foreign context. The earlier four worktree rename variants remain OS-denied, not newly exercised races. Owned fixture cleanup succeeds. This is not Windows Extension Host UI evidence; SSH/macOS/live-provider paths were not rerun.
+An isolated Windows Node **24.18.1** run passes **40 compiled filesystem fixtures**: 13 shared-reader/worktree cases and 27 diagnostic cases.
+The two diagnostic leaf-symlink variants cannot execute because this account's native `symlink` returns `EPERM`; both pass on Linux.
+All six diagnostic parent-junction/restoration/new-dirty variants execute on Windows and reject foreign context.
+The earlier four worktree rename variants remain OS-denied, not newly exercised races.
+Owned fixture cleanup succeeds.
+This is not Windows Extension Host UI evidence; SSH/macOS/live-provider paths were not rerun.
 
-The inspected VSIX (`1b9ab1087c4cf008e7279c0dce461c786de701ad09103ae794bacbbf8c13510b`) has **64 entries / 51 runtime modules**, includes the new shared reader and retains all prior exclusions. The original ignored VSIX is checksum-verified unchanged. The [review ledger](https://github.com/narumiruna/pi-vscode/blob/ef2acdc79ec2f40ae02d700adf814d8d234aec39/docs/reviews/2026-09-21_pr-36-review.md) records all seven submitted findings and the independent writable-check race; no deferred feedback or clarification remains. A patch Changeset is included without a version bump, package publication, tag or release dispatch.
+The inspected VSIX (`1b9ab1087c4cf008e7279c0dce461c786de701ad09103ae794bacbbf8c13510b`) has **64 entries / 51 runtime modules**, includes the new shared reader and retains all prior exclusions.
+The original ignored VSIX is checksum-verified unchanged.
+The [review ledger](https://github.com/narumiruna/pi-vscode/blob/ef2acdc79ec2f40ae02d700adf814d8d234aec39/docs/reviews/2026-09-21_pr-36-review.md) records all seven submitted findings and the independent writable-check race; no deferred feedback or clarification remains.
+A patch Changeset is included without a version bump, package publication, tag or release dispatch.
 
 ### PR #37 diagnostic encoding follow-up (after merge)
 
-The new diagnostic disk verifier rejected eight valid VS Code setting names because they were not Node `TextDecoder` labels. All eight failures were reproduced before the fix. `diagnosticEncoding.ts` now maps Shift JIS, EUC-JP/KR, KOI8-R/U, Mac Roman and Big5 identifiers while retaining fatal decoding, BOM precedence, EOL normalization and exact editor-text equality. The 49-label upstream inventory is covered by 41 non-ASCII positive fixtures and eight unsupported-codec fixtures. Truncated multibyte data and foreign editor text still reject. Codec-table differences are runtime-dependent: Big5-HKSCS `9dee` differs from VS Code in Linux Node 26 but agrees in Windows Node 24, so tests require actual decoder/editor agreement rather than a universal rejection.
+The new diagnostic disk verifier rejected eight valid VS Code setting names because they were not Node `TextDecoder` labels.
+All eight failures were reproduced before the fix.
+`diagnosticEncoding.ts` now maps Shift JIS, EUC-JP/KR, KOI8-R/U, Mac Roman and Big5 identifiers while retaining fatal decoding, BOM precedence, EOL normalization and exact editor-text equality.
+The 49-label upstream inventory is covered by 41 non-ASCII positive fixtures and eight unsupported-codec fixtures.
+Truncated multibyte data and foreign editor text still reject.
+Codec-table differences are runtime-dependent: Big5-HKSCS `9dee` differs from VS Code in Linux Node 26 but agrees in Windows Node 24, so tests require actual decoder/editor agreement rather than a universal rejection.
 
-**119 focused tests / 5 files** and **329 full-suite tests / 42 files** pass in normal, Git-hook-environment and package runs. Linux VS Code **1.106.0 and 1.138.0** native API runs each verify all **41 real encoded editor files** against safely captured bytes, and both complete alias UI walkthroughs pass Preview/Apply/Undo and lifecycle checks. The disposable workspace's encoding setting is restored. Short CJK UTF-16 fixtures use BOMs because VS Code's binary detector rejects their BOM-less form. Actual Windows Node **24.18.1** passes all **65 new encoding capture fixtures** with real temporary files; this is not Windows Extension Host UI evidence. No Windows symlink, SSH, macOS or live-provider rerun is claimed.
+**119 focused tests / 5 files** and **329 full-suite tests / 42 files** pass in normal, Git-hook-environment and package runs.
+Linux VS Code **1.106.0 and 1.138.0** native API runs each verify all **41 real encoded editor files** against safely captured bytes, and both complete alias UI walkthroughs pass Preview/Apply/Undo and lifecycle checks.
+The disposable workspace's encoding setting is restored.
+Short CJK UTF-16 fixtures use BOMs because VS Code's binary detector rejects their BOM-less form.
+Actual Windows Node **24.18.1** passes all **65 new encoding capture fixtures** with real temporary files; this is not Windows Extension Host UI evidence.
+No Windows symlink, SSH, macOS or live-provider rerun is claimed.
 
-Biome has zero errors (396 warnings / 9 infos), production audit has zero vulnerabilities, and diff checks pass. The inspected VSIX (`ea22b409486e1d66b60efc7bbfe89a494eae651f796014c327270a2592f2d111`) has **65 entries / 52 runtime modules**, contains the pure decoder and retains all prior exclusions; the original ignored artifact is checksum-verified unchanged. The [PR #37 review ledger](https://github.com/narumiruna/pi-vscode/blob/ef2acdc79ec2f40ae02d700adf814d8d234aec39/docs/reviews/2026-09-21_pr-37-review.md) records the sole feedback item, reproduction, scope and limitations. A patch Changeset is included; no release action is performed.
+Biome has zero errors (396 warnings / 9 infos), production audit has zero vulnerabilities, and diff checks pass.
+The inspected VSIX (`ea22b409486e1d66b60efc7bbfe89a494eae651f796014c327270a2592f2d111`) has **65 entries / 52 runtime modules**, contains the pure decoder and retains all prior exclusions; the original ignored artifact is checksum-verified unchanged.
+The [PR #37 review ledger](https://github.com/narumiruna/pi-vscode/blob/ef2acdc79ec2f40ae02d700adf814d8d234aec39/docs/reviews/2026-09-21_pr-37-review.md) records the sole feedback item, reproduction, scope and limitations.
+A patch Changeset is included; no release action is performed.
 
 ## Panel rich content — 2026-10-16
 
-The panel uses one host Markdown parser, bundled KaTeX/highlighting, and browser-side Mermaid enrichment with DOMPurify. Original Markdown remains authoritative in RPC and storage. Source is retained for rejected, incomplete, unsupported, or failed diagrams and formulas. Supported syntax and finite limits are specified in README and Security.
+The panel uses one host Markdown parser, bundled KaTeX/highlighting, and browser-side Mermaid enrichment with DOMPurify.
+Original Markdown remains authoritative in RPC and storage.
+Source is retained for rejected, incomplete, unsupported, or failed diagrams and formulas.
+Supported syntax and finite limits are specified in README and Security.
 
 Verified on Linux:
 
 - `npm test`: **355 tests / 43 files** passed.
-- `npm run test:rich-content`: actual sidebar HTML, local fonts, fraction/matrix layout, flowchart/sequence labels and geometry, MathML annotations, malicious HTML/SVG/URL rejection, script CSP, no external requests, light/dark/high-contrast themes, 280/900px widths, long table/code/math overflow, keyboard navigation, and reader scroll preservation passed. A delayed renderer fixture proves cache reuse/eviction, a 100-job queue, stale updates, detached replacement nodes, session replacement, and disposal.
-- `xvfb-run -a npm run test:native -- 1.106.0`: native Extension Host regression checks passed, including 41 encoding cases. The same command with `untrusted` passed the trust guard.
+- `npm run test:rich-content`: actual sidebar HTML, local fonts, fraction/matrix layout, flowchart/sequence labels and geometry, MathML annotations, malicious HTML/SVG/URL rejection, script CSP, no external requests, light/dark/high-contrast themes, 280/900px widths, long table/code/math overflow, keyboard navigation, and reader scroll preservation passed.
+  A delayed renderer fixture proves cache reuse/eviction, a 100-job queue, stale updates, detached replacement nodes, session replacement, and disposal.
+- `xvfb-run -a npm run test:native -- 1.106.0`: native Extension Host regression checks passed, including 41 encoding cases.
+  The same command with `untrusted` passed the trust guard.
 - `xvfb-run -a npm run test:native-ui -- 1.106.0`: actual webview rendering and existing workflow/reload checks passed with a deterministic Pi fixture.
-- `npm run package`: passed. The inspected `pi.vsix` contains 130 files, the host CJS renderer, browser bundle/CSS, KaTeX fonts, and third-party license texts; development dependencies are excluded. The archive is approximately 2.63 MB.
-- `xvfb-run -a npm run test:native-ui -- 1.106.0 packaged` and `xvfb-run -a npm run test:native-ui -- 1.106.0 alias packaged`: the installed VSIX passed the complete UI walkthrough in disposable normal and symlinked workspaces. Math used fonts from the installed extension resource root; flowchart and sequence SVG retained their labels.
-- Repository Biome check and `git diff --check`: zero errors. Biome still reports 421 existing warnings and 12 informational diagnostics. `npm audit --omit=dev` reports zero findings. Full audit reports two existing development-only advisories in `qs` and `shell-quote`; their versions are unchanged from the base and neither package is in the renderer bundles.
+- `npm run package`: passed.
+  The inspected `pi.vsix` contains 130 files, the host CJS renderer, browser bundle/CSS, KaTeX fonts, and third-party license texts; development dependencies are excluded.
+  The archive is approximately 2.63 MB.
+- `xvfb-run -a npm run test:native-ui -- 1.106.0 packaged` and `xvfb-run -a npm run test:native-ui -- 1.106.0 alias packaged`: the installed VSIX passed the complete UI walkthrough in disposable normal and symlinked workspaces.
+  Math used fonts from the installed extension resource root; flowchart and sequence SVG retained their labels.
+- Repository Biome check and `git diff --check`: zero errors.
+  Biome still reports 421 existing warnings and 12 informational diagnostics.
+  `npm audit --omit=dev` reports zero findings.
+  Full audit reports two existing development-only advisories in `qs` and `shell-quote`; their versions are unchanged from the base and neither package is in the renderer bundles.
 
-The CSP style permission is deliberately broader than before: generated KaTeX attributes and Mermaid SVG styles require inline styles. Scripts remain nonce-only; eval, external resources, arbitrary message HTML/CSS, and diagram callbacks remain blocked. Synchronous rendering has source/expansion/edge bounds, not hard time preemption. Only flowchart/sequence Mermaid syntax is enabled. The browser bundle is approximately 5.1 MB before VSIX compression. No live provider, remote host, native Windows/macOS UI, browser-only extension host, or screen-reader application was exercised. URI loading uses stable VS Code APIs; host placement, trust contract, RPC, and persisted source formats are unchanged.
+The CSP style permission is deliberately broader than before: generated KaTeX attributes and Mermaid SVG styles require inline styles.
+Scripts remain nonce-only; eval, external resources, arbitrary message HTML/CSS, and diagram callbacks remain blocked.
+Synchronous rendering has source/expansion/edge bounds, not hard time preemption.
+Only flowchart/sequence Mermaid syntax is enabled.
+The browser bundle is approximately 5.1 MB before VSIX compression.
+No live provider, remote host, native Windows/macOS UI, browser-only extension host, or screen-reader application was exercised.
+URI loading uses stable VS Code APIs; host placement, trust contract, RPC, and persisted source formats are unchanged.
 
 ### PR #50 review follow-up
 
-The original 100-message cache reproduction parsed all 100 messages again on its second scan. The provider now uses `MarkdownRenderer.renderBatch()` to read existing hits before inserting misses. The same-size second scan needs 36 parser calls; changed streaming tails need at most 37. The 64-entry and 2,000,000-character retention limits remain unchanged. Tests also cover duplicate sources, oversized results, and character-limit eviction.
+The original 100-message cache reproduction parsed all 100 messages again on its second scan.
+The provider now uses `MarkdownRenderer.renderBatch()` to read existing hits before inserting misses.
+The same-size second scan needs 36 parser calls; changed streaming tails need at most 37.
+The 64-entry and 2,000,000-character retention limits remain unchanged.
+Tests also cover duplicate sources, oversized results, and character-limit eviction.
 
-SVG copies now update IDs, CSS selectors, and local URL/ARIA references through DOM and CSS APIs. Text nodes, titles, descriptions, and CSS string values remain unchanged. The real fixture keeps `piDiagram1` and `piDiagram10` in visible labels. Browser tests check first/cached copies, distinct IDs, markers, hrefs, inline styles, nested rules, CSS URLs, and ARIA references.
+SVG copies now update IDs, CSS selectors, and local URL/ARIA references through DOM and CSS APIs.
+Text nodes, titles, descriptions, and CSS string values remain unchanged.
+The real fixture keeps `piDiagram1` and `piDiagram10` in visible labels.
+Browser tests check first/cached copies, distinct IDs, markers, hrefs, inline styles, nested rules, CSS URLs, and ARIA references.
 
-`npm run package` passes **357 tests / 43 files** and creates a valid 130-file VSIX. `npm run test:rich-content` and `xvfb-run -a npm run test:native-ui -- 1.106.0 packaged` pass with the added cases. Full Biome, diff checks, and production audit pass with the same existing warnings. Host placement, minimum VS Code version, source storage, RPC, trust, and CSP are unchanged. See [the PR #50 review ledger](https://github.com/narumiruna/pi-vscode/blob/ef2acdc79ec2f40ae02d700adf814d8d234aec39/docs/reviews/pr-50-review.md) for both findings, reproductions, outcomes, and validation limits.
+`npm run package` passes **357 tests / 43 files** and creates a valid 130-file VSIX.
+`npm run test:rich-content` and `xvfb-run -a npm run test:native-ui -- 1.106.0 packaged` pass with the added cases.
+Full Biome, diff checks, and production audit pass with the same existing warnings.
+Host placement, minimum VS Code version, source storage, RPC, trust, and CSP are unchanged.
+See [the PR #50 review ledger](https://github.com/narumiruna/pi-vscode/blob/ef2acdc79ec2f40ae02d700adf814d8d234aec39/docs/reviews/pr-50-review.md) for both findings, reproductions, outcomes, and validation limits.
 
-The subsequent hosted merge check uses Node.js 22 and fails the unchanged `iso885916` diagnostic fixture. Local Node.js 22.23.3 reproduces `ERR_ENCODING_NOT_SUPPORTED` for `TextDecoder("iso-8859-16")`; 93 other tests in that file pass. The encoding source/fixtures are unchanged from the PR base and current main. This is a separate test-portability issue, not a panel regression. The hosted check is not green. The review ledger records the evidence and recommends a separate encoding-test PR.
+The subsequent hosted merge check uses Node.js 22 and fails the unchanged `iso885916` diagnostic fixture.
+Local Node.js 22.23.3 reproduces `ERR_ENCODING_NOT_SUPPORTED` for `TextDecoder("iso-8859-16")`; 93 other tests in that file pass.
+The encoding source/fixtures are unchanged from the PR base and current main.
+This is a separate test-portability issue, not a panel regression.
+The hosted check is not green.
+The review ledger records the evidence and recommends a separate encoding-test PR.
 
 ## Windows Pi process launch repair — 2026-10-17
 
-This section preserves historical evidence from the retired Windows process-launch plan, following merged [PR #73](https://github.com/narumiruna/pi-vscode/pull/73). No checks were rerun during plan removal.
+This section preserves historical evidence from the retired Windows process-launch plan, following merged [PR #73](https://github.com/narumiruna/pi-vscode/pull/73).
+No checks were rerun during plan removal.
 
 ### Baseline and repair
 
-The reviewed head was `62d5f5c97ad2d42758d475ca7de3c60162b9d847`, compared with merge base `ec6dfe8465e7b0a96c18d28270164622fec91a89`. The merged baseline was `d263ed22bc5a2f0ea340463c181ea4c74dd5a623`; the repair was rebased onto `a58127a469a8013bf2b5ecd4817e11c1daac7f3c` after PR #75 merged.
+The reviewed head was `62d5f5c97ad2d42758d475ca7de3c60162b9d847`, compared with merge base `ec6dfe8465e7b0a96c18d28270164622fec91a89`.
+The merged baseline was `d263ed22bc5a2f0ea340463c181ea4c74dd5a623`; the repair was rebased onto `a58127a469a8013bf2b5ecd4817e11c1daac7f3c` after PR #75 merged.
 
-Isolated Windows fixtures reproduced argument expansion, harmless injected `echo` execution, and a surviving runtime after RPC stop. The initial review recorded `spawn EINVAL` on base shim launches and successful but unsafe launches on the reviewed head. A later deterministic baseline harness also confirmed different parent/child PATH selections, duplicate mixed-case PATH entries after unset, and incorrect directory-qualified relative resolution. Fixtures never executed the installed Pi binary; owned processes and temporary baseline copies were removed.
+Isolated Windows fixtures reproduced argument expansion, harmless injected `echo` execution, and a surviving runtime after RPC stop.
+The initial review recorded `spawn EINVAL` on base shim launches and successful but unsafe launches on the reviewed head.
+A later deterministic baseline harness also confirmed different parent/child PATH selections, duplicate mixed-case PATH entries after unset, and incorrect directory-qualified relative resolution.
+Fixtures never executed the installed Pi binary; owned processes and temporary baseline copies were removed.
 
-The repair uses one final normalized child environment and launch working directory for executable resolution and spawning. Windows launches use `shell: false`: native executables run directly, and complete standard npm Node shim templates resolve to a Node executable and script without evaluating batch text. Custom wrappers fail before execution. Prompts and context remain on stdin.
+The repair uses one final normalized child environment and launch working directory for executable resolution and spawning.
+Windows launches use `shell: false`: native executables run directly, and complete standard npm Node shim templates resolve to a Node executable and script without evaluating batch text.
+Custom wrappers fail before execution.
+Prompts and context remain on stdin.
 
-Both clients share bounded process cleanup. The actual runtime is the owned child; POSIX retains process-group cleanup. Windows descendant containment is not claimed, even after root exit. Cleanup waits at most one second for graceful root exit and one further second for pipe closure after forced termination. RPC settlement occurs once after cleanup; restart guards and retained background warning subscriptions preserve cleanup uncertainty. README and Security retain the support contract.
+Both clients share bounded process cleanup.
+The actual runtime is the owned child; POSIX retains process-group cleanup.
+Windows descendant containment is not claimed, even after root exit.
+Cleanup waits at most one second for graceful root exit and one further second for pipe closure after forced termination.
+RPC settlement occurs once after cleanup; restart guards and retained background warning subscriptions preserve cleanup uncertainty.
+README and Security retain the support contract.
 
 ### Recorded verification
 
@@ -281,18 +581,38 @@ Native Windows checks compiled first, then ran:
 npm exec -- vitest run out/test/piSpawn.test.js out/test/piClient.test.js out/test/piRpcClient.test.js out/test/piProcess.test.js
 ```
 
-Linux checks used `npm ci`, `npm test`, the documented Biome command, and `npm run package`. Native smoke checks compiled first, then ran `xvfb-run -a node scripts/test-native.mjs 1.106.0` and the same command with `stable`. Fixtures used disposable profiles or temporary directories. Focused Windows launch/lifecycle CI was added in `.github/workflows/ci.yml`.
+Linux checks used `npm ci`, `npm test`, the documented Biome command, and `npm run package`.
+Native smoke checks compiled first, then ran `xvfb-run -a node scripts/test-native.mjs 1.106.0` and the same command with `stable`.
+Fixtures used disposable profiles or temporary directories.
+Focused Windows launch/lifecycle CI was added in `.github/workflows/ci.yml`.
 
 ### Existing failures and validation limits
 
-- The initial Windows review recorded 15 focused passes and a full-suite result of 362 passed, 27 failed, and one skipped. It was not a clean Windows baseline.
-- After rebase, the full Windows suite on Node.js 26.6.0 recorded 392 passed, 22 failed, and one skipped. The unchanged original baseline reproduced the same 21 platform/permission failures and intermittent semantic-bridge timeout. Earlier repair runs passed the timeout case; it recurred in the final full run. Failures included symlink permissions, POSIX-only filenames/path assertions, line endings, and shell-based installer fixtures. A restricted PATH prevented fallback to an installed editor or Pi command.
-- Linux Node.js 22.22.0 failed the Windows-1252 diagnostic fixture on both baseline and repair because byte `0x80` decoded differently from the fixture expectation. The final suite passed on Node.js 22.23.3; unrelated encoding code was not changed.
-- Browser and remote workflows were not run for this repair. Native Windows Extension Host and packaged-install behavior were not tested. Native Windows evidence came from real Node process fixtures, not a simulated platform flag.
-- No live provider, publication, version tag, installed-extension replacement, or release workflow dispatch was used. Custom wrappers remain unsupported. A root-process exit does not prove that tool descendants stopped.
+- The initial Windows review recorded 15 focused passes and a full-suite result of 362 passed, 27 failed, and one skipped.
+  It was not a clean Windows baseline.
+- After rebase, the full Windows suite on Node.js 26.6.0 recorded 392 passed, 22 failed, and one skipped.
+  The unchanged original baseline reproduced the same 21 platform/permission failures and intermittent semantic-bridge timeout.
+  Earlier repair runs passed the timeout case; it recurred in the final full run.
+  Failures included symlink permissions, POSIX-only filenames/path assertions, line endings, and shell-based installer fixtures.
+  A restricted PATH prevented fallback to an installed editor or Pi command.
+- Linux Node.js 22.22.0 failed the Windows-1252 diagnostic fixture on both baseline and repair because byte `0x80` decoded differently from the fixture expectation.
+  The final suite passed on Node.js 22.23.3; unrelated encoding code was not changed.
+- Browser and remote workflows were not run for this repair.
+  Native Windows Extension Host and packaged-install behavior were not tested.
+  Native Windows evidence came from real Node process fixtures, not a simulated platform flag.
+- No live provider, publication, version tag, installed-extension replacement, or release workflow dispatch was used.
+  Custom wrappers remain unsupported.
+  A root-process exit does not prove that tool descendants stopped.
 
-The user approved plan removal. This does not convert failed or unverified checks into passes. If a regression occurs, use a targeted correction or an explicit launch error; do not restore the unsafe shell path.
+The user approved plan removal.
+This does not convert failed or unverified checks into passes.
+If a regression occurs, use a targeted correction or an explicit launch error; do not restore the unsafe shell path.
 
 ## Deferred usage checks from earlier plans
 
-Per the user's explicit acceptance decision for those earlier plans, later real-world use will cover native Quick Picks/diff editors/Undo, full keyboard navigation and actual theme contrast on minimum/current VS Code, untrusted UI, SSH/container placement, installed Pi versions/provider behavior, and paused Node.js debugger interaction. Unsupported/uncertain queue commands disconnect without replay; unsupported adapters/resources and unverified task inactivity fail closed. These limitations and workflow bounds are documented in the README and Security guide.
+The user's acceptance decision for those earlier plans deferred remaining manual and workflow-specific checks to later real-world use.
+Automated native Quick Pick/diff/Undo, Restricted Mode and SSH API checks are already recorded above for specific workflows and environments.
+That evidence does not complete every earlier workflow or establish coverage for untested platforms, remote layouts or live providers.
+Remaining checks include full keyboard navigation, actual theme contrast, untested native and SSH/container workflow paths, installed Pi versions/live model providers, and paused Node.js debugger interaction.
+Unsupported/uncertain queue commands disconnect without replay; unsupported adapters/resources and unverified task inactivity fail closed.
+Current limitations and workflow bounds are documented in the [README](../README.md#security-and-limits) and [Security guide](SECURITY.md).
