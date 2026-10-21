@@ -716,7 +716,7 @@ test("sidebar preserves hidden semantics, themed layout, and keyboard accessibil
   assert.match(html, /id="send"[^>]*aria-label="Send message"[^>]*disabled/);
   assert.match(html, /sendButton\.hidden = busy && !canQueue/);
   assert.match(html, /cancelButton\.hidden = !cancellable/);
-  assert.match(html, /if \(event\.isComposing\) return/);
+  assert.match(html, /if \(event\.isComposing \|\| event\.keyCode === 229\) return/);
   assert.match(html, /input\.scrollHeight/);
 });
 
@@ -1206,10 +1206,13 @@ class SidebarTestElement {
       this.children.push(element);
     }
   }
-  insertBefore(element: SidebarTestElement, reference: SidebarTestElement): void {
+  contains(element: SidebarTestElement): boolean {
+    return this === element || this.children.some((child) => child.contains(element));
+  }
+  insertBefore(element: SidebarTestElement, reference: SidebarTestElement | null): void {
     element.parentElement?.removeChild(element);
     element.parentElement = this;
-    const index = this.children.indexOf(reference);
+    const index = reference ? this.children.indexOf(reference) : -1;
     this.children.splice(index < 0 ? this.children.length : index, 0, element);
   }
   appendChild(element: SidebarTestElement): void {
@@ -2674,6 +2677,8 @@ test("streamed state patches stable conversation, tool, and attachment nodes in 
   assert.equal(sidebar.element("add-context").disabled, false);
 
   state("<p>First second</p>", "one\ntwo", true);
+  assert.equal(sidebar.element("messages").children[0], message, "appending a message keeps existing articles");
+  assert.equal(message.children[1]?.innerHTML, "<p>First second</p>");
   assert.equal(
     sidebar.element("attachments").children[0],
     attachment,
@@ -2696,6 +2701,118 @@ test("streamed state patches stable conversation, tool, and attachment nodes in 
   output.listeners.get("scroll")!({ isTrusted: true });
   state("<p>First second third</p>", "one\ntwo\nthree\nfour");
   assert.equal(output.scrollTop, 400, "tool output follows updates when already at the bottom");
+});
+
+test("message reconciliation connects all articles before rendering their rich content", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.run(`
+    globalThis.renderedContents = [];
+    window.piRichContent = {
+      setContent(content, html) {
+        if (!messagesElement.contains(content)) throw new Error('Rich content target is detached');
+        content.innerHTML = html;
+        renderedContents.push(content);
+      }
+    };
+  `);
+  const messages = [
+    { id: "diagram-1", role: "assistant", html: '<pre class="mermaid-source"><code>flowchart TD; A-->B</code></pre>' },
+    { id: "prose", role: "assistant", html: "<p>Following message</p>" },
+    { id: "diagram-2", role: "assistant", html: '<pre class="mermaid-source"><code>flowchart LR; X-->Y</code></pre>' },
+  ];
+  const state = (items: typeof messages) =>
+    sidebar.receive({ type: "state", runtime: { connected: true }, messages: items });
+  state(messages);
+  const first = sidebar.element("messages").children[0]!;
+  assert.equal(sidebar.run("renderedContents.length"), 3);
+  state(messages);
+  assert.equal(sidebar.run("renderedContents.length"), 3, "unchanged history must not render again");
+  state([
+    messages[0]!,
+    { ...messages[1]!, html: "<p>Updated following message</p>" },
+    messages[2]!,
+    { id: "new", role: "assistant", html: "<p>Appended message</p>" },
+  ]);
+  assert.equal(sidebar.element("messages").children[0], first);
+  assert.equal(sidebar.run("renderedContents.length"), 5, "changed and new content must render after attachment");
+});
+
+test("message reconciliation preserves retained articles and the reading anchor when history is trimmed", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "showSessionDetail" });
+  const messages = ["old", "reading", "tail"].map((id) => ({ id, role: "assistant", html: `<p>${id}</p>` }));
+  const state = (items: typeof messages) =>
+    sidebar.receive({ type: "state", runtime: { connected: true }, messages: items });
+  state(messages);
+  const root = sidebar.element("messages");
+  const old = root.children[0]!;
+  const reading = root.children[1]!;
+  const content = reading.children[1];
+  old.rect = { top: -300, bottom: -10 };
+  reading.rect = { top: 10, bottom: 100 };
+  const conversation = sidebar.element("conversation");
+  conversation.scrollHeight = 1000;
+  conversation.clientHeight = 100;
+  conversation.scrollTop = 300;
+  conversation.listeners.get("scroll")!({ isTrusted: true });
+  const remove = root.removeChild.bind(root);
+  root.removeChild = (node) => {
+    remove(node);
+    if (node === old) reading.rect = { top: -90, bottom: 0 };
+  };
+  state([...messages.slice(1), { id: "new", role: "assistant", html: "<p>new</p>" }]);
+  assert.equal(root.children[0], reading);
+  assert.equal(reading.children[1], content);
+  assert.equal(
+    conversation.scrollTop,
+    200,
+    "the same article stays at the reading edge after older content is removed",
+  );
+});
+
+test("accepted sends clear only the submitted draft without taking transcript focus", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "showSessionDetail" });
+  sidebar.receive({
+    type: "state",
+    runtime: { connected: true },
+    messages: [{ id: "reply", role: "assistant", html: "<p>reply</p>" }],
+  });
+  const input = sidebar.element("input");
+  input.value = "request";
+  input.listeners.get("input")!();
+  sidebar.element("send").focus();
+  const beforeSubmitFocus = input.focusCount;
+  sidebar.element("send").listeners.get("click")!();
+  assert.equal(input.focusCount, beforeSubmitFocus + 1, "button submission returns focus before acceptance");
+  assert.equal(input.value, "request", "unaccepted text remains available");
+  const submitted = sidebar.posted.at(-1);
+  const heading = sidebar.element("messages").children[0]!.children[0]!;
+  heading.focus();
+  const focusCount = input.focusCount;
+  sidebar.receive({ type: "clearInput", expectedText: submitted.text, expectedRevision: submitted.revision });
+  assert.equal(input.value, "");
+  assert.equal(input.focusCount, focusCount);
+});
+
+test("IME commit Enter with legacy keyCode 229 does not send a message", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "showSessionDetail" });
+  sidebar.run("connected = true");
+  const input = sidebar.element("input");
+  input.value = "中文";
+  input.listeners.get("input")!();
+  const count = sidebar.posted.length;
+  input.listeners.get("keydown")!({
+    key: "Enter",
+    keyCode: 229,
+    isComposing: false,
+    preventDefault() {
+      assert.fail("IME confirmation must remain native");
+    },
+  });
+  assert.equal(sidebar.posted.length, count);
+  assert.equal(input.value, "中文");
 });
 
 test("busy, settling, cancellation, failure, and reconnection states expose one status and every cancellable state exposes Stop", () => {
@@ -2762,6 +2879,70 @@ test("busy, settling, cancellation, failure, and reconnection states expose one 
   );
   assert.equal(sidebar.posted.at(-1).type, "pasteImage");
   state("Ready", false, false);
+});
+
+test("tool Copy uses correlated host clipboard results and ignores stale copied text", async () => {
+  const sidebar = createSidebarScriptHarness();
+  const section = sidebar.run(
+    "globalThis.copySection = createToolSection('Output'); updateToolSection(copySection, 'literal <code> 中文', 'No output'); copySection",
+  ) as SidebarTestElement;
+  const button = section.children[0]!.children[1]!;
+  const feedback = section.children[0]!.children[2]!;
+  const copied = button.listeners.get("click")!();
+  const request = sidebar.posted.at(-1);
+  assert.equal(request.type, "copyText");
+  assert.equal(request.text, "literal <code> 中文");
+  assert.equal(button.disabled, true);
+  sidebar.receive({ type: "copyTextResult", requestId: request.requestId + 1, ok: true });
+  assert.equal(feedback.textContent, "");
+  sidebar.receive({ type: "copyTextResult", requestId: request.requestId, ok: true });
+  await copied;
+  assert.equal(feedback.textContent, "Output copied");
+  assert.equal(button.disabled, false);
+
+  const failed = button.listeners.get("click")!();
+  sidebar.receive({ type: "copyTextResult", requestId: sidebar.posted.at(-1).requestId, ok: false });
+  await failed;
+  assert.match(feedback.textContent, /Copy failed/);
+
+  const stale = button.listeners.get("click")!();
+  const staleId = sidebar.posted.at(-1).requestId;
+  sidebar.run("updateToolSection(copySection, 'new output', 'No output')");
+  sidebar.receive({ type: "copyTextResult", requestId: staleId, ok: true });
+  await stale;
+  assert.equal(feedback.textContent, "", "a result for old output must not label new output as copied");
+});
+
+test("image paste keeps accompanying text and respects composer capture locks", () => {
+  const sidebar = createSidebarScriptHarness();
+  const input = sidebar.element("input");
+  const paste = input.listeners.get("paste")!;
+  let prevented = 0;
+  const event = (text: string) => ({
+    clipboardData: {
+      getData: () => text,
+      items: [
+        { kind: "file", type: "image/gif", getAsFile: () => ({ type: "image/gif", size: 25, name: "paste.gif" }) },
+      ],
+    },
+    preventDefault() {
+      prevented += 1;
+    },
+  });
+  paste(event("accompanying text"));
+  assert.equal(prevented, 0, "native text insertion must remain enabled");
+  assert.equal(sidebar.posted.at(-1).type, "pasteImage");
+  paste(event(""));
+  assert.equal(prevented, 1, "image-only paste must suppress native insertion");
+  const count = sidebar.posted.length;
+  sidebar.run("input.readOnly = true");
+  paste(event("locked"));
+  assert.equal(prevented, 2);
+  assert.equal(sidebar.posted.length, count, "read-only capture cannot attach images");
+  sidebar.run("input.readOnly = false; input.disabled = true");
+  paste(event("locked"));
+  assert.equal(prevented, 3);
+  assert.equal(sidebar.posted.length, count);
 });
 
 test("sidebar keystrokes do not search populated conversation descendants", () => {
