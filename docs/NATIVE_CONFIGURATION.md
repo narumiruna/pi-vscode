@@ -7,7 +7,7 @@ The reference implementation is Pi 1.3.0. This is not a new minimum Pi version. 
 | Control | Read source | Write target | Active effect |
 | --- | --- | --- | --- |
 | Pi Settings: General, Permissions, Editor | VS Code configuration | Selected User/Workspace `pi.*` override | Existing launch/editor behavior; no Pi process |
-| Pi Settings: Pi Files | Global Pi/Project Pi card | Fixed-scope host-native `settings.json` or `mcp.json` dialogs | Navigation only; no inline file content, new configuration keys or duplicate schema |
+| Pi Settings: Pi Configuration | Global Pi/Project Pi card | Fixed-scope host-native `settings.json` or `mcp.json` dialogs | Navigation only; no inline file content, new configuration keys or duplicate schema |
 | Native startup provider/model/thinking | Global Pi/Project Pi `settings.json` | Selected Global Pi/Project Pi member | Next controlled restart; launch overrides and resumed session state can take precedence |
 | Ordered `enabledModels` | Global Pi/Project Pi `settings.json` | Selected file member | Startup/cycling preferences, not model access control; no supported live setter |
 | Queue grouping files | Global Pi/Project Pi `settings.json` | Selected file member | Later restart; runtime controls are separate |
@@ -30,7 +30,7 @@ MCP project transport entries replace global entries. A project entry without `c
 
 ## Editing boundaries
 
-**Pi Settings → Pi Files** has **Global Pi** and **Project Pi** cards, each with **Edit … settings.json** and **Edit … mcp.json** buttons. These route to existing host-native dialogs with the card's fixed scope. Command Palette native management remains available. Native controls require a trusted, file-backed workspace, including for Global Pi. No native file content, URL, environment value, header, OAuth object or credential command is sent to the browser. MCP projections expose only validated name/type/source/enabled/exposure and unknown connection state. No `auth.json` or `mcp-auth.json` is read by management code.
+**Pi Settings → Pi Configuration** has **Global Pi** and **Project Pi** cards, each with **Edit … settings.json** and **Edit … mcp.json** buttons. These route to existing host-native dialogs with the card's fixed scope. Command Palette native management remains available. Native controls require a trusted, file-backed workspace, including for Global Pi. No native file content, URL, environment value, header, OAuth object or credential command is sent to the browser. MCP projections expose only validated name/type/source/enabled/exposure and unknown connection state. No `auth.json` or `mcp-auth.json` is read by management code.
 
 Opening, reading, or switching categories/scopes never creates files or directories. Only the first explicit override save creates the required `settings.json` or `mcp.json` and missing Pi directories under the validated ancestor. Reset of an absent override creates nothing; saving one file does not create the other.
 
@@ -58,7 +58,7 @@ No dedicated public MCP management/current-connection-state RPC exists in Pi 1.3
 
 ## Validation and support limits
 
-Existing validation covers minimum/current Linux native Quick Picks, passive MCP metadata, scoped writes/reset, dirty-buffer rejection, workspace aliases and packaged behavior. This evidence does not validate the new Pi Files entry points or advanced MCP editor. The actual Pi 1.3.0 local stdio reference verifies inherited tools/resources and exposure. See [Integrated validation](NATIVE_PARITY_VALIDATION.md).
+Existing validation covers minimum/current Linux native Quick Picks, passive MCP metadata, scoped writes/reset, dirty-buffer rejection, workspace aliases and packaged behavior. This evidence does not validate the new Pi Configuration entry points or advanced MCP editor. The actual Pi 1.3.0 local stdio reference verifies inherited tools/resources and exposure. See [Integrated validation](NATIVE_PARITY_VALIDATION.md).
 
 1. Structured authoritative live MCP state, retry-enabled reads, general native settings/live scoped-model apply and durable setter results need public upstream contracts before equivalent in-panel claims.
 2. Interactive MCP authentication remains in Pi. Terminal ownership/recovery is tested; real sign-in, redirects and provider-side cancellation are not.

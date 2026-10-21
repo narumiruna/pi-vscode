@@ -496,7 +496,7 @@ test("native settings and MCP surfaces use passive host dialogs, explicit target
   }
 });
 
-test("Pi Files scopes inherit without creation and create only the file explicitly saved", async () => {
+test("Pi Configuration scopes inherit without creation and create only the file explicitly saved", async () => {
   nativeManagementVscode ??= installVscodeMock();
   const vscode = nativeManagementVscode;
   const root = await mkdtemp(path.join(os.tmpdir(), "pi-scoped-files-"));
