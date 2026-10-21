@@ -80,6 +80,8 @@ test("Settings host validates, scopes, synchronizes, serializes, and disposes wi
     assert.equal(panel.options.localResourceRoots[0].fsPath, path.join(process.cwd(), "out/settings"));
     assert.ok(panel.webview.html.includes("default-src 'none'"));
     assert.ok(!panel.webview.html.includes("unsafe-inline"));
+    assert.ok(panel.webview.html.includes("Pi Configuration"));
+    assert.ok(!panel.webview.html.includes("Pi Files"));
     panel.receive({ type: "ready" });
     await flush();
     const state = () => panel.webview.messages.filter((item: any) => item.type === "snapshot").at(-1);
@@ -231,6 +233,42 @@ test("Settings host validates, scopes, synchronizes, serializes, and disposes wi
     panel.receive({ type: "openNative", command: "malicious" });
     await flush();
     assert.deepEqual(commands, [["workbench.action.openSettings", "@ext:narumi.narumi-pi"]]);
+    assert.equal(state().nativeFilesAvailable, true);
+    for (const scope of ["global", "project"]) {
+      for (const kind of ["settings", "mcp"]) {
+        panel.receive({ type: "openPiFile", scope, kind, command: "malicious", path: "/untrusted" });
+        await flush();
+        assert.deepEqual(commands.at(-1), [kind === "settings" ? "pi.openNativeSettings" : "pi.openNativeMcp", scope]);
+      }
+    }
+    const opened = commands.length;
+    for (const extra of [
+      { scope: "workspace" },
+      { scope: "user" },
+      { scope: null },
+      { kind: "auth" },
+      { kind: "mcp-auth" },
+      { kind: "../settings" },
+      { kind: null },
+    ])
+      panel.receive({ type: "openPiFile", scope: "project", kind: "settings", ...extra });
+    await flush();
+    assert.equal(commands.length, opened, "Only fixed native file kinds and Pi scopes can be opened");
+    vscode.workspace.isTrusted = false;
+    panel.receive({ type: "openPiFile", scope: "global", kind: "settings" });
+    await flush();
+    assert.equal(state().nativeFilesAvailable, false);
+    vscode.workspace.isTrusted = true;
+    vscode.workspace.workspaceFolders = [{ uri: MockUri.from({ scheme: "virtual", path: "/workspace" }) }];
+    panel.receive({ type: "openPiFile", scope: "project", kind: "mcp" });
+    await flush();
+    assert.equal(state().nativeFilesAvailable, false);
+    vscode.workspace.workspaceFolders = [];
+    panel.receive({ type: "openPiFile", scope: "project", kind: "settings" });
+    await flush();
+    assert.equal(state().nativeFilesAvailable, false);
+    assert.equal(commands.length, opened, "Native file controls require a trusted file workspace");
+    vscode.workspace.workspaceFolders = [{ uri: MockUri.file("/tmp/settings-fixture") }];
     for (const message of [
       null,
       [],

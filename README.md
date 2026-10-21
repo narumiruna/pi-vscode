@@ -67,6 +67,8 @@ Marketplace installation does not require `curl` or a POSIX shell. For manual VS
 2. Choose **Attach** to add a selection, file, diagnostics, or image. Inspect or redact snapshots through **Attach → View attachments**. Choose your model and thinking level from the composer model control.
 3. Enter a request and send it. For a review-first change, select code and run **Pi: Modify Selection (Preview)**. Review the proposal with **Preview**, then choose **Apply**.
 
+When new messages arrive, the panel preserves text selection in messages that remain in the current window. Tool input/output **Copy** buttons use the VS Code clipboard. Pasting text with an image keeps both. After Enter, the draft stays until Pi accepts it; **Sending this message** shows this pending state. Rejected submissions keep the text, and acceptance does not clear a newer draft or move focus from the transcript.
+
 Use `@pi` in VS Code's native Chat view if you prefer that interface. Native Chat history is separate from sidebar sessions. **More…** provides session management, terminal handoff, repair tools, checkpoints, and background agents. See the [user guide](docs/USER_GUIDE.md#get-started) for controls and shortcuts.
 
 ## Focused workflows
@@ -87,7 +89,9 @@ The foreground sidebar agent can add [temporary passage annotations](docs/USER_G
 
 ## Settings
 
-Run **Pi: Open Settings** or use the gear in the Pi view title. Provider, model, thinking level, and executable overrides apply at process startup. Reconnect does not restart Pi.
+Run **Pi: Open Settings** or use the gear in the Pi view title. **General**, **Permissions**, and **Editor** edit VS Code configuration at User or Workspace scope. **Pi Configuration** has **Global Pi** and **Project Pi** cards, each with **Edit … settings.json** and **Edit … mcp.json** buttons. These open existing host-native dialogs at the fixed card scope; native file content stays out of the webview. Command Palette native management remains available.
+
+Global Pi uses the Extension Host's `~/.pi/agent` or `PI_CODING_AGENT_DIR`. Project Pi uses the launch workspace's `.pi` (the first workspace folder, not a multi-root selector). Native controls require a trusted, file-backed workspace. Opening, reading, or switching never creates files. The first explicit override save creates only the needed file and missing Pi directories; resetting an absent override creates nothing. Saving does not restart Pi, approve project resources, or connect MCP servers. Provider, model, thinking level, and executable overrides apply at process startup. Reconnect does not restart Pi.
 
 1. `pi.approveProjectResources` defaults to `false`. Enable it only for trusted project-local Pi resources.
 2. `pi.inlineCompletions.enabled` defaults to `false`. Manual inline completion remains available.

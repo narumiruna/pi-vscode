@@ -551,6 +551,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         showNotice('Wait for Pi to finish before starting a new session.', 'warning', false, true);
         return;
       }
+      // Return button submissions to the composer before host state can hide the action.
+      if (document.activeElement === sendButton || document.activeElement === $('after-this')) input.focus({ preventScroll: true });
       if (busy) {
         if (input.value.trimStart().startsWith('/') || pendingQueueCount >= 10) {
           showNotice(input.value.trimStart().startsWith('/') ? 'Slash commands cannot be queued. Wait for Pi to finish.' : 'The queue is full. Wait for a pending message to start.', 'warning', false, true);
@@ -674,7 +676,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const followConversation = conversationPinnedToBottom;
       const readingTop = conversationElement.scrollTop;
       const visibleMessages = messages.filter(message => message.role !== 'assistant' || Boolean(message.html) || message.thinking?.length);
-      const structure = JSON.stringify(visibleMessages.map((message, index) => [message.id || index, message.role, message.attachments || [], Boolean(message.truncated)]));
+      const structureKeys = visibleMessages.map((message, index) => JSON.stringify([message.id || index, message.role, message.attachments || [], Boolean(message.truncated)]));
+      const structure = JSON.stringify(structureKeys);
       const html = visibleMessages.map(message => message.html || '');
       messagesElement.classList.toggle('is-empty', visibleMessages.length === 0);
 
@@ -684,21 +687,29 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           const wrapper = messagesElement.children[index];
           const content = wrapper?.children[1];
           if (content && html[index] !== renderedMessageHtml[index]) setMessageContent(content, html[index]);
-          if (wrapper) renderThinking(wrapper, visibleMessages[index].thinking);
+          if (wrapper) {
+            wrapper.renderedHtml = html[index];
+            renderThinking(wrapper, visibleMessages[index].thinking);
+          }
         }
         renderedMessageHtml = html;
         if (!followConversation) setConversationScrollTop(readingTop);
         return visibleMessages.length > 0 && followConversation;
       }
 
-      const retained = new Map(Array.from(messagesElement.children, wrapper => [wrapper.messageId, {
+      let focusToRestore = messagesElement.contains(document.activeElement) ? document.activeElement : undefined;
+      const viewportTop = conversationElement.getBoundingClientRect().top;
+      const readingAnchor = followConversation ? undefined : Array.from(messagesElement.children).find(wrapper => wrapper.getBoundingClientRect().bottom > viewportTop);
+      const anchorTop = readingAnchor?.getBoundingClientRect().top;
+      const retained = new Map(Array.from(messagesElement.children, wrapper => [wrapper.messageKey, {
+        wrapper,
         role: wrapper.children[0],
         headingFocused: wrapper.children[0] === document.activeElement,
         open: wrapper.thinkingDisclosure?.open,
         focused: Boolean(wrapper.thinkingDisclosure && wrapper.thinkingDisclosure.children[0] === document.activeElement),
       }]));
-      messagesElement.replaceChildren();
-      forgetImageTargets(false);
+      const nextWrappers = [];
+      const contentUpdates = [];
       emptyActionButtons.length = 0;
       if (visibleMessages.length === 0) {
         const empty = document.createElement('div');
@@ -722,15 +733,28 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           emptyActionButtons.push(button);
         }
         empty.appendChild(actions);
-        messagesElement.appendChild(empty);
+        nextWrappers.push(empty);
       } else {
         for (let index = 0; index < visibleMessages.length; index += 1) {
           const message = visibleMessages[index];
+          const messageKey = message.id || index;
+          const previous = retained.get(messageKey);
+          retained.delete(messageKey);
+          if (previous?.wrapper.structureKey === structureKeys[index]) {
+            const wrapper = previous.wrapper;
+            if (wrapper.renderedHtml !== html[index]) contentUpdates.push([wrapper.children[1], html[index]]);
+            wrapper.renderedHtml = html[index];
+            wrapper.children[0].setAttribute('aria-label', (message.role === 'user' ? 'You' : message.role === 'shell' ? 'Shell' : 'Pi') + ' message ' + (index + 1));
+            renderThinking(wrapper, message.thinking);
+            nextWrappers.push(wrapper);
+            continue;
+          }
           const wrapper = document.createElement('article');
           wrapper.className = 'message ' + message.role;
           wrapper.messageId = message.id;
-          const previous = message.id ? retained.get(message.id) : undefined;
-          retained.delete(message.id);
+          wrapper.messageKey = messageKey;
+          wrapper.structureKey = structureKeys[index];
+          wrapper.renderedHtml = html[index];
           const role = previous?.role || document.createElement('h2');
           role.className = 'role';
           role.tabIndex = -1;
@@ -752,13 +776,13 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           wrapper.setAttribute('aria-labelledby', role.id);
           const content = document.createElement('div');
           content.className = 'content';
-          setMessageContent(content, html[index]);
+          contentUpdates.push([content, html[index]]);
           wrapper.append(role, content);
           renderThinking(wrapper, message.thinking);
           if (wrapper.thinkingDisclosure && previous) wrapper.thinkingDisclosure.open = Boolean(previous.open);
-          messagesElement.appendChild(wrapper);
-          if (previous?.headingFocused) role.focus({ preventScroll: true });
-          if (wrapper.thinkingDisclosure && previous?.focused) wrapper.thinkingDisclosure.children[0].focus({ preventScroll: true });
+          nextWrappers.push(wrapper);
+          if (previous?.headingFocused) focusToRestore = role;
+          if (wrapper.thinkingDisclosure && previous?.focused) focusToRestore = wrapper.thinkingDisclosure.children[0];
           const attachments = Array.isArray(message.attachments) ? message.attachments : [];
           const contexts = attachments.filter(attachment => attachment.type === 'context');
           if (contexts.length) {
@@ -800,12 +824,35 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           }
         }
       }
+      // Do not detach unchanged articles: that resets selection, focus and rich-content layout.
+      const nextSet = new Set(nextWrappers);
+      for (const wrapper of Array.from(messagesElement.children)) {
+        if (!nextSet.has(wrapper)) messagesElement.removeChild(wrapper);
+      }
+      for (let index = 0; index < nextWrappers.length; index += 1) {
+        if (messagesElement.children[index] !== nextWrappers[index]) {
+          messagesElement.insertBefore(nextWrappers[index], messagesElement.children[index] || null);
+        }
+      }
+      // The rich renderer removes pending jobs for detached targets on each update.
+      // Connect every article before rendering so later messages cannot drop earlier diagram jobs.
+      for (const [content, value] of contentUpdates) setMessageContent(content, value);
+      if (focusToRestore && document.activeElement !== focusToRestore && messagesElement.contains(focusToRestore)) focusToRestore.focus({ preventScroll: true });
+      for (const [assetId, targets] of imageTargets) {
+        const kept = targets.filter(target => target.composer || messagesElement.contains(target.button));
+        if (kept.length) imageTargets.set(assetId, kept);
+        else imageTargets.delete(assetId);
+      }
       renderedMessageStructure = structure;
       renderedMessageHtml = html;
       if (visibleMessages.length === 0) {
         setConversationScrollTop(0);
         conversationPinnedToBottom = true;
-      } else if (!followConversation) setConversationScrollTop(readingTop);
+      } else if (!followConversation) {
+        setConversationScrollTop(nextSet.has(readingAnchor)
+          ? conversationElement.scrollTop + readingAnchor.getBoundingClientRect().top - anchorTop
+          : readingTop);
+      }
       return visibleMessages.length > 0 && followConversation;
     }
 
@@ -973,6 +1020,23 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       details.toolAutomatic = open;
     }
 
+    let copyRequestId = 0;
+    const copyRequests = new Map();
+    function copyText(text) {
+      if (typeof text !== 'string' || text.length > 8000 || copyRequests.size >= 16) return Promise.resolve(false);
+      return new Promise(resolve => {
+        const requestId = ++copyRequestId;
+        const finish = ok => { clearTimeout(timer); copyRequests.delete(requestId); resolve(ok); };
+        const timer = setTimeout(() => finish(false), 5000);
+        copyRequests.set(requestId, finish);
+        try { vscode.postMessage({ type: 'copyText', requestId, text }); }
+        catch { finish(false); }
+      });
+    }
+    window.addEventListener('pagehide', () => {
+      for (const finish of copyRequests.values()) finish(false);
+    }, { once: true });
+
     function createToolSection(label) {
       const section = document.createElement('section');
       section.className = 'tool-section';
@@ -987,12 +1051,15 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const feedback = document.createElement('span');
       feedback.setAttribute('role', 'status');
       copy.addEventListener('click', async () => {
-        try {
-          await navigator.clipboard.writeText(section.toolText);
-          feedback.textContent = label + ' copied';
-        } catch {
-          feedback.textContent = 'Copy failed. Select and copy the text manually.';
-        }
+        if (copy.disabled) return;
+        copy.copyPending = true;
+        copy.disabled = true;
+        feedback.textContent = '';
+        const text = section.toolText;
+        const ok = await copyText(text);
+        if (section.toolText === text) feedback.textContent = ok ? label + ' copied' : 'Copy failed. Select and copy the text manually.';
+        copy.copyPending = false;
+        copy.disabled = !section.toolText;
       });
       heading.append(title, copy, feedback);
       const preview = document.createElement('pre');
@@ -1010,6 +1077,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       const preview = section.children[1];
       const full = section.children[2];
       const short = text.split('\\n').slice(0, 6).join('\\n').slice(0, 600);
+      const copy = section.children[0].children[1];
+      copy.disabled = Boolean(copy.copyPending) || !text;
       if (section.toolText !== text || !text) {
         section.toolText = text;
         preview.textContent = short || empty;
@@ -1635,10 +1704,12 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     }
 
     function attachPastedImages(event) {
+      if (input.disabled || input.readOnly) { event.preventDefault(); return; }
       const items = Array.from((event.clipboardData && event.clipboardData.items) || []);
       const files = items.filter(item => item.kind === 'file' && item.type.startsWith('image/')).map(item => item.getAsFile()).filter(Boolean);
       if (files.length === 0) return;
-      event.preventDefault();
+      // Keep native text insertion when the clipboard also contains an image.
+      if (!event.clipboardData?.getData?.('text/plain')) event.preventDefault();
       for (const file of files) {
         if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type.toLowerCase())) {
           showNotice('Only PNG, JPEG, GIF, and WebP images can be pasted.', 'warning');
@@ -1725,6 +1796,10 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     window.addEventListener('message', event => {
       const message = event.data;
       if (!message || typeof message.type !== 'string') return;
+      if (message.type === 'copyTextResult') {
+        copyRequests.get(message.requestId)?.(message.ok === true);
+        return;
+      }
       composerDraft.receive(message);
       fileCompletion.receive(message);
       if (['setInput', 'clearInput', 'appendDraft', 'commitRecoveredDraft', 'showSessionDetail', 'showSessionsLayer'].includes(message.type)) fileCompletion.cancel();
@@ -1779,7 +1854,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           input.value = '';
           resizeInput();
           composerRevision += 1;
-          input.focus();
+          // A delayed acknowledgement must not take focus from text the reader is selecting.
+          if (document.activeElement === sendButton || document.activeElement === $('after-this')) input.focus({ preventScroll: true });
         }
         updateSendState();
       }
@@ -1869,7 +1945,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     });
     input.addEventListener('paste', attachPastedImages);
     input.addEventListener('keydown', event => {
-      if (event.isComposing) return;
+      // Some IMEs report the commit Enter as keyCode 229 after isComposing becomes false.
+      if (event.isComposing || event.keyCode === 229) return;
       if (fileCompletion.keydown(event)) return;
       if (!slashMenu.hidden && slashMatches.length && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {

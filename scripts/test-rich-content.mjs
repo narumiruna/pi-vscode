@@ -12,6 +12,7 @@ import { assertComposerDraftRecovery } from "./draft-fixture.mjs";
 import { assertRichContent, richFixture } from "./rich-content-fixture.mjs";
 import { assertComposerFileCompletion } from "./completion-fixture.mjs";
 import { assertThinkingBrowser } from "./thinking-fixture.mjs";
+import { assertPanelInteractions } from "./panel-interaction-fixture.mjs";
 import thinkingFixture from "./fixtures/thinking.cjs";
 
 const require = createRequire(import.meta.url);
@@ -68,6 +69,9 @@ try {
     script: `${origin}/rich-content.js`,
     style: `${origin}/rich-content.css`,
   });
+  console.log("PI_PANEL_INTERACTION_BROWSER_EVIDENCE", JSON.stringify(await assertPanelInteractions(
+    browser, html, renderSafeMarkdown, origin,
+  )));
   console.log("PI_THINKING_BROWSER_EVIDENCE", JSON.stringify(await assertThinkingBrowser(
     browser, html, renderSafeMarkdown, piMessageThinking, thinkingFixture,
   )));

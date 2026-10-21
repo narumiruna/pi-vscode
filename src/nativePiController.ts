@@ -16,6 +16,7 @@ import { nativeObject } from "./nativePiJson";
 import {
   effectiveMcpMetadata,
   mcpExposures,
+  mcpMetadata,
   type NativeSettingControl,
   nativeMcpCommandOwner,
   nativeSettingControls,
@@ -48,18 +49,26 @@ function visibleValue(value: unknown): string {
   return "invalid value; use advanced native editor";
 }
 
+function nativeScope(value: unknown): NativeScope | undefined {
+  if (value === undefined || value === "global" || value === "project") return value;
+  throw new Error("Invalid native configuration scope.");
+}
+function scopeLabel(scope: NativeScope): string {
+  return scope === "global" ? "Global Pi" : "Project Pi";
+}
+
 /** Native host dialogs only. No browser receives native file text, env, headers, OAuth or commands. */
 export function registerNativePiManagement(context: vscode.ExtensionContext, runtime: PiRuntimeManager): void {
   let disposed = false;
   let lastDiagnostic: McpDiagnostic | undefined;
   let lastDiagnosticOrigin: string | undefined;
   const controllers = new Set<AbortController>();
-  const register = (id: string, action: () => Promise<void>) =>
+  const register = (id: string, action: (scope?: unknown) => Promise<void>) =>
     context.subscriptions.push(
-      vscode.commands.registerCommand(id, async () => {
+      vscode.commands.registerCommand(id, async (scope?: unknown) => {
         if (disposed) return;
         try {
-          await action();
+          await action(scope);
         } catch (error) {
           if (error instanceof NativeRuntimeControlAppliedError) {
             void vscode.window.showErrorMessage(
@@ -153,10 +162,31 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
     );
   };
 
-  register("pi.openNativeSettings", async () => {
+  const openAdvanced = async (target: NativeFileSnapshot, assertCurrent: () => Promise<void>) => {
+    if (!target.exists) {
+      void vscode.window.showInformationMessage(
+        "Create an override with a validated control first, then open the native editor.",
+      );
+      return;
+    }
+    if (
+      !(await confirm(
+        "Open the native configuration file in VS Code? It may contain secrets or executable resource definitions. Native editor Save does not use the bounded controls. No Pi process starts.",
+        "Open native file",
+      ))
+    )
+      return;
+    await assertCurrent();
+    if ((await readNativeFile(target.target)).revision !== target.revision) throw new Error("Native file changed.");
+    await assertCurrent();
+    await vscode.window.showTextDocument(vscode.Uri.file(path.join(target.target.root, target.target.relative)));
+  };
+
+  register("pi.openNativeSettings", async (input) => {
+    const requestedScope = nativeScope(input);
     await runtime.withWorkspaceOperation("editing native Pi settings", async (assertCurrent) => {
       const state = await files("settings");
-      const scope = await selectScope();
+      const scope = requestedScope ?? (await selectScope());
       if (!scope) return;
       const target = state[scope];
       const action = await choose(
@@ -178,27 +208,11 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
             action: "advanced",
           },
         ],
-        `Native Pi settings — ${scope} — saved defaults, not current runtime state`,
+        `Native Pi settings — ${scopeLabel(scope)} — saved defaults, not current runtime state`,
       );
       if (!action) return;
       if (action === "advanced") {
-        if (!target.exists) {
-          void vscode.window.showInformationMessage(
-            "Create an override with a validated control first, then open the native editor.",
-          );
-          return;
-        }
-        if (
-          !(await confirm(
-            "Open the native settings file in VS Code? It may contain secrets or executable resource definitions. Native editor Save does not use the bounded controls. No Pi process starts.",
-            "Open native file",
-          ))
-        )
-          return;
-        await assertCurrent();
-        if ((await readNativeFile(target.target)).revision !== target.revision) throw new Error("Native file changed.");
-        await assertCurrent();
-        await vscode.window.showTextDocument(vscode.Uri.file(path.join(target.target.root, target.target.relative)));
+        await openAdvanced(target, assertCurrent);
         return;
       }
       const control = nativeSettingControls.find((item) => item.key === action);
@@ -224,7 +238,7 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
       validateNativeSetting(control, value);
       if (
         !(await confirm(
-          `Save only ${control.label} in ${scope} Pi settings? No reload, process, installation or project approval is performed.`,
+          `Save only ${control.label} in ${scopeLabel(scope)} settings? No reload, process, installation or project approval is performed.`,
         ))
       )
         return;
@@ -233,7 +247,8 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
     });
   });
 
-  register("pi.openNativeMcp", async () => {
+  register("pi.openNativeMcp", async (input) => {
+    const requestedScope = nativeScope(input);
     let terminalOrigin: (() => Promise<void>) | undefined;
     await runtime.withWorkspaceOperation("managing native MCP configuration", async (assertCurrent) => {
       const state = await files("mcp");
@@ -245,7 +260,15 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
         state.approved,
       ]);
       const diagnosticIsCurrent = lastDiagnosticOrigin === diagnosticOrigin;
-      const metadata = effectiveMcpMetadata(state.global.value, state.project.value, state.approved);
+      // A scoped project editor must also show saved, inactive project entries.
+      const metadata =
+        requestedScope === "global"
+          ? mcpMetadata(state.global.value, "global")
+          : effectiveMcpMetadata(
+              state.global.value,
+              state.project.value,
+              requestedScope === "project" || state.approved,
+            );
       const action = await choose(
         [
           ...metadata.map((server) => ({
@@ -259,6 +282,12 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
             label: "Add server…",
             detail: "Passive file edit. Secret entry stays in Pi; no connection is started.",
             action: "add",
+          },
+          {
+            label: "Advanced native configuration editor…",
+            detail:
+              "Open the selected scope's mcp.json in VS Code. It may contain secrets; normal editor Save applies.",
+            action: "advanced",
           },
           {
             label: "Explicit CLI connection diagnostic…",
@@ -279,7 +308,7 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
             action: "terminal",
           },
         ],
-        `Native MCP — passive configured overview${state.approved ? "" : "; project configuration not approved"}`,
+        `Native MCP — ${requestedScope ? scopeLabel(requestedScope) : "effective"} — passive configured overview${state.approved ? "" : "; project configuration not approved"}`,
       );
       if (!action) return;
       if (action === "terminal") {
@@ -380,9 +409,13 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
         }
         return;
       }
-      const scope = await selectScope();
+      const scope = requestedScope ?? (await selectScope());
       if (!scope) return;
       const target = state[scope];
+      if (action === "advanced") {
+        await openAdvanced(target, assertCurrent);
+        return;
+      }
       const name =
         action === "add"
           ? await vscode.window.showInputBox({
@@ -413,7 +446,7 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
                   action: "remove",
                 },
               ],
-              `${name} — ${scope} Pi file`,
+              `${name} — ${scopeLabel(scope)} file`,
             );
       if (!operation) return;
       let value: unknown = nativeObject(current) ? { ...current } : {};
@@ -466,7 +499,7 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
       if (value !== undefined) validateMcpEntry(name, value, scope);
       if (
         !(await confirm(
-          `${operation === "remove" ? "Remove only" : "Save only"} ${name} in ${scope} Pi MCP configuration? ${scope === "project" ? "This can override or reveal an inherited global server; project approval is unchanged. " : ""}No server connects and stored authentication is unchanged.`,
+          `${operation === "remove" ? "Remove only" : "Save only"} ${name} in ${scopeLabel(scope)} MCP configuration? ${scope === "project" ? "This can override or reveal an inherited global server; project approval is unchanged. " : ""}No server connects and stored authentication is unchanged.`,
         ))
       )
         return;
