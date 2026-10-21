@@ -135,9 +135,9 @@ After compiling, run the reference check with an explicit Pi 1.3.0 CLI path:
 node scripts/test-shell-contract.mjs /path/to/pi-coding-agent/dist/cli.js
 ```
 
-This check uses disposable HOME/config directories, offline mode, no MCP servers, no credentials, and no model calls. It verifies actual `user_bash` failure/result contracts, packaged approval, and public context conversion with harmless local `printf` commands. It is a validation reference, not another extension runtime dependency.
+This check uses disposable HOME/config directories, offline mode, no MCP servers, no credentials, and no model calls. It verifies actual `user_bash` failure/result contracts, read-only enforcement, and public context conversion with harmless local `printf` commands. It is a validation reference, not another extension runtime dependency.
 
-The integrated Linux results, exact checked versions, packaging evidence, and unverified platform/provider limits are in [Native parity validation](NATIVE_PARITY_VALIDATION.md).
+The integrated Linux results, exact checked versions, packaging evidence, and unverified platform/provider limits are in [Native parity validation](NATIVE_PARITY_VALIDATION.md). These are historical records; earlier tool/shell approval results do not describe the current permission behavior.
 
 ### Local installation and debugging
 

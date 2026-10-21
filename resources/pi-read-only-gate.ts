@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import * as piPackage from "@earendil-works/pi-coding-agent";
 
 const readOnlyPolicyMarker = "<<<PI_VSCODE_POLICY: read-only>>>";
 const readOnlyTools = new Set([
@@ -13,7 +14,7 @@ const readOnlyTools = new Set([
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("vscode-pi-read-only-ready", {
-    description: "VS Code read-only direct-shell policy v1",
+    description: `VS Code read-only direct-shell policy v1; Pi ${piPackage.VERSION}`,
     handler: async () => {
       throw new Error("This capability marker is discovery-only.");
     },

@@ -84,13 +84,8 @@ test("background manager restores legacy/interrupted tasks safely, previews canc
         "This is an independent background task. Work only in the provided working directory.",
       );
       assert.equal(buildRpcArguments(launchOptions).includes("--tools"), false);
-      assert.deepEqual(
-        launchOptions.extensions.map((value: string) => path.basename(value)),
-        ["pi-permission-gate.ts"],
-      );
-      assert.equal(launchOptions.env[vscodeBridgePortEnvironmentKey], undefined);
-      assert.equal(launchOptions.env[vscodeBridgeTokenEnvironmentKey], undefined);
-      assert.equal(launchOptions.env[vscodeBridgeExtensionEnvironmentKey], undefined);
+      assert.equal(launchOptions.extensions, undefined);
+      assert.equal(launchOptions.env, undefined);
       assert.deepEqual(launchOptions.unsetEnv, [
         vscodeBridgePortEnvironmentKey,
         vscodeBridgeTokenEnvironmentKey,

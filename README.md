@@ -2,7 +2,7 @@
 
 Use your existing [Pi](https://pi.dev) providers, models, and tools in VS Code. Ask about code in a persistent sidebar or native `@pi` chat. Attach editor context, review Git changes, and use focused edit workflows with Preview and Apply.
 
-**Permission boundary:** Focused edit workflows generate proposals under a read-only policy and require explicit Apply. Ordinary agent sessions can run tools and change files under the configured tool-permission policy; they do not require Preview and Apply for every change.
+**Permission boundary:** Focused edit workflows generate proposals under a read-only policy and require explicit Apply. Ordinary agent sessions can run tools and change files without Preview and Apply. Pi and installed extensions own tool and shell permissions; without a permission policy, actions can run with no confirmation.
 
 [Install](#install) · [Get started](#get-started) · [Workflows](#focused-workflows) · [Settings](#settings) · [Security](#security-and-limits) · [Documentation](#documentation)
 
@@ -41,7 +41,7 @@ In Remote SSH, WSL, or container windows, Pi runs on the remote Extension Host. 
 | Sidebar chat and focused edit requests | Use Pi's public RPC interface. Pi **1.3.0** is the checked reference; no broader version range is verified. |
 | **Pi: Sign In to Provider** / **Pi: Sign Out of Provider** | The isolated helper accepts **1.3.0 only**. Other versions must use Pi's own authentication flow. |
 | JSONL session export, import, and GitHub sharing | The isolated helper requires **1.3.0**. JSONL export covers the active branch, not the complete tree. |
-| Direct shell (`!` / `!!`) | Requires verified **1.3.0** packaged policies. Other versions leave this feature unavailable. |
+| Direct shell (`!` / `!!`) | Requires **1.3.0** compatibility verified through read-only sentinel version metadata. Other versions leave this feature unavailable. |
 | Resource reload and session-tree controls | Require verified packaged-command ownership metadata, checked against **1.3.0**. Unsupported routes fail without sending a model prompt. |
 
 Windows supports native executables and standard npm Node shims, not custom batch wrappers. See [Windows process launches](docs/USER_GUIDE.md#windows-process-launches) for lookup and cleanup limits.
@@ -87,15 +87,14 @@ See [workflow instructions and limits](docs/USER_GUIDE.md#focused-workflows) and
 
 Run **Pi: Open Settings** or use the gear in the Pi view title. Provider, model, thinking level, and executable overrides apply at process startup. Reconnect does not restart Pi.
 
-1. `pi.agent.confirmToolCalls` defaults to `dangerous`. Use `all` to request confirmation for every built-in `bash`, `edit`, and `write` call. Contributed tools control their own permissions.
-2. `pi.approveProjectResources` defaults to `false`. Enable it only for trusted project-local Pi resources.
-3. `pi.inlineCompletions.enabled` defaults to `false`. Manual inline completion remains available.
+1. `pi.approveProjectResources` defaults to `false`. Enable it only for trusted project-local Pi resources.
+2. `pi.inlineCompletions.enabled` defaults to `false`. Manual inline completion remains available.
 
 See the [settings reference](docs/USER_GUIDE.md#settings) and [native Pi settings and MCP controls](docs/USER_GUIDE.md#native-pi-settings-and-mcp).
 
 ## Security and limits
 
-Ordinary agent sessions are not a sandbox. The packaged confirmation policy covers built-in `bash`, `edit`, and `write`, not all contributed tools. Review tool permissions before starting work.
+Ordinary agent sessions are not a sandbox. Pi and installed extensions own tool and shell permissions; pi-vscode adds no built-in tool or shell confirmation policy. Without a permission policy, tools and commands can run with no confirmation. Pi-requested dialogs continue to be displayed unchanged.
 
 Focused edit generation uses a read-only policy. Applying proposals, importing worktree results, rerunning tests, and restoring checkpoints require explicit user action. Preview checks do not protect unrelated ordinary-agent tool calls.
 

@@ -145,7 +145,7 @@ export class ExtensionUiDialogs implements vscode.Disposable {
           if (choice?.label === "Review Full Message") await this.reviewConfirmation(request, title, message);
           else request.respond({ confirmed: false });
         } else {
-          // Preserve full, untimed permission modals used by the packaged built-in tool gate.
+          // Preserve full, untimed confirmation messages requested by Pi extensions.
           const choice = await vscode.window.showWarningMessage(message, { modal: true }, "Allow");
           request.respond({ confirmed: choice === "Allow" });
         }

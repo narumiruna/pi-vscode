@@ -21,17 +21,17 @@ test("Pi settings read only the pi namespace and preserve resource scope and exp
 
   try {
     const { piConfiguration } = require("../configuration") as typeof import("../configuration");
-    assert.equal(piConfiguration().get("agent.confirmToolCalls", "dangerous"), "dangerous");
+    assert.equal(piConfiguration().get("approveProjectResources", false), false);
     assert.equal(piConfiguration("inlineCompletions", resource).get("enabled", false), false);
 
-    values.set("agent.confirmToolCalls", "all");
+    values.set("approveProjectResources", true);
     values.set("inlineCompletions.enabled", true);
-    assert.equal(piConfiguration().get("agent.confirmToolCalls", "dangerous"), "all");
+    assert.equal(piConfiguration().get("approveProjectResources", false), true);
     assert.equal(piConfiguration("inlineCompletions", resource).get("enabled", false), true);
 
-    values.set("agent.confirmToolCalls", "off");
+    values.set("approveProjectResources", false);
     values.set("inlineCompletions.enabled", false);
-    assert.equal(piConfiguration().get("agent.confirmToolCalls", "dangerous"), "off");
+    assert.equal(piConfiguration().get("approveProjectResources", true), false);
     assert.equal(piConfiguration("inlineCompletions", resource).get("enabled", true), false);
     assert.deepEqual(calls, [
       { section: "pi", resource: undefined },

@@ -6,11 +6,8 @@ import { piConfiguration } from "./configuration";
 import { ConversationResponseCapture, ExclusiveOperationGate } from "./conversationController";
 import {
   type BashResultView,
-  maxShellPolicyMessageCharacters,
   shellAbortDeadlineMs,
-  shellCapabilityName,
   shellExecutionDeadlineMs,
-  shellPolicyTitle,
   validateShellCommand,
 } from "./directShell";
 import { EditorAnnotations } from "./editorAnnotations";
@@ -201,11 +198,7 @@ export class PiRuntimeManager implements vscode.Disposable {
         readonly sessionFile?: string;
         readonly cwd: string;
         readonly workspacePath: string;
-        readonly command: string;
-        readonly excludeFromContext: boolean;
         readonly assertCurrent: () => Promise<void>;
-        approved: boolean;
-        consumed: boolean;
         cancelled: boolean;
         execution?: Promise<BashResultView>;
         stopping?: Promise<void>;
@@ -490,7 +483,6 @@ export class PiRuntimeManager implements vscode.Disposable {
       // The shared owner verifies existing headers and the canonical launch binding for unsaved sessions.
       await assertCurrent();
       const commands = await client.getCommands();
-      const policyPath = path.join(this.context.extensionUri.fsPath, "resources", "pi-permission-gate.ts");
       const readOnlyPath = path.join(this.context.extensionUri.fsPath, "resources", "pi-read-only-gate.ts");
       const hasPolicy = async (name: string, sourcePath: string, description: string): Promise<boolean> => {
         const matches = commands.filter((value) => isRecord(value) && value.name === name);
@@ -511,12 +503,13 @@ export class PiRuntimeManager implements vscode.Disposable {
         }
       };
       if (
-        !(await hasPolicy(shellCapabilityName, policyPath, "VS Code direct-shell policy; Pi 1.3.0")) ||
-        !(await hasPolicy("vscode-pi-read-only-ready", readOnlyPath, "VS Code read-only direct-shell policy v1"))
+        !(await hasPolicy(
+          "vscode-pi-read-only-ready",
+          readOnlyPath,
+          "VS Code read-only direct-shell policy v1; Pi 1.3.0",
+        ))
       )
-        throw new Error(
-          "Direct shell is unavailable: verified Pi 1.3.0 packaged policies are required. No command ran.",
-        );
+        throw new Error("Direct shell is unavailable: verified Pi 1.3.0 read-only policy is required. No command ran.");
       if (!this.state.sessionId || this.state.sessionId.length > 200 || cwd.length > 8_192)
         throw new Error("Direct shell requires a bounded verified session and working-directory identity.");
       await assertCurrent();
@@ -527,11 +520,7 @@ export class PiRuntimeManager implements vscode.Disposable {
         sessionFile: this.state.sessionFile,
         cwd,
         workspacePath: folder.uri.fsPath,
-        command,
-        excludeFromContext,
         assertCurrent,
-        approved: false,
-        consumed: false,
         cancelled: false,
         execution: undefined as Promise<BashResultView> | undefined,
         stopping: undefined as Promise<void> | undefined,
@@ -542,14 +531,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       let result: BashResultView = { output: "", cancelled: false, truncated: false };
       let submitted = false;
       try {
-        const choice = await vscode.window.showWarningMessage(
-          `Run this shell command with your user permissions?\n\nWorking directory: ${cwd}\n${excludeFromContext ? "Excluded from model context; command/output remain in Pi history and exports." : "Command/output enter model context on the next prompt and remain in Pi history."}\nShell effects cannot be restored by request checkpoints.\n\n${command}`,
-          { modal: true },
-          "Run Shell",
-        );
-        if (choice !== "Run Shell" || shell.cancelled) return undefined;
         await this.assertShellOrigin(shell);
-        shell.approved = true;
         submitted = true;
         this.eventEmitter.fire({
           type: "shell_execution",
@@ -663,7 +645,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       (await realpath(this.currentCwd)) !== shell.cwd ||
       (await realpath(shell.workspacePath)) !== shell.cwd
     )
-      throw new Error("Direct shell approval is stale or belongs to another workspace/session.");
+      throw new Error("Direct shell origin is stale or belongs to another workspace/session.");
     // Repeat synchronous identity checks after the asynchronous canonical checks.
     if (
       !vscode.workspace.isTrusted ||
@@ -674,48 +656,6 @@ export class PiRuntimeManager implements vscode.Disposable {
       this.state.sessionFile !== shell.sessionFile
     )
       throw new Error("Direct shell origin changed during validation.");
-  }
-
-  private async authorizeShellPolicy(event: PiRpcEvent, client: PiRpcClient): Promise<void> {
-    const id = typeof event.id === "string" ? event.id : undefined;
-    if (!id || id.length > 200) return;
-    let confirmed = false;
-    const shell = this.shellActive;
-    try {
-      if (!shell || shell.client !== client || !shell.approved || shell.consumed || event.method !== "confirm")
-        throw new Error("No direct-shell approval belongs to this request.");
-      if (typeof event.message !== "string" || event.message.length > maxShellPolicyMessageCharacters)
-        throw new Error("Invalid or oversized direct-shell policy payload.");
-      const payload: unknown = JSON.parse(event.message);
-      if (
-        !isRecord(payload) ||
-        Object.keys(payload).length !== 4 ||
-        payload.command !== shell.command ||
-        typeof payload.cwd !== "string" ||
-        payload.cwd.length > 8_192 ||
-        payload.excludeFromContext !== shell.excludeFromContext ||
-        payload.sessionId !== shell.sessionId
-      )
-        throw new Error("Direct-shell policy origin mismatch.");
-      shell.consumed = true;
-      if ((await realpath(payload.cwd)) !== shell.cwd) throw new Error("Direct-shell policy directory mismatch.");
-      await this.assertShellOrigin(shell);
-      confirmed = true;
-    } catch {
-      // Fail closed. Never send the request through the generic extension UI.
-    }
-    if (this.client === client && client.isRunning) {
-      try {
-        client.sendExtensionUiResponse(id, { confirmed });
-      } catch (error) {
-        await client.stop();
-        this.eventEmitter.fire({
-          type: "runtime_warning",
-          warningCode: "cleanup-unverified",
-          message: `Shell policy acknowledgement failed; disconnected without replay. ${formatError(error)}`,
-        });
-      }
-    }
   }
 
   private async stopShell(shell: NonNullable<PiRuntimeManager["shellActive"]>): Promise<void> {
@@ -1316,16 +1256,6 @@ export class PiRuntimeManager implements vscode.Disposable {
     this.clientSubscription?.dispose();
     const subscription = client.onEvent((event) => {
       if (this.client !== client) return;
-      if (event.type === "extension_ui_request" && event.title === shellPolicyTitle) {
-        void this.authorizeShellPolicy(event, client).catch((error) => {
-          this.eventEmitter.fire({
-            type: "runtime_warning",
-            warningCode: "cleanup-unverified",
-            message: `Shell policy cleanup failed. ${formatError(error)}`,
-          });
-        });
-        return;
-      }
       this.handleEvent(event);
     });
     this.clientSubscription = subscription;
@@ -1366,7 +1296,6 @@ export class PiRuntimeManager implements vscode.Disposable {
       thinkingLevel: invocation.thinkingLevel,
       extensions: [
         this.bridgeExtensionPath,
-        path.join(this.context.extensionUri.fsPath, "resources", "pi-permission-gate.ts"),
         path.join(this.context.extensionUri.fsPath, "resources", "pi-read-only-gate.ts"),
         path.join(this.context.extensionUri.fsPath, "resources", "pi-control.ts"),
       ],
@@ -1375,7 +1304,6 @@ export class PiRuntimeManager implements vscode.Disposable {
       env: {
         ...bridgeEnvironment,
         [vscodeAnnotationTokenEnvironmentKey]: undefined,
-        PI_VSCODE_PERMISSION_MODE: configuration.get<string>("agent.confirmToolCalls", "dangerous"),
       },
     };
   }

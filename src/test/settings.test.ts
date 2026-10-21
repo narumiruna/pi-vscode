@@ -111,6 +111,7 @@ test("Settings host validates, scopes, synchronizes, serializes, and disposes wi
     const before = calls.length;
     for (const extra of [
       { key: "unknown" },
+      { key: "agent.confirmToolCalls", value: "all" },
       { target: "folder" },
       { target: null },
       { revision: -1 },

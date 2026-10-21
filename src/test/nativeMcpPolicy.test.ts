@@ -10,7 +10,12 @@ type Handler = (event?: unknown) => GateResult;
 // Handler contract only: server annotations are unverified and cannot widen the packaged allowlist.
 test("focused packaged policy blocks MCP tools and indirect entry points regardless of server hints", async () => {
   const source = readFileSync(path.resolve(__dirname, "../../resources/pi-read-only-gate.ts"), "utf8");
-  const javascript = stripTypeScriptTypes(source);
+  const javascript = stripTypeScriptTypes(
+    source.replace(
+      'import * as piPackage from "@earendil-works/pi-coding-agent";',
+      'const piPackage = { VERSION: "1.3.0" };',
+    ),
+  );
   const { default: gate } = await import(`data:text/javascript,${encodeURIComponent(javascript)}`);
   const handlers = new Map<string, Handler>();
   const original = [

@@ -19,7 +19,7 @@ async function verifySessionLocation(invocation, directory, input) {
   const resources = path.resolve("resources");
   const args = buildIsolatedPiHelperArguments(path.join(resources, "pi-control.ts")).filter((value) => value !== "--no-session");
   args.push("--session", input);
-  for (const file of ["pi-bridge.ts", "pi-permission-gate.ts", "pi-read-only-gate.ts"])
+  for (const file of ["pi-bridge.ts", "pi-read-only-gate.ts"])
     args.push("--extension", path.join(resources, file));
   const plan = planPiSpawn(invocation.executablePath, args, { cwd: directory, env });
   const child = spawn(plan.command, plan.args, { cwd: directory, env, shell: false, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"] });
