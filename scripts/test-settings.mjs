@@ -41,6 +41,7 @@ try {
     revision: 1,
     workspace: true,
     trusted: true,
+    nativeFilesAvailable: true,
     remote: false,
     entries: settingsDescriptors.map((item) => ({
       key: item.key,
@@ -84,9 +85,9 @@ try {
   };
   await page.goto(origin);
   await page.waitForFunction(() => document.querySelector("nav button") !== null);
-  assert.match(await page.locator("body").innerText(), /This page edits VS Code pi\.\* settings only/);
-  assert.match(await page.locator("body").innerText(), /Pi: Open Native Pi Settings/);
-  assert.match(await page.locator("body").innerText(), /Opening those surfaces starts no Pi process or connection/);
+  assert.match(await page.locator("body").innerText(), /General, Permissions, and Editor edit VS Code pi\.\* settings/);
+  assert.match(await page.locator("body").innerText(), /Pi Files/);
+  assert.match(await page.locator("body").innerText(), /Opening these forms starts no Pi process or connection/);
   await push();
   assert.equal(await page.locator("section").count(), 4);
   assert.match(await page.locator("main").innerText(), /Used when a Pi process starts; running sessions are unchanged/);
@@ -266,10 +267,7 @@ try {
       ),
     staleEnum.id,
   );
-  assert.equal(
-    await row("thinkingLevel").getByRole("button", { name: "Retry save", exact: true }).isDisabled(),
-    true,
-  );
+  assert.equal(await row("thinkingLevel").getByRole("button", { name: "Retry save", exact: true }).isDisabled(), true);
   await row("thinkingLevel").getByRole("button", { name: "Reload row", exact: true }).click();
   await page.getByRole("button", { name: "Permissions", exact: true }).click();
   // Recreate the document as VS Code can do after hiding a non-retained webview.
@@ -295,12 +293,43 @@ try {
     });
     for (const width of [280, 400, 650, 1100]) {
       await page.setViewportSize({ width, height: 800 });
-      assert.ok(
-        await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
-        `${theme} ${width}: overflow`,
-      );
+      for (const category of ["General", "Pi Files"]) {
+        await page.getByRole("button", { name: category, exact: true }).click();
+        assert.ok(
+          await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+          `${category} ${theme} ${width}: overflow`,
+        );
+      }
     }
   }
+  assert.equal(await page.locator("#target").isDisabled(), true);
+  assert.match(await page.locator("#scope-note").innerText(), /Global Pi or Project Pi/);
+  assert.match(await page.locator("main").innerText(), /~\/\.pi\/agent\/settings\.json/);
+  assert.match(await page.locator("main").innerText(), /\.pi\/settings\.json/);
+  assert.match(await page.locator("main").innerText(), /Project overrides remain inactive/);
+  for (const scope of ["global", "project"]) {
+    const title = scope === "global" ? "Global Pi" : "Project Pi";
+    for (const kind of ["settings", "mcp"]) {
+      const before = messages.length;
+      await page.getByRole("button", { name: `Edit ${title} ${kind}.json`, exact: true }).click();
+      for (let i = 0; i < 50 && messages.length === before; i++) await page.waitForTimeout(10);
+      assert.deepEqual(messages.at(-1), { type: "openPiFile", kind, scope });
+    }
+  }
+  // The native scope is independent of VS Code's User/Workspace target and survives panel recreation.
+  await page.reload();
+  await push();
+  assert.equal(await page.getByRole("button", { name: "Pi Files", exact: true }).getAttribute("aria-pressed"), "true");
+  snapshot.nativeFilesAvailable = false;
+  snapshot.revision++;
+  await push();
+  for (const button of await page.locator("main button").all()) assert.equal(await button.isDisabled(), true);
+  assert.match(await page.locator("main").innerText(), /trusted, file-backed workspace/);
+  snapshot.nativeFilesAvailable = true;
+  snapshot.revision++;
+  await push();
+  await page.getByRole("button", { name: "General", exact: true }).click();
+  assert.equal(await page.locator("#target").isDisabled(), false);
   await page.locator("#target").selectOption("workspace");
   snapshot.workspace = false;
   snapshot.remote = true;
@@ -335,7 +364,7 @@ try {
   assert.deepEqual(errors, []);
   await page.close();
   console.log(
-    "Settings browser: controls, scopes, reset, conflicts, drafts, keyboard, 12 layouts/themes, CSP and teardown passed.",
+    "Settings browser: controls, scopes, Pi Files routing, reset, conflicts, drafts, keyboard, 24 layouts/themes, CSP and teardown passed.",
   );
 } finally {
   await browser?.close();

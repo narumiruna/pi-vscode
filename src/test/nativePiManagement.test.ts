@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { checkNativeMcp, projectMcpDiagnostic } from "../nativeMcpDiagnostics";
@@ -491,6 +491,161 @@ test("native settings and MCP surfaces use passive host dialogs, explicit target
   } finally {
     if (oldDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = oldDir;
+    vscode.restore();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Pi Files scopes inherit without creation and create only the file explicitly saved", async () => {
+  nativeManagementVscode ??= installVscodeMock();
+  const vscode = nativeManagementVscode;
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-scoped-files-"));
+  const oldDir = process.env.PI_CODING_AGENT_DIR;
+  const context = { subscriptions: [] } as any;
+  process.env.PI_CODING_AGENT_DIR = path.join(root, "agent");
+  try {
+    await mkdir(path.join(root, "agent"));
+    const globalSettings = '{"defaultModel":"inherited-model","unknown":true}\n';
+    const globalMcp = '{"mcpServers":{"docs":{"command":"fixture","env":{"TOKEN":"private-fixture-token"}}}}\n';
+    await writeFile(path.join(root, "agent/settings.json"), globalSettings);
+    await writeFile(path.join(root, "agent/mcp.json"), globalMcp);
+    vscode.workspace.isTrusted = true;
+    vscode.workspace.workspaceFolders = [{ uri: MockUri.file(root) }];
+    vscode.workspace.textDocuments = [];
+    vscode.workspace.getConfiguration = () => ({ get: (_key: string, fallback: unknown) => fallback });
+    let starts = 0;
+    const runtime = {
+      currentState: { commands: [], connected: false },
+      currentCwd: root,
+      withWorkspaceOperation: async (_label: string, action: (assert: () => Promise<void>) => Promise<unknown>) =>
+        action(async () => {
+          if (!vscode.workspace.isTrusted) throw new Error("untrusted");
+        }),
+      ensureStarted: async () => {
+        starts++;
+      },
+    } as any;
+    const { registerNativePiManagement } = require("../nativePiController") as typeof import("../nativePiController");
+    registerNativePiManagement(context, runtime);
+    const picks: string[] = [];
+    const menus: any[][] = [];
+    vscode.window.showQuickPick = async (items: any[]) => {
+      menus.push(items);
+      assert.ok(!items.some((item) => item.action === "global" || item.action === "project"));
+      assert.ok(!JSON.stringify(items).includes("private-fixture-token"));
+      const action = picks.shift();
+      return items.find((item) => item.action === action);
+    };
+    vscode.window.showInformationMessage = async () => undefined;
+    const errors: string[] = [];
+    vscode.window.showErrorMessage = async (message: string) => {
+      errors.push(message);
+    };
+    vscode.window.showWarningMessage = async (_message: string, _options: unknown, action: string) => action;
+    vscode.window.showInputBox = async () => "project-model";
+    const settings = (scope: unknown) => vscode.registrations.get("pi.openNativeSettings")(scope);
+    const mcp = (scope: unknown) => vscode.registrations.get("pi.openNativeMcp")(scope);
+    await settings("project");
+    const model = menus.at(-1)!.find((item) => item.action === "defaultModel");
+    assert.match(model.detail, /inherited\/default: inherited-model/);
+    assert.match(model.detail, /NOT approved/);
+    await mcp("project");
+    assert.ok(menus.at(-1)!.some((item) => item.action === "server:docs"));
+    await assert.rejects(lstat(path.join(root, ".pi")), { code: "ENOENT" });
+    for (const command of [settings, mcp]) {
+      picks.push("advanced");
+      await command("project");
+      await assert.rejects(lstat(path.join(root, ".pi")), { code: "ENOENT" });
+    }
+    picks.push("server:docs", "remove");
+    await mcp("project");
+    await assert.rejects(lstat(path.join(root, ".pi")), { code: "ENOENT" });
+    picks.push("defaultModel", "reset");
+    await settings("project");
+    await assert.rejects(lstat(path.join(root, ".pi")), { code: "ENOENT" });
+    vscode.window.showWarningMessage = async () => undefined;
+    picks.push("defaultModel", "edit");
+    await settings("project");
+    await assert.rejects(lstat(path.join(root, ".pi")), { code: "ENOENT" });
+    vscode.window.showWarningMessage = async (_message: string, _options: unknown, action: string) => action;
+    picks.push("defaultModel", "edit");
+    await settings("project");
+    assert.deepEqual(JSON.parse(await readFile(path.join(root, ".pi/settings.json"), "utf8")), {
+      defaultModel: "project-model",
+    });
+    assert.equal(await readFile(path.join(root, "agent/settings.json"), "utf8"), globalSettings);
+    await assert.rejects(lstat(path.join(root, ".pi/mcp.json")), { code: "ENOENT" });
+    vscode.window.showInputBox = async () => "new-global-model";
+    picks.push("defaultModel", "edit");
+    await settings("global");
+    assert.deepEqual(JSON.parse(await readFile(path.join(root, "agent/settings.json"), "utf8")), {
+      defaultModel: "new-global-model",
+      unknown: true,
+    });
+    assert.deepEqual(JSON.parse(await readFile(path.join(root, ".pi/settings.json"), "utf8")), {
+      defaultModel: "project-model",
+    });
+    await rm(path.join(root, ".pi"), { recursive: true });
+    picks.push("server:docs", "disable");
+    await mcp("project");
+    assert.deepEqual(JSON.parse(await readFile(path.join(root, ".pi/mcp.json"), "utf8")), {
+      mcpServers: { docs: { enabled: false } },
+    });
+    await assert.rejects(lstat(path.join(root, ".pi/settings.json")), { code: "ENOENT" });
+    assert.equal(await readFile(path.join(root, "agent/mcp.json"), "utf8"), globalMcp);
+    // Unapproved, project-only servers stay editable without becoming active.
+    await writeFile(path.join(root, ".pi/mcp.json"), '{"mcpServers":{"local":{"command":"local-fixture"}}}');
+    picks.push("server:local", "disable");
+    await mcp("project");
+    assert.deepEqual(JSON.parse(await readFile(path.join(root, ".pi/mcp.json"), "utf8")), {
+      mcpServers: { local: { command: "local-fixture", enabled: false } },
+    });
+    await mcp("global");
+    assert.ok(!menus.at(-1)!.some((item) => item.action === "server:local"));
+    picks.push("server:docs", "disable");
+    await mcp("global");
+    assert.equal(JSON.parse(await readFile(path.join(root, "agent/mcp.json"), "utf8")).mcpServers.docs.enabled, false);
+    assert.equal(JSON.parse(await readFile(path.join(root, ".pi/mcp.json"), "utf8")).mcpServers.local.enabled, false);
+    const opened: string[] = [];
+    const window = vscode.window as any;
+    const originalShow = window.showTextDocument;
+    window.showTextDocument = async (uri: any) => {
+      opened.push(uri.fsPath);
+    };
+    try {
+      picks.push("advanced");
+      await mcp("project");
+      assert.deepEqual(opened, [path.join(root, ".pi/mcp.json")]);
+    } finally {
+      window.showTextDocument = originalShow;
+    }
+    const before = menus.length;
+    await settings("workspace");
+    await mcp({ scope: "global" });
+    assert.equal(menus.length, before, "Invalid command arguments cannot reach a native dialog");
+    assert.equal(errors.length, 2);
+    let reloads = 0;
+    runtime.reloadResources = async () => {
+      reloads++;
+      return false;
+    };
+    const notices: string[] = [];
+    vscode.window.showInformationMessage = async (message: string) => {
+      notices.push(message);
+    };
+    await vscode.registrations.get("pi.applyNativeConfiguration")({ uri: "unscoped-command-context" });
+    await vscode.registrations.get("pi.nativeRuntimeControls")({ uri: "unscoped-command-context" });
+    assert.equal(reloads, 1, "Unscoped commands keep ignoring unrelated context arguments");
+    assert.match(notices.at(-1)!, /Start Pi explicitly/);
+    assert.equal(errors.length, 2);
+    assert.equal(starts, 0);
+    assert.equal(picks.length, 0);
+  } finally {
+    for (const disposable of context.subscriptions) disposable.dispose();
+    if (oldDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = oldDir;
+    vscode.workspace.workspaceFolders = [];
+    vscode.workspace.textDocuments = [];
     vscode.restore();
     await rm(root, { recursive: true, force: true });
   }

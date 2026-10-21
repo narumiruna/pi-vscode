@@ -17,7 +17,7 @@ declare function acquireVsCodeApi(): {
   setState(state: unknown): void;
 };
 const api = acquireVsCodeApi();
-const categories = ["General", "Permissions", "Editor"] as const;
+const categories = ["General", "Permissions", "Editor", "Pi Files"] as const;
 type Draft = { raw: string | boolean; base: string };
 const drafts: Record<string, Draft> = {};
 const pending = new Map<string, { id: string }>();
@@ -54,7 +54,8 @@ function persist(): void {
   // Never persist configuration snapshots, and bound the total draft state.
   if (serializedSize(state) <= maxSettingsMessage) {
     api.setState(state);
-    status.textContent = "Settings are stored by VS Code. No Pi process is started by this page.";
+    status.textContent =
+      "Extension settings are stored by VS Code. Pi Files uses native forms. Saving starts no Pi process.";
   } else {
     api.setState({ category, target });
     status.textContent = "Drafts exceed the 32 KiB recovery limit. Save or shorten them before hiding this tab.";
@@ -111,10 +112,14 @@ function save(descriptor: SettingDescriptor, entry: SettingEntry, reset = false)
 }
 function render(): void {
   scope.value = target;
+  scope.disabled = category === "Pi Files";
   scope.querySelector<HTMLOptionElement>('option[value="workspace"]')!.disabled = !snapshot?.workspace;
-  document.querySelector<HTMLElement>("#scope-note")!.textContent = snapshot?.remote
-    ? "Remote window: use VS Code Settings for local-user versus remote-user scope. Reset removes only this page's selected override."
-    : "Reset removes only the selected scope's override. User edits can be overridden by Workspace settings.";
+  document.querySelector<HTMLElement>("#scope-note")!.textContent =
+    category === "Pi Files"
+      ? "Pi Files uses Global Pi or Project Pi below, not the VS Code User/Workspace target."
+      : snapshot?.remote
+        ? "Remote window: use VS Code Settings for local-user versus remote-user scope. Reset removes only this page's selected override."
+        : "Reset removes only the selected scope's override. User edits can be overridden by Workspace settings.";
   nav.replaceChildren();
   for (const name of categories) {
     const button = element("button", name);
@@ -130,6 +135,49 @@ function render(): void {
   }
   main.replaceChildren(element("h2", category));
   if (!snapshot) return;
+  if (category === "Pi Files") {
+    main.append(
+      element(
+        "p",
+        "Edit native Pi configuration through host-native forms. Native file contents and secrets are not sent to this page.",
+      ),
+      element(
+        "p",
+        "Missing files are created only when you save an override. Opening, switching, and resetting an absent override create nothing.",
+      ),
+      element(
+        "p",
+        "Save does not restart Pi, connect MCP servers, or approve project resources. Project overrides remain inactive until project resources are approved. VS Code launch overrides can take precedence.",
+      ),
+    );
+    if (!snapshot.nativeFilesAvailable)
+      main.append(element("p", "Open a trusted, file-backed workspace to edit native Pi files."));
+    for (const fileScope of ["global", "project"] as const) {
+      const section = element("section");
+      section.className = "setting";
+      const title = fileScope === "global" ? "Global Pi" : "Project Pi";
+      section.append(
+        element("h3", title),
+        element(
+          "p",
+          fileScope === "global"
+            ? "Extension Host: ~/.pi/agent/settings.json and mcp.json, or the PI_CODING_AGENT_DIR override. Remote windows use the remote host."
+            : "Project directory (first workspace folder): .pi/settings.json and .pi/mcp.json. Saving does not grant project approval.",
+        ),
+      );
+      const actions = element("div");
+      actions.className = "actions";
+      for (const kind of ["settings", "mcp"] as const) {
+        const button = element("button", `Edit ${title} ${kind}.json`);
+        button.type = "button";
+        button.disabled = !snapshot.nativeFilesAvailable;
+        button.addEventListener("click", () => api.postMessage({ type: "openPiFile", kind, scope: fileScope }));
+        actions.append(button);
+      }
+      section.append(actions);
+      main.append(section);
+    }
+  }
   if (category === "Editor")
     main.append(
       element(
@@ -259,7 +307,8 @@ window.addEventListener("message", (event: MessageEvent) => {
       target = "user";
       persist();
     }
-    status.textContent = "Settings are stored by VS Code. No Pi process is started by this page.";
+    status.textContent =
+      "Extension settings are stored by VS Code. Pi Files uses native forms. Saving starts no Pi process.";
     render();
   } else if (data?.type === "result") {
     const match = [...pending].find(([, item]) => item.id === data.id);

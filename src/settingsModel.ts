@@ -164,6 +164,7 @@ export interface SettingsSnapshot {
   revision: number;
   workspace: boolean;
   trusted: boolean;
+  nativeFilesAvailable: boolean;
   remote: boolean;
   entries: SettingEntry[];
 }
