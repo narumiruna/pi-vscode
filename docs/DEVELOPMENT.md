@@ -102,6 +102,28 @@ Append `editor` to `test:native-ui` for the isolated multiline-editor and timed-
 
 Native checks download a VS Code test build into the system temporary cache and use disposable profiles and workspaces. UI checks use a deterministic Pi RPC fixture; Playwright connects only to the disposable profile's loopback debugging endpoint. These checks do not use a live model, your VS Code profile, or your workspace.
 
+### Operation diagnostics validation
+
+Append `output-diagnostics` to `test:native-ui` for the isolated **Show Output** fixture. It injects malformed stdout and private stderr into the offline RPC child, then checks the real Sidebar, Pi log file and Output panel. It checks that the short recovery summary remains visible, no raw sentinel reaches the webview or log, no modal/panel/notification or editor-focus change occurs before explicit action, and native Tab/Enter selects **Output → Pi** without taking focus. It also checks that no model prompt or process restart occurs. This selector uses a source development profile, not an installed VSIX.
+
+Checked on Linux x64 with Node.js 26.8.2 on 2026-10-21, sequentially:
+
+| Check | Result |
+| --- | --- |
+| `npm test` | 92 files passed; 1,391 tests passed, 3 Windows-only tests skipped on Linux. Includes logging, activation, privacy, notices, deletion/recovery and runtime/RPC regressions. |
+| `npm exec --yes --package=@biomejs/biome@2.5.13 -- biome check src resources` | Passed with no errors; 875 warnings and 24 informational diagnostics. |
+| `npm run test:rich-content` | Passed with local Playwright Chromium, including Show Output keyboard/focus and retained-notice fixtures. |
+| `xvfb-run -a npm run test:native -- 1.140.0` | Passed, VS Code 1.140.0. |
+| `xvfb-run -a npm run test:native -- stable` | Passed, resolved VS Code 1.143.0. |
+| `xvfb-run -a npm run test:native-ui -- 1.140.0 output-diagnostics` | Passed, VS Code 1.140.0. |
+| `xvfb-run -a npm run test:native-ui -- stable output-diagnostics` | Passed, resolved VS Code 1.143.0. |
+
+Initial checks found outdated constructor/action fixtures and a narrow-panel tab selector; these were corrected before the passing runs. Diff review also found missing history-generation correlation and a late settlement-refresh rejection that could warn a replacement client. History now captures its originating generation, RPC commands use the active request ID when applicable, runtime request diagnostics receive the Sidebar retry contract, and stale refresh failures are discarded with Debug metadata for the old client. Regression tests and all required checks passed after these fixes. Native Output checks use the active **Pi - Output** document and channel selector because narrow panels can collapse the Output tab into **Additional Views**. No package publication, extension installation or live-provider validation was performed.
+
+Logging ownership is bounded: activation owns channel/stage records; runtime owns lifecycle, deletion/recovery, request and warning records; RPC owns allowlisted command timing/failure records; Sidebar owns UI-action, history/storage and permanent-confirmation records; inline completion owns response/invocation/cancellation records. `src/test/logging.test.ts`, `loggingActivation.test.ts`, `inlineCompletionLogging.test.ts`, `piRpcDiagnostics.test.ts`, `piRuntimeLogging.test.ts` and `sidebarDiagnostics.test.ts` cover metadata projection, warning suppression, disposal/failure isolation, late clients, completed-operation/refresh-failed outcomes and sentinel privacy. Runtime warnings are not logged again by notices.
+
+Release-maintainer handoff: Windows/macOS and Remote SSH/WSL/container routing, log levels and focus behavior remain unverified. In each environment, use an isolated profile and offline failure to confirm that the Pi channel belongs to the workspace Extension Host, logging does not reveal Output or change focus, and explicit Show Output selects Pi while the Sidebar warning remains visible. Do not infer these results from the Linux checks or claim cross-platform/remote validation before those checks pass. No live-provider check is needed for these deterministic diagnostics.
+
 ### Remote draft storage check
 
 After compilation, supply a VS Code Server **web** build and local Playwright Chromium:

@@ -2,6 +2,7 @@ import path from "node:path";
 import * as vscode from "vscode";
 import { boundCompletionContext, buildCompletionPrompt, extractCompletion } from "./completion";
 import { piConfiguration } from "./configuration";
+import { type Logger, nullLogger, safeErrorCategory, safeErrorCode } from "./logging";
 import { invokePiWithCancellation } from "./vscodePi";
 
 const maxPrefixCharacters = 12_000;
@@ -14,11 +15,9 @@ interface CachedCompletion {
   readonly createdAt: number;
 }
 
-export function registerInlineCompletions(context: vscode.ExtensionContext): void {
-  const output = vscode.window.createOutputChannel("Pi");
-  const provider = new PiInlineCompletionProvider(output);
+export function registerInlineCompletions(context: vscode.ExtensionContext, logger: Logger = nullLogger): void {
+  const provider = new PiInlineCompletionProvider(logger);
   context.subscriptions.push(
-    output,
     vscode.languages.registerInlineCompletionItemProvider(
       [{ scheme: "file" }, { scheme: "vscode-remote" }, { scheme: "untitled" }],
       provider,
@@ -29,10 +28,10 @@ export function registerInlineCompletions(context: vscode.ExtensionContext): voi
   );
 }
 
-class PiInlineCompletionProvider implements vscode.InlineCompletionItemProvider {
+export class PiInlineCompletionProvider implements vscode.InlineCompletionItemProvider {
   private readonly cache = new Map<string, CachedCompletion>();
 
-  public constructor(private readonly output: vscode.OutputChannel) {}
+  public constructor(private readonly logger: Logger = nullLogger) {}
 
   public async provideInlineCompletionItems(
     document: vscode.TextDocument,
@@ -62,6 +61,7 @@ class PiInlineCompletionProvider implements vscode.InlineCompletionItemProvider 
 
     const debounceMs = Math.max(0, configuration.get<number>("debounceMilliseconds", 650));
     if (!(await cancellableDelay(debounceMs, token))) {
+      this.logger.record("debug", "inline-completion", { result: "cancelled", category: "cancelled" });
       return undefined;
     }
 
@@ -90,24 +90,33 @@ class PiInlineCompletionProvider implements vscode.InlineCompletionItemProvider 
       suffix: bounded.suffix,
     });
     const documentVersion = document.version;
+    const operationId = this.logger.operation();
 
     try {
       const output = await invokePiWithCancellation(prompt, token, document.uri);
       if (token.isCancellationRequested || document.version !== documentVersion) {
+        this.logger.record("debug", "inline-completion", { operationId, result: "cancelled", category: "cancelled" });
         return undefined;
       }
       const completion = extractCompletion(output);
       if (!completion) {
-        this.output.appendLine("Pi inline completion returned an unexpected response format.");
+        this.logger.record("warn", "inline-completion", {
+          operationId,
+          result: "failed",
+          category: "invalid-response",
+        });
         return undefined;
       }
       this.cache.set(cacheKey, { text: completion, createdAt: Date.now() });
       this.pruneCache();
       return [new vscode.InlineCompletionItem(completion, new vscode.Range(position, position))];
     } catch (error) {
-      if (!token.isCancellationRequested) {
-        this.output.appendLine(`Inline completion failed: ${error instanceof Error ? error.message : String(error)}`);
-      }
+      this.logger.record(token.isCancellationRequested ? "debug" : "error", "inline-completion", {
+        operationId,
+        result: token.isCancellationRequested ? "cancelled" : "failed",
+        category: token.isCancellationRequested ? "cancelled" : safeErrorCategory(error),
+        errorCode: safeErrorCode(error),
+      });
       return undefined;
     }
   }

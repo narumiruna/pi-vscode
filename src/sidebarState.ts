@@ -22,15 +22,14 @@ export function historySyncFailureState(connected: boolean): HistorySyncFailureS
 
 /** Primary notices contain only fixed text, never raw runtime diagnostics or paths. */
 export function runtimeNoticeSummary(event: { type: string; warningCode?: unknown }): string {
-  if (event.type === "protocol_error")
-    return "Pi sent an invalid response. View diagnostic before taking further action.";
+  if (event.type === "protocol_error") return "Pi sent an invalid response. Show Output before taking further action.";
   switch (event.warningCode) {
     case "session-replaced":
       return "The previous session could not be restored. A new session was started; check Sessions for earlier work.";
     case "state-refresh":
       return "The command completed, but state could not refresh. Reconnect to refresh; do not repeat the command.";
     case "deleted-cleanup":
-      return "The conversation was deleted, but cleanup or restart failed. View diagnostic for details.";
+      return "The conversation was deleted, but cleanup or restart failed. Show Output for details.";
     case "cleanup-unverified":
       return "Pi cleanup is unverified. Check for remaining processes before starting conflicting work.";
     case "queue-delivered":
@@ -38,7 +37,7 @@ export function runtimeNoticeSummary(event: { type: string; warningCode?: unknow
     case "queue-uncertain":
       return "Queued delivery is uncertain. Check history and Restore drafts before resending; nothing is replayed automatically.";
     default:
-      return "Pi reported a runtime warning. View diagnostic before taking further action.";
+      return "Pi reported a runtime warning. Show Output before taking further action.";
   }
 }
 

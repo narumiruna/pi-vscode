@@ -535,12 +535,15 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
     type: "notice",
     message: "Pi stopped, but descendant cleanup is unverified. Check running processes before continuing.",
     level: "warning",
-    detailsAvailable: true,
+    outputAvailable: true,
   });
   assert.equal(await page.locator("#notice").getByRole("button", { name: "Dismiss" }).count(), 0);
   await page.screenshot({ path: "/tmp/pi-composer-warning.png" });
-  await page.getByRole("button", { name: "View diagnostic" }).click();
-  assert.equal(await page.evaluate(() => window.posted.at(-1).type), "showNoticeDetails");
+  const showOutput = page.getByRole("button", { name: "Show Output", exact: true });
+  await showOutput.focus();
+  await showOutput.press("Enter");
+  assert.equal(await page.evaluate(() => window.posted.at(-1).type), "showOutput");
+  assert.equal(await showOutput.evaluate((element) => element === document.activeElement), true);
   await state({ runtime: { ...runtime, busy: true, queueable: false, cancellable: true } });
   await page.locator("#input").fill("Blocked draft");
   await page.locator("#input").press("Enter");

@@ -25,6 +25,7 @@ import {
 import { formatBashExecutionText, parseBashResultView, parseComposerInput } from "./directShell";
 import { EditProposalStore } from "./editProposals";
 import { ImageAssetCache, ImageAssetDeliveryTracker } from "./imageAssets";
+import { type LogEvent, type Logger, type LogMetadata, nullLogger, safeErrorCategory, safeErrorCode } from "./logging";
 import { escapeHtml, MarkdownRenderer } from "./markdown";
 import { acquireOperation } from "./operationLocks";
 import type { PiRpcEvent, PiRpcImage } from "./piRpcClient";
@@ -94,10 +95,11 @@ interface QueuedTranscriptPresentation {
 export function registerPiSidebar(
   context: vscode.ExtensionContext,
   runtime: PiRuntimeManager,
+  logger: Logger = nullLogger,
 ): PiConversationController {
   const backgroundAgents = new BackgroundAgentManager(context);
   const changeTracker = new WorkspaceChangeTracker();
-  const provider = new PiChatViewProvider(context, runtime, changeTracker, backgroundAgents);
+  const provider = new PiChatViewProvider(context, runtime, changeTracker, backgroundAgents, logger);
   registerSessionTransfer(context, runtime);
   context.subscriptions.push(
     backgroundAgents,
@@ -166,7 +168,6 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   private readonly queuedTranscriptPresentations = new Map<string, QueuedTranscriptPresentation>();
   private renderTimer: NodeJS.Timeout | undefined;
   private foregroundCancellable = false;
-  private noticeDetails: string | undefined;
   private noticeRevision = 0;
   private recentSessions: PiSessionSummary[] = [];
   private sessionRefreshRevision = 0;
@@ -176,6 +177,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     private readonly runtime: PiRuntimeManager,
     private readonly changeTracker: WorkspaceChangeTracker,
     private readonly backgroundAgents: BackgroundAgentManager,
+    private readonly logger: Logger = nullLogger,
   ) {
     this.proposals = new EditProposalStore(
       () => this.postState(),
@@ -199,12 +201,14 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       onSupportChange: () => this.postState(),
     });
     this.drafts = new SessionDraftController(
-      new SessionDraftStore(context.workspaceState, () =>
+      new SessionDraftStore(context.workspaceState, () => {
+        this.logger.record("warn", "cache-save", { result: "failed", category: "storage" });
         this.postNotice(
           "Draft storage failed. Recent text or discard actions may not survive reload. Do not rely on recovery.",
           "warning",
-        ),
-      ),
+          true,
+        );
+      }),
       () => this.runtime.currentState.sessionFile,
       (message) => this.postMessage(message),
       async () =>
@@ -330,10 +334,10 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.postState();
     try {
       await this.runtime.ensureStarted(vscode.window.activeTextEditor?.document.uri);
-      await this.syncMessagesFromPi();
+      await this.syncMessagesFromPi(false, undefined, "history-load");
       await this.refreshRecentSessions(false);
       this.status = "Ready";
-    } catch (error) {
+    } catch {
       const failure = historySyncFailureState(this.runtime.currentState.connected);
       this.status = failure.status;
       this.historyRecoveryAvailable = failure.historyRecoveryAvailable;
@@ -342,7 +346,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           ? "Pi connected, but conversation history could not be loaded. Use Refresh history to retry."
           : "Pi could not connect. Use Reconnect after resolving the problem.",
         "error",
-        formatError(error),
+        true,
       );
     }
     this.postState();
@@ -493,8 +497,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         case "deleteSession":
           await this.deleteSession();
           break;
-        case "showNoticeDetails":
-          if (this.noticeDetails) await vscode.window.showErrorMessage(this.noticeDetails, { modal: true });
+        case "showOutput":
+          this.logger.show();
           break;
         case "attachSelection":
           this.attachments.attachSelection();
@@ -620,6 +624,13 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           break;
       }
     } catch (error) {
+      // A request notice or history synchronization already has its own diagnostic record.
+      if (
+        noticeRevision === this.noticeRevision &&
+        message.type !== "refreshHistory" &&
+        message.type !== "historyWindow"
+      )
+        this.logFailure("sidebar-action", error);
       if (message.type === "send" || message.type === "sendNewSession" || message.type === "queueInstruction") {
         this.postMessage({ type: "sendRejected" });
       } else if (message.type === "switchRecentSession") {
@@ -628,7 +639,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         this.postMessage({ type: "newSessionRejected" });
       }
       if (shouldPostActionErrorNotice(message.type, noticeRevision, this.noticeRevision)) {
-        this.postNotice(actionErrorSummary(message.type), "error", formatError(error));
+        this.postNotice(actionErrorSummary(message.type), "error", true);
       }
       this.postState();
     }
@@ -1174,7 +1185,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.postNotice(
         "Shell did not complete reliably. Check history and effects; do not repeat it automatically.",
         "error",
-        formatError(error),
+        true,
       );
       throw error;
     } finally {
@@ -1307,6 +1318,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           }
         },
         origin === "composer" && !onResponse && policy === undefined && !text.startsWith("/"),
+        retryable,
       );
       this.foregroundCancellable = false;
       if (this.requestLifecycle.wasCancelled && (response === undefined || typeof response === "string")) {
@@ -1326,7 +1338,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         this.trackCurrentRequestChanges = false;
       }
       synchronizingHistory = true;
-      await this.syncMessagesFromPi();
+      await this.syncMessagesFromPi(false, undefined, "history-refresh", true);
       await this.refreshRecentSessions(false);
       synchronizingHistory = false;
       if (typeof response === "string") await onResponse?.(response);
@@ -1350,7 +1362,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           this.postNotice(
             "Pi stopped after tool execution. Retry is disabled because a mutating tool may already have run.",
             "warning",
-            message,
+            true,
           );
         } else if (synchronizingHistory) {
           const failure = historySyncFailureState(this.runtime.currentState.connected);
@@ -1361,15 +1373,16 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
               ? "Pi completed the request, but history refresh failed. Use Refresh history after resolving the problem."
               : "Pi completed the request, but disconnected before history refresh. Reconnect to restore the conversation.",
             "warning",
-            message,
+            true,
           );
         } else {
+          this.logFailure("sidebar-action", error, true);
           this.historyRecoveryAvailable = false;
           this.status = "Pi completed · Follow-up action failed";
           this.postNotice(
             "Pi completed the request, but the follow-up action failed. The request will not be retried.",
             "warning",
-            message,
+            true,
           );
         }
       } else if (this.requestLifecycle.wasCancelled || /cancelled/i.test(message)) {
@@ -1387,7 +1400,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
             ? "Pi request failed. Retry the message after resolving the problem."
             : "Pi request failed. Run the editor action again to retry.",
           "error",
-          message,
+          true,
         );
       }
       this.postState();
@@ -1495,22 +1508,26 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.postState();
     const outcome = await deleteConversationWithTrashFallback({
       moveToTrash: () => this.runtime.deleteSession(),
-      confirmPermanent: async () => {
+      confirmPermanent: async (trashError) => {
         this.status = "Session kept · Trash unavailable";
-        this.postNotice("Trash is unavailable for this file provider. The session was kept.", "warning");
+        this.postNotice("Trash is unavailable for this file provider. The session was kept.", "warning", true);
         this.postState();
-        return (
+        const accepted =
           (await vscode.window.showWarningMessage(
             `Trash is unavailable. Permanently delete ${target}? This cannot be undone.`,
             { modal: true },
             "Delete Permanently",
-          )) === "Delete Permanently"
-        );
+          )) === "Delete Permanently";
+        this.logger.record("info", "permanent-confirmation", {
+          operationId: trashError.operationId,
+          result: accepted ? "accepted" : "cancelled",
+        });
+        return accepted;
       },
       deletePermanently: async (trashError) => {
         this.status = "Permanently deleting session…";
         this.postState();
-        await this.runtime.deleteSessionPermanently(trashError.sessionFile);
+        await this.runtime.deleteSessionPermanently(trashError.sessionFile, trashError.operationId);
       },
     });
     if (outcome.status === "deleted") {
@@ -1530,7 +1547,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           ? "The session could not be permanently deleted and was kept."
           : "The session could not be moved to Trash and was kept.",
         "error",
-        formatError(outcome.error),
+        true,
       );
     }
     if (runtimeSessionIdentityChanged(sessionBeforeDelete, this.runtime.currentState)) {
@@ -1584,7 +1601,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.clearToolMessages();
       this.retryRequest = undefined;
       this.attachments.clearPins();
-      await this.syncMessagesFromPi();
+      await this.syncMessagesFromPi(false, undefined, "history-refresh", true);
       this.status = "Pi restarted · No requests replayed";
       this.postState();
     }
@@ -1633,15 +1650,11 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   private async finishSessionTransition(status: string, preserveAttachments = false): Promise<void> {
     await this.resetConversation(status, preserveAttachments);
     try {
-      await this.syncMessagesFromPi();
+      await this.syncMessagesFromPi(false, undefined, "history-refresh", true);
       await this.refreshRecentSessions(false);
-    } catch (error) {
+    } catch {
       this.historyRecoveryAvailable = this.runtime.currentState.connected;
-      this.postNotice(
-        "Session changed, but history could not refresh. Do not repeat the operation.",
-        "warning",
-        formatError(error),
-      );
+      this.postNotice("Session changed, but history could not refresh. Do not repeat the operation.", "warning", true);
     }
     this.postState();
     this.navigate("showSessionDetail");
@@ -1656,10 +1669,10 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.postState();
     await this.runtime.compact(customInstructions, onAccepted);
     try {
-      await this.syncMessagesFromPi();
+      await this.syncMessagesFromPi(false, undefined, "history-compaction", true);
       this.historyRecoveryAvailable = false;
       this.status = "Context compacted";
-    } catch (error) {
+    } catch {
       const failure = historySyncFailureState(this.runtime.currentState.connected);
       this.historyRecoveryAvailable = failure.historyRecoveryAvailable;
       this.status = "Context compacted · History refresh failed";
@@ -1668,7 +1681,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           ? "Context was compacted, but history refresh failed. Use Refresh history. Do not repeat compaction."
           : "Context was compacted, but Pi disconnected before history refresh. Reconnect. Do not repeat compaction.",
         "warning",
-        formatError(error),
+        true,
       );
     }
     this.postState();
@@ -1798,7 +1811,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
 
   private async refreshImportedSession(): Promise<void> {
     await this.resetConversation("Pi session imported");
-    await this.syncMessagesFromPi(true);
+    await this.syncMessagesFromPi(true, undefined, "history-refresh", true);
     await this.refreshRecentSessions(false);
     this.status = "Pi session imported";
     this.postState();
@@ -1811,6 +1824,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         this.postNotice(
           "The imported session is active, but history could not be refreshed. Refresh Pi before sending.",
           "warning",
+          true,
         );
       });
       return;
@@ -1943,11 +1957,12 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       }
       this.status = "Disconnected · Reconnect available";
     } else if (event.type === "runtime_warning" || event.type === "protocol_error") {
-      const details = stringValue(event.message) || "No additional diagnostic information was supplied.";
-      this.postNotice(runtimeNoticeSummary(event), "warning", details);
+      // Runtime records diagnostics even when this view is closed; do not log them again here.
+      this.postNotice(runtimeNoticeSummary(event), "warning", true);
     } else if (event.type === "extension_ui_request") {
       void this.handleExtensionUiRequest(event).catch((error) => {
-        this.postNotice("The Pi extension UI request failed.", "error", formatError(error));
+        this.logFailure("sidebar-action", error);
+        this.postNotice("The Pi extension UI request failed.", "error", true);
       });
     }
     this.scheduleState();
@@ -2070,20 +2085,43 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     );
   }
 
-  private async syncMessagesFromPi(verifiedImport = false, historyBefore?: number): Promise<void> {
+  private async syncMessagesFromPi(
+    verifiedImport = false,
+    historyBefore?: number,
+    event: "history-load" | "history-refresh" | "history-compaction" = "history-refresh",
+    operationCompleted = false,
+  ): Promise<void> {
+    const operationId = this.logger.operation();
+    const generation = this.runtime.clientGeneration;
+    const failed = (error: unknown) =>
+      this.logger.record("warn", event, {
+        operationId,
+        generation,
+        result: "failed",
+        operationCompleted,
+        category: safeErrorCategory(error),
+        errorCode: safeErrorCode(error),
+      });
+    const discarded = () =>
+      this.logger.record("debug", "history-stale", { operationId, generation, result: "discarded" });
     if (!this.runtime.currentState.connected) {
       const failure = historySyncFailureState(false);
       this.status = failure.status;
       this.historyRecoveryAvailable = failure.historyRecoveryAvailable;
       this.postState();
-      throw new Error("Pi disconnected before conversation history could be synchronized.");
+      const error = new Error("Pi disconnected before conversation history could be synchronized.");
+      failed(error);
+      throw error;
     }
     if (verifiedImport ? this.requestGate.isPending : this.runtime.currentState.busy) {
-      throw new Error("Wait for Pi to finish before refreshing conversation history.");
+      const error = new Error("Wait for Pi to finish before refreshing conversation history.");
+      failed(error);
+      throw error;
     }
     const revision = ++this.historySyncRevision;
     const session = JSON.stringify([this.runtime.currentState.sessionFile, this.runtime.currentState.sessionId]);
     const current = () =>
+      generation === this.runtime.clientGeneration &&
       historyRequestIsCurrent(
         { generation: revision, session },
         {
@@ -2096,7 +2134,10 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.postState();
     try {
       const values = await this.runtime.getMessages();
-      if (!current()) return;
+      if (!current()) {
+        discarded();
+        return;
+      }
       const messages = convertPiMessages(values, {
         imageAssets: this.imageAssets,
         knownMessages: this.messages,
@@ -2111,13 +2152,20 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       if (messages.length > 0 || this.runtime.currentState.sessionId) {
         this.messages = limitSidebarMessages(messages, maxMessages, maxStoredCharacters);
         // Older-window browsing must not replace the persisted latest-window cache.
-        if (historyBefore === undefined) await this.persistMessages();
+        if (historyBefore === undefined) await this.persistMessages({ operationId, generation });
       }
-      if (!current()) return;
+      if (!current()) {
+        discarded();
+        return;
+      }
       this.historyRecoveryAvailable = false;
       this.postState();
     } catch (error) {
-      if (!current()) return;
+      if (!current()) {
+        discarded();
+        return;
+      }
+      failed(error);
       this.historyAvailable = false;
       const failure = historySyncFailureState(this.runtime.currentState.connected);
       this.status = failure.status;
@@ -2134,6 +2182,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
 
   private async refreshRecentSessions(post = true): Promise<void> {
     const revision = ++this.sessionRefreshRevision;
+    const correlation = { operationId: this.logger.operation(), generation: this.runtime.clientGeneration };
     const runtime = this.runtime.currentState;
     const activeSessionFile = runtime.sessionFile;
     if (!activeSessionFile) {
@@ -2146,10 +2195,13 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       const sessions = await listRecentPiSessions(activeSessionFile, this.runtime.currentCwd);
       if (
         revision !== this.sessionRefreshRevision ||
-        activeSessionFile !== this.runtime.currentState.sessionFile ||
-        !sessions
-      )
+        correlation.generation !== this.runtime.clientGeneration ||
+        activeSessionFile !== this.runtime.currentState.sessionFile
+      ) {
+        this.logger.record("debug", "history-stale", { ...correlation, result: "discarded" });
         return;
+      }
+      if (!sessions) return;
       this.recentSessions = sessions.some((session) => session.path === activeSessionFile)
         ? sessions
         : [
@@ -2162,18 +2214,27 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
             },
             ...sessions,
           ].slice(0, 100);
-    } catch {
-      if (revision !== this.sessionRefreshRevision) return;
+    } catch (error) {
+      if (
+        revision !== this.sessionRefreshRevision ||
+        correlation.generation !== this.runtime.clientGeneration ||
+        activeSessionFile !== this.runtime.currentState.sessionFile
+      ) {
+        this.logger.record("debug", "history-stale", { ...correlation, result: "discarded" });
+        return;
+      }
+      this.logFailure("history-refresh", error, undefined, correlation);
       // Keep the previous index on transient filesystem failures.
     }
     if (post) this.postState();
   }
 
-  private async persistMessages(): Promise<void> {
+  private async persistMessages(correlation?: Pick<LogMetadata, "operationId" | "generation">): Promise<void> {
     try {
       await this.context.workspaceState.update(storageKey, persistableSidebarMessages(this.messages));
-    } catch {
-      this.postNotice("The conversation could not be saved in workspace storage.", "warning");
+    } catch (error) {
+      this.logFailure("cache-save", error, undefined, correlation);
+      this.postNotice("The conversation could not be saved in workspace storage.", "warning", true);
     }
   }
 
@@ -2276,10 +2337,25 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     }
   }
 
-  private postNotice(message: string, level: "info" | "warning" | "error", details?: string): void {
+  private logFailure(
+    event: LogEvent,
+    error: unknown,
+    operationCompleted?: boolean,
+    correlation?: Pick<LogMetadata, "operationId" | "generation">,
+  ): void {
+    this.logger.record("error", event, {
+      operationId: correlation?.operationId ?? this.logger.operation(),
+      generation: correlation?.generation,
+      result: "failed",
+      ...(operationCompleted === undefined ? {} : { operationCompleted }),
+      category: safeErrorCategory(error),
+      errorCode: safeErrorCode(error),
+    });
+  }
+
+  private postNotice(message: string, level: "info" | "warning" | "error", outputAvailable = false): void {
     this.noticeRevision += 1;
-    this.noticeDetails = details?.slice(0, maxToolOutputCharacters);
-    this.postMessage({ type: "notice", message, level, detailsAvailable: Boolean(this.noticeDetails) });
+    this.postMessage({ type: "notice", message, level, outputAvailable });
   }
 
   private navigate(type: "showSessionDetail" | "showSessionsLayer"): void {
@@ -2307,10 +2383,10 @@ function actionErrorSummary(action: WebviewMessage["type"]): string {
   if (action === "queueInstruction")
     return "Pi could not confirm queued message delivery. Inspect history and recovered drafts before resending.";
   if (action === "send" || action === "sendNewSession" || action === "retry")
-    return "Pi could not accept the message. Review details, then retry when safe.";
-  if (action === "reconnect") return "Pi could not reconnect. Review details and try again.";
-  if (action === "refreshHistory") return "Conversation history could not be refreshed. Review details and try again.";
+    return "Pi could not accept the message. Show Output, then retry when safe.";
+  if (action === "reconnect") return "Pi could not reconnect. Show Output and try again.";
+  if (action === "refreshHistory") return "Conversation history could not be refreshed. Show Output and try again.";
   if (action === "deleteSession") return "The session could not be deleted and was kept.";
-  if (action === "cancel") return "Pi could not confirm cancellation. Review details before continuing.";
-  return "The Pi action failed. Review details and try again.";
+  if (action === "cancel") return "Pi could not confirm cancellation. Show Output before continuing.";
+  return "The Pi action failed. Show Output and try again.";
 }

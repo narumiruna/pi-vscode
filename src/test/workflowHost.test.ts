@@ -1387,7 +1387,7 @@ for (const command of ["/handled-command", "/compact"]) {
         assert.ok(
           posted.some(
             (message) =>
-              message.type === "notice" && message.level === "warning" && String(message.detailsAvailable) === "true",
+              message.type === "notice" && message.level === "warning" && String(message.outputAvailable) === "true",
           ),
         );
       }

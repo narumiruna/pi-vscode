@@ -123,7 +123,8 @@ test("workflow commands are contributed, registered, documented and keep minimum
   const entry = readFileSync("src/extension.ts", "utf8");
   const readme = readFileSync("README.md", "utf8");
   const cleanupIndex = entry.indexOf("await removeLegacyGlobalBridgeExtensions()");
-  assert.ok(cleanupIndex >= 0 && cleanupIndex < entry.indexOf("new PiRuntimeManager(context)"));
+  assert.ok(cleanupIndex >= 0 && cleanupIndex < entry.indexOf("new PiRuntimeManager(context, logger)"));
+  assert.ok(entry.indexOf('createOutputChannel("Pi", { log: true })') < cleanupIndex);
   for (const [command, controller, register] of [
     ["reviewStagedChanges", "gitReviewController", "registerGitReview"],
     ["reviewChanges", "gitReviewController", "registerGitReview"],

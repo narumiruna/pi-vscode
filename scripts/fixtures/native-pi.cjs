@@ -81,6 +81,13 @@ setInterval(() => {
   const event = JSON.parse(fs.readFileSync(file, "utf8"));
   fs.unlinkSync(file);
   if (event.type === "fixture_exit") process.exit(0);
+  if (event.type === "fixture_invalid_json" && fs.existsSync(path.join(directory, "output-diagnostics-only"))) {
+    // Exercise the real RPC parser and private stderr buffer, not a synthetic host notice.
+    if (typeof event.text !== "string" || event.text.includes("\n")) throw new Error("Invalid diagnostic fixture input");
+    process.stderr.write(`${event.text}\n`);
+    process.stdout.write(`not-json ${event.text}\n`);
+    return;
+  }
   emit(event);
 }, 50).unref();
 // Exercise the real authenticated bridge from the actual foreground child. Private

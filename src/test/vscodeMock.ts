@@ -127,7 +127,16 @@ export function installVscodeMock(): any {
       }
     },
     ProgressLocation: { Notification: 15 },
+    version: "1.140.0",
     env: {},
+    outputChannels: [],
+    InlineCompletionTriggerKind: { Invoke: 0, Automatic: 1 },
+    InlineCompletionItem: class {
+      constructor(
+        public insertText: string,
+        public range: unknown,
+      ) {}
+    },
     panels,
     configurationEvents,
     workspaceEvents,
@@ -175,6 +184,11 @@ export function installVscodeMock(): any {
     },
     SymbolKind: { 11: "Function", 4: "Class" },
     languages: {
+      inlineProviders: [],
+      registerInlineCompletionItemProvider: (_selector: unknown, provider: unknown) => {
+        mock.languages.inlineProviders.push(provider);
+        return disposable();
+      },
       getDiagnostics: () => [],
       registerCodeActionsProvider: disposable,
       onDidChangeDiagnostics: disposable,
@@ -221,6 +235,40 @@ export function installVscodeMock(): any {
       getWorkspaceFolder: () => undefined,
     },
     window: {
+      createOutputChannel: (name: string, options: unknown) => {
+        const channel = {
+          name,
+          options,
+          records: [] as { level: string; message: string }[],
+          shown: [] as boolean[],
+          disposed: false,
+          disposeCalls: 0,
+          info(message: string) {
+            this.records.push({ level: "info", message });
+          },
+          warn(message: string) {
+            this.records.push({ level: "warn", message });
+          },
+          error(message: string) {
+            this.records.push({ level: "error", message });
+          },
+          debug(message: string) {
+            this.records.push({ level: "debug", message });
+          },
+          trace(message: string) {
+            this.records.push({ level: "trace", message });
+          },
+          show(preserveFocus: boolean) {
+            this.shown.push(preserveFocus);
+          },
+          dispose() {
+            this.disposed = true;
+            this.disposeCalls++;
+          },
+        };
+        mock.outputChannels.push(channel);
+        return channel;
+      },
       visibleTextEditors: [],
       decorationTypes: [],
       createTextEditorDecorationType: (options: unknown) => {

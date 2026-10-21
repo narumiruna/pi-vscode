@@ -138,13 +138,13 @@ test("extension UI rejects malformed records, exact bounds and floods without ev
 
 test("runtime notices use bounded known causes and never interpolate diagnostics", () => {
   const unknown = runtimeNoticeSummary({ type: "runtime_warning", warningCode: "/secret/path <script>" });
-  assert.match(unknown, /View diagnostic/);
+  assert.match(unknown, /Show Output/);
   assert.doesNotMatch(unknown, /secret|script/);
-  assert.match(runtimeNoticeSummary({ type: "protocol_error" }), /invalid response.*View diagnostic/);
+  assert.match(runtimeNoticeSummary({ type: "protocol_error" }), /invalid response.*Show Output/);
   for (const [code, expected] of [
     ["session-replaced", /new session was started/],
     ["state-refresh", /Reconnect.*do not repeat/],
-    ["deleted-cleanup", /deleted.*View diagnostic/],
+    ["deleted-cleanup", /deleted.*Show Output/],
     ["cleanup-unverified", /cleanup is unverified/],
     ["queue-delivered", /do not resend/],
     ["queue-uncertain", /Check history.*nothing is replayed automatically/],

@@ -284,7 +284,7 @@ export async function assertHistoryBrowser(browser) {
         ...latest, history, status: "Pi completed · History refresh failed", historyRecoveryAvailable: true,
       });
       await page.evaluate(() => window.dispatchEvent(new MessageEvent("message", {
-        data: { type: "notice", level: "error", message: "Session restoration failed.", detailsAvailable: true },
+        data: { type: "notice", level: "error", message: "Session restoration failed.", outputAvailable: true },
       })));
       assert.equal(await page.locator("#history-controls").isVisible(), false);
       assert.match(await page.locator("#status").innerText(), /History refresh failed/);
@@ -292,7 +292,7 @@ export async function assertHistoryBrowser(browser) {
       assert.equal(await page.locator("#refresh-history").isEnabled(), true);
       assert.match(await page.locator("#notice").innerText(), /Session restoration failed/);
       assert.equal(
-        await page.getByRole("button", { name: "View diagnostic", exact: true }).isVisible(), true,
+        await page.getByRole("button", { name: "Show Output", exact: true }).isVisible(), true,
       );
       assert.equal(await page.locator("#notice [data-notice-dismiss]").count(), 0);
       await page.locator("#history-search-open").click();
