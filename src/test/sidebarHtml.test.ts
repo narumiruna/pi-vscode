@@ -724,12 +724,10 @@ test("transcript images, context chips, compact composer, and in-flow tools use 
   const html = getSidebarHtml(100_000, 5 * 1024 * 1024);
   const conversation = html.indexOf('id="conversation"');
   const messages = html.indexOf('id="messages"');
-  const tools = html.indexOf('id="tools-group"');
   const activity = html.indexOf('id="activity"');
-  assert.ok(
-    conversation < messages && messages < tools && tools < activity,
-    "request tools follow the active response inside the conversation scroller",
-  );
+  assert.ok(conversation < messages && messages < activity);
+  assert.doesNotMatch(html, /id="tools-group"/);
+  assert.match(html, /content\.appendChild\(row\)/, "tools render inside their chronological messages");
   assert.match(html, /grid-template-columns: repeat\(auto-fit, minmax\(min\(124px, 100%\), 180px\)\)/);
   assert.match(html, /imageGrid\.className = 'transcript-images'/);
   assert.match(html, /card\.className = 'attachment-image'/);
@@ -770,16 +768,12 @@ test("responsive transcript constraints and VS Code theme tokens cover 280, 400,
   assert.match(html, /body\.vscode-dark, body\.vscode-high-contrast/);
 });
 
-test("sidebar groups tools without reopening disclosures on every state update", () => {
+test("sidebar renders individual collapsed tools without automatic disclosure changes", () => {
   const html = getSidebarHtml(100_000, 1024);
-
-  assert.match(html, /<details id="tools-group" hidden><summary id="tools-group-toggle">/);
-  assert.doesNotMatch(html, /<details id="tools-group"[^>]*\bopen\b/);
-  assert.match(html, /details\.toolManual = details\.open/);
-  assert.match(html, /toolDisclosure\(group, busy\)/);
-  assert.match(html, /Tool activity · /);
-  assert.match(html, /tools-failed/);
-  assert.doesNotMatch(html, /lastElementChild\.open = true/);
+  assert.match(html, /const toolRows = new Map\(\)/);
+  assert.match(html, /message\.role === 'tool' && message\.tool/);
+  assert.doesNotMatch(html, /tools-group|toolDisclosure|toolManual|details\.open\s*=/);
+  assert.match(html, /\.tool > summary:focus-visible/);
 });
 
 test("sidebar generated script parses with static icons and keeps nonce-only CSP", () => {
@@ -907,16 +901,19 @@ test("slash suggestions dismiss safely and preserve ordinary editor keys", () =>
   assert.equal(menu.hidden, true, "selection and an interior caret do not open suggestions");
 });
 
-test("tool details retain both inputs and outputs, safe summaries, errors and empty states", () => {
+function toolTranscript(tool: Record<string, unknown>) {
+  return { id: `tool-${tool.id}`, role: "tool", html: "", tool };
+}
+
+function toolRow(sidebar: ReturnType<typeof createSidebarScriptHarness>, id: string): SidebarTestElement {
+  return sidebar.run(`toolRows.get(${JSON.stringify(id)})`) as SidebarTestElement;
+}
+
+test("inline tool details retain safe inputs, outputs, status and empty states", () => {
   const sidebar = createSidebarScriptHarness();
   const send = (tools: any[], busy = false) =>
-    sidebar.receive({
-      type: "state",
-      runtime: { busy, connected: true },
-      tools,
-    });
+    sidebar.receive({ type: "state", runtime: { busy, connected: true }, messages: tools.map(toolTranscript) });
   send([]);
-  assert.equal(sidebar.element("tools-group").hidden, true);
   const tool = {
     id: "one",
     name: "read",
@@ -926,14 +923,13 @@ test("tool details retain both inputs and outputs, safe summaries, errors and em
     output: "",
   };
   send([tool]);
-  const row = sidebar.element("tools").children[0]!;
+  const row = toolRow(sidebar, "one");
+  assert.equal(row.open, false);
   assert.equal(row.children[0]?.children[2]?.textContent, "<img src=x>");
   assert.equal(row.children[0]?.children[2]?.innerHTML, "");
   assert.equal((row.children[0]?.children[0] as any)?.["aria-label"], "Succeeded");
   assert.equal(row.children[2]?.children[1]?.textContent, tool.input);
   assert.equal(row.children[3]?.children[1]?.textContent, "No output returned.");
-  assert.equal(sidebar.element("tools-summary").textContent, "Tool activity · 1 call");
-  assert.equal(sidebar.element("tools-failed").textContent, "");
   send(
     [
       { ...tool, status: "error", output: "Permission denied\nDetails" },
@@ -941,106 +937,111 @@ test("tool details retain both inputs and outputs, safe summaries, errors and em
     ],
     true,
   );
-  assert.equal(sidebar.element("tools-failed").textContent, " · 1 failed");
-  assert.equal(sidebar.element("tools-running").textContent, " · 1 running");
+  assert.equal((row.children[0]?.children[0] as any)?.["aria-label"], "Failed");
   assert.equal(row.children[1]?.textContent, "Permission denied\nDetails");
   assert.equal(row.children[2]?.children[1]?.textContent, tool.input);
   assert.equal(row.children[3]?.children[1]?.textContent, "Permission denied\nDetails");
-  send([{ ...tool, status: "error", output: "Permission denied" }]);
-  assert.equal(sidebar.element("tools-failed").textContent, " · 1 failed");
-  assert.equal(sidebar.element("tools-running").textContent, "");
+  assert.equal(row.open, false);
+  assert.equal(toolRow(sidebar, "two").open, false, "running calls also start collapsed");
 });
 
-test("manual tool disclosure survives insertion, settlement and full output updates; reset clears intent", () => {
+test("tool disclosures retain manual state through insertion, output, failure and settlement", () => {
   const sidebar = createSidebarScriptHarness();
   const tool = { id: "one", name: "bash", input: "npm test", output: "line\n".repeat(100), status: "running" };
   const send = (tools: any[], busy: boolean) =>
-    sidebar.receive({ type: "state", runtime: { busy, connected: true }, tools });
+    sidebar.receive({ type: "state", runtime: { busy, connected: true }, messages: tools.map(toolTranscript) });
   send([tool], true);
-  const group = sidebar.element("tools-group");
-  const row = sidebar.element("tools").children[0]!;
-  row.open = false;
-  group.open = false;
-  send([tool, { ...tool, id: "two" }], true);
-  assert.equal(group.open, false);
-  assert.equal(sidebar.element("tools").children[0], row);
+  const row = toolRow(sidebar, "one");
   assert.equal(row.open, false);
+  row.open = true;
   const full = row.children[3]!.children[2]!;
   full.open = true;
-  row.open = true;
-  group.open = true;
-  send([{ ...tool, status: "success", output: "more\n".repeat(200) }], false);
-  assert.equal(group.open, true);
+  send([tool, { ...tool, id: "two" }], true);
+  assert.equal(toolRow(sidebar, "one"), row);
+  assert.equal(row.open, true);
+  assert.equal(toolRow(sidebar, "two").open, false);
+  send([{ ...tool, status: "error", output: "more\n".repeat(200) }], false);
   assert.equal(row.open, true);
   assert.equal(full.open, true);
   assert.equal(full.children[1]?.textContent, "more\n".repeat(200));
   send([], false);
   send([{ ...tool, status: "success" }], false);
-  assert.equal(group.open, false);
-  assert.equal(sidebar.element("tools").children[0]?.open, false);
+  assert.notEqual(toolRow(sidebar, "one"), row);
+  assert.equal(toolRow(sidebar, "one").open, false);
 });
 
-test("completed and failed tools collapse during later calls without changing manual disclosures", () => {
+test("thinking, tool activity and answers stay in chronological order across updates and new turns", () => {
   const sidebar = createSidebarScriptHarness();
-  const tool = { name: "bash", input: "npm test", output: "Running", status: "running" };
-  const send = (tools: any[]) => sidebar.receive({ type: "state", runtime: { busy: true, connected: true }, tools });
-  const tools = ["success", "error", "manual-open", "manual-closed"].map((id) => ({ ...tool, id }));
-  send(tools);
-  const rows = sidebar.element("tools").children;
-  const succeeded = rows[0]!;
-  const failed = rows[1]!;
-  const manualOpen = rows[2]!;
-  const manualClosed = rows[3]!;
-  manualOpen.children[0]!.listeners.get("click")!();
-  manualOpen.open = false;
-  manualOpen.children[0]!.listeners.get("click")!();
-  manualOpen.open = true;
-  manualClosed.children[0]!.listeners.get("click")!();
-  manualClosed.open = false;
-
-  const completed = tools.map((entry) => ({
-    ...entry,
-    status: entry.id === "error" ? "error" : "success",
-    output: entry.id === "error" ? "Failed" : "Passed",
-  }));
-  const next = { ...tool, id: "next" };
-  send([...completed, next]);
-  assert.equal(sidebar.element("tools-group").open, true);
-  assert.equal(succeeded.open, false);
-  assert.equal(failed.open, false);
-  assert.equal(failed.children[1]?.textContent, "Failed");
-  assert.equal(manualOpen.open, true);
-  assert.equal(manualClosed.open, false);
-  assert.equal(rows[4]?.open, true, "the next running call opens automatically");
-
-  send([...completed, { ...next, output: "More output" }]);
-  assert.equal(rows[0], succeeded);
-  assert.equal(succeeded.open, false, "later updates must not reopen completed calls");
-  assert.equal(failed.open, false);
-  assert.equal(manualOpen.open, true);
-  assert.equal(manualClosed.open, false);
+  const tool = { id: "read", name: "read", status: "running", input: "file.ts", output: "" };
+  const thinking = {
+    id: "thinking",
+    role: "assistant",
+    html: "",
+    thinking: [{ contentIndex: 0, text: "Inspect file" }],
+  };
+  const answer = { id: "answer", role: "assistant", html: "<p>Result</p>" };
+  const send = (messages: any[]) =>
+    sidebar.receive({ type: "state", runtime: { connected: true, busy: true }, messages });
+  send([thinking, toolTranscript(tool), answer]);
+  const article = sidebar.element("messages").children[1]!;
+  const row = toolRow(sidebar, "read");
+  const order = () => Array.from(sidebar.element("messages").children, (node: any) => node.messageId);
+  assert.deepEqual(order(), ["thinking", "tool-read", "answer"]);
+  const disclosure = sidebar.element("messages").children[0]!.children[2]!;
+  disclosure.open = true;
+  row.open = true;
+  row.children[0]!.focus();
+  send([
+    thinking,
+    toolTranscript({ ...tool, status: "success", output: "Read result" }),
+    answer,
+    { id: "next", role: "user", html: "<p>Next request</p>" },
+    toolTranscript({ ...tool, id: "next" }),
+  ]);
+  assert.deepEqual(order(), ["thinking", "tool-read", "answer", "next", "tool-next"]);
+  assert.equal(sidebar.element("messages").children[1], article, "new turns must not detach retained tool articles");
+  assert.equal((article.children[0] as any)["aria-label"], "Tool message 2");
+  assert.equal(toolRow(sidebar, "read"), row);
+  assert.equal(row.open, true);
+  assert.equal(sidebar.element("messages").children[0]?.children[2]?.open, true);
+  assert.equal(sidebar.run("document.activeElement === toolRows.get('read').children[0]"), true);
+  assert.equal(toolRow(sidebar, "next").open, false);
 });
 
-test("tool retention removes only expired rows and a replaced request clears group intent", () => {
+test("tool retention removes only expired rows and fresh rows remain collapsed", () => {
   const sidebar = createSidebarScriptHarness();
   const tool = { id: "old", name: "read", input: "file", status: "success" };
-  const send = (tools: any[], busy = true) =>
-    sidebar.receive({ type: "state", runtime: { busy, connected: true }, tools });
+  const send = (tools: any[]) =>
+    sidebar.receive({ type: "state", runtime: { busy: true, connected: true }, messages: tools.map(toolTranscript) });
   send([tool, { ...tool, id: "retained" }]);
-  const retained = sidebar.element("tools").children[1]!;
+  const retained = toolRow(sidebar, "retained");
   retained.open = true;
-  sidebar.element("tools-group").open = false;
   send([
     { ...tool, id: "retained" },
     { ...tool, id: "new" },
   ]);
-  assert.equal(sidebar.element("tools").children[0], retained);
+  assert.equal(toolRow(sidebar, "retained"), retained);
   assert.equal(retained.open, true);
-  assert.equal(sidebar.element("tools-group").open, false);
-  send([{ ...tool, id: "next-request" }], false);
-  assert.equal(sidebar.element("tools-group").open, false);
-  send([{ ...tool, id: "another-request", status: "running" }]);
-  assert.equal(sidebar.element("tools-group").open, true);
+  assert.equal(sidebar.run("toolRows.has('old')"), false);
+  assert.equal(toolRow(sidebar, "new").open, false);
+});
+
+test("session changes reset tool disclosures even when call IDs repeat", () => {
+  const sidebar = createSidebarScriptHarness();
+  const tool = { id: "same", name: "read", status: "success", input: "file.ts", output: "result" };
+  const send = (sessionId: string) =>
+    sidebar.receive({
+      type: "state",
+      runtime: { connected: true, sessionId },
+      messages: [toolTranscript(tool)],
+    });
+  send("one");
+  const previous = toolRow(sidebar, "same");
+  previous.open = true;
+  send("two");
+  assert.notEqual(toolRow(sidebar, "same"), previous);
+  assert.equal(toolRow(sidebar, "same").open, false);
+  assert.equal(sidebar.element("messages").children[0]?.children[1]?.children[0], toolRow(sidebar, "same"));
 });
 
 test("visible queue actions use the keyboard submission path and block duplicate or unsupported sends", () => {
@@ -1178,7 +1179,7 @@ class SidebarTestElement {
       else this.classes.delete(name);
       return enabled;
     },
-    contains: (name: string) => this.classes.has(name),
+    contains: (name: string) => this.classes.has(name) || this.className.split(" ").includes(name),
   };
   style = {};
   value = "";
@@ -1206,8 +1207,8 @@ class SidebarTestElement {
       this.children.push(element);
     }
   }
-  contains(element: SidebarTestElement): boolean {
-    return this === element || this.children.some((child) => child.contains(element));
+  contains(element: SidebarTestElement | null | undefined): boolean {
+    return Boolean(element && (element === this || this.children.some((child) => child.contains(element))));
   }
   insertBefore(element: SidebarTestElement, reference: SidebarTestElement | null): void {
     element.parentElement?.removeChild(element);
@@ -2540,59 +2541,46 @@ test("bottom-following scroll includes newly rendered tool activity", () => {
   conversation.scrollHeight = 100;
   conversation.scrollTop = 0;
   conversation.clientHeight = 100;
-  const tools = sidebar.element("tools");
-  const appendTool = tools.appendChild.bind(tools);
-  tools.appendChild = (element) => {
-    appendTool(element);
+  const messages = sidebar.element("messages");
+  const insertMessage = messages.insertBefore.bind(messages);
+  messages.insertBefore = (element, reference) => {
+    insertMessage(element, reference);
     conversation.scrollHeight = 180;
   };
   sidebar.receive({
     type: "state",
     status: "Running read…",
     runtime: { busy: true, cancellable: true, connected: true },
-    messages: [{ role: "assistant", html: "<p>Reply</p>" }],
-    tools: [{ id: "tool-1", name: "read", status: "running", input: "file.ts", output: "" }],
+    messages: [
+      { role: "assistant", html: "<p>Reply</p>" },
+      toolTranscript({ id: "tool-1", name: "read", status: "running", input: "file.ts", output: "" }),
+    ],
   });
   assert.equal(conversation.scrollTop, 180);
 });
 
-test("tool activity preserves manual group opening but collapses untouched calls on completion", () => {
+test("tool activity keeps manual opening through completion while untouched calls remain collapsed", () => {
   const sidebar = createSidebarScriptHarness();
-  const state = (phase: "running" | "tool-complete" | "settled", html: string) =>
+  const state = (busy: boolean, status: string, html: string) =>
     sidebar.receive({
       type: "state",
-      status: phase === "running" ? "Running bash…" : phase === "tool-complete" ? "Pi is working…" : "Ready",
-      runtime: { busy: phase !== "settled", cancellable: phase !== "settled", connected: true },
-      messages: [{ id: "assistant-1", role: "assistant", html }],
-      tools: [
-        {
-          id: "tool-1",
-          name: "bash",
-          status: phase === "running" ? "running" : "success",
-          input: "npm test",
-          output: phase === "running" ? "Running" : "Passed",
-        },
+      runtime: { busy, connected: true },
+      messages: [
+        { id: "assistant-1", role: "assistant", html },
+        toolTranscript({ id: "tool-1", name: "bash", status, input: "npm test", output: busy ? "Running" : "Passed" }),
+        toolTranscript({ id: "tool-2", name: "read", status, input: "file.ts", output: "" }),
       ],
     });
-
-  state("running", "<p>Working</p>");
-  const group = sidebar.element("tools-group");
-  const tool = sidebar.element("tools").children[0]!;
-  assert.equal(group.open, true);
-  assert.equal(tool.open, true);
-
-  group.open = false;
-  state("running", "<p>Still working</p>");
-  assert.equal(group.open, false, "stream updates respect a manual collapse");
-
-  group.open = true;
-  state("tool-complete", "<p>Preparing conclusion</p>");
-  assert.equal(group.open, true, "the group stays open while the request is active");
-  assert.equal(tool.open, false, "completed calls collapse before the response settles");
-
-  state("settled", "<p>Final conclusion</p>");
-  assert.equal(group.open, true, "manual opening survives request settlement");
+  state(true, "running", "<p>Working</p>");
+  const tool = toolRow(sidebar, "tool-1");
   assert.equal(tool.open, false);
+  tool.open = true;
+  state(true, "success", "<p>Preparing conclusion</p>");
+  assert.equal(tool.open, true);
+  assert.equal(toolRow(sidebar, "tool-2").open, false);
+  state(false, "success", "<p>Final conclusion</p>");
+  assert.equal(tool.open, true);
+  assert.equal(toolRow(sidebar, "tool-2").open, false);
   assert.equal(sidebar.element("messages").children[0]?.children[1]?.innerHTML, "<p>Final conclusion</p>");
 });
 
@@ -2657,21 +2645,21 @@ test("streamed state patches stable conversation, tool, and attachment nodes in 
       runtime: { busy: true, cancellable: true, connected: true },
       messages: [
         { id: "assistant-1", role: "assistant", html },
+        toolTranscript({ id: "tool-1", name: "read", status: "running", input: "file.ts", output }),
         ...(appendMessage ? [{ id: "assistant-2", role: "assistant", html: "<p>Next step</p>" }] : []),
       ],
-      tools: [{ id: "tool-1", name: "read", status: "running", input: "file.ts", output }],
       attachments: [{ id: "next-context", label: "src/next.ts", image: false }],
     });
 
   state("<p>First</p>", "one");
   const message = sidebar.element("messages").children[0]!;
-  const tool = sidebar.element("tools").children[0]!;
+  const tool = toolRow(sidebar, "tool-1");
   const attachment = sidebar.element("attachments").children[0]!;
 
   state("<p>First second</p>", "one\ntwo");
   assert.equal(sidebar.element("messages").children[0], message);
   assert.equal(message.children[1]?.innerHTML, "<p>First second</p>");
-  assert.equal(sidebar.element("tools").children[0], tool);
+  assert.equal(toolRow(sidebar, "tool-1"), tool);
   assert.equal(tool.children[3]?.children[1]?.textContent, "one\ntwo");
   assert.equal(sidebar.element("attachments").children[0], attachment);
   assert.equal(sidebar.element("add-context").disabled, false);

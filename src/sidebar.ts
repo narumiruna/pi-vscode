@@ -63,11 +63,13 @@ import {
   contextTranscriptAttachment,
   historySyncFailureState,
   limitSidebarMessages,
+  maxToolOutputCharacters,
   persistableSidebarMessages,
   runtimeNoticeSummary,
   type SidebarMessage,
   shortTranscriptLabel,
   sidebarMessagesForWebview,
+  type ToolActivity,
   type TranscriptAttachment,
 } from "./sidebarState";
 import { WorkflowDocuments } from "./workflowUi";
@@ -84,17 +86,6 @@ const maxImageAttachments = 5;
 const maxImageBytes = 5 * 1024 * 1024;
 const maxImageAssetCacheBytes = 25 * 1024 * 1024;
 const maxImageAssets = 100;
-const maxToolActivities = 30;
-const maxToolOutputCharacters = 8_000;
-
-interface ToolActivity {
-  readonly id: string;
-  readonly name: string;
-  readonly status: "running" | "success" | "error";
-  readonly input: string;
-  readonly summary: string;
-  readonly output?: string;
-}
 
 interface QueuedTranscriptPresentation {
   readonly id: string;
@@ -238,6 +229,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           if (this.assistantStream)
             this.messages = this.messages.filter((message) => message.id !== this.assistantStream?.id);
           this.assistantStream = undefined;
+          this.clearToolMessages();
           this.historySyncRevision += 1;
           this.historyWindow = emptyConversationHistory();
           this.historyAvailable = false;
@@ -287,6 +279,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
 
   public dispose(): void {
     this.disposed = true;
+    this.clearToolMessages();
     this.webviewReady = false;
     this.pendingNavigation = undefined;
     if (this.renderTimer) {
@@ -1141,7 +1134,6 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.historyAvailable = false;
     this.retryRequest = undefined;
     this.foregroundCancellable = true;
-    this.tools = [];
     this.status = "Preparing shell command…";
     this.postState();
     let submitted = false;
@@ -1306,7 +1298,6 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         maxMessages,
         maxStoredCharacters,
       );
-      this.tools = [];
       this.assistantStream = undefined;
       this.status = "Sending to Pi…";
       await this.persistMessages();
@@ -1595,7 +1586,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     if (reloaded) {
       this.attachments.clearPins();
       this.proposals.clear();
-      this.tools = [];
+      this.clearToolMessages();
       this.retryRequest = undefined;
       this.status = "Pi resources reloaded";
       this.postState();
@@ -1607,7 +1598,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     if (this.isForegroundRequestActive()) throw new Error("Wait for Pi before restarting.");
     if (await this.runtime.restartSessionProcess()) {
       this.proposals.clear();
-      this.tools = [];
+      this.clearToolMessages();
       this.retryRequest = undefined;
       this.attachments.clearPins();
       await this.syncMessagesFromPi(false, undefined, "history-refresh", true);
@@ -1841,7 +1832,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     if (event.type === "resources_reloaded" && (event.action === "reload" || event.action === "restart")) {
       this.attachments.clearPins();
       this.proposals.clear();
-      this.tools = [];
+      this.clearToolMessages();
       this.retryRequest = undefined;
       this.assistantStream = undefined;
       this.historySyncRevision += 1;
@@ -1888,7 +1879,6 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.historyLoading = false;
       this.historyAvailable = false;
       this.status = "Pi is working…";
-      this.tools = [];
     } else if (event.type === "message_start") {
       const message = isRecord(event.message) ? event.message : undefined;
       this.historySyncRevision += 1;
@@ -2032,11 +2022,26 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private upsertTool(activity: ToolActivity): void {
-    this.tools = [...this.tools.filter((tool) => tool.id !== activity.id), activity].slice(-maxToolActivities);
+    const message: SidebarMessage = { id: `tool-${activity.id}`, role: "tool", content: "", tool: activity };
+    const existing = this.messages.findIndex((candidate) => candidate.id === message.id);
+    if (existing >= 0) this.messages[existing] = message;
+    else this.messages.push(message);
+    this.messages = limitSidebarMessages(this.messages, maxMessages, maxStoredCharacters);
+    this.refreshTools();
   }
 
   private updateTool(id: string, changes: Partial<ToolActivity>): void {
-    this.tools = this.tools.map((tool) => (tool.id === id ? { ...tool, ...changes } : tool));
+    const tool = this.messages.find((message) => message.role === "tool" && message.tool?.id === id)?.tool;
+    if (tool) this.upsertTool({ ...tool, ...changes });
+  }
+
+  private refreshTools(): void {
+    this.tools = this.messages.flatMap((message) => (message.role === "tool" && message.tool ? [message.tool] : []));
+  }
+
+  private clearToolMessages(): void {
+    this.messages = this.messages.filter((message) => message.role !== "tool");
+    this.tools = [];
   }
 
   private submissionSessionIdentity(): string {
@@ -2234,6 +2239,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private scheduleState(): void {
+    this.refreshTools();
     if (this.renderTimer) {
       return;
     }
@@ -2244,6 +2250,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private postState(): void {
+    this.refreshTools();
     const requestBusy = this.isForegroundRequestActive();
     const estimate = this.attachments.estimate;
     const attachmentSummaries = this.attachments.summaries;

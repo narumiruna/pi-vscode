@@ -2,6 +2,8 @@ import { isSupportedImageMimeType } from "./attachmentUtils";
 import { transcriptImageAssetIdPattern } from "./imageAssets";
 import type { VisibleThinkingBlock } from "./piMessages";
 
+export const maxToolActivities = 30;
+export const maxToolOutputCharacters = 8_000;
 export const maxTranscriptAttachments = 8;
 export const maxTranscriptImages = 5;
 export const maxTranscriptLabelCharacters = 500;
@@ -58,9 +60,20 @@ export interface TranscriptImageAttachment {
 
 export type TranscriptAttachment = TranscriptContextAttachment | TranscriptImageAttachment;
 
+export interface ToolActivity {
+  readonly id: string;
+  readonly name: string;
+  readonly status: "running" | "success" | "error";
+  readonly input: string;
+  readonly summary: string;
+  readonly output?: string;
+}
+
 export interface SidebarMessage {
   readonly id: string;
-  readonly role: "user" | "assistant" | "shell";
+  readonly role: "user" | "assistant" | "shell" | "tool";
+  /** Memory-only tool arguments and results, restored from Pi rather than workspace storage. */
+  readonly tool?: ToolActivity;
   readonly content: string;
   /** Memory-only visible provider content, restored from Pi rather than workspace storage. */
   readonly thinking?: readonly VisibleThinkingBlock[];
@@ -91,11 +104,28 @@ export function limitSidebarMessages(
 
   const limited: SidebarMessage[] = [];
   let remainingCharacters = maxCharacters;
+  let toolCount = 0;
   for (const message of messages.slice(-maxMessages).reverse()) {
     if (remainingCharacters <= 0) break;
+    if (message.role === "tool" && toolCount++ >= maxToolActivities) continue;
     const content = message.content.slice(-remainingCharacters);
-    const truncated = message.truncated || content.length < message.content.length;
+    let truncated = message.truncated || content.length < message.content.length;
     remainingCharacters -= content.length;
+    let tool: ToolActivity | undefined;
+    if (message.role === "tool" && message.tool) {
+      const input = message.tool.input.slice(0, Math.min(maxToolOutputCharacters, remainingCharacters));
+      remainingCharacters -= input.length;
+      const output =
+        message.tool.output === undefined
+          ? undefined
+          : remainingCharacters > 0
+            ? message.tool.output.slice(-Math.min(maxToolOutputCharacters, remainingCharacters))
+            : "";
+      remainingCharacters -= output?.length ?? 0;
+      truncated ||=
+        input.length < message.tool.input.length || (output?.length ?? 0) < (message.tool.output?.length ?? 0);
+      tool = { ...message.tool, input, ...(output !== undefined ? { output } : {}) };
+    }
     const thinking =
       message.role === "assistant"
         ? message.thinking?.map((block) => {
@@ -115,6 +145,7 @@ export function limitSidebarMessages(
       ...message,
       content,
       ...(thinking ? { thinking } : {}),
+      ...(tool ? { tool } : {}),
       ...(truncated ? { truncated: true } : {}),
     });
   }
@@ -176,30 +207,32 @@ export function sidebarMessagesForWebview(
 }
 
 export function persistableSidebarMessages(messages: readonly SidebarMessage[]): SidebarMessage[] {
-  return messages.map((message) => ({
-    id: message.id,
-    role: message.role,
-    content: message.content,
-    ...(message.attachments?.length
-      ? {
-          attachments: message.attachments.map((attachment) =>
-            attachment.type === "context"
-              ? { type: "context" as const, label: attachment.label, fullLabel: attachment.fullLabel }
-              : {
-                  type: "image" as const,
-                  assetId: attachment.assetId,
-                  label: attachment.label,
-                  fullLabel: attachment.fullLabel,
-                  ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}),
-                  ...(attachment.width ? { width: attachment.width } : {}),
-                  ...(attachment.height ? { height: attachment.height } : {}),
-                  availability: attachment.availability,
-                },
-          ),
-        }
-      : {}),
-    ...(message.truncated ? { truncated: true } : {}),
-  }));
+  return messages
+    .filter((message) => message.role !== "tool")
+    .map((message) => ({
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      ...(message.attachments?.length
+        ? {
+            attachments: message.attachments.map((attachment) =>
+              attachment.type === "context"
+                ? { type: "context" as const, label: attachment.label, fullLabel: attachment.fullLabel }
+                : {
+                    type: "image" as const,
+                    assetId: attachment.assetId,
+                    label: attachment.label,
+                    fullLabel: attachment.fullLabel,
+                    ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}),
+                    ...(attachment.width ? { width: attachment.width } : {}),
+                    ...(attachment.height ? { height: attachment.height } : {}),
+                    availability: attachment.availability,
+                  },
+            ),
+          }
+        : {}),
+      ...(message.truncated ? { truncated: true } : {}),
+    }));
 }
 
 function restoreTranscriptAttachments(value: unknown): TranscriptAttachment[] {
