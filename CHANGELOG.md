@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.1
+
+### Patch Changes
+
+- 78dc255: Show unloaded-history search limits only inside expanded Find text. Remove the passive unavailable strip from conversations, while keeping loading, position, truncation, errors and recovery feedback in their existing areas.
+
 ## 0.7.0
 
 ### Minor Changes

@@ -78,6 +78,98 @@ async function assertHistoryControls(frame) {
   assert.equal(await trigger.evaluate((node) => document.activeElement === node), true);
 }
 
+async function assertSearchFeedback(page, send, latest) {
+  const themes = ["vscode-dark", "vscode-light", "vscode-high-contrast", "vscode-high-contrast-light"];
+  const widths = [169, 200, 280, 600];
+  const trigger = page.locator("#history-search-open");
+  const input = page.locator("#history-search-input");
+  const note = page.locator("#history-search-note");
+  const controls = page.locator("#history-controls");
+  let layouts = 0;
+  for (const theme of themes) {
+    await page.evaluate((theme) => {
+      document.body.className = theme;
+      const light = theme.endsWith("light");
+      for (const [key, value] of Object.entries({
+        "font-family": "Arial",
+        "font-size": "13px",
+        foreground: light ? "#000000" : "#ffffff",
+        descriptionForeground: light ? "#000000" : "#ffffff",
+        "sideBar-background": light ? "#ffffff" : "#000000",
+        "input-background": light ? "#eeeeee" : "#222222",
+        "input-foreground": light ? "#000000" : "#ffffff",
+        contrastBorder: light ? "#000000" : "#ffffff",
+      })) {
+        document.body.style.setProperty(`--vscode-${key}`, value);
+      }
+    }, theme);
+    for (const width of widths) {
+      await page.setViewportSize({ width, height: 700 });
+      for (const history of [undefined, { ...latest.history, available: false, canNavigate: false }]) {
+        await send({ ...latest, history, messages: [] });
+        const before = await page.evaluate(() => window.fixturePosts.length);
+        assert.equal(await controls.isVisible(), false, "empty conversation has no passive strip");
+        const collapsed = await controls.evaluate((node) => ({
+          height: node.getBoundingClientRect().height,
+          display: getComputedStyle(node).display,
+        }));
+        assert.deepEqual(collapsed, { height: 0, display: "none" }, "no row, padding or border");
+        if (!history && width === 280) {
+          await page.screenshot({ path: path.join(tmpdir(), `pi-history-${theme}-empty.png`) });
+        }
+        await trigger.focus();
+        await trigger.press("Enter");
+        assert.equal(await note.isVisible(), true, "open updates without a host event");
+        assert.equal(await page.locator("#history-search-bar #history-search-note").count(), 1);
+        assert.equal(await note.innerText(), "Full history is not loaded. Search covers current text only.");
+        assert.equal(await note.getAttribute("role"), null);
+        assert.equal(await note.getAttribute("aria-live"), null);
+        assert.equal(await input.getAttribute("aria-describedby"), "history-scope history-search-note");
+        assert.equal(await input.evaluate((node) => document.activeElement === node), true);
+        assert.match(await page.locator("#history-scope").innerText(), /Excludes thinking, tool details and images/);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+        const geometry = await note.boundingBox();
+        assert.ok(geometry.width > 0 && geometry.x >= 0 && geometry.x + geometry.width <= width);
+        if (!history && width === 280) {
+          await page.screenshot({ path: path.join(tmpdir(), `pi-history-${theme}-search.png`) });
+        }
+        await input.press("Escape");
+        assert.equal(await controls.isVisible(), false);
+        assert.equal(await note.isVisible(), false);
+        assert.equal(await input.getAttribute("aria-describedby"), "history-scope");
+        assert.equal(await trigger.evaluate((node) => document.activeElement === node), true);
+        await trigger.click();
+        assert.equal(await note.isVisible(), true);
+        await page.locator("#history-search-close").click();
+        assert.equal(await controls.isVisible(), false, "Close collapses without a host event");
+        assert.equal(await trigger.evaluate((node) => document.activeElement === node), true);
+        assert.equal(
+          await page.evaluate(() => window.fixturePosts.length), before, "note sends no host request",
+        );
+        layouts += 1;
+      }
+    }
+  }
+  await send({ ...latest, history: { ...latest.history, available: false, loading: true } });
+  assert.match(await page.locator("#history-status").innerText(), /Loading history/);
+  await trigger.click();
+  assert.equal(await note.isVisible(), false);
+  await input.fill("[.*]");
+  await input.press("Enter");
+  const result = await page.locator("#history-search-count").innerText();
+  await send({ ...latest, history: { ...latest.history, available: false } });
+  assert.equal(await note.isVisible(), true);
+  assert.equal(await page.locator("#history-status").isVisible(), false);
+  await send(latest);
+  assert.equal(await note.isVisible(), false);
+  assert.equal(await input.getAttribute("aria-describedby"), "history-scope");
+  assert.equal(await input.inputValue(), "[.*]");
+  assert.equal(await page.locator("#history-search-count").innerText(), result);
+  assert.equal(await input.evaluate((node) => document.activeElement === node), true);
+  await input.press("Escape");
+  return layouts;
+}
+
 export async function assertHistoryBrowser(browser) {
   const { getSidebarHtml } = require("../out/sidebarHtml.js");
   const { renderSafeMarkdown } = require("../out/markdown.js");
@@ -116,6 +208,7 @@ export async function assertHistoryBrowser(browser) {
   const send = (state) => page.evaluate((state) => {
     window.dispatchEvent(new MessageEvent("message", { data: { type: "state", ...state } }));
   }, state);
+  const feedbackLayouts = await assertSearchFeedback(page, send, latest);
   await send(latest);
   assert.equal(await page.locator("#history-latest").isDisabled(), true);
   assert.equal(await page.locator("#history-status").isVisible(), false);
@@ -184,8 +277,30 @@ export async function assertHistoryBrowser(browser) {
     await send({ ...latest, history });
     assert.equal(await page.locator("#history-earlier").isDisabled(), true);
     assert.equal(await page.locator("#history-latest").isDisabled(), true);
-    assert.equal(await page.locator("#history-status").isVisible(), true);
-    assert.match(await page.locator("#history-status").innerText(), history.loading ? /Loading history/ : /unavailable|failure/i);
+    assert.equal(await page.locator("#history-status").isVisible(), Boolean(history.loading));
+    if (history.loading) assert.match(await page.locator("#history-status").innerText(), /Loading history/);
+    else {
+      await send({
+        ...latest, history, status: "Pi completed · History refresh failed", historyRecoveryAvailable: true,
+      });
+      await page.evaluate(() => window.dispatchEvent(new MessageEvent("message", {
+        data: { type: "notice", level: "error", message: "Session restoration failed.", detailsAvailable: true },
+      })));
+      assert.equal(await page.locator("#history-controls").isVisible(), false);
+      assert.match(await page.locator("#status").innerText(), /History refresh failed/);
+      assert.equal(await page.locator("#refresh-history").isVisible(), true);
+      assert.equal(await page.locator("#refresh-history").isEnabled(), true);
+      assert.match(await page.locator("#notice").innerText(), /Session restoration failed/);
+      assert.equal(
+        await page.getByRole("button", { name: "View diagnostic", exact: true }).isVisible(), true,
+      );
+      assert.equal(await page.locator("#notice [data-notice-dismiss]").count(), 0);
+      await page.locator("#history-search-open").click();
+      assert.equal(await page.locator("#history-search-note").isVisible(), true);
+      assert.equal(await page.locator("#refresh-history").isVisible(), true);
+      assert.equal(await page.locator("#notice").isVisible(), true);
+      await page.locator("#history-search-close").click();
+    }
   }
   for (const runtime of [
     { ...latest.runtime, busy: true },
@@ -215,6 +330,7 @@ export async function assertHistoryBrowser(browser) {
   assert.deepEqual(errors, []);
   await page.close();
   return {
+    feedbackLayouts,
     windowMessages: 100,
     searchCharacters: 250000,
     highlights: 1000,
