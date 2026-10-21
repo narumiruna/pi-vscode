@@ -40,6 +40,7 @@
 - Use `npm run test:native -- 1.106.0` for isolated native Extension Host checks and substitute `stable` for current-version checks, with `xvfb-run -a` on headless Linux.
 - Use `xvfb-run -a npm run test:native-ui -- 1.106.0` for Linux native UI checks with disposable profiles and fixture Pi responses.
 - Report browser, native, remote, platform, and live-provider checks separately, and do not claim checks that were not run.
+- [UNREVIEWED] On macOS, use `TMPDIR=/private/tmp npm test -- --maxWorkers=1` to avoid temporary-directory symlink rejection and concurrent-fixture timeouts.
 
 ## Repository structure
 
