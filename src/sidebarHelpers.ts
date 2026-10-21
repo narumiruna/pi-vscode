@@ -11,12 +11,15 @@ import { isSessionDraftMessage, type SessionDraftMessage } from "./sessionDraftC
 import {
   contextTranscriptAttachment,
   limitSidebarMessages,
+  maxToolActivities,
+  maxToolOutputCharacters,
   maxTranscriptAttachments,
   maxTranscriptImages,
   restoreSidebarMessages,
   type SidebarMessage,
   shortTranscriptLabel,
   sidebarMessagesForWebview,
+  type ToolActivity,
   type TranscriptAttachment,
   type TranscriptImageAttachment,
 } from "./sidebarState";
@@ -216,10 +219,9 @@ export interface ConvertPiMessagesOptions {
 }
 
 export function convertPiMessages(values: readonly unknown[], options: ConvertPiMessagesOptions): SidebarMessage[] {
-  const requestedLimit = options.maxMessages ?? values.length;
-  const retainedCount = Number.isSafeInteger(requestedLimit)
-    ? Math.max(0, Math.min(values.length, requestedLimit))
-    : values.length;
+  const requestedLimit = options.maxMessages ?? values.length + maxToolActivities;
+  const messageLimit = Number.isSafeInteger(requestedLimit) ? Math.max(0, requestedLimit) : values.length;
+  const retainedCount = Math.min(values.length, messageLimit);
   const retainedEntries: Array<{ readonly index: number; readonly value: Record<string, unknown> }> = [];
   const end =
     options.historyBefore === undefined ? values.length : Math.min(values.length, Math.max(0, options.historyBefore));
@@ -256,8 +258,28 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
     if (!isRecord(value) || value.role !== "assistant") continue;
     const timestamp =
       typeof value.timestamp === "number" && Number.isSafeInteger(value.timestamp) ? value.timestamp : index;
-    if (assistantOccurrences.has(timestamp) && isVisibleHistoryMessage(value))
+    if (assistantOccurrences.has(timestamp) && (hasMessageText(value.content) || hasMessageThinking(value.content)))
       assistantOccurrences.set(timestamp, (assistantOccurrences.get(timestamp) ?? 0) + 1);
+  }
+  // Correlate only calls from the selected source window. Results outside the window
+  // cannot populate an earlier window or resurrect an omitted tool payload.
+  const retainedCalls = retainedEntries
+    .flatMap(({ index, value }) =>
+      value.role === "assistant" ? historyToolCalls(value.content).map((call) => ({ call, index })) : [],
+    )
+    .slice(-maxToolActivities);
+  const retainedCallIndices = new Map(retainedCalls.map(({ call, index }) => [call.id, index]));
+  const results = new Map<string, Record<string, unknown>>();
+  for (let index = firstRetainedIndex; index < end; index += 1) {
+    const value = values[index];
+    if (
+      isRecord(value) &&
+      value.role === "toolResult" &&
+      typeof value.toolCallId === "string" &&
+      retainedCallIndices.has(value.toolCallId) &&
+      index > (retainedCallIndices.get(value.toolCallId) ?? end)
+    )
+      results.set(value.toolCallId, value);
   }
   const sourceIndices = new Map<string, number>();
   for (const { index, value } of retainedEntries) {
@@ -273,7 +295,7 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
         ),
       });
       sourceIndices.set(messages[messages.length - 1]!.id, index);
-      messages = limitSidebarMessages(messages, retainedCount, options.maxCharacters ?? 250_000);
+      messages = limitSidebarMessages(messages, messageLimit, options.maxCharacters ?? 250_000);
       continue;
     }
     const text = piMessageContentText(value.content);
@@ -293,21 +315,40 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
       });
     } else {
       const thinking = piMessageThinking(value.content);
-      if (!text && !thinking.length) continue;
-      const replacement = extractReplacement(text);
-      const timestamp =
-        typeof value.timestamp === "number" && Number.isSafeInteger(value.timestamp) ? value.timestamp : index;
-      const occurrence = assistantOccurrences.get(timestamp) ?? 0;
-      assistantOccurrences.set(timestamp, occurrence + 1);
-      messages.push({
-        id: `pi-assistant-${timestamp}-${occurrence}`,
-        role: "assistant",
-        content: replacement === undefined ? text : `Prepared an edit proposal.\n\n\`\`\`\n${replacement}\n\`\`\``,
-        ...(thinking.length ? { thinking } : {}),
-      });
+      if (text || thinking.length) {
+        const replacement = extractReplacement(text);
+        const timestamp =
+          typeof value.timestamp === "number" && Number.isSafeInteger(value.timestamp) ? value.timestamp : index;
+        const occurrence = assistantOccurrences.get(timestamp) ?? 0;
+        assistantOccurrences.set(timestamp, occurrence + 1);
+        messages.push({
+          id: `pi-assistant-${timestamp}-${occurrence}`,
+          role: "assistant",
+          content: replacement === undefined ? text : `Prepared an edit proposal.\n\n\`\`\`\n${replacement}\n\`\`\``,
+          ...(thinking.length ? { thinking } : {}),
+        });
+        sourceIndices.set(messages[messages.length - 1]!.id, index);
+      }
+      for (const call of historyToolCalls(value.content)) {
+        if (!retainedCallIndices.has(call.id)) continue;
+        const result = results.get(call.id);
+        const tool: ToolActivity = {
+          id: call.id,
+          name: call.name,
+          status: result ? (result.isError === true ? "error" : "success") : "running",
+          input: boundToolText(safeJson(call.arguments, Number.MAX_SAFE_INTEGER), maxToolOutputCharacters),
+          summary: toolOperationSummary(call.name, call.arguments),
+          ...(result ? { output: extractToolText(result, maxToolOutputCharacters, call.name) } : {}),
+        };
+        const message: SidebarMessage = { id: `tool-${call.id}`, role: "tool", content: "", tool };
+        const existing = messages.findIndex((candidate) => candidate.id === message.id);
+        if (existing >= 0) messages[existing] = message;
+        else messages.push(message);
+        if (!sourceIndices.has(message.id)) sourceIndices.set(message.id, index);
+      }
     }
-    sourceIndices.set(messages[messages.length - 1]!.id, index);
-    messages = limitSidebarMessages(messages, retainedCount, options.maxCharacters ?? 250_000);
+    if (value.role === "user") sourceIndices.set(messages[messages.length - 1]!.id, index);
+    messages = limitSidebarMessages(messages, messageLimit, options.maxCharacters ?? 250_000);
   }
   if (options.onHistoryWindow) {
     const start = messages.length ? sourceIndices.get(messages[0]!.id)! : end;
@@ -316,9 +357,10 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
     let omittedAfter = 0;
     for (let index = 0; index < values.length; index += 1) {
       if (!isVisibleHistoryMessage(values[index])) continue;
-      total += 1;
-      if (index < start) omittedBefore += 1;
-      if (index >= end) omittedAfter += 1;
+      const count = historyMessageCount(values[index]);
+      total += count;
+      if (index < start) omittedBefore += count;
+      if (index >= end) omittedAfter += count;
     }
     options.onHistoryWindow({
       mode: options.historyBefore === undefined ? "latest" : "earlier",
@@ -329,7 +371,7 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
       omittedAfter,
       truncated:
         messages.some((message) => message.truncated || message.thinking?.some((block) => block.truncated)) ||
-        messages.length < retainedEntries.length,
+        messages.length < retainedEntries.reduce((count, { value }) => count + historyMessageCount(value), 0),
     });
   }
   const availableMessages = sidebarMessagesForWebview(messages, (id) => options.imageAssets.has(id));
@@ -349,9 +391,42 @@ function isVisibleHistoryMessage(value: unknown): value is Record<string, unknow
   }
   return (
     hasMessageText(value.content) ||
-    (value.role === "assistant" && hasMessageThinking(value.content)) ||
+    (value.role === "assistant" && (hasMessageThinking(value.content) || historyToolCalls(value.content).length > 0)) ||
     (value.role === "user" && hasMessageImages(value.content))
   );
+}
+
+function historyMessageCount(value: unknown): number {
+  if (!isVisibleHistoryMessage(value)) return 0;
+  if (value.role !== "assistant") return 1;
+  return (
+    (hasMessageText(value.content) || hasMessageThinking(value.content) ? 1 : 0) +
+    historyToolCalls(value.content).length
+  );
+}
+
+interface HistoryToolCall {
+  readonly id: string;
+  readonly name: string;
+  readonly arguments: unknown;
+}
+
+function historyToolCalls(content: unknown): HistoryToolCall[] {
+  if (!Array.isArray(content)) return [];
+  return content
+    .slice(0, 128)
+    .flatMap((part) =>
+      isRecord(part) &&
+      part.type === "toolCall" &&
+      typeof part.id === "string" &&
+      part.id.length > 0 &&
+      part.id.length <= 200 &&
+      typeof part.name === "string" &&
+      part.name.length > 0 &&
+      part.name.length <= 200
+        ? [{ id: part.id, name: part.name, arguments: part.arguments }]
+        : [],
+    );
 }
 
 // Pi tool results use content/text blocks. Unknown and mixed payloads stay JSON.

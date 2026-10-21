@@ -188,13 +188,12 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .proposal-meta, .background-meta { color: var(--vscode-descriptionForeground); font-size: .85em; }
     .proposal-error { color: var(--vscode-errorForeground); font-size: .85em; overflow-wrap: anywhere; }
     .proposal-actions, .change-actions, .background-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-    #tools-group { margin: 4px 0 10px; border-top: 1px solid var(--pi-border); padding-top: 5px; }
-    #tools-group > summary { padding: 4px 2px; cursor: pointer; color: var(--vscode-descriptionForeground); font-size: .85em; overflow-wrap: anywhere; }
-    #tools-summary { margin-left: 3px; }
-    #tools-running { color: var(--pi-accent); }
-    #tools-failed, .tool.error > summary, .tool-error { color: var(--vscode-errorForeground); }
-    #tools { margin-top: 3px; min-width: 0; }
-    .tool { min-width: 0; margin: 0; }
+    .message.tool-message { margin: 8px 2px; }
+    .message.tool-message > .role { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); }
+    .tool.error > summary, .tool-error { color: var(--vscode-errorForeground); }
+    details.tool { min-width: 0; margin: 0; padding: 5px 8px; border: 1px solid var(--pi-border); border-radius: 7px; }
+    .tool.running > summary { color: var(--pi-accent); }
+    .tool > summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
     .tool > summary { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 3px 2px; cursor: pointer; font-size: 12px; line-height: 18px; }
     .tool > summary::before { content: '▸'; }
     .tool[open] > summary::before { content: '▾'; }
@@ -203,7 +202,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .tool-section { margin: 4px 0 8px 12px; min-width: 0; }
     .tool-section-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12px; }
     .tool-section button { font-size: 11px; min-height: 22px; padding: 1px 5px; }
-    .tool pre { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.4 var(--vscode-editor-font-family, monospace); }
+    .tool pre { margin: 4px 0; padding: 0; border: 0; background: transparent; overflow: visible; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.4 var(--vscode-editor-font-family, monospace); }
     .tool-section > pre { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; overflow: hidden; }
     .tool-full > summary { cursor: pointer; font-size: 12px; }
     .background-output { max-height: 120px; overflow: auto; margin: 0; padding: 8px; border-top: 1px solid var(--pi-border); white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); }
@@ -319,7 +318,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     <section id="conversation" aria-label="Pi conversation">
       ${conversationHistoryControlsHtml()}
       <section id="messages" aria-live="off"></section>
-      <details id="tools-group" hidden><summary id="tools-group-toggle"><span id="tools-summary">Tool activity</span><span id="tools-running"></span><span id="tools-failed"></span></summary><section id="tools" aria-label="Pi tool activity"></section></details>
       <button id="jump-to-latest" class="secondary" type="button" hidden>Jump to latest</button>
     </section>
     <section id="activity" aria-label="Pi workflow activity" hidden>
@@ -381,7 +379,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     const allSessionList = $('all-session-list');
     const sessionSearchInput = $('session-search-input');
     const emptyActionButtons = [];
-    const toolsElement = $('tools');
+    const toolRows = new Map();
     const proposalsElement = $('proposals');
     const changesElement = $('changes');
     const backgroundElement = $('background');
@@ -670,7 +668,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     }
 
     function renderMessages(messages) {
-      const signature = JSON.stringify(messages.map(message => [message.id, message.html, message.thinking, message.attachments]));
+      const signature = JSON.stringify(messages.map(message => [message.id, message.html, message.thinking, message.tool, message.attachments]));
       if (!conversationPinnedToBottom && lastTranscriptSignature && signature !== lastTranscriptSignature) hasNewTranscriptOutput = true;
       lastTranscriptSignature = signature;
       const followConversation = conversationPinnedToBottom;
@@ -686,7 +684,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         for (let index = 0; index < html.length; index += 1) {
           const wrapper = messagesElement.children[index];
           const content = wrapper?.children[1];
-          if (content && html[index] !== renderedMessageHtml[index]) setMessageContent(content, html[index]);
+          if (content && visibleMessages[index].role !== 'tool' && html[index] !== renderedMessageHtml[index]) setMessageContent(content, html[index]);
           if (wrapper) {
             wrapper.renderedHtml = html[index];
             renderThinking(wrapper, visibleMessages[index].thinking);
@@ -707,6 +705,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         headingFocused: wrapper.children[0] === document.activeElement,
         open: wrapper.thinkingDisclosure?.open,
         focused: Boolean(wrapper.thinkingDisclosure && wrapper.thinkingDisclosure.children[0] === document.activeElement),
+        toolFocus: wrapper.className === 'message tool-message' && wrapper.children[1]?.contains(document.activeElement) ? document.activeElement : undefined,
       }]));
       const nextWrappers = [];
       const contentUpdates = [];
@@ -742,15 +741,15 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           retained.delete(messageKey);
           if (previous?.wrapper.structureKey === structureKeys[index]) {
             const wrapper = previous.wrapper;
-            if (wrapper.renderedHtml !== html[index]) contentUpdates.push([wrapper.children[1], html[index]]);
+            if (message.role !== 'tool' && wrapper.renderedHtml !== html[index]) contentUpdates.push([wrapper.children[1], html[index]]);
             wrapper.renderedHtml = html[index];
-            wrapper.children[0].setAttribute('aria-label', (message.role === 'user' ? 'You' : message.role === 'shell' ? 'Shell' : 'Pi') + ' message ' + (index + 1));
+            wrapper.children[0].setAttribute('aria-label', (message.role === 'user' ? 'You' : message.role === 'shell' ? 'Shell' : message.role === 'tool' ? 'Tool' : 'Pi') + ' message ' + (index + 1));
             renderThinking(wrapper, message.thinking);
             nextWrappers.push(wrapper);
             continue;
           }
           const wrapper = document.createElement('article');
-          wrapper.className = 'message ' + message.role;
+          wrapper.className = 'message ' + (message.role === 'tool' ? 'tool-message' : message.role);
           wrapper.messageId = message.id;
           wrapper.messageKey = messageKey;
           wrapper.structureKey = structureKeys[index];
@@ -759,7 +758,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           role.className = 'role';
           role.tabIndex = -1;
           if (!role.id) role.id = 'pi-message-heading-' + (++messageHeadingSequence);
-          const label = message.role === 'user' ? 'You' : message.role === 'shell' ? 'Shell' : 'Pi';
+          const label = message.role === 'user' ? 'You' : message.role === 'shell' ? 'Shell' : message.role === 'tool' ? 'Tool' : 'Pi';
           const name = label + ' message ' + (index + 1);
           role.replaceChildren();
           if (message.role === 'assistant') {
@@ -776,12 +775,18 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           wrapper.setAttribute('aria-labelledby', role.id);
           const content = document.createElement('div');
           content.className = 'content';
-          contentUpdates.push([content, html[index]]);
+          if (message.role === 'tool') {
+            const row = toolRows.get(message.tool?.id);
+            if (row) content.appendChild(row);
+          } else {
+            contentUpdates.push([content, html[index]]);
+          }
           wrapper.append(role, content);
           renderThinking(wrapper, message.thinking);
           if (wrapper.thinkingDisclosure && previous) wrapper.thinkingDisclosure.open = Boolean(previous.open);
           nextWrappers.push(wrapper);
           if (previous?.headingFocused) focusToRestore = role;
+          if (previous?.toolFocus) focusToRestore = previous.toolFocus;
           if (wrapper.thinkingDisclosure && previous?.focused) focusToRestore = wrapper.thinkingDisclosure.children[0];
           const attachments = Array.isArray(message.attachments) ? message.attachments : [];
           const contexts = attachments.filter(attachment => attachment.type === 'context');
@@ -1008,18 +1013,6 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       renderedProposals = signature;
     }
 
-    $('tools-group-toggle').addEventListener('click', () => {
-      const group = $('tools-group');
-      group.toolManual = !group.open;
-    });
-
-    function toolDisclosure(details, automaticOpen) {
-      if (details.toolAutomatic !== undefined && details.open !== details.toolAutomatic) details.toolManual = details.open;
-      const open = details.toolManual === undefined ? automaticOpen : details.toolManual;
-      details.open = open;
-      details.toolAutomatic = open;
-    }
-
     let copyRequestId = 0;
     const copyRequests = new Map();
     function copyText(text) {
@@ -1089,37 +1082,17 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     }
 
     function renderTools(tools) {
-      const group = $('tools-group');
-      const running = tools.filter(tool => tool.status === 'running').length;
-      const failed = tools.filter(tool => tool.status === 'error').length;
-      group.hidden = tools.length === 0;
-      if (!tools.length) {
-        group.toolManual = undefined;
-        group.open = false;
-        group.toolAutomatic = false;
-        toolsElement.replaceChildren();
-        return;
-      }
       const retainedIds = new Set(tools.map(tool => tool.id));
-      const existing = new Map(Array.from(toolsElement.children, details => [details.dataset.id, details]));
-      if (existing.size && !tools.some(tool => existing.has(tool.id))) {
-        group.toolManual = undefined;
-        group.toolAutomatic = group.open;
+      for (const id of toolRows.keys()) {
+        if (!retainedIds.has(id)) toolRows.delete(id);
       }
-      for (const [id, row] of existing) {
-        if (!retainedIds.has(id)) toolsElement.removeChild(row);
-      }
-      toolDisclosure(group, busy);
-      $('tools-summary').textContent = 'Tool activity · ' + tools.length + (tools.length === 1 ? ' call' : ' calls');
-      $('tools-running').textContent = running ? ' · ' + running + ' running' : '';
-      $('tools-failed').textContent = failed ? ' · ' + failed + ' failed' : '';
 
       for (const tool of tools) {
-        let details = existing.get(tool.id);
+        let details = toolRows.get(tool.id);
         if (!details) {
           details = document.createElement('details');
           details.dataset.id = tool.id;
-          details.toolAutomatic = false;
+
           const summary = document.createElement('summary');
           const status = document.createElement('span');
           const name = document.createElement('span');
@@ -1127,14 +1100,12 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           const operation = document.createElement('span');
           operation.className = 'tool-operation';
           summary.append(status, name, operation);
-          summary.addEventListener('click', () => { details.toolManual = !details.open; });
           const error = document.createElement('pre');
           error.className = 'tool-error';
           details.append(summary, error, createToolSection('Input'), createToolSection('Output'));
-          toolsElement.appendChild(details);
+          toolRows.set(tool.id, details);
         }
         details.className = 'tool ' + tool.status;
-        toolDisclosure(details, busy && tool.status === 'running');
         const summary = details.children[0];
         const label = tool.status === 'running' ? 'Running' : tool.status === 'error' ? 'Failed' : 'Succeeded';
         summary.children[0].textContent = tool.status === 'running' ? '◷' : tool.status === 'error' ? '!' : '✓';
@@ -1151,8 +1122,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         updateToolSection(details.children[2], tool.input || '', 'No input supplied.');
         updateToolSection(details.children[3], output, tool.status === 'running' ? 'Waiting for output…' : 'No output returned.');
       }
-      // The host appends calls in execution order. Retained rows stay attached,
-      // including when the oldest call is removed by the host's 30-call limit.
+      // Message order owns placement. Updates never change the user's disclosure state.
     }
 
     function renderChanges(changes) {
@@ -1639,6 +1609,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         conversationPinnedToBottom = true;
         hasNewTranscriptOutput = false;
         lastTranscriptSignature = '';
+        toolRows.clear();
+        messagesElement.replaceChildren();
+        renderedMessageStructure = '';
       }
       displayedSessionIdentity = sessionIdentity;
       busy = Boolean(state.runtime.busy);
@@ -1658,8 +1631,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         updateSessionLayer();
       }
       conversationHistory.beforeRender(state);
-      const followConversation = renderMessages(state.messages || []);
-      renderTools(state.tools || []);
+      const messages = state.messages || [];
+      renderTools(messages.filter(message => message.role === 'tool' && message.tool).map(message => message.tool));
+      const followConversation = renderMessages(messages);
       if (followConversation) scrollConversationToBottom();
       conversationHistory.onState(state);
       renderProposals(state.proposals || []);
