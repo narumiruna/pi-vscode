@@ -99,6 +99,39 @@ try {
         }),
       );
     }, renderSafeMarkdown(markdown));
+  // Completed calls must collapse before the overall request settles.
+  const sendTools = (tools) =>
+    page.evaluate((value) => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: { type: "state", runtime: { connected: true, busy: true }, tools: value },
+      }));
+    }, tools);
+  const runningTools = ["success", "error", "manual-open", "manual-closed"].map((id) => ({
+    id, name: "bash", status: "running", input: "npm test", output: "Running",
+  }));
+  await sendTools(runningTools);
+  const toolRows = page.locator(".tool");
+  assert.deepEqual(await toolRows.evaluateAll((nodes) => nodes.map((node) => node.open)), [true, true, true, true]);
+  const manualToggle = toolRows.nth(2).locator(":scope > summary");
+  await manualToggle.focus();
+  await page.keyboard.press("Enter");
+  assert.equal(await toolRows.nth(2).evaluate((node) => node.open), false);
+  await page.keyboard.press("Enter");
+  assert.equal(await toolRows.nth(2).evaluate((node) => node.open), true);
+  await toolRows.nth(3).locator(":scope > summary").focus();
+  await page.keyboard.press("Space");
+  assert.equal(await toolRows.nth(3).evaluate((node) => node.open), false);
+  const completedTools = runningTools.map((tool) => ({
+    ...tool, status: tool.id === "error" ? "error" : "success", output: "Finished",
+  }));
+  const nextTool = { ...runningTools[0], id: "next" };
+  await sendTools([...completedTools, nextTool]);
+  assert.deepEqual(await toolRows.evaluateAll((nodes) => nodes.map((node) => node.open)), [false, false, true, false, true]);
+  assert.equal(await page.locator("#tools-group").evaluate((node) => node.open), true);
+  await sendTools([...completedTools, { ...nextTool, output: "More output" }]);
+  assert.deepEqual(await toolRows.evaluateAll((nodes) => nodes.map((node) => node.open)), [false, false, true, false, true]);
+  console.log("PI_TOOL_DISCLOSURE_BROWSER_EVIDENCE success/error collapse during work; keyboard choices preserved: passed");
+
   await send(richFixture);
   const evidence = await assertRichContent(page).catch(async (error) => {
     console.error(errors, await page.locator(".content").innerHTML());

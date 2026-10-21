@@ -1065,7 +1065,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           toolsElement.appendChild(details);
         }
         details.className = 'tool ' + tool.status;
-        toolDisclosure(details, busy && (tool.status === 'running' || details.toolAutomatic));
+        toolDisclosure(details, busy && tool.status === 'running');
         const summary = details.children[0];
         const label = tool.status === 'running' ? 'Running' : tool.status === 'error' ? 'Failed' : 'Succeeded';
         summary.children[0].textContent = tool.status === 'running' ? '◷' : tool.status === 'error' ? '!' : '✓';
