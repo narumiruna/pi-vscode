@@ -269,7 +269,7 @@ export default function (pi) {
   });
   server.listen(0, "127.0.0.1");
   await waitFor(() => server.listening, "Loopback fixture startup");
-  const resources = ["pi-bridge.ts", "pi-permission-gate.ts", "pi-read-only-gate.ts", "pi-control.ts"];
+  const resources = ["pi-bridge.ts", "pi-read-only-gate.ts", "pi-control.ts"];
   // Allowlist only runtime OS variables, never credentials, proxies, Node hooks, or user Pi settings.
   const env = {};
   for (const key of ["PATH", "SystemRoot", "WINDIR", "COMSPEC", "PATHEXT"]) {
@@ -368,7 +368,6 @@ export default function (pi) {
       for (const [name, file] of [
         ["vscode-pi-control", "pi-control.ts"],
         ["vscode-pi-bridge-ready", "pi-bridge.ts"],
-        ["vscode-pi-permission-ready", "pi-permission-gate.ts"],
         ["vscode-pi-read-only-ready", "pi-read-only-gate.ts"],
       ]) {
         const matches = catalog.filter((entry) => entry.name === name);

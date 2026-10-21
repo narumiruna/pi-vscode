@@ -741,7 +741,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       },
       {
         label: "$(debug-restart) Restart Pi (Current Launch Policy)",
-        description: "Confirm current executable, permissions, and resource approval",
+        description: "Confirm current executable, launch settings, and project-resource approval",
         action: "restart",
       },
       {
@@ -1115,7 +1115,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.retryRequest = undefined;
     this.foregroundCancellable = true;
     this.tools = [];
-    this.status = "Awaiting shell approval…";
+    this.status = "Preparing shell command…";
     this.postState();
     let submitted = false;
     let checkpointCwd = this.runtime.currentCwd;

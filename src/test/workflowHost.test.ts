@@ -18,7 +18,12 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 test("packaged read-only gate blocks mutating default and extension tools and restores tools only at settlement", async () => {
   const source = readFileSync(path.resolve(__dirname, "../../resources/pi-read-only-gate.ts"), "utf8");
-  const javascript = stripTypeScriptTypes(source);
+  const javascript = stripTypeScriptTypes(
+    source.replace(
+      'import * as piPackage from "@earendil-works/pi-coding-agent";',
+      'const piPackage = { VERSION: "1.3.0" };',
+    ),
+  );
   const { default: readOnlyGate } = await import(`data:text/javascript,${encodeURIComponent(javascript)}`);
   const handlers = new Map<string, (event?: unknown) => unknown>();
   let tools = [
@@ -110,9 +115,32 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
   assert.equal("mode" in runtime.currentState, false);
   assert.deepEqual(
     foregroundOptions.extensions.map((value: string) => path.basename(value)),
-    ["pi-bridge.ts", "pi-permission-gate.ts", "pi-read-only-gate.ts", "pi-control.ts"],
+    ["pi-bridge.ts", "pi-read-only-gate.ts", "pi-control.ts"],
   );
   assert.equal(foregroundOptions.extensions[0], path.join("/extension path", "resources", "pi-bridge.ts"));
+  assert.equal(foregroundOptions.env.PI_VSCODE_PERMISSION_MODE, undefined);
+  const originalConfiguration = vscode.workspace.getConfiguration;
+  const launchFingerprint = internal.control.policyFingerprint();
+  try {
+    for (const oldMode of ["off", "dangerous", "all"]) {
+      vscode.workspace.getConfiguration = (...args: any[]) => {
+        const config = originalConfiguration(...args);
+        return {
+          ...config,
+          get: (key: string, fallback: unknown) =>
+            key === "agent.confirmToolCalls" ? oldMode : config.get(key, fallback),
+        };
+      };
+      assert.deepEqual(
+        internal.buildClientOptions(undefined, { PI_VSCODE_BRIDGE_TOKEN: "token" }),
+        foregroundOptions,
+        "Obsolete tool permission settings cannot change launch options",
+      );
+      assert.equal(internal.control.policyFingerprint(), launchFingerprint);
+    }
+  } finally {
+    vscode.workspace.getConfiguration = originalConfiguration;
+  }
   const calls: string[] = [];
   const queuedImage = { type: "image" as const, data: "R0lGODlhAgADAAAAAA==", mimeType: "image/gif" };
   const receivedImages: unknown[] = [];

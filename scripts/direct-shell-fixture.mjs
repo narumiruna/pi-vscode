@@ -14,24 +14,25 @@ export async function assertNativeDirectShell(frame, page, executionCount) {
     }
     assert.equal(await attachments.count(), 0, "explicit removal prepares the attachment-free shell fixture");
   }
-  await panel.locator("#send").click();
-  await page.getByRole("button", { name: "Run Shell", exact: true }).waitFor();
-  await page.getByRole("button", { name: "Cancel", exact: true }).click();
-  assert.equal(await executionCount(), before, "rejected native modal executes no shell");
-  assert.equal(await panel.locator("#input").inputValue(), "!printf pi-shell-fixture");
+  assert.equal(await executionCount(), before, "preparing the draft must not execute shell");
   for (const prefix of ["!", "!!"]) {
     panel = await frame();
     await panel.locator("#input").fill(`${prefix}printf pi-shell-fixture`);
     await panel.locator("#send").click();
-    await page.getByRole("button", { name: "Run Shell", exact: true }).click();
     const expected = prefix === "!!" ? "Excluded from model context; retained in Pi history" : "Included in model context on the next prompt";
-    await panel.locator(".shell-output").last().filter({ hasText: expected }).filter({ hasText: "Exit: 0" }).waitFor();
+    await Promise.race([
+      panel.locator(".shell-output").last().filter({ hasText: expected }).filter({ hasText: "Exit: 0" }).waitFor(),
+      page.getByRole("button", { name: "Run Shell", exact: true }).waitFor().then(() => {
+        assert.fail("Direct shell must execute without a bundled Run Shell modal");
+      }),
+    ]);
+    assert.equal(await page.getByRole("button", { name: "Run Shell", exact: true }).count(), 0);
     assert.match(await panel.locator(".shell-output").last().textContent(), new RegExp(expected));
     assert.equal(await panel.locator(".message.shell img, .message.shell a, .message.shell script").count(), 0);
     assert.doesNotMatch(await panel.locator(".shell-output").last().textContent(), /DO_NOT_RENDER/);
   }
   assert.equal(await executionCount(), before + 2);
-  return "native modal rejection/approval, !/!! context labels, retained inert history, correlated final replacement";
+  return "no Run Shell modal, attachment guard, !/!! context labels, retained inert history, correlated final replacement";
 }
 
 export async function assertDirectShellInterface(browser, getSidebarHtml, formatBashExecutionText, escapeHtml) {
@@ -50,7 +51,8 @@ export async function assertDirectShellInterface(browser, getSidebarHtml, format
   const input = page.locator("#input");
   await input.fill("!printf harmless");
   assert.equal(await page.locator("#send").isEnabled(), true);
-  assert.match(await page.locator("#composer-hint").textContent(), /Approval required/);
+  assert.match(await page.locator("#composer-hint").textContent(), /! includes model context.*!! excludes model context/);
+  assert.doesNotMatch(await page.locator("#composer-hint").textContent(), /Approval required/);
   await page.locator("#send").click();
   assert.equal((await page.evaluate(() => window.posted.filter((value) => value.type === "send").at(-1))).text, "!printf harmless");
   await post({ type: "sendRejected" });

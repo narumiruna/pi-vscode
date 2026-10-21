@@ -153,7 +153,7 @@ try {
   assert.deepEqual((await lastRequest()).value, []);
   await accept(await lastRequest());
   await page.getByRole("button", { name: "Permissions", exact: true }).click();
-  assert.equal(await page.locator("section").count(), 3);
+  assert.equal(await page.locator("section").count(), 2);
   snapshot.trusted = false;
   snapshot.revision++;
   await push();
@@ -161,7 +161,8 @@ try {
   snapshot.trusted = true;
   snapshot.revision++;
   await push();
-  await row("agent.confirmToolCalls").locator("select").selectOption("all");
+  await page.getByRole("button", { name: "General", exact: true }).click();
+  await row("thinkingLevel").locator("select").selectOption("high");
   const failedEnum = await lastRequest();
   const executable = snapshot.entries.find((entry) => entry.key === "executablePath");
   executable.user = "other-pi";
@@ -175,14 +176,15 @@ try {
       ),
     failedEnum.id,
   );
-  assert.equal(await row("agent.confirmToolCalls").locator("select").inputValue(), "all");
-  await row("agent.confirmToolCalls").getByRole("button", { name: "Retry save", exact: true }).click();
+  assert.equal(await row("thinkingLevel").locator("select").inputValue(), "high");
+  await row("thinkingLevel").getByRole("button", { name: "Retry save", exact: true }).click();
   const enumRetry = await lastRequest();
   assert.notEqual(enumRetry.id, failedEnum.id);
-  assert.equal(enumRetry.value, "all");
+  assert.equal(enumRetry.value, "high");
   assert.equal(enumRetry.target, failedEnum.target);
   assert.equal(enumRetry.revision, snapshot.revision);
   await accept(enumRetry);
+  await page.getByRole("button", { name: "Permissions", exact: true }).click();
   await row("approveProjectResources").locator("input").check();
   const failed = await lastRequest();
   await page.evaluate(
@@ -225,11 +227,12 @@ try {
       .every((message) => message.value === true),
   );
   // A changed value in the same row still requires an explicit reload, not a stale retry.
-  await row("agent.confirmToolCalls").locator("select").selectOption("dangerous");
+  await page.getByRole("button", { name: "General", exact: true }).click();
+  await row("thinkingLevel").locator("select").selectOption("medium");
   const staleEnum = await lastRequest();
-  const policy = snapshot.entries.find((entry) => entry.key === "agent.confirmToolCalls");
-  policy.workspace = "off";
-  policy.effective = "off";
+  const thinking = snapshot.entries.find((entry) => entry.key === "thinkingLevel");
+  thinking.workspace = "off";
+  thinking.effective = "off";
   snapshot.revision++;
   await push();
   await page.evaluate(
@@ -240,10 +243,11 @@ try {
     staleEnum.id,
   );
   assert.equal(
-    await row("agent.confirmToolCalls").getByRole("button", { name: "Retry save", exact: true }).isDisabled(),
+    await row("thinkingLevel").getByRole("button", { name: "Retry save", exact: true }).isDisabled(),
     true,
   );
-  await row("agent.confirmToolCalls").getByRole("button", { name: "Reload row", exact: true }).click();
+  await row("thinkingLevel").getByRole("button", { name: "Reload row", exact: true }).click();
+  await page.getByRole("button", { name: "Permissions", exact: true }).click();
   // Recreate the document as VS Code can do after hiding a non-retained webview.
   await row("sensitiveContextNames").locator("textarea").fill("draft-secret");
   await page.reload();

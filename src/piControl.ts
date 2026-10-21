@@ -5,7 +5,6 @@ export const controlResultPrefix = "PI_VSCODE_CONTROL_RESULT:";
 export const packagedCommands = [
   [controlCommand, "pi-control.ts"],
   ["vscode-pi-bridge-ready", "pi-bridge.ts"],
-  ["vscode-pi-permission-ready", "pi-permission-gate.ts"],
   ["vscode-pi-read-only-ready", "pi-read-only-gate.ts"],
 ] as const;
 

@@ -64,7 +64,6 @@ test("extension identity stays consistent across packaging, settings, and docume
   for (const path of [
     "resources/pi.svg",
     "resources/pi-bridge.ts",
-    "resources/pi-permission-gate.ts",
     "resources/pi-read-only-gate.ts",
     "resources/pi-control.ts",
     "scripts/remove-legacy-pi-extension.mjs",
@@ -81,6 +80,8 @@ test("extension identity stays consistent across packaging, settings, and docume
   ]) {
     assert.equal(existsSync(path), false, `obsolete PiCode asset: ${path}`);
   }
+  assert.equal(existsSync("resources/pi-permission-gate.ts"), false);
+  assert.equal(manifest.contributes.configuration.properties["pi.agent.confirmToolCalls"], undefined);
   assert.equal(existsSync("justfile"), false);
   assert.equal(manifest.scripts.install, undefined, "npm install must not install the extension");
   assert.equal(

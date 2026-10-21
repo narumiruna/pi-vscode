@@ -252,7 +252,7 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
             label: server.name,
             description: `${server.type} · ${server.source} · ${server.enabled ? "enabled" : "disabled"} · ${server.exposure}`,
             detail:
-              "Configured only. Current connection: unknown. Server annotations are unverified; Pi built-in tool confirmation does not cover MCP.",
+              "Configured only. Current connection: unknown. Server annotations are unverified; Pi and installed extensions control tool permissions.",
             action: `server:${server.name}`,
           })),
           {

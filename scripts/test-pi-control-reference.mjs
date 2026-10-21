@@ -25,7 +25,7 @@ const original = [
   { type: "message", id: "abandoned", parentId: "first", timestamp: "2026-01-01T00:00:06Z", message: { role: "user", content: [{ type: "text", text: "Fixture abandoned prompt" }, { type: "image", data: "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", mimeType: "image/gif" }], timestamp: 3 } },
 ].map((entry) => JSON.stringify(entry)).join("\n") + "\n";
 await writeFile(sessionFile, original);
-const resources = ["pi-bridge.ts", "pi-permission-gate.ts", "pi-read-only-gate.ts", "pi-control.ts"];
+const resources = ["pi-bridge.ts", "pi-read-only-gate.ts", "pi-control.ts"];
 const children = new Set();
 function launch(includeControl = true, resume = true, selectedSession = sessionFile) {
   const child = spawn(process.execPath, [cli, "--offline", "--mode", "rpc", "--no-extensions", "--no-mcp", "--no-approve", ...(resume ? ["--session", selectedSession] : []),
@@ -74,7 +74,7 @@ try {
   assert.equal(initial.sessionId, "control-fixture");
   for (let index = 0; index < 3; index++) {
     const catalog = (await pi.command("get_commands")).commands;
-    for (const name of ["vscode-pi-control", "vscode-pi-bridge-ready", "vscode-pi-permission-ready", "vscode-pi-read-only-ready"])
+    for (const name of ["vscode-pi-control", "vscode-pi-bridge-ready", "vscode-pi-read-only-ready"])
       assert.equal(catalog.filter((command) => command.name === name).length, 1);
     const data = await pi.command("prompt", { message: `/vscode-pi-control ${JSON.stringify({ action: "reload", token: `reload-${index}`, cwd: root, sessionId: initial.sessionId, leafId })}` });
     assert.equal(data.disposition, "handled");

@@ -170,7 +170,6 @@ export class PiRuntimeControl {
     return JSON.stringify({
       ...readPiInvocationOptions(this.host.resource),
       approveProjectResources: config.get<boolean>("approveProjectResources", false),
-      permissionMode: config.get<string>("agent.confirmToolCalls", "dangerous"),
     });
   }
   private async workspaceRoot(): Promise<string> {

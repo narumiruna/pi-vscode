@@ -522,21 +522,6 @@
           ],
           "description": "Language IDs excluded from Pi inline completions."
         },
-        "pi.agent.confirmToolCalls": {
-          "type": "string",
-          "default": "dangerous",
-          "enum": [
-            "off",
-            "dangerous",
-            "all"
-          ],
-          "enumDescriptions": [
-            "Do not ask for per-tool approval for Pi's built-in mutating tools.",
-            "Confirm dangerous shell commands and writes to sensitive or out-of-workspace paths.",
-            "Confirm every bash, edit, and write tool call."
-          ],
-          "description": "Per-tool confirmation policy for built-in mutating tools in foreground and background Pi sessions. Tools contributed by Pi extensions manage their own permissions."
-        },
         "pi.approveProjectResources": {
           "type": "boolean",
           "default": false,
