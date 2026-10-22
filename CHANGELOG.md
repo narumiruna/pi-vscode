@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.1
+
+### Patch Changes
+
+- 3ad1f9a: Fix startup after upgrades or reloads when an older version remembered an unwritten Pi session path.
+  Remember only saved sessions and offer explicit recovery for an absent restore file without changing existing session files or external executable overrides.
+
 ## 0.9.0
 
 ### Minor Changes
