@@ -1,5 +1,8 @@
 # Bundled runtime validation
 
+This record retains the evidence and external handoff for the completed `docs/plans/2026-10-22_bundled-pi-runtime-plan.md`.
+The completed plan was removed after the local acceptance checks passed.
+
 ## Contract and evidence status
 
 The default runtime is the exact production dependency `@earendil-works/pi-coding-agent@1.3.0`.
@@ -92,8 +95,8 @@ Discovery identified missing Pi package root notices, embedded marked 18.0.5/hig
 The discovery list is not legal approval or a vulnerability audit.
 Pi's `v1.3.0` tag resolves to `71023aec1546d6d677a65669c5665c0927ce0dd0`; its root MIT text is included with the vendor and missing-dependency supplements.
 All 118 production packages have shipped notices or documented supplements; the unused Doom example is absent.
-The final VSIX contains 15,156 files and is 34,494,601 bytes (32.90 MiB).
-Its SHA-256 is `67785a66ad47aaa9ec83b664294dbc005b9b14df0647e5f2cf89f7d943314574`.
+The final VSIX contains 15,159 files and is 34,504,716 bytes (32.91 MiB).
+Its SHA-256 is `1c2cff7ed88e85191484f3bb054dc5c937b2c0355a97b687f88b046837af10c1`.
 `npm audit --omit=dev --json` reported zero vulnerabilities.
 The full development install reported three advisories in `launch-editor`, `qs`, and `shell-quote`; these packages are not in the production closure.
 No automatic dependency fix or legal approval is claimed.
@@ -120,8 +123,8 @@ Before GUI launch, it verifies the installed build's `--use-inmemory-secretstora
 Stop on any credential-store prompt; do not reset or repair the user's Keychain for validation.
 All four final safer-runner checks passed with GUI and Extension Host HOME unchanged, disposable Pi stores, and no credential prompt observed.
 No owned native test processes remained afterward.
-Minimum-version evidence is retained at `/private/tmp/pi-bundled-native-ngJNsT` (trusted) and `/private/tmp/pi-bundled-native-lrtoka` (Restricted Mode).
-Stable evidence is retained at `/private/tmp/pi-bundled-native-4o21pQ` (trusted) and `/private/tmp/pi-bundled-native-UwoHiU` (Restricted Mode).
+Minimum-version evidence is retained at `/private/tmp/pi-bundled-native-h6nnos` (trusted) and `/private/tmp/pi-bundled-native-H7u3Kz` (Restricted Mode).
+Stable evidence is retained at `/private/tmp/pi-bundled-native-1poVWW` (trusted) and `/private/tmp/pi-bundled-native-4O8h3N` (Restricted Mode).
 These temporary paths support the recorded results; they are not runtime or release dependencies.
 
 The trusted checks used real RPC, direct shell, static helper discovery (42 providers), canonical policy ownership, and a seeded disposable persistent session.
@@ -144,8 +147,8 @@ No command below installs into an existing profile, publishes a package, calls a
 | Gate | Command | Current retained result |
 | --- | --- | --- |
 | Locked checkout install | `npm ci` | Passed with Node.js 26.5.0 / npm 11.17.0; production resolution matches staging. |
-| Full regression | `TMPDIR=/private/tmp npm test -- --maxWorkers=1` | Passed: 98 files, 1,446 tests, 3 skipped. |
-| Formatting/lint | `npm exec --yes --package=@biomejs/biome@2.5.13 -- biome check src resources` | Passed: no errors; 915 warnings and 24 information diagnostics. |
+| Full regression | `TMPDIR=/private/tmp npm test -- --maxWorkers=1` | Passed: 99 files, 1,466 tests, 3 skipped. |
+| Formatting/lint | `npm exec --yes --package=@biomejs/biome@2.5.13 -- biome check src resources` | Passed: no errors; 973 warnings and 24 information diagnostics. |
 | Settings browser | `npm run test:settings` | Passed with local Playwright Chromium, including executable reset and saved overrides. |
 | Package and extracted smoke | `TMPDIR=/private/tmp npm run package` | Passed, including the default four-worker full suite and offline artifact smoke. |
 | Same-artifact smoke rerun | `TMPDIR=/private/tmp npm run test:bundled-runtime` | Passed against the exact hash recorded above. |
@@ -168,6 +171,9 @@ Early full-suite attempts exposed legacy mock contexts that omitted the extensio
 One attempt reached the 300-second command deadline; a later run reported five remaining activation/workflow fixture failures.
 The fixtures now supply normal activation ownership or explicitly select external Pi when testing legacy external fallback.
 The final full suite and package suite passed without waiving a failing test.
+The implementation was rebased onto `efcfea4`, which adds the scoped Pi configuration form.
+The shared native file access now uses passive launch-settings reads, preserving form opening without runtime validation.
+A regression verifies native form reads with missing packaged assets; the expanded Settings browser fixture and all final gates passed after the rebase.
 
 Independent review found installation-root aliases rejected by a lexical bootstrap path comparison and an external-to-bundled setting change that could create a fresh fallback session.
 The resolver now emits canonical installation paths; startup refuses fallback after any launch-policy change.
@@ -176,11 +182,13 @@ Regression tests cover aliases/junctions, both runtime-selection transitions, un
 The first extracted smoke used CommonJS resolution for import-only public exports and failed.
 It now reads each public ESM entry from the extracted package's export metadata.
 Sequential extraction also exceeded an early command deadline; bounded parallel extraction/snapshot reads and a whole-run deadline replace that implementation.
-The outer verifier owns a process group, or uses an absolute Windows cleanup command, so an inner crash or deadline does not leave its ordinary owned children running.
+Malformed and oversized child output rejects through the smoke cleanup path, which kills and waits for its known live roots with a bounded deadline.
+The outer verifier owns a POSIX process group and uses an absolute Windows tree-cleanup command for deadlines and interruption.
+Windows or escaped-descendant cleanup remains unverified; no general descendant-termination guarantee is made.
 
 Negative artifact checks replaced only the CLI in disposable archive copies with malformed-RPC and hanging-version fixtures.
 Both checks failed as required and their owned Pi PIDs exited.
-The command was `node /private/tmp/pi-bundled-smoke-failures.mjs`; retained local results are `/private/tmp/pi-smoke-negative-OpL2Bo/results.json`.
+The command was `node /private/tmp/pi-bundled-smoke-failures.mjs`; retained local results are `/private/tmp/pi-smoke-negative-KUUP6Y/results.json`.
 No malformed archive or binary fixture is committed.
 
 The final extracted smoke passed exact version, public imports, RPC initialization/shutdown, command ownership, real read-only denial, helper discovery, branch export/import, required workers/WASM/native assets, harmless shell, updater refusal and missing-asset rejection.

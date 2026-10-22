@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { access, mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -38,7 +38,7 @@ const flags = [
   "--no-session",
 ];
 let sequence = 0;
-const live = new Set();
+const live = new Map();
 
 async function launch(extra, rpc = true, settings) {
   const directory = path.join(root, `child-${++sequence}`);
@@ -61,7 +61,6 @@ async function launch(extra, rpc = true, settings) {
     [...invocation.executableArgs, ...(rpc ? ["--mode", "rpc", ...flags] : []), ...extra],
     { cwd: workspace, env, shell: false, stdio: ["pipe", "pipe", "pipe"] },
   );
-  live.add(child);
   let buffer = "";
   let stdout = "";
   let stderr = "";
@@ -76,28 +75,43 @@ async function launch(extra, rpc = true, settings) {
       resolve({ code, signal });
     });
   });
+  live.set(child, done);
+  let rejectOutput;
+  const invalidOutput = new Promise((_, reject) => {
+    rejectOutput = reject;
+  });
+  // Output can arrive before the first request waiter is attached.
+  invalidOutput.catch(() => {});
   child.stderr.on("data", (data) => {
-    stderr += data;
-    assert.ok(stderr.length < 256 * 1024, "bounded stderr");
+    try {
+      stderr += data;
+      assert.ok(stderr.length < 256 * 1024, "bounded stderr");
+    } catch (error) {
+      rejectOutput(error);
+    }
   });
   child.stdout.on("data", (data) => {
-    stdout += data;
-    assert.ok(stdout.length < 1024 * 1024, "bounded stdout");
-    if (!rpc) return;
-    buffer += data;
-    let newline;
-    while ((newline = buffer.indexOf("\n")) >= 0) {
-      const line = buffer.slice(0, newline);
-      buffer = buffer.slice(newline + 1);
-      if (!line) continue;
-      const event = JSON.parse(line);
-      assert.notEqual(event.type, "agent_start", "smoke must not call a model");
-      events.push(event);
-      for (const waiter of pending)
-        if (waiter.test(event)) {
-          pending.delete(waiter);
-          waiter.resolve(event);
-        }
+    try {
+      stdout += data;
+      assert.ok(stdout.length < 1024 * 1024, "bounded stdout");
+      if (!rpc) return;
+      buffer += data;
+      let newline;
+      while ((newline = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, newline);
+        buffer = buffer.slice(newline + 1);
+        if (!line) continue;
+        const event = JSON.parse(line);
+        assert.notEqual(event.type, "agent_start", "smoke must not call a model");
+        events.push(event);
+        for (const waiter of pending)
+          if (waiter.test(event)) {
+            pending.delete(waiter);
+            waiter.resolve(event);
+          }
+      }
+    } catch (error) {
+      rejectOutput(error);
     }
   });
   async function wait(test) {
@@ -108,6 +122,7 @@ async function launch(extra, rpc = true, settings) {
     let waiter;
     try {
       return await Promise.race([
+        invalidOutput,
         new Promise((resolve) => {
           waiter = { test, resolve };
           pending.add(waiter);
@@ -137,6 +152,7 @@ async function launch(extra, rpc = true, settings) {
     let timer;
     try {
       const result = await Promise.race([
+        invalidOutput,
         done,
         new Promise((_, reject) => {
           timer = setTimeout(() => {
@@ -442,5 +458,17 @@ try {
   await assert.rejects(access(path.join(root, "network-attempts.log")), { code: "ENOENT" });
   console.log("PASS missing assets fail closed; PATH empty; network attempts 0; model/login/MCP calls 0");
 } finally {
-  for (const child of live) child.kill("SIGKILL");
+  const remaining = [...live];
+  for (const [child] of remaining) child.kill("SIGKILL");
+  let timer;
+  try {
+    await Promise.race([
+      Promise.allSettled(remaining.map(([, done]) => done)),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Smoke child cleanup is unverified")), 5_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }

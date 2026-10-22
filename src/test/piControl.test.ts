@@ -189,7 +189,7 @@ async function fixture(storage = new Map<string, unknown>()) {
     emit: (event) => events.push(event),
     resetUi: () => events.push({ type: "extension_ui_reset" }),
     terminalOptions: async () => ({
-      executablePath: "/pi path/pi",
+      executablePath: process.execPath,
       cwd: root,
       extensions: packagedCommands.map(([, file]) => path.join(resources, file)),
       approveProjectResources: false,
