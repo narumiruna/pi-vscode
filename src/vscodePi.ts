@@ -1,10 +1,17 @@
 import * as vscode from "vscode";
 import { type PiConfiguration, piConfiguration } from "./configuration";
 import { invokePi, type PiInvocationOptions } from "./piClient";
+import { resolvePiRuntime } from "./piRuntimeSelection";
 
 const activeControllers = new Set<AbortController>();
+let extensionRoot: string | undefined;
 
-export function readPiInvocationOptions(resource?: vscode.Uri): PiInvocationOptions {
+/** Activation supplies the workspace Extension Host installation, without starting or validating Pi. */
+export function initializePiRuntime(root: string): void {
+  extensionRoot = root;
+}
+
+export function readPiInvocationSettings(resource?: vscode.Uri): PiInvocationOptions {
   const configuration = piConfiguration(undefined, resource);
   const resourceFolder = resource ? vscode.workspace.getWorkspaceFolder(resource) : undefined;
   const fallbackFolder = vscode.workspace.workspaceFolders?.[0];
@@ -12,12 +19,17 @@ export function readPiInvocationOptions(resource?: vscode.Uri): PiInvocationOpti
   const thinkingLevel = configuration.get<string>("thinkingLevel", "default");
 
   return {
-    executablePath: configuration.get<string>("executablePath", "pi").trim() || "pi",
+    executablePath: configuration.get<string>("executablePath", "").trim(),
     cwd,
     provider: optionalSetting(configuration, "provider"),
     model: optionalSetting(configuration, "model"),
     thinkingLevel: thinkingLevel === "default" ? undefined : thinkingLevel,
   };
+}
+
+export function readPiInvocationOptions(resource?: vscode.Uri): PiInvocationOptions {
+  const settings = readPiInvocationSettings(resource);
+  return { ...settings, ...resolvePiRuntime(settings.executablePath, extensionRoot) };
 }
 
 export async function invokePiWithCancellation(

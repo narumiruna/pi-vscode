@@ -1,12 +1,46 @@
 # Security and Privacy
 
+## Runtime Selection and Update Ownership
+
+An unset, empty, or whitespace-only `pi.executablePath` selects the exact bundled production dependency `@earendil-works/pi-coding-agent@1.3.0`.
+A nonempty value selects external Pi, including an explicitly saved `pi` command.
+Configuration is not rewritten; reset removes only the selected target's override and runtime selection uses the resulting effective value.
+Opening Settings does not start or validate Pi.
+Changes apply to new processes or an explicitly confirmed restart, not an active client.
+
+Bundled paths resolve from the active extension installation on the workspace Extension Host, not from the workspace or local UI machine.
+The resolver checks the pinned package identity, entry metadata, and required files inside the extension installation.
+The Extension Host's absolute `process.execPath` starts a small packaged bootstrap with the absolute npm `dist/bundle/cli.js` entry.
+No system `pi` or `node` lookup is required for bundled launches.
+Missing or invalid assets and unsupported host runtimes fail without PATH fallback, replacement-session creation, or automatic operation replay.
+These checks are not a sandbox against code that can modify the extension installation.
+
+Desktop Electron receives `ELECTRON_RUN_AS_NODE=1` only to enter Node mode.
+The bootstrap removes that variable before importing Pi so tools and nested Electron programs do not inherit it from bundled startup.
+Bundled launches set `PI_SKIP_VERSION_CHECK=1` and clear inherited `PI_PACKAGE_DIR` and `PI_MANAGED_INSTALL_ROOT` before upstream import.
+Version-check suppression remains in Pi's environment and can reach descendants; it is not offline mode or a general network restriction.
+The bootstrap rejects an initial CLI `update` command before importing upstream code, including when Pi settings specify a custom `npmCommand`.
+This prevents that route from updating the packaged runtime or an unrelated global installation.
+Pinned Pi 1.3.0 has no built-in TUI `/update` route.
+Extension releases own bundled runtime updates.
+External Pi retains its existing environment, Node/shim lookup, package-directory behavior, and update ownership.
+Ordinary user-created terminals are unchanged; the extension adds no global Pi installation or PATH entry.
+
+Ordinary bundled launches reuse the same Pi user store, provider environment, resources, and session storage as external Pi on that host.
+`PI_CODING_AGENT_DIR` remains effective.
+Runtime selection adds no credential isolation, migration, or independent user store.
+Only isolated helpers retain disposable directories and the existing environment allowlist, with the selected runtime's required launch fields.
+User-installed Pi extensions remain trusted executable code and must be compatible with the selected version.
+Trust, permissions, read-only enforcement, Preview/Apply, stale-content checks, credential separation, and terminal ownership requirements remain unchanged.
+See [Bundled runtime validation](BUNDLED_RUNTIME_VALIDATION.md) for evidence and unverified targets; asset presence does not establish cross-platform or remote execution support.
+
 ## Process Boundaries
 
 The extension starts Pi with `shell: false`.
-On Windows, native `.exe` files run directly.
+For external Pi on Windows, native `.exe` files run directly.
 Only the complete standard npm Node shim template without extra shebang arguments or environment assignments is recognized; its Node executable and script run directly without evaluating batch text.
 Other batch wrappers fail closed.
-Executable and Node lookup use the final normalized child environment and working directory, not an inherited parent PATH fallback.
+External executable and Node lookup use the final normalized child environment and working directory, not an inherited parent PATH fallback.
 Windows environment keys are merged and removed without case sensitivity.
 Missing or empty PATH disables bare-name search; empty PATH entries do not implicitly search the workspace.
 Explicit relative executable paths and relative PATH entries use the child working directory.
@@ -355,6 +389,7 @@ Native drafts remain separate by scope and key and survive failed saves and scop
 The host queue admits at most 16 operations; a rejected save or reset gets an error with only its bounded request ID.
 It does not write configuration.
 Reset removes only the selected target override.
+For `pi.executablePath`, another effective override can still select external Pi; otherwise the empty default selects bundled Pi.
 Small drafts are kept in webview state while hidden, not in Pi settings or extension global/workspace storage; closing the panel discards them.
 For native controls, this persistence permits only bounded validated common-setting drafts, never complete native snapshots or MCP data, including transport/authentication fields.
 Workspace, approval, or agent-directory changes invalidate native snapshots.
@@ -763,7 +798,7 @@ Authentication also serializes the selected canonical Pi store within this Exten
 This does not lock another VS Code window; Pi owns cross-process credential-store synchronization.
 No credential file is copied, backed up, or restored by VS Code.
 
-The configured Pi executable loads the packaged helper through the documented `--extension` loader and public package root.
+The selected bundled or external Pi runtime loads the packaged helper through the documented `--extension` loader and public package root.
 The helper currently requires Pi 1.3.0.
 It runs with disposable working/home/agent/session directories, offline startup, no discovered extensions/MCP/tools/skills/prompts/context/themes, and an OS/runtime/proxy environment allowlist.
 Provider credentials, bridge tokens, Node hooks, and ordinary user settings are not inherited into bootstrap.

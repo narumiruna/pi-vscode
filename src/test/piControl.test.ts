@@ -12,6 +12,8 @@ import type { PiRuntimeControl, RuntimeControlHost } from "../piRuntimeControl";
 import { installVscodeMock, MockUri } from "./vscodeMock";
 
 const mock = installVscodeMock();
+const vscodePi = require("../vscodePi") as typeof import("../vscodePi");
+const piSpawn = require("../piSpawn") as typeof import("../piSpawn");
 afterAll(() => mock.restore());
 const root = path.resolve(__dirname, "../..");
 const resources = path.join(root, "resources");
@@ -241,6 +243,7 @@ async function fixture(storage = new Map<string, unknown>()) {
 test("ordinary runtime prompts cannot invoke the reserved control namespace", async () => {
   const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
   const runtime = new PiRuntimeManager({
+    extensionUri: MockUri.file(process.cwd()),
     workspaceState: { get: () => undefined, update: async () => {} },
     environmentVariableCollection: { clear() {} },
   } as unknown as vscode.ExtensionContext);
@@ -517,6 +520,126 @@ test("terminal handoff stops writer, retains canonical ownership, forwards polic
     assert.equal(hasOperation(root), true);
     mock.window.showWarningMessage = async () => "Return Ownership";
     assert.equal(await f.control.returnFromTerminal(), true);
+    assert.equal(hasOperation(root), false);
+  } finally {
+    f.control.dispose();
+  }
+});
+
+test("terminal handoff preserves the runtime prefix and env while removing only RPC mode arguments", async () => {
+  const f = await fixture();
+  const prefix = ["/extension path/pi cli.js", "--mode", "rpc"];
+  f.host.terminalOptions = async () => ({
+    executablePath: process.execPath,
+    executableArgs: prefix,
+    cwd: root,
+    env: { ELECTRON_RUN_AS_NODE: "1", PI_SKIP_VERSION_CHECK: "1", PI_VSCODE_BRIDGE_TOKEN: "bridge" },
+    unsetEnv: ["PI_PACKAGE_DIR", "PI_MANAGED_INSTALL_ROOT"],
+    sessionPath: "/session path/session.jsonl",
+    approveProjectResources: false,
+  });
+  let options: any;
+  const plan = vi.spyOn(piSpawn, "planPiSpawn").mockImplementation((executable, args, environment) => {
+    assert.equal(executable, process.execPath);
+    assert.equal(environment?.env?.ELECTRON_RUN_AS_NODE, "1");
+    assert.equal(environment?.env?.PI_PACKAGE_DIR, undefined);
+    assert.equal(environment?.env?.PI_MANAGED_INSTALL_ROOT, undefined);
+    assert.equal(environment?.env?.PI_VSCODE_ANNOTATION_TOKEN, undefined);
+    assert.deepEqual(args?.slice(0, prefix.length), prefix);
+    // Standard Windows npm shim normalization can add its own script prefix.
+    return { command: "normalized-node.exe", args: ["npm cli.js", ...(args ?? [])], shell: false };
+  });
+  mock.window.createTerminal = (value: unknown) => {
+    options = value;
+    return { show() {} };
+  };
+  try {
+    await f.control.openInTerminal();
+    assert.equal(plan.mock.calls.length, 1);
+    assert.equal(options.shellPath, "normalized-node.exe");
+    assert.deepEqual(options.shellArgs.slice(0, prefix.length + 1), ["npm cli.js", ...prefix]);
+    assert.deepEqual(options.shellArgs.slice(prefix.length + 1), [
+      "--session",
+      "/session path/session.jsonl",
+      "--no-approve",
+    ]);
+    assert.equal(options.env.ELECTRON_RUN_AS_NODE, "1");
+    assert.equal(options.env.PI_SKIP_VERSION_CHECK, "1");
+    assert.equal(options.env.PI_VSCODE_BRIDGE_TOKEN, "bridge");
+    assert.equal(options.env.PI_PACKAGE_DIR, null);
+    assert.equal(options.env.PI_MANAGED_INSTALL_ROOT, null);
+    assert.equal(options.env.PI_VSCODE_ANNOTATION_TOKEN, null);
+    assert.equal(hasOperation(root), true);
+  } finally {
+    plan.mockRestore();
+    f.control.dispose();
+  }
+});
+
+test("cold configuration ownership uses raw settings without resolving a packaged runtime", async () => {
+  const read = vi.spyOn(vscodePi, "readPiInvocationOptions").mockImplementation(() => {
+    throw new Error("runtime must not be resolved");
+  });
+  const f = await fixture();
+  try {
+    await f.control.withWorkspaceOperation("cold settings", async (assertCurrent) => {
+      await assertCurrent();
+      assert.equal(hasOperation(root), true);
+    });
+    assert.equal(read.mock.calls.length, 0);
+    assert.equal(f.calls.includes("start"), false);
+  } finally {
+    read.mockRestore();
+    f.control.dispose();
+  }
+});
+
+test("terminal preparation rejects a changed executable before stopping the foreground writer", async () => {
+  const f = await fixture();
+  let launched = false;
+  f.host.terminalOptions = async () => {
+    mock.workspace.getConfiguration = () => ({
+      get: (key: string, fallback: unknown) => (key === "executablePath" ? "changed-pi" : fallback),
+    });
+    return { executablePath: process.execPath, executableArgs: ["pi cli.js"], cwd: root };
+  };
+  mock.window.createTerminal = () => {
+    launched = true;
+    return { show() {} };
+  };
+  try {
+    await assert.rejects(f.control.openInTerminal(), /origin changed/);
+    assert.equal(launched, false);
+    assert.equal(f.calls.includes("stop"), false);
+    assert.equal(hasOperation(root), false);
+  } finally {
+    f.control.dispose();
+  }
+});
+
+test("failed terminal construction retains ownership through failed recovery until one explicit restart succeeds", async () => {
+  const f = await fixture();
+  mock.window.createTerminal = () => {
+    throw new Error("terminal failed");
+  };
+  try {
+    await assert.rejects(f.control.openInTerminal(), /terminal failed/);
+    assert.equal(hasOperation(root), true);
+    assert.equal(f.host.client, undefined);
+    assert.ok(f.storage.has("pi.control.externalOwnership.v1"));
+    assert.throws(() => f.control.assertSidebarOwnership(), /owned by the terminal/);
+    const startSession = f.host.startSession;
+    f.host.startSession = async () => {
+      throw new Error("restart failed");
+    };
+    await assert.rejects(f.control.returnFromTerminal(), /restart failed/);
+    assert.equal(hasOperation(root), true);
+    assert.ok(f.storage.has("pi.control.externalOwnership.v1"));
+    assert.equal(f.host.client, undefined);
+    f.host.startSession = startSession;
+    assert.equal(await f.control.returnFromTerminal(), true);
+    assert.equal(f.calls.filter((call) => call === "start-session").length, 1);
+    assert.equal(f.storage.has("pi.control.externalOwnership.v1"), false);
     assert.equal(hasOperation(root), false);
   } finally {
     f.control.dispose();

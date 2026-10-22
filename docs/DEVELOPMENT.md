@@ -18,7 +18,9 @@ It does not install a Pi extension under `${PI_CODING_AGENT_DIR:-~/.pi/agent}`.
 The extension ID is `narumi.narumi-pi`.
 
 Use `npm run install:vsix` to package and install without the legacy global bridge cleanup.
-`npm ci` installs the locked project dependencies; it does not install the VS Code extension.
+`npm ci` installs the locked project dependencies, including the exact production dependency `@earendil-works/pi-coding-agent@1.3.0`; it does not install the VS Code extension.
+Bundled Pi is the default runtime and does not require a global Pi or Node.js command at runtime.
+Source development and build commands still require Node.js 22.19 or newer.
 
 Run **Developer: Reload Window** after installation.
 Use **More… → Open in Terminal** for an automatically bridged Pi session.
@@ -41,7 +43,8 @@ npm exec --yes --package=@biomejs/biome@2.5.13 -- biome check src resources
 | `npm run compile` | Check host and browser TypeScript; build bundled renderer and settings assets. |
 | `npm run watch` | Watch host TypeScript only; see [Build order](#build-order). |
 | `npm test` | Compile, then run the Vitest suite without a live model. |
-| `npm run package` | Run the full test suite and create or overwrite `pi.vsix`. |
+| `npm run package` | Run the full test suite, create or overwrite `pi.vsix`, and run the extracted bundled-runtime smoke check. |
+| `npm run test:bundled-runtime` | Extract local `pi.vsix` outside the checkout and check its actual runtime offline without PATH Pi/Node lookup. |
 
 #### Build order
 
@@ -99,6 +102,49 @@ After compilation, run `node scripts/test-isolated-sdk.mjs <configured-pi-execut
 This check uses disposable directories and a fixture session.
 It verifies static provider discovery, active-branch export, complete-tree import and unchanged source bytes without authentication, model calls, or uploads.
 No installed Pi path is embedded in the extension.
+
+### Bundled runtime validation
+
+The universal VSIX retains the production dependency closure, public package exports, lazy chunks, image/codemode workers, WASM, themes/export assets, and all six native prebuilds for Linux, Windows, and macOS arm64/x64.
+The unused GPL Doom example is excluded; verified supplemental notices are packaged under `resources/runtime-licenses`.
+Do not infer platform compatibility from a Linux-built tree or asset presence.
+Do not prune required runtime assets without testing the extracted archive.
+
+Run the final gates sequentially after `npm ci`:
+
+```bash
+npm test
+npm exec --yes --package=@biomejs/biome@2.5.13 -- biome check src resources
+npm run test:settings
+npm run package
+npm run test:bundled-runtime
+```
+
+On macOS, the retained baseline uses `TMPDIR=/private/tmp npm test -- --maxWorkers=1` to avoid temporary-directory symlink rejection and concurrent-fixture timeouts.
+The final command above can rerun smoke verification against the same archive without rebuilding it.
+The smoke check uses disposable stores/workspaces, the extracted CLI and public exports, no global Pi/Node lookup, and no provider or model requests.
+It checks runtime startup, RPC/policy ownership, helper discovery, session transfer, required assets, harmless shell behavior, updater refusal, and fail-closed missing assets.
+No extension installation or publication is part of these commands.
+
+After compilation, use the dedicated real-runtime native runner on an authorized desktop test host:
+
+```bash
+node scripts/test-bundled-native.mjs 1.140.0
+node scripts/test-bundled-native.mjs stable
+node scripts/test-bundled-native.mjs 1.140.0 untrusted
+node scripts/test-bundled-native.mjs stable untrusted
+```
+
+On headless Linux, prefix each native command with `xvfb-run -a`.
+The runner preserves the GUI process's real HOME, uses disposable VS Code profiles and Pi stores, verifies the installed build's in-memory secret-storage bypass before launch, and disables built-in authentication and Copilot extensions.
+Do not fabricate GUI HOME on macOS: an earlier probe triggered a login Keychain prompt and was stopped without a reset.
+Stop on any Keychain or credential-store prompt; do not accept a reset or repair command.
+Native results must identify actual VS Code, Electron, Node.js, OS and architecture versions.
+Report these results separately from extracted-archive smoke, browser fixtures, remote hosts, and live-provider checks.
+
+[Bundled runtime validation](BUNDLED_RUNTIME_VALIDATION.md) retains discovery, exact local evidence, pending release gates, and the external handoff.
+Unresolved distribution/runtime requirements must be resolved before release, not silently waived.
+No model request, login, live MCP service, installation into an existing profile, or publication is authorized by the offline checks.
 
 ### Native VS Code checks
 
@@ -261,7 +307,7 @@ node scripts/test-shell-contract.mjs /path/to/pi-coding-agent/dist/cli.js
 
 This check uses disposable HOME/config directories, offline mode, no MCP servers, no credentials, and no model calls.
 It verifies actual `user_bash` failure/result contracts, read-only enforcement, and public context conversion with harmless local `printf` commands.
-It is a validation reference, not another extension runtime dependency.
+It is a separate explicit-installation reference check; the default runtime is the pinned bundled production dependency.
 
 The integrated Linux results, exact checked versions, packaging evidence, and unverified platform/provider limits are in [Native parity validation](NATIVE_PARITY_VALIDATION.md).
 These are historical records; earlier tool/shell approval results do not describe the current permission behavior.
@@ -289,9 +335,12 @@ The Version PR applies pending changesets, updates `CHANGELOG.md`, `package.json
 A push without a version change only checks for a Version PR; it does not publish a release.
 If the previous revision or its `package.json` is unavailable, the workflow also checks for a Version PR without publishing because it cannot verify a version change.
 When the Version PR merges, the workflow checks the version and lockfile, checks that no changesets remain, runs the tests, and packages and verifies the VSIX.
-The `release` job creates a `v<version>` GitHub release with `pi.vsix` attached.
-`PAT_TOKEN` authenticates Version PR updates and GitHub release creation.
-The `publish` job then uses `VSCE_PAT` to publish the same verified VSIX artifact to Visual Studio Marketplace without rebuilding it.
+Bundled-runtime release verification must pass against that extracted artifact before upload or publication.
+Review [bundled runtime release gates](BUNDLED_RUNTIME_VALIDATION.md#release-gates-and-external-handoff), target coverage, dependency/license findings, archive size, and runtime update ownership before release.
+The `release` job builds and uploads the verified VSIX; `verify-runtime` checks that same artifact on Linux, Windows, and macOS.
+After those checks pass, `github-release` creates a `v<version>` GitHub release with `pi.vsix` attached.
+The separate `publish` job publishes the same artifact to Visual Studio Marketplace without rebuilding it, so retrying Marketplace publication does not recreate the release.
+`PAT_TOKEN` authenticates Version PR updates and GitHub release creation; `VSCE_PAT` authenticates Marketplace publication.
 
 If Marketplace publication fails, the GitHub release remains available.
 Use **Re-run failed jobs** on the same workflow run to retry `publish` without repeating version updates or release creation.

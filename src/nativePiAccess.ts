@@ -12,7 +12,7 @@ import {
   saveNativeFile,
 } from "./nativePiFiles";
 import type { PiRuntimeManager } from "./piRuntime";
-import { readPiInvocationOptions } from "./vscodePi";
+import { readPiInvocationSettings } from "./vscodePi";
 
 export interface NativeFilePair {
   readonly root: string;
@@ -38,7 +38,7 @@ export class NativePiAccess {
       throw new Error("Trusted file workspace required.");
     const folderUri = folder.uri.toString();
     const root = await realpath(folder.uri.fsPath);
-    const cwd = readPiInvocationOptions(folder.uri).cwd;
+    const cwd = readPiInvocationSettings(folder.uri).cwd;
     const approved = piConfiguration().get<boolean>("approveProjectResources", false);
     const envDir = process.env.PI_CODING_AGENT_DIR;
     const agentDir = resolveNativeAgentDirectory(root);
@@ -52,7 +52,7 @@ export class NativePiAccess {
         approved !== piConfiguration().get<boolean>("approveProjectResources", false) ||
         envDir !== process.env.PI_CODING_AGENT_DIR ||
         (await realpath(current.uri.fsPath)) !== root ||
-        (await realpath(readPiInvocationOptions(current.uri).cwd)) !== root ||
+        (await realpath(readPiInvocationSettings(current.uri).cwd)) !== root ||
         (await realpath(this.runtime.currentCwd)) !== root
       )
         throw new Error("Native configuration origin changed.");

@@ -63,7 +63,11 @@ afterAll(() => {
 });
 
 function context(): any {
-  return { subscriptions: [], extension: { packageJSON: { version: "0.12.0" } } };
+  return {
+    extensionUri: vscode.Uri.file(process.cwd()),
+    subscriptions: [],
+    extension: { packageJSON: { version: "0.12.0" } },
+  };
 }
 
 beforeEach(() => {

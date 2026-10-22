@@ -367,8 +367,11 @@ for (const mode of ["permission", "permanent", "deleted-cleanup"] as const) {
   });
 }
 
-test("startup failure and saved-session fallback log safe metadata and keep recovery behavior", async () => {
+test("external startup failure and saved-session fallback log safe metadata and keep recovery behavior", async () => {
   await fixture(async ({ internal, records, session }: any) => {
+    mock.workspace.getConfiguration = () => ({
+      get: (key: string, fallback: unknown) => (key === "executablePath" ? "pi" : fallback),
+    });
     internal.context.workspaceState.get = () => session;
     const attempts: unknown[] = [];
     internal.createAndStartClient = async (target: unknown) => {

@@ -99,6 +99,16 @@ test("Settings host validates, scopes, synchronizes, serializes, and disposes wi
       await flush();
       return panel.webview.messages.filter((item: any) => item.type === "result").at(-1);
     };
+    const executable = () => state().entries.find((entry: any) => entry.key === "executablePath");
+    assert.equal(executable().effective, "");
+    assert.equal((await send({ key: "executablePath", value: "pi" })).ok, true);
+    assert.equal(executable().effective, "pi", "A saved legacy command remains external");
+    assert.equal((await send({ key: "executablePath", value: " \t ", target: "workspace" })).ok, true);
+    assert.equal(executable().effective, " \t ", "Whitespace is saved without rewriting configuration");
+    assert.equal((await send({ type: "reset", key: "executablePath", target: "workspace" })).ok, true);
+    assert.equal(executable().effective, "pi", "Workspace reset preserves the User override");
+    assert.equal((await send({ type: "reset", key: "executablePath" })).ok, true);
+    assert.equal(executable().effective, "", "Resetting all overrides selects packaged Pi");
     assert.equal((await send({ value: "" })).ok, true);
     assert.equal(user.get("provider"), "");
     assert.equal((await send({ key: "inlineCompletions.enabled", value: false })).ok, true);

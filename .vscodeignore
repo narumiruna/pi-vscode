@@ -16,9 +16,10 @@ src/**
 tsconfig.json
 tsconfig.webview.json
 vitest.config.mjs
-node_modules/@types/**
 node_modules/typescript/**
 node_modules/@vscode/**
 node_modules/.bin/**
 out/test/**
-**/*.map
+out/**/*.map
+# Unused upstream example embeds GPL Doom without corresponding source.
+node_modules/@earendil-works/pi-coding-agent/examples/extensions/doom-overlay/**

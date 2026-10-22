@@ -202,14 +202,14 @@ test("explicit MCP CLI fixture uses bounded public command arguments and discard
       `#!${process.execPath}\nif (JSON.stringify(process.argv.slice(2)) !== JSON.stringify(["mcp","list","--json"])) process.exit(8);\nif (process.env.PI_OFFLINE !== "1" || process.env.PI_TELEMETRY !== "0") process.exit(9);\nprocess.stderr.write("credential-secret");\nconsole.log(JSON.stringify({ servers: [{ name:"fixture", state:"connected", tools:["read"], transport:"secret", error:"secret" }], errors: [] }));\n`,
       { mode: 0o700 },
     );
-    const result = await checkNativeMcp(executable, root, new AbortController().signal);
+    const result = await checkNativeMcp({ executablePath: executable, cwd: root }, new AbortController().signal);
     assert.equal(result.source, "separate-cli");
     assert.equal(result.outcome, "completed");
     assert.deepEqual(result.servers, [{ name: "fixture", state: "connected", toolCount: 1 }]);
     assert.ok(!JSON.stringify(result).includes("secret"));
     await writeFile(executable, `#!${process.execPath}\nsetInterval(()=>{}, 1000);\n`, { mode: 0o700 });
     const controller = new AbortController();
-    const pending = checkNativeMcp(executable, root, controller.signal);
+    const pending = checkNativeMcp({ executablePath: executable, cwd: root }, controller.signal);
     setTimeout(() => controller.abort(), 100);
     assert.equal((await pending).outcome, "cancelled");
   } finally {
@@ -223,7 +223,10 @@ test("native runtime selection retains one guard, rejects stale approval and dis
   try {
     const { PiRuntimeManager, NativeRuntimeControlAppliedError } =
       require("../piRuntime") as typeof import("../piRuntime");
-    const runtime = new PiRuntimeManager({ environmentVariableCollection: { clear() {} } } as any);
+    const runtime = new PiRuntimeManager({
+      extensionUri: vscode.Uri.file(process.cwd()),
+      environmentVariableCollection: { clear() {} },
+    } as any);
     const internal = runtime as any;
     const commands: string[] = [];
     let generation = 1;

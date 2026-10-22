@@ -27,6 +27,7 @@ Persistent Pi session files and exact legacy global bridge cleanup paths are unc
 
 | Reference capability | Pi workflow | Status / evidence |
 | --- | --- | --- |
+| Bundled default Pi runtime | Exact Pi 1.3.0 production dependency, workspace Extension Host runtime, shared Pi stores, explicit external override and target-specific reset | [Runtime behavior and validation limits](#bundled-default-pi-runtime). |
 | Fixed primary composer status | One permanent composer area, with quiet idle space and wrapping actionable text | [Status behavior and checks](#fixed-primary-composer-status). |
 | Visible submission blockers | Non-neutral blockers share primary status; neutral empty input uses only a tooltip and accessible description | [Submission descriptions and checks](#visible-submission-blockers). |
 | Latest-output navigation | Keyboard-accessible Jump to latest, bounded New output indicator and preserved manual reading | [Reading position and checks](#latest-output-navigation). |
@@ -43,7 +44,7 @@ Persistent Pi session files and exact legacy global bridge cleanup paths are unc
 | Approved Pi resource reload and restart | Local `/reload`, Reload Pi Resources, and separately confirmed Restart Pi with current launch policy | [Resource-control evidence](#approved-pi-resource-reload-and-restart). |
 | Pi session branches | Bounded tree browser, selected user fork, active-branch clone and no-summary navigation | [Branch behavior and limits](#pi-session-branches). |
 | Pi terminal compatibility and ownership | Contextual compatibility help and policy-equivalent terminal handoff | [Ownership and terminal limits](#pi-terminal-compatibility-and-ownership). |
-| Windows Pi process launches | Resolve native executables and standard npm Node shims with the final child PATH and working directory; keep argv literal without a shell | [Windows launch evidence](#windows-pi-process-launches). |
+| Windows Pi process launches | Bundled Pi uses the Extension Host runtime; external Pi resolves native executables and standard npm Node shims with the final child PATH and working directory | [Windows launch evidence](#windows-pi-process-launches). |
 | Git change review | Confirm immutable staged, unstaged, working-tree, or merge-base-to-HEAD snapshots; navigate findings in Problems | [Git review evidence](#git-change-review). |
 | Semantic code context | Attach provider-backed definitions, references, callers, callees and symbols; query metadata through `vscode_code_context` | [Semantic context evidence](#semantic-code-context). |
 | Workspace diagnostic repair | Select errors/warnings, inspect full file snapshots, preview selected hunks across files, Apply once | [Diagnostic repair evidence](#workspace-diagnostic-repair). |
@@ -88,13 +89,36 @@ Persistent Pi session files and exact legacy global bridge cleanup paths are unc
 | Claude Code terminal-style interface | Open the active Pi session in an integrated terminal | Implemented. |
 | Claude Code subscription/model choice | Pi's provider authentication, subscription OAuth, API keys, model catalog, and thinking levels | Implemented by reusing Pi; provider subscriptions remain provider dependencies. |
 | Image-aware chat | Bounded PNG, JPEG, GIF, and WebP RPC image payloads from file selection or Ctrl/Cmd+V paste, with model-capability checks | [Image lifecycle](#image-aware-chat). |
-| Provider authentication | Separate native sign-in/sign-out commands; isolated configured Pi 1.3.0 helper using public `ModelRuntime`, masked stdin input, explicit host/store approval | [Authentication evidence and limits](#provider-authentication). |
+| Provider authentication | Separate native sign-in/sign-out commands; isolated selected Pi 1.3.0 helper using public `ModelRuntime`, masked stdin input, explicit host/store approval | [Authentication evidence and limits](#provider-authentication). |
 | Session export/import | Existing full-tree HTML renderer, public SDK active-branch JSONL export, validated same-workspace v3-tree import into a retained collision-safe copy | [Session-transfer evidence and limits](#session-exportimport). |
 | Reviewed session sharing | Exact active-branch JSONL inspection/redaction, explicit destination and modal upload approval, public `gh gist create --public=false` stdin adapter | [Sharing evidence and limits](#reviewed-session-sharing). |
 | Hosted pull-request agent | Foreground/worktree sessions can use installed `git` and `gh` tools to create branches, commits, pushes, and PRs | Local orchestration implemented; GitHub credentials and hosted repository access are external dependencies. |
 | Cross-machine cloud synchronization | Exported sessions and Git/remote-provider workflows | Requires an external storage or hosted-agent service; no vendor-neutral synchronization service exists in this local extension. |
 
 ## Workflow details and evidence
+
+### Bundled default Pi runtime
+
+Unset, empty, or whitespace-only `pi.executablePath` selects bundled `@earendil-works/pi-coding-agent@1.3.0` without system Pi/Node lookup.
+Any nonempty value, including saved `pi`, selects external Pi without rewriting configuration.
+Reset removes only the chosen target override; another effective override can still win.
+All extension-owned launches share this selection, including helpers and controlled terminal handoff; ordinary terminals are unchanged.
+
+The workspace Extension Host's `process.execPath` starts the pinned absolute npm entry through a bootstrap.
+Electron's initial `ELECTRON_RUN_AS_NODE=1` is removed before Pi/tools run.
+Bundled launches suppress automatic version checks, clear package/managed-install overrides, and reject initial CLI `update` before upstream import, including custom `npmCommand`.
+Extension releases own runtime updates; external launch behavior is unchanged.
+Pi 1.3.0 has no built-in TUI `/update` route.
+
+Ordinary Pi stores, credentials, sessions, resources and provider environment are reused without migration or new isolation.
+Helpers keep disposable directories and their environment allowlist.
+User-installed extensions must support Pi 1.3.0; broader external runtime compatibility is not verified.
+Settings opening does not start or validate Pi, and launch failures have no PATH fallback or operation replay.
+Trust, tool permissions, Preview/Apply, and ownership rules remain unchanged.
+
+The universal layout retains the production dependency closure and six native prebuilds for Linux, Windows, and macOS arm64/x64; the unused GPL Doom example is excluded.
+Asset inclusion is not a claim that all targets work.
+See [Bundled runtime validation](BUNDLED_RUNTIME_VALIDATION.md) for discovery evidence, final-gate status, license disposition, and retained platform/remote/provider handoff.
 
 ### Fixed primary composer status
 

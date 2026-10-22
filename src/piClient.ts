@@ -1,11 +1,11 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { PiProcessOwner } from "./piProcess";
+import type { PiLaunchDescription } from "./piRuntimeSelection";
 import { buildPiProcessEnvironment, planPiSpawn } from "./piSpawn";
 
 const maxOutputBytes = 5 * 1024 * 1024;
 
-export interface PiInvocationOptions {
-  readonly executablePath: string;
+export interface PiInvocationOptions extends PiLaunchDescription {
   readonly cwd: string;
   readonly provider?: string;
   readonly model?: string;
@@ -44,10 +44,17 @@ export function invokePi(prompt: string, options: PiInvocationOptions, signal?: 
       return;
     }
 
-    const env = buildPiProcessEnvironment(process.env);
+    const env = buildPiProcessEnvironment(process.env, options.env, options.unsetEnv);
     let child: ChildProcessWithoutNullStreams;
     try {
-      const plan = planPiSpawn(options.executablePath, buildPiArguments(options), { cwd: options.cwd, env });
+      const plan = planPiSpawn(
+        options.executablePath,
+        [...(options.executableArgs ?? []), ...buildPiArguments(options)],
+        {
+          cwd: options.cwd,
+          env,
+        },
+      );
       child = spawn(plan.command, plan.args, {
         cwd: options.cwd,
         env,

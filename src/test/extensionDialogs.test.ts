@@ -487,6 +487,7 @@ test("deadline guards reject results even before a delayed timer callback runs",
 test("real runtime binds claims to exact originating event and rejects replacement/disconnect/disposal", async () => {
   const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
   const runtime = new PiRuntimeManager({
+    extensionUri: MockUri.file(process.cwd()),
     environmentVariableCollection: { clear() {} },
   } as unknown as vscode.ExtensionContext);
   const internal = runtime as unknown as {

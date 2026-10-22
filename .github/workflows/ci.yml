@@ -36,10 +36,14 @@ jobs:
       - name: Compile and run unit tests
         run: npm test
 
-  windows-launch:
-    name: Windows process launch
-    runs-on: windows-latest
-    timeout-minutes: 15
+  distribution:
+    name: Extracted runtime (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - name: Check out the code
         uses: actions/checkout@v4
@@ -54,5 +58,15 @@ jobs:
         run: npm ci
       - name: Compile
         run: npm run compile
-      - name: Verify argument transport, resolution, and process cleanup
-        run: npm exec -- vitest run out/test/piSpawn.test.js out/test/piClient.test.js out/test/piRpcClient.test.js out/test/piProcess.test.js out/test/piRuntimeCleanup.test.js out/test/piRuntimeDeletion.test.js
+      - name: Verify runtime selection, argument transport, and process cleanup
+        run: npm exec -- vitest run out/test/piRuntimeSelection.test.js out/test/sharedPiLaunch.test.js out/test/vscodePiSelection.test.js out/test/backgroundLaunch.test.js out/test/piRuntimeStartup.test.js out/test/piControl.test.js out/test/piSpawn.test.js out/test/piClient.test.js out/test/piRpcClient.test.js out/test/piProcess.test.js out/test/piRuntimeCleanup.test.js out/test/piRuntimeDeletion.test.js
+      - name: Package the complete production closure
+        run: npm exec -- vsce package --out pi.vsix
+      - name: Verify the extracted VSIX without Pi or Node PATH lookup
+        run: npm run test:bundled-runtime
+      - name: Retain the verified platform artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-vsix-${{ matrix.os }}
+          path: pi.vsix
+          if-no-files-found: error

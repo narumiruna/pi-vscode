@@ -18,6 +18,7 @@ for (const outcome of ["success", "cancelled", "switch-failed", "refresh-failed"
     mock.workspace.workspaceFolders = [{ uri: mock.Uri.file(root) }];
     const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
     const runtime = new PiRuntimeManager({
+      extensionUri: mock.Uri.file(process.cwd()),
       workspaceState: { update: async () => {} },
       environmentVariableCollection: { clear() {} },
     } as unknown as vscode.ExtensionContext);
@@ -89,6 +90,7 @@ for (const outcome of ["success", "cancelled", "switch-failed", "refresh-failed"
 test("history reads reject active execution before and after the RPC response", async () => {
   const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
   const runtime = new PiRuntimeManager({
+    extensionUri: mock.Uri.file(process.cwd()),
     environmentVariableCollection: { clear() {} },
   } as unknown as vscode.ExtensionContext);
   const internal = runtime as any;
@@ -119,6 +121,7 @@ test("history reads reject active execution before and after the RPC response", 
 test("history from a replaced client cannot be applied to the current session", async () => {
   const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
   const runtime = new PiRuntimeManager({
+    extensionUri: mock.Uri.file(process.cwd()),
     environmentVariableCollection: { clear() {} },
   } as unknown as vscode.ExtensionContext);
   const internal = runtime as unknown as { client: PiRpcClient | undefined; ensureStarted(): Promise<void> };

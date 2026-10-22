@@ -62,6 +62,7 @@ class CleanupClient {
 function createRuntime(): PiRuntimeManager {
   const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
   return new PiRuntimeManager({
+    extensionUri: mock.Uri.file(process.cwd()),
     workspaceState: { get: () => undefined, update: async () => {} },
     environmentVariableCollection: { clear() {} },
   } as unknown as vscode.ExtensionContext);
