@@ -10,6 +10,7 @@ import {
   targetValue,
   validSettingValue,
 } from "../settingsModel";
+import { NativeSettingsForm } from "./nativeSettings.mjs";
 
 declare function acquireVsCodeApi(): {
   postMessage(message: unknown): void;
@@ -27,7 +28,11 @@ let category: string = "General";
 let target: SettingsTarget = "user";
 let counter = 0;
 const instance = crypto.randomUUID();
-const saved = api.getState() as { category?: string; target?: string; drafts?: Record<string, Draft> } | undefined;
+const nativeRecoveryWarning =
+  "Native drafts exceed the 28 KiB recovery limit. They will not be restored after hiding this page. Save or shorten them first.";
+const saved = api.getState() as
+  | { category?: string; target?: string; drafts?: Record<string, Draft>; native?: unknown }
+  | undefined;
 if (saved && serializedSize(saved) <= maxSettingsMessage) {
   const savedCategory = saved.category === "Pi Files" ? "Pi Configuration" : saved.category;
   if (savedCategory && categories.some((name) => name === savedCategory)) category = savedCategory;
@@ -37,10 +42,11 @@ if (saved && serializedSize(saved) <= maxSettingsMessage) {
       const key = `${scope}:${descriptor.key}`;
       const draft = saved.drafts?.[key];
       if (draft && (typeof draft.raw === "string" || typeof draft.raw === "boolean") && typeof draft.base === "string")
-        drafts[key] = draft;
+        drafts[key] = { raw: draft.raw, base: draft.base };
     }
   }
 }
+const nativeForm = new NativeSettingsForm((message) => api.postMessage(message), render, persist, saved?.native);
 const main = document.querySelector<HTMLElement>("main")!;
 const nav = document.querySelector<HTMLElement>("nav")!;
 const scope = document.querySelector<HTMLSelectElement>("#target")!;
@@ -51,12 +57,13 @@ document.addEventListener("focusin", (event) => {
   focusId = node instanceof HTMLElement && main.contains(node) ? node.id : undefined;
 });
 function persist(): void {
-  const state = { category, target, drafts };
+  const state = { category, target, drafts, native: nativeForm.recovery() };
   // Never persist configuration snapshots, and bound the total draft state.
   if (serializedSize(state) <= maxSettingsMessage) {
     api.setState(state);
-    status.textContent =
-      "Extension settings are stored by VS Code. Pi Configuration uses native dialogs. Saving starts no Pi process.";
+    status.textContent = nativeForm.recoveryOverflowed()
+      ? nativeRecoveryWarning
+      : "Extension settings are stored by VS Code. Pi Configuration saves native files explicitly. Saving starts no Pi process.";
   } else {
     api.setState({ category, target });
     status.textContent = "Drafts exceed the 32 KiB recovery limit. Save or shorten them before hiding this tab.";
@@ -135,50 +142,9 @@ function render(): void {
     nav.append(button);
   }
   main.replaceChildren(element("h2", category));
+  nativeForm.setContext(category === "Pi Configuration", snapshot?.nativeFilesAvailable === true);
   if (!snapshot) return;
-  if (category === "Pi Configuration") {
-    main.append(
-      element(
-        "p",
-        "Edit Pi settings and MCP configuration in native dialogs. Configuration contents and secrets are not sent to this page.",
-      ),
-      element(
-        "p",
-        "Missing files are created only when you save an override. Opening, switching, and resetting an absent override create nothing.",
-      ),
-      element(
-        "p",
-        "Save does not restart Pi, connect MCP servers, or approve project resources. Project overrides remain inactive until project resources are approved. VS Code launch overrides can take precedence.",
-      ),
-    );
-    if (!snapshot.nativeFilesAvailable)
-      main.append(element("p", "Open a trusted, file-backed workspace to edit Pi configuration."));
-    for (const fileScope of ["global", "project"] as const) {
-      const section = element("section");
-      section.className = "setting";
-      const title = fileScope === "global" ? "Global Pi" : "Project Pi";
-      section.append(
-        element("h3", title),
-        element(
-          "p",
-          fileScope === "global"
-            ? "Extension Host: ~/.pi/agent/settings.json and mcp.json, or the PI_CODING_AGENT_DIR override. Remote windows use the remote host."
-            : "Project directory (first workspace folder): .pi/settings.json and .pi/mcp.json. Saving does not grant project approval.",
-        ),
-      );
-      const actions = element("div");
-      actions.className = "actions";
-      for (const kind of ["settings", "mcp"] as const) {
-        const button = element("button", `Edit ${title} ${kind}.json`);
-        button.type = "button";
-        button.disabled = !snapshot.nativeFilesAvailable;
-        button.addEventListener("click", () => api.postMessage({ type: "openPiFile", kind, scope: fileScope }));
-        actions.append(button);
-      }
-      section.append(actions);
-      main.append(section);
-    }
-  }
+  if (category === "Pi Configuration") nativeForm.render(main);
   if (category === "Editor")
     main.append(
       element(
@@ -288,10 +254,18 @@ function render(): void {
     row.append(control, meta, actions, rowStatus);
     main.append(row);
   }
-  if (serializedSize({ category, target, drafts }) > maxSettingsMessage) {
+  if (nativeForm.recoveryOverflowed()) status.textContent = nativeRecoveryWarning;
+  if (serializedSize({ category, target, drafts, native: nativeForm.recovery() }) > maxSettingsMessage) {
     status.textContent = "Drafts exceed the 32 KiB recovery limit. Save or shorten them before hiding this tab.";
   }
-  if (focusId) document.getElementById(focusId)?.focus({ preventScroll: true });
+  if (focusId) {
+    const previous = document.getElementById(focusId);
+    const next =
+      previous instanceof HTMLButtonElement && previous.disabled && previous.dataset.focusControl
+        ? document.getElementById(previous.dataset.focusControl)
+        : previous;
+    next?.focus({ preventScroll: true });
+  }
 }
 scope.addEventListener("change", () => {
   target = scope.value === "workspace" ? "workspace" : "user";
@@ -301,6 +275,7 @@ scope.addEventListener("change", () => {
 document.querySelector("#native-settings")!.addEventListener("click", () => api.postMessage({ type: "openNative" }));
 window.addEventListener("message", (event: MessageEvent) => {
   const data = event.data;
+  if (nativeForm.receive(data)) return;
   if (data?.type === "snapshot" && Number.isSafeInteger(data.revision) && Array.isArray(data.entries)) {
     if (snapshot && data.revision < snapshot.revision) return;
     snapshot = data as SettingsSnapshot;
@@ -309,7 +284,7 @@ window.addEventListener("message", (event: MessageEvent) => {
       persist();
     }
     status.textContent =
-      "Extension settings are stored by VS Code. Pi Configuration uses native dialogs. Saving starts no Pi process.";
+      "Extension settings are stored by VS Code. Pi Configuration saves native files explicitly. Saving starts no Pi process.";
     render();
   } else if (data?.type === "result") {
     const match = [...pending].find(([, item]) => item.id === data.id);

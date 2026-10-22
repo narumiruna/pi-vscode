@@ -89,9 +89,23 @@ The foreground sidebar agent can add [temporary passage annotations](docs/USER_G
 
 ## Settings
 
-Run **Pi: Open Settings** or use the gear in the Pi view title. **General**, **Permissions**, and **Editor** edit VS Code configuration at User or Workspace scope. **Pi Configuration** has **Global Pi** and **Project Pi** cards, each with **Edit … settings.json** and **Edit … mcp.json** buttons. These open existing host-native dialogs at the fixed card scope; native file content stays out of the webview. Command Palette native management remains available.
+Run **Pi: Open Settings** or use the gear in the Pi view title.
+**General**, **Permissions**, and **Editor** edit VS Code configuration at User or Workspace scope.
+**Pi Configuration** has its own **Global Pi / Project Pi** selector and inline controls for startup provider, model, thinking level, ordered model patterns, steering mode, follow-up mode, automatic compaction, and automatic retry.
+Each row shows override, inherited/default value, and source, with explicit **Save**, **Reset override**, and **Reload row** actions; checkbox and select changes are drafts until saved.
+Configured MCP servers expose safe metadata and inline enabled/exposure edits and resets, not transport or credentials; connection state remains **unknown**.
+Server creation, transport editing, authentication, diagnostics, and advanced editing remain in existing native management interfaces, also available through the Command Palette.
 
-Global Pi uses the Extension Host's `~/.pi/agent` or `PI_CODING_AGENT_DIR`. Project Pi uses the launch workspace's `.pi` (the first workspace folder, not a multi-root selector). Native controls require a trusted, file-backed workspace. Opening, reading, or switching never creates files. The first explicit override save creates only the needed file and missing Pi directories; resetting an absent override creates nothing. Saving does not restart Pi, approve project resources, or connect MCP servers. Provider, model, thinking level, and executable overrides apply at process startup. Reconnect does not restart Pi.
+Global Pi uses the Extension Host's `~/.pi/agent` or `PI_CODING_AGENT_DIR`.
+Project Pi uses the launch workspace's `.pi` (the first workspace folder, not a multi-root selector).
+Native controls require a trusted, file-backed workspace; unapproved project values are labelled **inactive**, not active runtime settings.
+Opening, reading, or switching never creates files.
+The first explicit override save creates only the needed file and missing Pi directories; resetting an absent override creates nothing.
+Saving does not apply runtime settings, restart Pi, approve project resources, or connect MCP servers.
+Provider, model, thinking level, and executable overrides apply at process startup.
+Reconnect does not restart Pi.
+The webview receives validated common-setting values, safe MCP metadata, and opaque revision tokens, not raw native files or MCP transport/authentication fields.
+Full snapshots stay in Extension Host memory; native draft persistence contains only bounded validated common-setting drafts.
 
 1. `pi.approveProjectResources` defaults to `false`. Enable it only for trusted project-local Pi resources.
 2. `pi.inlineCompletions.enabled` defaults to `false`. Manual inline completion remains available.

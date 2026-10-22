@@ -1,17 +1,9 @@
-import { realpath } from "node:fs/promises";
 import path from "node:path";
 import * as vscode from "vscode";
 import { piConfiguration } from "./configuration";
 import { checkNativeMcp, type McpDiagnostic } from "./nativeMcpDiagnostics";
-import { captureNativeEditorGuard } from "./nativePiEditors";
-import {
-  type NativeFileSnapshot,
-  type NativeScope,
-  nativeFileTarget,
-  readNativeFile,
-  resolveNativeAgentDirectory,
-  saveNativeFile,
-} from "./nativePiFiles";
+import { type NativeFilePair, NativePiAccess } from "./nativePiAccess";
+import { type NativeFileSnapshot, type NativeScope, readNativeFile } from "./nativePiFiles";
 import { nativeObject } from "./nativePiJson";
 import {
   effectiveMcpMetadata,
@@ -93,31 +85,8 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
     },
   });
 
-  const files = async (kind: "settings" | "mcp") => {
-    const folder = vscode.workspace.workspaceFolders?.[0];
-    if (!vscode.workspace.isTrusted || folder?.uri.scheme !== "file")
-      throw new Error("Trusted file workspace required.");
-    const root = await realpath(folder.uri.fsPath);
-    const cwd = readPiInvocationOptions(folder.uri).cwd;
-    if ((await realpath(cwd)) !== root || (await realpath(runtime.currentCwd)) !== root)
-      throw new Error("Workspace changed or differs from Pi.");
-    const agentDir = resolveNativeAgentDirectory(root);
-    const global = await readNativeFile(await nativeFileTarget(agentDir, "global", kind));
-    const project = await readNativeFile(await nativeFileTarget(path.join(root, ".pi"), "project", kind));
-    const assertEditors = await captureNativeEditorGuard(vscode.workspace.textDocuments, [
-      path.join(global.target.root, global.target.relative),
-      path.join(project.target.root, project.target.relative),
-    ]);
-    return {
-      assertEditors,
-      root,
-      cwd,
-      agentDir,
-      global,
-      project,
-      approved: piConfiguration().get<boolean>("approveProjectResources", false),
-    };
-  };
+  const access = new NativePiAccess(runtime, () => disposed);
+  const files = (kind: "settings" | "mcp") => access.files(kind);
   const selectScope = () =>
     choose(
       [
@@ -136,27 +105,13 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
     ) as Promise<NativeScope | undefined>;
 
   const write = async (
+    state: NativeFilePair,
     snapshot: NativeFileSnapshot,
     keys: readonly string[],
     value: unknown,
     guard: () => Promise<void>,
-    assertEditors: (documents: readonly vscode.TextDocument[]) => Promise<void>,
   ) => {
-    const approved = piConfiguration().get<boolean>("approveProjectResources", false);
-    const envDir = process.env.PI_CODING_AGENT_DIR;
-    const verify = async () => {
-      await guard();
-      if (
-        disposed ||
-        !vscode.workspace.isTrusted ||
-        approved !== piConfiguration().get<boolean>("approveProjectResources", false) ||
-        envDir !== process.env.PI_CODING_AGENT_DIR
-      )
-        throw new Error("Native configuration origin changed.");
-      await assertEditors(vscode.workspace.textDocuments);
-    };
-    await verify();
-    await saveNativeFile(snapshot, keys, value, verify);
+    await access.write(state, snapshot, keys, value, guard);
     void vscode.window.showInformationMessage(
       "Native file saved. Active foreground and background runtimes are unchanged. Apply is a separate command; startup model preferences require restart.",
     );
@@ -243,7 +198,7 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
       )
         return;
       await assertCurrent();
-      await write(target, control.path, value, assertCurrent, state.assertEditors);
+      await write(state, target, control.path, value, assertCurrent);
     });
   });
 
@@ -504,7 +459,7 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
       )
         return;
       await assertCurrent();
-      await write(target, ["mcpServers", name], value, assertCurrent, state.assertEditors);
+      await write(state, target, ["mcpServers", name], value, assertCurrent);
     });
     if (terminalOrigin) await runtime.openInTerminal(terminalOrigin);
   });

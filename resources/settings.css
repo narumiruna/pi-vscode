@@ -59,7 +59,24 @@ main {
   min-width: 0;
 }
 .setting label {
+  display: block;
+  margin-bottom: 8px;
   font-weight: 600;
+}
+.native-actions {
+  margin-top: 16px;
+}
+.mcp-server {
+  min-width: 0;
+  border-top: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  padding-top: 12px;
+}
+.mcp-server h4 {
+  overflow-wrap: anywhere;
+}
+button {
+  overflow-wrap: anywhere;
+  max-width: 100%;
 }
 .setting p {
   color: var(--vscode-descriptionForeground);

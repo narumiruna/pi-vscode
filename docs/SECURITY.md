@@ -326,16 +326,23 @@ The modal image preview uses a native button trigger, supports Escape/close, cle
 ## Settings Page
 
 The General, Permissions, and Editor categories write only existing allowlisted `pi.*` properties through VS Code configuration APIs with an explicit User or Workspace target.
-The Pi Configuration category routes its Global Pi/Project Pi card buttons (**Edit … settings.json** and **Edit … mcp.json**) to existing host-native dialogs with a fixed scope.
-Native file content is not edited inline or sent to the webview.
+Pi Configuration has an internal Global Pi/Project Pi selector, independent of VS Code User/Workspace targets.
+Its inline form edits only the eight existing common native settings and safe MCP enabled/exposure metadata through host-owned allowlists.
+The common fields are startup provider, startup model, startup thinking level, ordered model patterns, steering mode, follow-up mode, automatic compaction, and automatic retry.
+Each native row requires explicit Save or Reset override; checkbox and select changes create drafts only.
+Rows show override, inherited/default value, and source; unapproved project values are labelled inactive rather than active runtime settings.
 This adds no configuration keys or duplicate schema; Command Palette native management remains available.
 Opening or switching categories does not create files, read credentials, discover models, start or restart Pi, or change current session RPC state.
 Existing extension activation still initializes the bridge and performs legacy bridge cleanup.
 Launch settings affect later process creation, not running foreground or background agents.
 
 Host validation checks message size, request ID, key, target, revision, value type, enum, integer bounds, and edit limits.
-Page edits permit 4,096 characters per string, 100 list items, and 16 KiB of serialized list text; messages are capped at 32 KiB.
-Configuration reads keep their existing behavior.
+VS Code configuration page edits permit 4,096 characters per string, 100 list items, and 16 KiB of serialized list text; messages are capped at 32 KiB.
+VS Code configuration reads keep their existing behavior.
+Native-file messages are separate from VS Code configuration messages and accept only descriptor-bound common-setting values or allowlisted MCP metadata edits.
+Incoming native requests are capped at 32 KiB; validated native projections are capped at 512 KiB to support bounded file reads and inherited values.
+The browser cannot supply filesystem paths, JSON member paths, command identifiers, or complete native objects.
+The host resolves native targets and member paths and checks trust, file-workspace availability, origin, and revision on each operation.
 Project-resource edits and resets require workspace trust.
 Current Restricted Mode activation support is unchanged.
 
@@ -343,11 +350,15 @@ Each save is bound to its submitted scope.
 Revision checks and configuration snapshots reject known stale writes, including changes detected before their configuration event arrives.
 These checks are not atomic against other windows or external configuration writers.
 Conflicting drafts require an explicit row reload.
-Failed automatic saves retain the selected draft and offer Retry save without changing the value.
+Failed automatic VS Code configuration saves retain the selected draft and offer Retry save without changing the value.
+Native drafts remain separate by scope and key and survive failed saves and scope/category changes; native saves are never automatic.
 The host queue admits at most 16 operations; a rejected save or reset gets an error with only its bounded request ID.
 It does not write configuration.
 Reset removes only the selected target override.
 Small drafts are kept in webview state while hidden, not in Pi settings or extension global/workspace storage; closing the panel discards them.
+For native controls, this persistence permits only bounded validated common-setting drafts, never complete native snapshots or MCP data, including transport/authentication fields.
+Workspace, approval, or agent-directory changes invalidate native snapshots.
+Replaced loads and disposed panels reject stale or late results; rejected save/reset requests return bounded results so pending rows can recover.
 
 Settings scripts and styles are bundled under `out/settings`, which is the panel's only local resource root.
 The page uses `default-src 'none'`, nonce-only external scripts, local stylesheet resources, and no inline-style exception.
@@ -358,22 +369,31 @@ Panel disposal removes its listeners and prevents late posts; a configuration wr
 
 ## Native Pi Configuration
 
-Native settings/MCP management uses host-native dialogs, reached from Pi Configuration or the Command Palette, not webview file editors.
+Pi Configuration permits inline common-setting and safe MCP metadata edits, not arbitrary native file editing.
+Server creation, transport editing, credentials, authentication, diagnostics, and advanced editing remain in existing explicit native management interfaces.
+Command Palette native management remains available.
 Native controls require a trusted, file-backed workspace even for Global Pi.
 Passive opening or reading starts no Pi process, server, credential command, authentication flow or connection and creates no files.
+Native projections load only when Pi Configuration is selected or explicitly refreshed; unrelated categories do not read native files.
 Global Pi uses the Extension Host's `~/.pi/agent` or `PI_CODING_AGENT_DIR`; Project Pi uses the current launch workspace's `.pi` (the existing first workspace folder behavior, not multi-root selection).
 Remote windows use remote host paths.
-The scoped Project Pi MCP editor shows inactive project entries when project-resource approval is off; editing does not activate them.
+The Project Pi form and native dialogs label unapproved project settings and MCP entries inactive; editing does not activate them.
 Management code never reads `auth.json` or `mcp-auth.json`.
-MCP projections contain validated names, transport type, scope, enabled/exposure metadata and unknown connection state, not URLs, commands, env/header values, OAuth fields or raw errors.
-Native file snapshots remain host-only and memory-only.
+The browser receives only validated allowlisted common-setting values, safe MCP metadata, and opaque revision tokens.
+Invalid existing common-setting values produce fixed diagnostics without the raw value.
+MCP projections contain validated names, transport type, source, enabled/exposure metadata and unknown connection state, not URLs, commands, arguments, environment/header values, OAuth fields or raw errors.
+Raw file text, unlisted settings, and MCP transport/authentication fields remain host-only and do not enter browser messages, persisted browser state, or logs.
+Full native file snapshots remain host-only and memory-only.
+MCP enabled/exposure saves and resets affect only the selected native scope; project metadata overrides preserve inherited transport and credentials.
 
 Open missing files unrelated to native configuration do not block these controls.
 Open editor documents for missing configuration targets, dangling aliases, changed alias bindings, dirty/version-changed target buffers and non-ENOENT path errors still fail closed.
 Missing target-name variants are also blocked on Windows and macOS.
 
 Common file controls accept at most 128 KiB of regular single-link UTF-8 strict JSON with bounded nesting.
-Descriptor-bound reads, canonical ancestor checks, target revisions, dirty-buffer checks, writable mode and repeated origin/trust/policy checks reject known unsafe or stale writes.
+The form and native dialogs reuse descriptor-bound reads, canonical ancestor checks, target revisions, dirty-buffer checks, writable mode and repeated origin/trust/policy checks to reject known unsafe or stale writes.
+Each edit binds to the captured canonical workspace, agent directory, native scope, approval/environment state, and relevant file revisions, including inheritance sources.
+Host-owned member-level patches preserve unrelated data; there is no second persistence implementation.
 The shared canonical workspace gate and canonical target-file gate serialize extension-owned work.
 Reset removes only the selected override; unknown keys and unrelated member bytes remain unchanged.
 Only an explicit override save can create the needed configuration file and missing Pi directories under the captured canonical ancestor.
@@ -383,7 +403,7 @@ No compensating write restores stale full-file content.
 The explicit advanced native editor opens an existing `settings.json` or `mcp.json` after a warning and uses normal VS Code Save/backups, not the bounded common-control path.
 An absent file requires a common-control override save first.
 
-Saving does not approve a project, load executable resources, install a package, reload or restart a runtime, or connect an MCP server.
+Saving or resetting a form row does not apply runtime settings, approve a project, load executable resources, install a package, reload or restart a runtime, or connect an MCP server.
 Apply is separate, explicit and idle-only.
 Resource reload can execute configured resources and connect servers under existing trust; startup model preferences still need controlled restart.
 Background agents remain unchanged.

@@ -55,7 +55,7 @@ Persistent Pi session files and exact legacy global bridge cleanup paths are unc
 | Direct shell | Explicit idle-session `!command` / `!!command`, no extra pi-vscode approval in the sidebar or controlled TUI, correlated plain-text cards, Stop and a finite deadline | [Shell contract and evidence](#direct-shell). |
 | In-flight instructions | Visible Next and After this actions, Enter/platform alternate shortcuts, Submission help, attachment snapshots, pending text, delivery-time transcript entries and recovered drafts | [Queue evidence and limits](#in-flight-instructions). |
 | Debug-context questions | Explicit bounded paused Node.js capture, variable selection, inspection/redaction, read-only question | [Debugger evidence and limits](#debug-context-questions). |
-| Pi Settings | General, Permissions, and Editor edit VS Code configuration; Pi Configuration opens fixed-scope host-native dialogs | [Settings behavior and evidence](#pi-settings). |
+| Pi Settings | General, Permissions, and Editor edit VS Code configuration; Pi Configuration has a Global Pi/Project Pi inline common-settings and safe MCP metadata form | [Settings behavior and evidence](#pi-settings). |
 | Pi extension status and text widgets | Keyed text-only status in More → Conversation details; above/below-editor widgets retain their placement, separate from host status and controls | [Extension UI evidence and limits](#pi-extension-status-and-text-widgets). |
 | Thinking blocks | Collapsed **Thinking** plain-text disclosures during streaming and Pi history refresh, including thinking-only and redacted responses | [Thinking evidence and limits](#thinking-blocks). |
 | Rich panel responses | Markdown tables, nested/task lists, quotes, links, strikethrough, highlighted code, KaTeX math, and Mermaid flowchart/sequence SVG | [Renderer evidence and limits](#rich-panel-responses). |
@@ -75,9 +75,9 @@ Persistent Pi session files and exact legacy global bridge cleanup paths are unc
 | Copilot change review and revert | Chronological tool calls, changed-file cards, request history, Source Control, diff, open, and stale/dirty-safe revert | [Tool history and recovery limits](#copilot-change-review-and-revert). |
 | Copilot custom instructions | Pi global/project AGENTS.md and Pi system/settings resources | Implemented through normal Pi resource discovery and explicit project trust. |
 | Copilot skills and custom agents | Pi skills, prompt templates, extension commands, contributed tools, and background agents | Implemented and discoverable through **Commands and Skills**; tool discovery is not restricted by a fixed allowlist. |
-| Native Pi settings | Host-native Global Pi/Project Pi dialogs from Pi Configuration or Command Palette | [Native settings contract](#native-pi-settings). |
+| Native Pi settings | Eight inline common-setting controls at Global Pi/Project Pi scope, with existing native management available through the Command Palette | [Native settings contract](#native-pi-settings). |
 | Native runtime settings | Explicit idle foreground steering mode, follow-up mode, auto-compaction and auto-retry setters | [Runtime settings limits](#native-runtime-settings). |
-| Native MCP management | Passive configured metadata, scoped file edits, separate explicit CLI diagnostic, advanced editor and controlled-terminal auth | [MCP evidence and limits](#native-mcp-management). |
+| Native MCP management | Safe configured list with inline enabled/exposure save/reset, native transport/creation controls, separate explicit CLI diagnostic, advanced editor and controlled-terminal auth | [MCP evidence and limits](#native-mcp-management). |
 | Native MCP and external tools | Pi's built-in MCP and tools supplied by installed Pi extensions, including third-party MCP bridges | [External-tool boundary](#native-mcp-and-external-tools). |
 | Bridge lifecycle safety | New sessions, session replacement and resource reload dispose outgoing subscriptions and cancel pending event-bus requests before API invalidation | [Bridge evidence and limits](#bridge-lifecycle-safety). |
 | Claude Code editor awareness | Current file, selection, diagnostics, files, images, and terminal context, plus Pi-callable `vscode_context`, `vscode_code_context` and `vscode_open_file` bridge tools | Implemented through an authenticated loopback bridge and a process-local Pi extension bundled in the VSIX. |
@@ -287,12 +287,19 @@ Only checked js-debug read paths; no evaluate/recursive capture.
 
 ### Pi Settings
 
-Pi Configuration has Global Pi/Project Pi cards, each with Edit … settings.json and Edit … mcp.json buttons that open existing host-native dialogs at the fixed card scope.
+Pi Configuration has its own Global Pi/Project Pi selector and inline controls for the eight existing common native settings.
 User/Workspace applies only to VS Code configuration.
-No inline native file content, duplicate schema, new VS Code keys, Pi launch or active-session reconfiguration.
+Native rows show the selected-scope override, inherited/default value, and source, with explicit Save, Reset override, and Reload row actions.
+Select and checkbox changes create drafts, not immediate writes.
+Failed saves and scope/category changes preserve drafts by scope and key; stale drafts require explicit Reload row.
+The webview receives validated allowlisted common-setting values, safe MCP metadata, and opaque revision tokens, not raw files, unlisted settings, or MCP transport/authentication fields.
+Full snapshots stay in Extension Host memory; native webview persistence contains only bounded validated common-setting drafts, not complete snapshots or MCP data.
+No duplicate schema, new VS Code keys, higher minimum VS Code version, Pi launch or live apply is added.
 Command Palette native management remains available.
-Existing VS Code configuration controls retain inheritance, reset, stale-draft checks and retry; Pi Configuration has host routing, deferred creation and scoped file regression tests plus standalone browser layout/keyboard checks.
-Native Extension Host and remote checks were not run for this change.
+Existing VS Code configuration controls retain inheritance, reset, stale-draft checks and retry.
+Offline model/host tests and the settings browser fixture cover inline controls, native scopes, inheritance, reset, stale drafts, bounds, secret exclusion, keyboard focus, themes, and layout.
+The macOS arm64 Extension Host fixture exercises the production form protocol and cold operation owner on VS Code 1.140.0 and 1.143.0.
+Browser fixtures do not verify native webview interaction; remote hosts, Windows/Linux native behavior, live providers, and external MCP servers were not checked for this change.
 Native Settings remains available for remote-user distinctions.
 
 ### Pi extension status and text widgets
@@ -348,8 +355,12 @@ Covered pre-captured regular edit/write files only; shell and uncertain effects 
 
 Global Pi uses Extension Host `~/.pi/agent` or `PI_CODING_AGENT_DIR`; Project Pi uses the launch workspace's `.pi` (first workspace folder, no multi-root selection).
 Trusted, file-backed workspace required.
+Startup provider and model use text inputs; startup thinking level uses a select; scoped model patterns use ordered multiline input, one pattern per line.
+Steering and follow-up modes select `one-at-a-time` or `all`; automatic compaction and retry use checkboxes.
+Provider/model entry requires neither discovery nor a running Pi process.
+Unapproved project values are labelled inactive, not active runtime settings.
 Reads/opening/switching create nothing; first explicit override save creates only the needed file and missing Pi directories; absent reset creates nothing.
-Bounded selected-member writes retain inheritance and stale-content/identity checks.
+The form and native dialogs reuse guarded selected-member writes, retaining inheritance, canonical gates, editor guards and stale-content/identity checks.
 Save does not restart, approve or connect.
 Existing `settings.json` and `mcp.json` have an advanced editor with a warning and normal VS Code Save/backups; absent files need a common-control save first.
 Startup model patterns require explicit restart and are not access control.
@@ -361,7 +372,11 @@ Queue modes/compaction project from `get_state`; retry state is unknown.
 
 ### Native MCP management
 
-The scoped Project Pi editor includes inactive project entries with approval off, without activation by editing.
+The configured list exposes validated name, transport type, source, enabled state, and exposure metadata, with inline enabled/exposure edits and explicit save/reset at the selected native scope.
+Configured state is separate from connection state, which remains unknown.
+The Project Pi form and native dialogs include inactive project entries with approval off, without activation by editing.
+Project metadata overrides preserve inherited transport and credentials.
+Server creation, transport editing, credentials, authentication, diagnostics, and advanced editing remain in existing explicit native management interfaces.
 An advanced editor is available for existing `mcp.json`; interactive auth uses the controlled terminal.
 
 Implementation: `nativeMcpDiagnostics.ts`; credentials/env/header/command values withheld, no auth-file reads or discovery connections.

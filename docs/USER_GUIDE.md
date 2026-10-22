@@ -590,7 +590,7 @@ Native `@pi` chat and Pi HTML exports retain their own renderers.
 
 Run **Pi: Open Settings** or select the gear in the Pi view title to open a dedicated settings tab.
 Use **General**, **Permissions**, and **Editor** to edit the existing VS Code extension settings.
-**Pi Configuration** opens native Pi file controls described [below](#native-pi-settings-and-mcp).
+**Pi Configuration** edits common native Pi settings and safe MCP metadata inline, as described [below](#native-pi-settings-and-mcp).
 Opening or saving this page does not start Pi or send a model request.
 
 For VS Code configuration, choose **User** or **Workspace** before editing.
@@ -616,8 +616,8 @@ VS Code configuration controls support User and Workspace only, not folder or la
 In remote windows, use native Settings to distinguish local-user and remote-user values; the custom page does not expose separate controls for those layers.
 The extension's existing Restricted Mode and virtual-workspace limits are unchanged.
 
-Page edits allow up to 4,096 characters per string, 100 list items, and 16 KiB of serialized list text.
-Existing configuration reads are not restricted by these page edit limits.
+VS Code configuration page edits allow up to 4,096 characters per string, 100 list items, and 16 KiB of serialized list text.
+Existing VS Code configuration reads are not restricted by these page edit limits.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
@@ -636,12 +636,39 @@ Additional settings control inline-completion delay, minimum prefix length, and 
 
 ### Native Pi settings and MCP
 
-Open **Pi Settings → Pi Configuration** for **Global Pi** and **Project Pi** cards.
-Each card has **Edit … settings.json** and **Edit … mcp.json** buttons.
-Each button opens the existing host-native dialogs at that card's fixed scope, not an inline file editor.
+Open **Pi Settings → Pi Configuration** and use its **Global Pi / Project Pi** selector.
 User/Workspace applies only to VS Code configuration; it does not select Pi file scope.
+The form uses the existing native setting descriptors, not a second settings database or arbitrary JSON editor.
+No new VS Code configuration keys are added.
 The Command Palette commands below remain available.
-No schema duplication or new VS Code configuration keys are added.
+
+| Field | Inline control |
+| --- | --- |
+| Startup provider | Text input; no model discovery required |
+| Startup model | Text input; no running Pi process required |
+| Startup thinking level | Select: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` |
+| Scoped model patterns | Ordered multiline input, one pattern per line |
+| Steering mode | Select: `one-at-a-time`, `all` |
+| Follow-up mode | Select: `one-at-a-time`, `all` |
+| Automatic compaction | Checkbox |
+| Automatic retry | Checkbox |
+
+Each row shows the selected-scope override, inherited/default value, and source.
+Use **Save** to write that row, **Reset override** to remove only its selected-scope member, or **Reload row** to discard its draft and read current values.
+Checkbox and select changes create drafts; they do not save automatically.
+Reset preserves inherited values and unrelated file members.
+Drafts remain separate by native scope and setting and survive failed saves and scope/category changes.
+A stale draft requires explicit **Reload row** before saving.
+Only bounded validated common-setting drafts are kept in webview state; full native snapshots and MCP transport data are never persisted there.
+Closing the panel discards these drafts.
+
+The configured MCP list shows validated server names, transport type, source, enabled state, and exposure metadata.
+Enabled and server exposure controls support explicit save and reset at the selected native scope.
+Project metadata overrides preserve inherited transport and credentials.
+Configured state is not connection evidence; connection state remains **unknown**.
+Server creation, transport editing, credentials, authentication, diagnostics, and advanced editing remain in existing explicit native management interfaces.
+Raw file text, unlisted settings, URLs, commands, arguments, environment/header values, and OAuth objects stay out of the browser.
+Only validated common-setting values, safe MCP metadata, and opaque revision tokens reach the form; full file snapshots remain in Extension Host memory.
 
 Global Pi uses the Extension Host's `~/.pi/agent`, or `PI_CODING_AGENT_DIR` when set.
 Project Pi uses the current launch workspace's `.pi`: the existing first workspace folder behavior, not multi-root selection.
@@ -651,7 +678,8 @@ Native controls require a trusted, file-backed workspace, including for Global P
 Opening, reading, or switching categories/scopes never creates files.
 The first explicit override save creates only the required `settings.json` or `mcp.json` and missing Pi directories.
 Resetting an absent override creates nothing.
-The scoped Project Pi MCP editor shows project entries as inactive when project-resource approval is off; editing does not activate or approve them.
+Project setting values and MCP entries are labelled **inactive** when project-resource approval is off, not shown as active runtime settings.
+Editing does not activate or approve them.
 
 Native controls use Pi terms such as **Steering mode**, **Follow-up mode**, **thinking level**, and **scoped model patterns**:
 
@@ -668,12 +696,12 @@ Native controls use Pi terms such as **Steering mode**, **Follow-up mode**, **th
   The explicit approved CLI diagnostic connects all enabled file-configured servers separately from the current session.
   Interactive management and authentication stay in Pi's controlled terminal after native `/mcp` ownership is verified.
 - **Pi: Apply Saved Native Configuration (Reload Resources)** is a separate explicit action.
-  A successful save does not reload, restart, connect, install packages or approve project resources.
+  A successful form or native-dialog save does not apply runtime settings, reload, restart, connect, install packages or approve project resources.
   A failed apply retains the saved file and reports that active state is not verified.
   Startup model preferences are not live-applied.
   Use **Pi: Restart Pi (Current Launch Policy)** explicitly to load startup defaults and model patterns into the same session; resumed model/thinking state can still take precedence.
 
-Opening either native surface starts no Pi process or connection.
+Opening the form or native dialogs starts no Pi process or connection.
 Native files use the Extension Host's paths, including remote paths in remote windows.
 Common edits require a trusted file-backed workspace, bounded regular canonical files and fresh revisions; unrelated members remain unchanged.
 Both existing `settings.json` and `mcp.json` files have an explicit advanced native editor action with a warning.

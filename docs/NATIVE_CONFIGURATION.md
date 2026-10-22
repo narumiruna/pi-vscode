@@ -11,7 +11,7 @@ Native file controls implement the documented strict JSON format, not an indepen
 | Control | Read source | Write target | Active effect |
 | --- | --- | --- | --- |
 | Pi Settings: General, Permissions, Editor | VS Code configuration | Selected User/Workspace `pi.*` override | Existing launch/editor behavior; no Pi process |
-| Pi Settings: Pi Configuration | Global Pi/Project Pi card | Fixed-scope host-native `settings.json` or `mcp.json` dialogs | Navigation only; no inline file content, new configuration keys or duplicate schema |
+| Pi Settings: Pi Configuration | Validated common settings and safe MCP metadata at its Global Pi/Project Pi selector | Selected allowlisted `settings.json` or `mcp.json` member through shared guarded writes | Explicit save/reset only; no live apply, new configuration keys or duplicate schema |
 | Native startup provider/model/thinking | Global Pi/Project Pi `settings.json` | Selected Global Pi/Project Pi member | Next controlled restart; launch overrides and resumed session state can take precedence |
 | Ordered `enabledModels` | Global Pi/Project Pi `settings.json` | Selected file member | Startup/cycling preferences, not model access control; no supported live setter |
 | Queue grouping files | Global Pi/Project Pi `settings.json` | Selected file member | Later restart; runtime controls are separate |
@@ -36,7 +36,7 @@ Project Pi files live in the current launch workspace's `.pi`, using the existin
 There is no multi-root folder selector.
 Pi loads project resources only under the existing project-resource approval policy.
 Passive inspection marks unapproved project overrides inactive.
-The fixed-scope Project Pi MCP editor includes these inactive project entries even when approval is off; editing does not activate them.
+The Project Pi form and native dialogs include inactive project settings and MCP entries even when approval is off; editing does not activate them.
 Saving does not change VS Code trust, native Pi trust, project-resource approval, runtime settings, packages or installed extensions.
 
 Common settings use project-over-global inheritance; nested objects merge.
@@ -51,12 +51,43 @@ Server names differing only in `-` and `_` cannot be added in the same file.
 
 ## Editing boundaries
 
-**Pi Settings → Pi Configuration** has **Global Pi** and **Project Pi** cards, each with **Edit … settings.json** and **Edit … mcp.json** buttons.
-These route to existing host-native dialogs with the card's fixed scope.
+**Pi Settings → Pi Configuration** has an internal **Global Pi / Project Pi** selector, independent of VS Code User/Workspace targets.
+The form uses the eight existing `nativeSettingControls` descriptors and their validation:
+
+| Setting | Control |
+| --- | --- |
+| `defaultProvider` | Startup provider text input |
+| `defaultModel` | Startup model text input |
+| `defaultThinkingLevel` | Startup thinking level select with existing supported values |
+| `enabledModels` | Ordered multiline patterns, one pattern per line |
+| `steeringMode` | Select: `one-at-a-time`, `all` |
+| `followUpMode` | Select: `one-at-a-time`, `all` |
+| `compaction.enabled` | Automatic compaction checkbox |
+| `retry.enabled` | Automatic retry checkbox |
+
+Provider and model inputs require neither model discovery nor a running Pi process.
+Each row shows its selected-scope override, inherited/default value, and source.
+**Save**, **Reset override**, and **Reload row** are explicit row actions; select and checkbox changes only create drafts.
+Reset removes only the selected-scope member and preserves inherited values.
+Drafts are separate by scope and key and remain on failed saves and scope/category changes.
+Conflicting drafts require explicit **Reload row** before another save.
+
+The configured MCP list exposes validated name, transport type, source, enabled state, and exposure metadata, with connection state **unknown**.
+Enabled and server exposure edits and resets use the selected native scope and explicit save/reset actions.
+Project metadata overrides preserve inherited transport and credentials.
+Server creation, transport editing, credentials, authentication, diagnostics, and advanced editing remain in existing explicit native interfaces.
 Command Palette native management remains available.
 Native controls require a trusted, file-backed workspace, including for Global Pi.
-No native file content, URL, environment value, header, OAuth object or credential command is sent to the browser.
-MCP projections expose only validated name/type/source/enabled/exposure and unknown connection state.
+
+The browser receives only validated allowlisted common-setting values, safe MCP metadata, and opaque revision tokens.
+Invalid existing common-setting values produce fixed diagnostics without the raw value.
+Raw native file text, unlisted settings, URLs, commands, arguments, environment/header values, OAuth objects, credentials, and raw errors remain host-only.
+Full native snapshots are kept only in Extension Host memory.
+Native webview persistence is limited to bounded validated common-setting drafts, not complete snapshots or MCP data.
+Native projections load only when Pi Configuration is selected or explicitly refreshed, not when unrelated categories open.
+Native-file messages are separate from VS Code configuration messages.
+The browser cannot select filesystem paths, JSON member paths, command identifiers, or complete native objects.
+The host resolves targets and member paths from its allowlists.
 No `auth.json` or `mcp-auth.json` is read by management code.
 
 Opening, reading, or switching categories/scopes never creates files or directories.
@@ -71,6 +102,8 @@ Existing member replacements/resets preserve unrelated member bytes and ordering
 Insertions use the existing newline/indent convention where detected.
 JSONC comments and invalid syntax are not rewritten.
 
+The form and native dialogs reuse the same guarded file operations and member-level patches.
+Edits bind to the captured workspace, agent directory, native scope, approval/environment state, and relevant file revisions, including inheritance sources.
 Common edits reject known unsafe or stale writes.
 They do not provide filesystem-wide atomicity against external processes or other VS Code windows.
 
@@ -78,12 +111,14 @@ They do not provide filesystem-wide atomicity against external processes or othe
   Workspace-root aliases resolve to the canonical root; nested links and agent-directory links are rejected.
 - Reads bind descriptors to named paths and ancestor identities.
 - Writes recheck content hashes, file identity, byte limits, dirty buffers, writable mode, origin, trust and launch policy.
-- Before dialogs open, the host captures up to 1,000 file-backed editor URI, version and dirty-state snapshots.
+- Shared editor guards capture up to 1,000 file-backed editor URI, version and dirty-state snapshots for native operations.
   - Canonical identities are resolved and rechecked before writing, including supported workspace aliases and later-opened buffers.
   - Retargeted aliases, unverifiable editor paths and changed or dirty matching documents fail closed.
   - No hidden canonical editor bypasses an aliased dirty buffer.
 - The runtime workspace gate and canonical configuration-file gate serialize extension-owned operations.
-- Known external edits require reopening the native surface; no old file is restored over newer content.
+- Known external edits require **Reload row** in the form or reopening native dialogs; no old file is restored over newer content.
+- Workspace, approval, or agent-directory changes invalidate retained snapshots.
+  Replaced loads, stale origins and disposed panels cannot accept late results.
 - An I/O error can leave a partial write or newly created file.
   Inspect the file before retrying.
 
@@ -94,7 +129,7 @@ Create a common override first if the file does not exist.
 
 ## MCP execution and authentication
 
-Opening either native surface starts zero Pi processes and connections.
+Opening the form or native dialogs starts zero Pi processes and connections.
 A saved stdio executable, resource, package, header command or environment command is not executed by saving.
 
 The explicit connection diagnostic requires modal approval for ALL enabled file-configured servers, credential commands and network access.
@@ -145,13 +180,19 @@ No private scoped-model mutation or second session writer is added.
 
 ## Validation and support limits
 
-Existing validation covers minimum/current Linux native Quick Picks, passive MCP metadata, scoped writes/reset, dirty-buffer rejection, workspace aliases and packaged behavior.
-This evidence does not validate the new Pi Configuration entry points or advanced MCP editor.
+Earlier Linux native validation covers Quick Picks, passive MCP metadata, scoped writes/reset, dirty-buffer rejection, workspace aliases and packaged behavior.
+The inline form has offline model/host regressions and local Chromium fixtures for explicit saves, scopes, inheritance, secret exclusion, stale drafts, recovery, keyboard focus, themes, and layout.
+The macOS arm64 Extension Host fixture exercises all eight controls at both scopes and MCP metadata inheritance through the production form protocol and cold operation owner on VS Code 1.140.0 and 1.143.0.
+These checks use disposable profiles and files without a live provider or external MCP server.
+The local VSIX build passed, and archive inspection confirmed the new host modules and bundled settings assets.
+The initial default package test run failed under macOS temporary-directory aliases and concurrent fixtures; the documented canonical temporary-directory and single-worker workaround passed.
+These checks do not establish native webview interaction, remote-host behavior, or packaged installation behavior for the new form.
 The actual Pi 1.3.0 local stdio reference verifies inherited tools/resources and exposure.
 See [Integrated validation](NATIVE_PARITY_VALIDATION.md).
 
 1. Structured authoritative live MCP state, retry-enabled reads, general native settings/live scoped-model apply and durable setter results need public upstream contracts before equivalent in-panel claims.
 2. Interactive MCP authentication remains in Pi.
    Terminal ownership/recovery is tested; real sign-in, redirects and provider-side cancellation are not.
-3. Remote hosts, Windows/macOS native behavior, live providers and external MCP servers were not tested.
+3. Remote hosts, Windows/Linux native behavior, live providers and external MCP servers were not tested for the inline form.
+   macOS native protocol checks are not native UI or remote-host evidence.
    Local stdio fixtures are not external-server evidence.
