@@ -110,6 +110,9 @@ export function registerPiSidebar(
       webviewOptions: { retainContextWhenHidden: true },
     }),
     vscode.commands.registerCommand("pi.openChat", () => provider.showSessions()),
+    vscode.commands.registerCommand("pi.switchSession", () => provider.quickSwitchSession()),
+    vscode.commands.registerCommand("pi.previousSession", () => provider.cycleSession(-1)),
+    vscode.commands.registerCommand("pi.nextSession", () => provider.cycleSession(1)),
     vscode.commands.registerCommand("pi.reloadResources", () => provider.reloadResources()),
     vscode.commands.registerCommand("pi.restartResources", () => provider.restartSessionProcess()),
     vscode.commands.registerCommand("pi.browseSessionTree", () => provider.browseSessionTree()),
@@ -171,6 +174,11 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   private noticeRevision = 0;
   private recentSessions: PiSessionSummary[] = [];
   private sessionRefreshRevision = 0;
+  private readonly sessionNavigationGate = new ExclusiveOperationGate("A session switch is already pending.");
+  private sessionCycle: readonly PiSessionSummary[] = [];
+  private sessionCycleOrigin = "";
+  private sessionCycleIdentity = "";
+  private cyclingSession = false;
 
   public constructor(
     private readonly context: vscode.ExtensionContext,
@@ -226,6 +234,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         this.drafts.refresh();
         const identity = JSON.stringify([runtime.currentState.sessionFile, runtime.currentState.sessionId]);
         if (identity !== this.streamSessionIdentity) {
+          if (!this.cyclingSession) this.sessionCycle = [];
           if (this.assistantStream)
             this.messages = this.messages.filter((message) => message.id !== this.assistantStream?.id);
           this.assistantStream = undefined;
@@ -279,6 +288,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
 
   public dispose(): void {
     this.disposed = true;
+    this.sessionCycle = [];
     this.clearToolMessages();
     this.webviewReady = false;
     this.pendingNavigation = undefined;
@@ -858,11 +868,20 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     }
   }
 
-  private async chooseCurrent<T>(choose: () => Thenable<T | undefined>, idle = true): Promise<T | undefined> {
+  private async chooseCurrent<T>(
+    choose: (assertCurrent: () => void) => Thenable<T | undefined>,
+    idle = true,
+  ): Promise<T | undefined> {
     if (idle) this.assertSettingsIdle();
     const origin = () => {
       const state = this.runtime.currentState;
-      return JSON.stringify([this.runtime.currentCwd, state.sessionId, state.sessionFile, state.connected]);
+      return JSON.stringify([
+        this.runtime.currentCwd,
+        this.runtime.clientGeneration,
+        state.sessionId,
+        state.sessionFile,
+        state.connected,
+      ]);
     };
     const expectedOrigin = origin();
     const expectedView = this.view;
@@ -874,13 +893,15 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       // Client replacement and same-session branch/resource controls reset extension UI.
       if (event.type === "extension_ui_reset" || event.type === "process_exit") stale = true;
     });
-    try {
-      const selected = await choose();
-      if (selected === undefined) return undefined;
-      if (stale || this.disposed || origin() !== expectedOrigin || this.view !== expectedView) {
+    const assertCurrent = () => {
+      if (stale || this.disposed || origin() !== expectedOrigin || this.view !== expectedView)
         throw new Error("Pi session changed while choosing an action. Open the picker again.");
-      }
       if (idle) this.assertSettingsIdle();
+    };
+    try {
+      const selected = await choose(assertCurrent);
+      if (selected === undefined) return undefined;
+      assertCurrent();
       return selected;
     } finally {
       subscription.dispose();
@@ -1648,6 +1669,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async finishSessionTransition(status: string, preserveAttachments = false): Promise<void> {
+    if (!this.cyclingSession) this.sessionCycle = [];
     await this.resetConversation(status, preserveAttachments);
     try {
       await this.syncMessagesFromPi(false, undefined, "history-refresh", true);
@@ -1728,25 +1750,151 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     await this.refreshRecentSessions();
   }
 
+  private assertNavigationWorkspace(): void {
+    if (this.disposed) throw new Error("The Pi view is no longer available.");
+    if (!vscode.workspace.isTrusted) throw new Error("Pi requires a trusted workspace.");
+    if (vscode.workspace.workspaceFolders?.[0]?.uri.scheme !== "file")
+      throw new Error("Pi requires a file-backed workspace.");
+  }
+
+  private async withSessionNavigation(action: () => Promise<void>, start = false): Promise<void> {
+    this.assertNavigationWorkspace();
+    const release = this.sessionNavigationGate.acquire();
+    const cwd = this.runtime.currentCwd;
+    const view = this.view;
+    try {
+      if (start) await this.runtime.ensureStarted();
+      this.assertNavigationWorkspace();
+      if (cwd !== this.runtime.currentCwd || view !== this.view)
+        throw new Error("Pi changed while preparing session navigation. Try again.");
+      this.assertSettingsIdle();
+      await action();
+    } catch (error) {
+      this.sessionCycle = [];
+      this.logFailure("sidebar-action", error);
+      this.postNotice("Session navigation failed. Check the current session before trying again.", "warning", true);
+      throw error;
+    } finally {
+      release();
+    }
+  }
+
+  private async discoverNavigationSessions(): Promise<PiSessionSummary[]> {
+    const active = this.runtime.currentState.sessionFile;
+    if (!active) throw new Error("Pi has no current session location. Reconnect before switching sessions.");
+    const sessions = await listRecentPiSessions(active, this.runtime.currentCwd);
+    if (!sessions) throw new Error("Session discovery failed. The previous index cannot authorize switching.");
+    return sessions;
+  }
+
+  public async quickSwitchSession(): Promise<void> {
+    await this.withSessionNavigation(async () => {
+      const selected = await this.chooseCurrent(async (assertCurrent) => {
+        const sessions = await this.discoverNavigationSessions();
+        assertCurrent();
+        this.assertNavigationWorkspace();
+        const active = this.runtime.currentState.sessionFile;
+        const text = (value: string, limit: number) =>
+          value
+            // biome-ignore lint/suspicious/noControlCharactersInRegex: Remove control characters from native picker text.
+            .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, " ")
+            .replace(/\$\(/g, "＄(")
+            .slice(0, limit);
+        const items = sessions.map((session) => ({
+          label: text(session.title, 160),
+          description: `${session.path === active ? "Current · " : ""}${text(session.sessionId, 200)}`,
+          session,
+        }));
+        if (!items.length) {
+          this.postNotice("No saved Pi sessions are available in this workspace.", "info");
+          return undefined;
+        }
+        const choice = await vscode.window.showQuickPick(items, {
+          title: "Switch Pi Session",
+          placeHolder: "Search recent saved sessions in this workspace",
+          matchOnDescription: true,
+        });
+        if (choice && !items.includes(choice)) throw new Error("The selected session was not offered.");
+        return choice?.session;
+      });
+      if (!selected) return;
+      this.sessionCycle = [];
+      if (selected.path === this.runtime.currentState.sessionFile) return;
+      await this.switchToSession(selected.path, "Pi session resumed", selected.sessionId);
+      await vscode.commands.executeCommand(`${viewId}.focus`);
+    }, true);
+  }
+
+  public async cycleSession(direction: -1 | 1): Promise<void> {
+    await this.withSessionNavigation(async () => {
+      const sessions = await this.chooseCurrent(() => this.discoverNavigationSessions());
+      if (!sessions) return;
+      if (!sessions.length) {
+        this.postNotice("No saved Pi sessions are available in this workspace.", "info");
+        return;
+      }
+      const origin = JSON.stringify([this.runtime.currentCwd, this.runtime.clientGeneration]);
+      const membership = new Set(sessions.map((session) => `${session.path}\0${session.sessionId}`));
+      if (
+        origin !== this.sessionCycleOrigin ||
+        this.submissionSessionIdentity() !== this.sessionCycleIdentity ||
+        this.sessionCycle.length !== sessions.length ||
+        this.sessionCycle.some((session) => !membership.has(`${session.path}\0${session.sessionId}`))
+      ) {
+        this.sessionCycle = sessions;
+        this.sessionCycleOrigin = origin;
+      }
+      const current = this.sessionCycle.findIndex((session) => session.path === this.runtime.currentState.sessionFile);
+      const index =
+        current < 0
+          ? direction === 1
+            ? 0
+            : this.sessionCycle.length - 1
+          : (current + direction + this.sessionCycle.length) % this.sessionCycle.length;
+      const selected = this.sessionCycle[index]!;
+      if (selected.path === this.runtime.currentState.sessionFile) return;
+      this.cyclingSession = true;
+      try {
+        await this.switchToSession(selected.path, "Pi session resumed", selected.sessionId);
+        this.sessionCycleIdentity = this.submissionSessionIdentity();
+        await vscode.commands.executeCommand(`${viewId}.focus`);
+      } finally {
+        this.cyclingSession = false;
+      }
+    }, true);
+  }
+
   private async switchRecentSession(id: string): Promise<void> {
-    if (this.isForegroundRequestActive()) {
+    if (this.isForegroundRequestActive() || this.sessionNavigationGate.isPending) {
       this.postMessage({ type: "sessionSwitchRejected" });
       this.postNotice("Cancel or wait for the active request before switching sessions.", "warning");
       return;
     }
-    const selected = this.recentSessions.find((session) => session.key === id);
-    if (!selected)
-      throw new Error("The selected session is no longer in the recent session list. Refresh Sessions and try again.");
-    if (selected.path === this.runtime.currentState.sessionFile) {
-      this.postState();
-      return;
-    }
-    await this.switchToSession(selected.path, "Pi session resumed");
+    await this.withSessionNavigation(async () => {
+      const selected = this.recentSessions.find((session) => session.key === id);
+      if (!selected)
+        throw new Error(
+          "The selected session is no longer in the recent session list. Refresh Sessions and try again.",
+        );
+      if (selected.path === this.runtime.currentState.sessionFile) {
+        this.postState();
+        return;
+      }
+      await this.switchToSession(selected.path, "Pi session resumed", selected.sessionId);
+    });
   }
 
-  private async switchToSession(sessionFile: string, status: string): Promise<void> {
-    await this.runtime.switchSession(sessionFile);
-    await this.finishSessionTransition(status);
+  private async switchToSession(sessionFile: string, status: string, expectedSessionId?: string): Promise<void> {
+    this.assertNavigationWorkspace();
+    this.assertSettingsIdle();
+    const release = this.requestGate.acquire();
+    try {
+      await this.runtime.switchSession(sessionFile, expectedSessionId);
+      await this.finishSessionTransition(status);
+    } finally {
+      release();
+      this.postState();
+    }
   }
 
   private async resumeSession(): Promise<void> {
@@ -1754,22 +1902,21 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.postNotice("Cancel or wait for the active request before switching sessions.", "warning");
       return;
     }
-    const selection = await this.chooseCurrent(() =>
-      vscode.window.showOpenDialog({
-        title: "Resume Pi Session",
-        defaultUri: vscode.Uri.file(path.join(homedir(), ".pi", "agent", "sessions")),
-        canSelectFiles: true,
-        canSelectFolders: false,
-        canSelectMany: false,
-        filters: { "Pi sessions": ["jsonl"] },
-        openLabel: "Resume Session",
-      }),
-    );
-    const session = selection?.[0];
-    if (!session) {
-      return;
-    }
-    await this.switchToSession(session.fsPath, "Pi session resumed");
+    await this.withSessionNavigation(async () => {
+      const selection = await this.chooseCurrent(() =>
+        vscode.window.showOpenDialog({
+          title: "Resume Pi Session",
+          defaultUri: vscode.Uri.file(path.join(homedir(), ".pi", "agent", "sessions")),
+          canSelectFiles: true,
+          canSelectFolders: false,
+          canSelectMany: false,
+          filters: { "Pi sessions": ["jsonl"] },
+          openLabel: "Resume Session",
+        }),
+      );
+      const session = selection?.[0];
+      if (session) await this.switchToSession(session.fsPath, "Pi session resumed");
+    });
   }
 
   private async pickPiCommand(): Promise<void> {
@@ -1819,6 +1966,13 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private handleRuntimeEvent(event: PiRpcEvent): void {
+    if (
+      event.type === "process_exit" ||
+      event.type === "session_imported" ||
+      event.type === "resources_reloaded" ||
+      (event.type === "extension_ui_reset" && !this.cyclingSession)
+    )
+      this.sessionCycle = [];
     if (event.type === "session_imported") {
       void this.refreshImportedSession().catch(() => {
         this.postNotice(

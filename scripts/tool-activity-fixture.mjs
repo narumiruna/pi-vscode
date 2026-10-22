@@ -108,55 +108,18 @@ export async function assertToolActivity(frame, page, invoke, release, label) {
   });
   assert.match(await rows.nth(6).locator(".tool-section").nth(1).innerText(), /No output returned/);
 
-  // Exercise the real webview clipboard policy first; both policy outcomes must be visible.
+  // Copy uses the VS Code host clipboard, not navigator.clipboard in the webview.
+  // Deterministic failure/late-reply branches are covered by sidebarClipboard.test.ts.
   const copy = output.getByRole("button", { name: "Copy Output", exact: true });
-  await copy.click();
-  await output
-    .locator('[role="status"]')
-    .filter({ hasText: /copied|Copy failed/ })
-    .waitFor();
+  await copy.focus();
+  await page.keyboard.press("Enter");
+  await output.getByRole("status").filter({ hasText: "Output copied" }).waitFor();
+  assert.equal(await invoke("clipboardRead"), await full.locator("pre").innerText());
   const nativeClipboard = await output.locator('[role="status"]').innerText();
-  // Deterministically verify both async branches without changing webview permissions.
-  await frame.evaluate(() => {
-    window.toolClipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: {
-        writeText: async (text) => {
-          window.toolCopied = text;
-        },
-      },
-    });
-  });
-  try {
-    await copy.focus();
-    await page.keyboard.press("Enter");
-    await output.getByRole("status").filter({ hasText: "Output copied" }).waitFor();
-    assert.equal(await frame.evaluate(() => window.toolCopied), await full.locator("pre").innerText());
-    const inputSection = bash.locator(".tool-section").first();
-    await inputSection.getByRole("button", { name: "Copy Input", exact: true }).click();
-    await inputSection.getByRole("status").filter({ hasText: "Input copied" }).waitFor();
-    assert.equal(await frame.evaluate(() => window.toolCopied), await inputSection.locator(":scope > pre").innerText());
-    await frame.evaluate(() =>
-      Object.defineProperty(navigator, "clipboard", {
-        configurable: true,
-        value: {
-          writeText: async () => {
-            throw new Error("Denied by fixture");
-          },
-        },
-      }),
-    );
-    await copy.click();
-    await output.getByRole("status").filter({ hasText: "Copy failed" }).waitFor();
-  } finally {
-    await frame.evaluate(() => {
-      delete navigator.clipboard;
-      if (window.toolClipboardDescriptor) Object.defineProperty(navigator, "clipboard", window.toolClipboardDescriptor);
-      delete window.toolCopied;
-      delete window.toolClipboardDescriptor;
-    });
-  }
+  const inputSection = bash.locator(".tool-section").first();
+  await inputSection.getByRole("button", { name: "Copy Input", exact: true }).click();
+  await inputSection.getByRole("status").filter({ hasText: "Input copied" }).waitFor();
+  assert.equal(await invoke("clipboardRead"), await inputSection.locator(":scope > pre").innerText());
 
   // Reader-opened and reader-closed disclosures must survive status updates and history settlement.
   const running = rows.nth(10);
@@ -262,6 +225,6 @@ export async function assertToolActivity(frame, page, invoke, release, label) {
     nativeClipboard,
     screenshots,
     checks:
-      "native chronological inline tools, default collapse, keyboard, focus, preview, full retained output, copy success/failure, safe text, disclosure through settlement and scroll; native timeline snapshots at 640/320px in dark/light/high-contrast",
+      "native chronological inline tools, default collapse, keyboard, focus, preview, full retained output, native host clipboard, safe text, disclosure through settlement and scroll; native timeline snapshots at 640/320px in dark/light/high-contrast",
   };
 }
