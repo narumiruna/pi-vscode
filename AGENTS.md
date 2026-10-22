@@ -22,6 +22,9 @@
 - Read `README.md` for development commands and `docs/SECURITY.md` before changing process, trust, context, or edit workflows.
 - Update `README.md` and `docs/FEATURE_MATRIX.md` when user-visible capabilities change.
 - Treat `docs/WORKFLOW_VALIDATION.md` as historical evidence, not the source for current commands or test counts.
+- When consulting official VS Code guidance, update `.pi/skills/developing-vscode-extensions/` with verified, relevant information that the skill lacks or describes incorrectly.
+  - Update the relevant reference file and include official source links and applicable version limits.
+  - Keep project-specific design decisions and task history out of the skill, and distinguish official guidance from project-specific exceptions.
 
 ## Code style
 
