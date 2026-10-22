@@ -116,6 +116,13 @@ User-installed extensions must support Pi 1.3.0; broader external runtime compat
 Settings opening does not start or validate Pi, and launch failures have no PATH fallback or operation replay.
 Trust, tool permissions, Preview/Apply, and ownership rules remain unchanged.
 
+Reload remembers only session paths with a readable saved header and matching workspace; unsaved state clears the previous restore reference.
+An absent legacy restore file offers explicit **Start New Session** approval before process launch.
+Cancel preserves the reference; approval clears it without changing existing session files or executable overrides.
+Invalid headers, missing header workspaces, permission failures, and invalid bundled assets do not enter this confirmed missing-file route.
+Bundled Pi fails for those errors; external Pi retains its earlier automatic fresh-session fallback for other restore errors.
+Offline regression tests cover bundled and external selection, cancellation, changed approval origins, and storage failures.
+
 The universal layout retains the production dependency closure and six native prebuilds for Linux, Windows, and macOS arm64/x64; the unused GPL Doom example is excluded.
 Asset inclusion is not a claim that all targets work.
 See [Bundled runtime validation](BUNDLED_RUNTIME_VALIDATION.md) for discovery evidence, final-gate status, license disposition, and retained platform/remote/provider handoff.

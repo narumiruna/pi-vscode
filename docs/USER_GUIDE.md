@@ -55,6 +55,21 @@ No separate Pi or Node.js installation is required for the default runtime.
 3. Reset removes only the selected target's override.
    The resulting effective value selects either another external override or the new bundled default.
 
+Upgrades without an executable override use bundled Pi automatically.
+Older Settings pages could save the old `pi` default even when its value was unchanged.
+That saved value cannot be distinguished from an intentional external choice, so it is not silently rewritten.
+To use bundled Pi, reset the effective override in native Settings; check User, Remote, Workspace, and folder values as applicable.
+
+The extension remembers a session for reload only after its saved header can be read and its workspace matches.
+Older versions could remember an assigned path before Pi wrote the session file, causing `ENOENT` after an upgrade or reload.
+If that remembered file is absent, startup offers **Start New Session** before starting Pi.
+Cancel preserves the reference.
+Confirmation clears only the restore reference and starts a fresh session with the selected runtime; any pending request continues in that new session.
+Existing session files are not deleted or recreated.
+Invalid headers, a missing workspace recorded in an existing header, permission errors, and invalid bundled assets do not use this confirmed missing-file recovery path.
+Bundled Pi fails without a replacement for those errors.
+External Pi retains its earlier automatic fresh-session fallback for other restore errors.
+
 Bundled Pi starts as a separate process through the workspace Extension Host's `process.execPath` and a small packaged bootstrap.
 The bootstrap starts the absolute pinned npm entry `dist/bundle/cli.js`, not a command found on PATH.
 Desktop Electron uses `ELECTRON_RUN_AS_NODE=1` only for initial startup; the bootstrap removes it before importing Pi or starting tools.

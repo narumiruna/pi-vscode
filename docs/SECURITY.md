@@ -15,6 +15,16 @@ No system `pi` or `node` lookup is required for bundled launches.
 Missing or invalid assets and unsupported host runtimes fail without PATH fallback, replacement-session creation, or automatic operation replay.
 These checks are not a sandbox against code that can modify the extension installation.
 
+The reload restore reference is saved only after a bounded header read verifies an existing session and matching workspace.
+An unsaved assigned path clears the previous restore reference but remains available in runtime memory.
+An absent legacy restore file can be forgotten only after explicit **Start New Session** approval before Pi starts.
+This approval permits the current startup/request to continue in a fresh session with the unchanged selected runtime.
+Cancellation retains the reference; recovery never deletes or recreates existing session files.
+Trust, ownership, restore reference, launch policy, canonical workspace, runtime assets, and file absence are checked again after approval.
+An existing invalid header, missing header workspace, dangling symlink, permission error, or invalid bundled runtime does not authorize this confirmed missing-file recovery.
+External Pi retains its earlier automatic fresh-session fallback for other restore errors; bundled Pi does not.
+Saved executable overrides, including legacy `pi`, remain unchanged because their intent cannot be inferred.
+
 Desktop Electron receives `ELECTRON_RUN_AS_NODE=1` only to enter Node mode.
 The bootstrap removes that variable before importing Pi so tools and nested Electron programs do not inherit it from bundled startup.
 Bundled launches set `PI_SKIP_VERSION_CHECK=1` and clear inherited `PI_PACKAGE_DIR` and `PI_MANAGED_INSTALL_ROOT` before upstream import.

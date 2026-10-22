@@ -32,6 +32,9 @@ The extension bundles **Pi 1.3.0** and uses it by default without a separate Pi 
 An unset, empty, or whitespace-only `pi.executablePath` selects bundled Pi.
 Any nonempty value selects external Pi, including an explicitly saved `pi` command; existing overrides are not rewritten.
 Reset removes only the selected scope's override, so another effective override can still select external Pi.
+After an upgrade, a missing remembered session file offers **Start New Session** before Pi starts.
+Cancel keeps the restore reference; confirmation starts fresh without changing existing session files.
+Unsaved session paths are no longer kept for restore after reload.
 
 Pi runs as a subprocess on the workspace Extension Host, including in Remote SSH, WSL, and container windows.
 Bundled Pi reuses that host's existing Pi configuration, credentials, resources, provider environment, and sessions without migration or separate user stores.
