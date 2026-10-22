@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { hasOperation } from "../operationLocks";
@@ -14,10 +14,93 @@ function deferred() {
   return { promise, resolve };
 }
 
+test("background launch retains runtime options and appends credential removal to runtime unsets", async () => {
+  const vscode = installVscodeMock();
+  const { BackgroundAgentManager } = require("../backgroundAgents") as typeof import("../backgroundAgents");
+  const vscodePi = require("../vscodePi") as typeof import("../vscodePi");
+  const { buildPiProcessEnvironment } = require("../piSpawn") as typeof import("../piSpawn");
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "pi-background-runtime-")));
+  const read = vi.spyOn(vscodePi, "readPiInvocationOptions").mockReturnValue({
+    executablePath: process.execPath,
+    executableArgs: ["/extension path/pi cli.js"],
+    cwd: root,
+    env: { ELECTRON_RUN_AS_NODE: "1", PI_SKIP_VERSION_CHECK: "1" },
+    unsetEnv: ["PI_PACKAGE_DIR", "PI_MANAGED_INSTALL_ROOT"],
+  });
+  const manager = new BackgroundAgentManager({
+    workspaceState: { get: () => undefined, update: async () => {} },
+    extensionUri: MockUri.file(root),
+  } as unknown as import("vscode").ExtensionContext);
+  const start = vi.spyOn(PiRpcClient.prototype, "start").mockImplementation(async function (this: any) {
+    assert.deepEqual(this.options.executableArgs, ["/extension path/pi cli.js"]);
+    assert.deepEqual(this.options.unsetEnv, [
+      "PI_PACKAGE_DIR",
+      "PI_MANAGED_INSTALL_ROOT",
+      "PI_VSCODE_BRIDGE_PORT",
+      "PI_VSCODE_BRIDGE_TOKEN",
+      "PI_VSCODE_BRIDGE_EXTENSION",
+      "PI_VSCODE_ANNOTATION_TOKEN",
+    ]);
+    const base = Object.fromEntries(this.options.unsetEnv.map((key: string) => [key, "private"]));
+    const env = buildPiProcessEnvironment(base, this.options.env, this.options.unsetEnv);
+    assert.equal(env.ELECTRON_RUN_AS_NODE, "1");
+    assert.equal(env.PI_SKIP_VERSION_CHECK, "1");
+    for (const key of this.options.unsetEnv) assert.equal(env[key], undefined);
+    assert.equal(this.options.extensions, undefined);
+  });
+  vi.spyOn(PiRpcClient.prototype, "setSessionName").mockResolvedValue(undefined);
+  vi.spyOn(PiRpcClient.prototype, "prompt").mockResolvedValue(undefined);
+  vi.spyOn(PiRpcClient.prototype, "stop").mockResolvedValue(undefined);
+  try {
+    await manager.start("runtime fixture", [], [], root, false);
+    assert.equal(start.mock.calls.length, 1);
+  } finally {
+    manager.dispose();
+    await vi.waitFor(() => assert.equal(hasOperation(root), false));
+    read.mockRestore();
+    vi.restoreAllMocks();
+    vscode.restore();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+for (const isolated of [false, true]) {
+  test(`missing packaged runtime fails the background task and retains prepared worktree (${isolated})`, async () => {
+    const vscode = installVscodeMock();
+    const { BackgroundAgentManager } = require("../backgroundAgents") as typeof import("../backgroundAgents");
+    const vscodePi = require("../vscodePi") as typeof import("../vscodePi");
+    const root = await realpath(await mkdtemp(path.join(tmpdir(), "pi-background-missing-runtime-")));
+    const manager = new BackgroundAgentManager({
+      workspaceState: { get: () => undefined, update: async () => {} },
+      extensionUri: MockUri.file(root),
+    } as unknown as import("vscode").ExtensionContext);
+    const start = vi.spyOn(PiRpcClient.prototype, "start");
+    vscodePi.initializePiRuntime(root);
+    if (isolated) (manager as any).createWorktree = async () => ({ worktreePath: root, origin: {} });
+    try {
+      await assert.rejects(manager.start("missing runtime", [], [], root, isolated), /Packaged Pi/);
+      assert.equal(manager.states[0]?.status, "failed");
+      assert.equal(start.mock.calls.length, 0);
+      assert.equal(hasOperation(root), false);
+      if (isolated) assert.equal(manager.states[0]?.worktreePath, root);
+      assert.equal((await stat(root)).isDirectory(), true);
+    } finally {
+      start.mockRestore();
+      manager.dispose();
+      vscodePi.initializePiRuntime(process.cwd());
+      vscode.restore();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+
 test("background manager preserves launch order, acceptance, cancellation and failure cleanup", async () => {
   const vscode = installVscodeMock();
   const { BackgroundAgentManager } = require("../backgroundAgents") as typeof import("../backgroundAgents");
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "pi-background-launch-")));
+  vscode.workspace.getConfiguration = () => ({
+    get: (key: string, fallback: unknown) => (key === "executablePath" ? "pi" : fallback),
+  });
   try {
     for (const mode of ["accepted", "startup-rejected", "naming-rejected", "prompt-rejected", "cancelled"] as const) {
       const manager = new BackgroundAgentManager({

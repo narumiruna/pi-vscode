@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { checkNativeMcp, projectMcpDiagnostic } from "../nativeMcpDiagnostics";
@@ -81,7 +81,7 @@ test("native resolution uses host paths and custom agent directory; controls rej
 });
 
 test("native bounded file writes preserve bytes and reject conflicts, links, invalid text, read-only and changed origin", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "pi-native-files-"));
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-native-files-")));
   try {
     const target = await nativeFileTarget(path.join(root, "agent"), "global", "settings");
     const missing = await readNativeFile(target);
@@ -194,7 +194,7 @@ test("CLI MCP diagnostics project only bounded verified fields; raw errors and t
 
 test("explicit MCP CLI fixture uses bounded public command arguments and discards secret output", async () => {
   if (process.platform === "win32") return;
-  const root = await mkdtemp(path.join(os.tmpdir(), "pi-mcp-cli-fixture-"));
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-mcp-cli-fixture-")));
   try {
     const executable = path.join(root, "fixture");
     await writeFile(
@@ -202,14 +202,14 @@ test("explicit MCP CLI fixture uses bounded public command arguments and discard
       `#!${process.execPath}\nif (JSON.stringify(process.argv.slice(2)) !== JSON.stringify(["mcp","list","--json"])) process.exit(8);\nif (process.env.PI_OFFLINE !== "1" || process.env.PI_TELEMETRY !== "0") process.exit(9);\nprocess.stderr.write("credential-secret");\nconsole.log(JSON.stringify({ servers: [{ name:"fixture", state:"connected", tools:["read"], transport:"secret", error:"secret" }], errors: [] }));\n`,
       { mode: 0o700 },
     );
-    const result = await checkNativeMcp(executable, root, new AbortController().signal);
+    const result = await checkNativeMcp({ executablePath: executable, cwd: root }, new AbortController().signal);
     assert.equal(result.source, "separate-cli");
     assert.equal(result.outcome, "completed");
     assert.deepEqual(result.servers, [{ name: "fixture", state: "connected", toolCount: 1 }]);
     assert.ok(!JSON.stringify(result).includes("secret"));
     await writeFile(executable, `#!${process.execPath}\nsetInterval(()=>{}, 1000);\n`, { mode: 0o700 });
     const controller = new AbortController();
-    const pending = checkNativeMcp(executable, root, controller.signal);
+    const pending = checkNativeMcp({ executablePath: executable, cwd: root }, controller.signal);
     setTimeout(() => controller.abort(), 100);
     assert.equal((await pending).outcome, "cancelled");
   } finally {
@@ -223,7 +223,10 @@ test("native runtime selection retains one guard, rejects stale approval and dis
   try {
     const { PiRuntimeManager, NativeRuntimeControlAppliedError } =
       require("../piRuntime") as typeof import("../piRuntime");
-    const runtime = new PiRuntimeManager({ environmentVariableCollection: { clear() {} } } as any);
+    const runtime = new PiRuntimeManager({
+      extensionUri: vscode.Uri.file(process.cwd()),
+      environmentVariableCollection: { clear() {} },
+    } as any);
     const internal = runtime as any;
     const commands: string[] = [];
     let generation = 1;
@@ -305,7 +308,7 @@ test("native runtime selection retains one guard, rejects stale approval and dis
 test("native settings and MCP surfaces use passive host dialogs, explicit targets and no runtime start", async () => {
   nativeManagementVscode ??= installVscodeMock();
   const vscode = nativeManagementVscode;
-  const root = await mkdtemp(path.join(os.tmpdir(), "pi-native-ui-"));
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-native-ui-")));
   const oldDir = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = path.join(root, "agent");
   try {
@@ -499,7 +502,7 @@ test("native settings and MCP surfaces use passive host dialogs, explicit target
 test("Pi Configuration scopes inherit without creation and create only the file explicitly saved", async () => {
   nativeManagementVscode ??= installVscodeMock();
   const vscode = nativeManagementVscode;
-  const root = await mkdtemp(path.join(os.tmpdir(), "pi-scoped-files-"));
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-scoped-files-")));
   const oldDir = process.env.PI_CODING_AGENT_DIR;
   const context = { subscriptions: [] } as any;
   process.env.PI_CODING_AGENT_DIR = path.join(root, "agent");

@@ -10,6 +10,7 @@ import { PiRuntimeManager } from "../piRuntime";
 export async function verifyNativeDirectShell(): Promise<string> {
   if (!vscode.workspace.isTrusted) {
     const runtime = new PiRuntimeManager({
+      extensionUri: vscode.Uri.file(path.resolve(__dirname, "../..")),
       workspaceState: { get: () => undefined, update: async () => {} },
       environmentVariableCollection: { clear() {} },
     } as unknown as vscode.ExtensionContext);

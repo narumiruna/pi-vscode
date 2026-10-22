@@ -16,6 +16,9 @@ import { installVscodeMock, MockUri } from "./vscodeMock";
 
 test("background manager restores legacy/interrupted tasks safely, previews cancelled results, recovers imports and guards cleanup", async () => {
   const vscode = installVscodeMock();
+  vscode.workspace.getConfiguration = () => ({
+    get: (key: string, fallback: unknown) => (key === "executablePath" ? "pi" : fallback),
+  });
   vscode.ProgressLocation = { Notification: 1 };
   vscode.window.withProgress = async (_options: unknown, run: any) =>
     run({}, { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) });

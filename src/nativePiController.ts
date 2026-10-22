@@ -340,7 +340,7 @@ export function registerNativePiManagement(context: vscode.ExtensionContext, run
             async (_progress, token) => {
               const cancellation = token.onCancellationRequested(() => controller.abort());
               try {
-                return await checkNativeMcp(readPiInvocationOptions().executablePath, state.cwd, controller.signal);
+                return await checkNativeMcp({ ...readPiInvocationOptions(), cwd: state.cwd }, controller.signal);
               } finally {
                 cancellation.dispose();
               }

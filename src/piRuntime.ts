@@ -30,7 +30,7 @@ import {
   vscodeBridgePortEnvironmentKey,
   vscodeBridgeTokenEnvironmentKey,
 } from "./vscodeBridgeProtocol";
-import { readPiInvocationOptions } from "./vscodePi";
+import { initializePiRuntime, readPiInvocationOptions, readPiInvocationSettings } from "./vscodePi";
 
 const sessionPathKey = "pi.rpc.sessionPath.v1";
 const maxQueueRecoveryBytes = 30 * 1024 * 1024;
@@ -237,6 +237,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     private readonly context: vscode.ExtensionContext,
     private readonly logger: Logger = nullLogger,
   ) {
+    initializePiRuntime(context.extensionUri.fsPath);
     this.state = emptyState();
     const runtime = this;
     this.control = new PiRuntimeControl({
@@ -387,7 +388,7 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   public get currentCwd(): string {
-    return readPiInvocationOptions(this.resource).cwd;
+    return readPiInvocationSettings(this.resource).cwd;
   }
 
   private get bridgeExtensionPath(): string {
@@ -512,7 +513,7 @@ export class PiRuntimeManager implements vscode.Disposable {
 
   private async assertResourceMatchesActiveWorkspace(resource: vscode.Uri): Promise<void> {
     if (!["file", "untitled"].includes(resource.scheme)) throw new Error("Pi requests require file-backed resources.");
-    const target = readPiInvocationOptions(resource).cwd;
+    const target = readPiInvocationSettings(resource).cwd;
     if ((await realpath(target)) !== (await realpath(this.currentCwd)))
       throw new Error(
         "The target workspace differs from Pi's active working directory. Switch workspace/session explicitly.",
@@ -1460,10 +1461,18 @@ export class PiRuntimeManager implements vscode.Disposable {
 
   private async startClient(operationId: OperationId = this.logger.operation()): Promise<void> {
     const savedSession = this.context.workspaceState.get<string>(sessionPathKey);
+    const settings = readPiInvocationSettings(this.resource);
+    const approveProjectResources = piConfiguration().get<boolean>("approveProjectResources", false);
     try {
       await this.createAndStartClient(savedSession, false, undefined, operationId);
     } catch (error) {
-      if (!savedSession || this.disposed) {
+      if (
+        !savedSession ||
+        this.disposed ||
+        settings.executablePath === "" ||
+        JSON.stringify(settings) !== JSON.stringify(readPiInvocationSettings(this.resource)) ||
+        approveProjectResources !== piConfiguration().get<boolean>("approveProjectResources", false)
+      ) {
         throw error;
       }
       this.logger.record("warn", "restore-fallback", {
@@ -1620,11 +1629,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     const invocation = readPiInvocationOptions(this.resource);
     const configuration = piConfiguration();
     return {
-      executablePath: invocation.executablePath,
-      cwd: invocation.cwd,
-      provider: invocation.provider,
-      model: invocation.model,
-      thinkingLevel: invocation.thinkingLevel,
+      ...invocation,
       extensions: [
         this.bridgeExtensionPath,
         path.join(this.context.extensionUri.fsPath, "resources", "pi-read-only-gate.ts"),
@@ -1633,6 +1638,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       sessionPath,
       approveProjectResources: configuration.get<boolean>("approveProjectResources", false),
       env: {
+        ...invocation.env,
         ...bridgeEnvironment,
         [vscodeAnnotationTokenEnvironmentKey]: undefined,
       },

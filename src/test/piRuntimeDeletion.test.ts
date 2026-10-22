@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { installVscodeMock } from "./vscodeMock";
+import { installVscodeMock, MockUri } from "./vscodeMock";
 
 test("Trash classification is narrow and permanent deletion stays bound to the original session", async () => {
   const vscode = installVscodeMock();
@@ -51,7 +51,10 @@ test("Trash classification is narrow and permanent deletion stays bound to the o
         rmSync(uri.fsPath);
       },
     };
-    const runtime = new PiRuntimeManager({ environmentVariableCollection: { clear() {} } } as any);
+    const runtime = new PiRuntimeManager({
+      extensionUri: MockUri.file(process.cwd()),
+      environmentVariableCollection: { clear() {} },
+    } as any);
     (runtime as any).state = {
       connected: true,
       busy: false,
@@ -75,6 +78,7 @@ test("conversation deletion releases unreachable recovered attachment handles", 
   try {
     const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
     const runtime = new PiRuntimeManager({
+      extensionUri: MockUri.file(process.cwd()),
       workspaceState: { get: () => undefined, update: async () => {} },
       environmentVariableCollection: { clear() {} },
     } as any);
@@ -102,7 +106,10 @@ test("runtime binds permanent deletion to the original Trash-unavailable session
   const vscode = installVscodeMock();
   try {
     const { PiRuntimeManager, SessionTrashUnavailableError } = require("../piRuntime") as typeof import("../piRuntime");
-    const runtime = new PiRuntimeManager({ environmentVariableCollection: { clear() {} } } as any);
+    const runtime = new PiRuntimeManager({
+      extensionUri: MockUri.file(process.cwd()),
+      environmentVariableCollection: { clear() {} },
+    } as any);
     const calls: Array<{ useTrash: boolean; sessionFile?: string }> = [];
     (runtime as any).deleteSessionFile = async (useTrash: boolean) => {
       calls.push({ useTrash });

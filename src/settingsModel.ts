@@ -18,9 +18,10 @@ export const settingsDescriptors: SettingDescriptor[] = [
     key: "executablePath",
     category: "General",
     label: "Pi executable",
-    description: "Path or command in the extension host environment. Opening Settings does not validate or run it.",
+    description:
+      "Empty uses packaged Pi 1.3.0. A nonempty path or command uses external Pi on the workspace Extension Host. Opening Settings does not validate or run Pi.",
     type: "string",
-    default: "pi",
+    default: "",
     launch: true,
   },
   {

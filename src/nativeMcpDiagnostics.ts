@@ -1,6 +1,7 @@
 import { runBoundedProcess } from "./boundedProcess";
 import { nativeObject } from "./nativePiJson";
 import { validMcpName } from "./nativePiModel";
+import type { PiInvocationOptions } from "./piClient";
 import { buildPiProcessEnvironment, planPiSpawn } from "./piSpawn";
 
 export interface McpDiagnostic {
@@ -40,13 +41,22 @@ export function projectMcpDiagnostic(text: string): Pick<McpDiagnostic, "servers
 }
 
 /** Caller must hold the workspace operation and obtain approval immediately before invoking. */
-export async function checkNativeMcp(executable: string, cwd: string, signal: AbortSignal): Promise<McpDiagnostic> {
-  const env = buildPiProcessEnvironment(process.env, {
-    PI_OFFLINE: "1",
-    PI_TELEMETRY: "0",
-    PI_SKIP_VERSION_CHECK: "1",
+export async function checkNativeMcp(invocation: PiInvocationOptions, signal: AbortSignal): Promise<McpDiagnostic> {
+  const { cwd } = invocation;
+  const env = buildPiProcessEnvironment(
+    process.env,
+    {
+      ...invocation.env,
+      PI_OFFLINE: "1",
+      PI_TELEMETRY: "0",
+      PI_SKIP_VERSION_CHECK: "1",
+    },
+    invocation.unsetEnv,
+  );
+  const plan = planPiSpawn(invocation.executablePath, [...(invocation.executableArgs ?? []), "mcp", "list", "--json"], {
+    cwd,
+    env,
   });
-  const plan = planPiSpawn(executable, ["mcp", "list", "--json"], { cwd, env });
   const result = await runBoundedProcess(plan.command, plan.args, {
     cwd,
     env,

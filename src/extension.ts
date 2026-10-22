@@ -14,7 +14,7 @@ import { registerProviderAuthentication } from "./providerAuth";
 import { registerSettingsPanel } from "./settingsPanel";
 import { registerPiSidebar } from "./sidebar";
 import { registerTestRepair } from "./testRepairController";
-import { abortAllPiInvocations } from "./vscodePi";
+import { abortAllPiInvocations, initializePiRuntime } from "./vscodePi";
 import { registerWorkspaceDiagnostics } from "./workspaceDiagnosticsController";
 
 export interface PiVscodeApi {
@@ -22,6 +22,7 @@ export interface PiVscodeApi {
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<PiVscodeApi> {
+  initializePiRuntime(context.extensionUri.fsPath);
   let channel: vscode.LogOutputChannel | undefined;
   try {
     channel = vscode.window.createOutputChannel("Pi", { log: true });

@@ -126,23 +126,27 @@ export class BackgroundAgentManager implements vscode.Disposable {
       }
     }
 
-    const invocation = readPiInvocationOptions(vscode.Uri.file(taskCwd));
-    const configuration = piConfiguration();
-    const client = new PiRpcClient({
-      executablePath: invocation.executablePath,
-      cwd: taskCwd,
-      provider: invocation.provider,
-      model: invocation.model,
-      thinkingLevel: invocation.thinkingLevel,
-      appendSystemPrompt: "This is an independent background task. Work only in the provided working directory.",
-      approveProjectResources: configuration.get<boolean>("approveProjectResources", false),
-      unsetEnv: [
-        vscodeBridgePortEnvironmentKey,
-        vscodeBridgeTokenEnvironmentKey,
-        vscodeBridgeExtensionEnvironmentKey,
-        vscodeAnnotationTokenEnvironmentKey,
-      ],
-    });
+    let client: PiRpcClient;
+    try {
+      const invocation = readPiInvocationOptions(vscode.Uri.file(taskCwd));
+      const configuration = piConfiguration();
+      client = new PiRpcClient({
+        ...invocation,
+        cwd: taskCwd,
+        appendSystemPrompt: "This is an independent background task. Work only in the provided working directory.",
+        approveProjectResources: configuration.get<boolean>("approveProjectResources", false),
+        unsetEnv: [
+          ...(invocation.unsetEnv ?? []),
+          vscodeBridgePortEnvironmentKey,
+          vscodeBridgeTokenEnvironmentKey,
+          vscodeBridgeExtensionEnvironmentKey,
+          vscodeAnnotationTokenEnvironmentKey,
+        ],
+      });
+    } catch (error) {
+      this.failTask(id, error);
+      throw error;
+    }
     const subscription = client.onEvent((event) => this.handleEvent(id, event));
     let releaseOperation: () => void;
     try {

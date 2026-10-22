@@ -111,8 +111,8 @@ test("release detection still fails for malformed previous manifests", () => {
 });
 
 test("publish checkout does not keep credentials before dependency installation", () => {
-  const checkouts = [...workflow.matchAll(/        uses: actions\/checkout@v4\n([\s\S]*?)(?=\n      - name:)/g)];
-  assert.equal(checkouts.length, 3);
+  const checkouts = [...workflow.matchAll(/ {8}uses: actions\/checkout@v4\n([\s\S]*?)(?=\n {6}- name:)/g)];
+  assert.equal(checkouts.length, 4);
   for (const [, checkout] of checkouts) {
     assert.match(checkout, /persist-credentials: false/);
     assert.doesNotMatch(checkout, /secrets\.PAT_TOKEN/);
@@ -124,9 +124,30 @@ test("publish checkout does not keep credentials before dependency installation"
   assert.match(versionJob, /GITHUB_TOKEN: \$\{\{ secrets\.PAT_TOKEN \}\}/);
 });
 
+test("release verification gates the same artifact before separate retry-safe publication jobs", () => {
+  const release = workflow.split("\n  release:\n")[1].split("\n  verify-runtime:\n")[0];
+  const verify = workflow.split("\n  verify-runtime:\n")[1].split("\n  github-release:\n")[0];
+  const github = workflow.split("\n  github-release:\n")[1].split("\n  publish:\n")[0];
+  const publish = workflow.split("\n  publish:\n")[1];
+  assert.ok(release.indexOf("run: npm run test:bundled-runtime") < release.indexOf("uses: actions/upload-artifact"));
+  assert.match(verify, /needs: release/);
+  assert.match(verify, /os: \[ubuntu-latest, windows-latest, macos-latest\]/);
+  assert.match(verify, /name: release-vsix/);
+  assert.match(verify, /run: npm run test:bundled-runtime/);
+  assert.match(github, /needs: \[version, release, verify-runtime\]/);
+  assert.match(github, /gh release create/);
+  assert.match(publish, /needs: \[release, github-release\]/);
+  assert.doesNotMatch(publish, /gh release create/);
+  assert.match(publish, /name: release-vsix/);
+  assert.ok(
+    publish.indexOf("run: npm run test:bundled-runtime") < publish.indexOf("vsce publish --packagePath pi.vsix"),
+  );
+  assert.doesNotMatch(publish, /vsce package|npm run package/);
+});
+
 test("publish keeps pending version-bump runs within the GitHub queue limit", () => {
   const concurrency = workflow.split("\nconcurrency:\n")[1].split("\njobs:\n")[0];
-  assert.match(concurrency, /^  group: release-vsix$/m);
-  assert.match(concurrency, /^  cancel-in-progress: false$/m);
-  assert.match(concurrency, /^  queue: max$/m);
+  assert.match(concurrency, /^ {2}group: release-vsix$/m);
+  assert.match(concurrency, /^ {2}cancel-in-progress: false$/m);
+  assert.match(concurrency, /^ {2}queue: max$/m);
 });

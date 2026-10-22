@@ -85,6 +85,9 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
   vscode.workspace.getWorkspaceFolder = (resource: MockUri) =>
     resource.fsPath.startsWith(otherRoot) ? otherFolder : activeFolder;
   const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
+  vscode.workspace.getConfiguration = () => ({
+    get: (key: string, fallback: unknown) => (key === "executablePath" ? "pi" : fallback),
+  });
   const context: any = {
     workspaceState: { get: () => undefined, update: async () => {} },
     environmentVariableCollection: {
@@ -527,6 +530,7 @@ for (const operation of ["clearInstructions", "abort"] as const) {
       const vscode = installVscodeMock();
       const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
       const runtime = new PiRuntimeManager({
+        extensionUri: MockUri.file(process.cwd()),
         environmentVariableCollection: { clear() {} },
       } as unknown as ConstructorParameters<typeof PiRuntimeManager>[0]);
       const internal = runtime as unknown as {
@@ -663,7 +667,10 @@ for (const operation of ["clearInstructions", "abort"] as const) {
 test("runtime correlates duplicate queue delivery starts in FIFO order and recovers missing starts", () => {
   const vscode = installVscodeMock();
   const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
-  const runtime = new PiRuntimeManager({ environmentVariableCollection: { clear() {} } } as any);
+  const runtime = new PiRuntimeManager({
+    extensionUri: MockUri.file(process.cwd()),
+    environmentVariableCollection: { clear() {} },
+  } as any);
   const internal = runtime as any;
   const delivered: string[] = [];
   runtime.onEvent((event) => {
@@ -739,7 +746,10 @@ test("runtime correlates duplicate queue delivery starts in FIFO order and recov
 test("awaiting queue delivery snapshots count toward the recovery byte cap", async () => {
   const vscode = installVscodeMock();
   const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
-  const runtime = new PiRuntimeManager({ environmentVariableCollection: { clear() {} } } as any);
+  const runtime = new PiRuntimeManager({
+    extensionUri: MockUri.file(process.cwd()),
+    environmentVariableCollection: { clear() {} },
+  } as any);
   const internal = runtime as any;
   internal.awaitingQueueStarts.push({
     id: "awaiting",
@@ -770,7 +780,10 @@ test("awaiting queue delivery snapshots count toward the recovery byte cap", asy
 test("process exit recovers only the undelivered queue suffix with its attachment owner", () => {
   const vscode = installVscodeMock();
   const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
-  const runtime = new PiRuntimeManager({ environmentVariableCollection: { clear() {} } } as any);
+  const runtime = new PiRuntimeManager({
+    extensionUri: MockUri.file(process.cwd()),
+    environmentVariableCollection: { clear() {} },
+  } as any);
   const internal = runtime as any;
   let deliveredRestores = 0;
   let remainingRestores = 0;
@@ -1312,6 +1325,7 @@ for (const command of ["/handled-command", "/compact"]) {
     const { registerPiSidebar } = require("../sidebar") as typeof import("../sidebar");
     let failure = "getState";
     const runtime = new PiRuntimeManager({
+      extensionUri: MockUri.file(process.cwd()),
       workspaceState: {
         get: () => undefined,
         update: async () => {
@@ -1650,7 +1664,10 @@ test("sidebar rejects an empty queued snapshot and forwards an attachment resour
 test("ordinary queue reconciliation validates both kinds before retiring delivered attachment records", () => {
   const vscode = installVscodeMock();
   const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
-  const runtime = new PiRuntimeManager({ environmentVariableCollection: { clear() {} } } as any);
+  const runtime = new PiRuntimeManager({
+    extensionUri: MockUri.file(process.cwd()),
+    environmentVariableCollection: { clear() {} },
+  } as any);
   const internal = runtime as any;
   const delivered = {
     id: "delivered",
@@ -1703,7 +1720,10 @@ test("ordinary queue reconciliation validates both kinds before retiring deliver
 test("cleared queue validation preserves both attachment ledgers until every queue kind matches", () => {
   const vscode = installVscodeMock();
   const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
-  const runtime = new PiRuntimeManager({ environmentVariableCollection: { clear() {} } } as any);
+  const runtime = new PiRuntimeManager({
+    extensionUri: MockUri.file(process.cwd()),
+    environmentVariableCollection: { clear() {} },
+  } as any);
   const internal = runtime as any;
   const steering = {
     id: "steering",

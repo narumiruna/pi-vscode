@@ -1,4 +1,4 @@
-import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -11,7 +11,7 @@ export function npmNodeShim(target: string): string {
 }
 
 export async function launchFixture() {
-  const root = await mkdtemp(path.join(tmpdir(), "pi-launch-"));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "pi-launch-")));
   const bin = path.join(root, "bin space %TEMP% 漢字");
   await mkdir(bin);
   const script = path.join(bin, "fixture.cjs");

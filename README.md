@@ -25,26 +25,31 @@ These screenshots use the current sidebar renderer with offline sample data. The
 ## Requirements
 
 1. VS Code **1.140 or newer**.
-2. [Pi](https://pi.dev), installed in the environment where the extension runs, with a configured provider for model requests.
+2. A configured [Pi](https://pi.dev) provider for model requests.
 3. A trusted, file-backed workspace for process-launching and mutation workflows.
 
-Check the Pi executable:
+The extension bundles **Pi 1.3.0** and uses it by default without a separate Pi or Node.js installation.
+An unset, empty, or whitespace-only `pi.executablePath` selects bundled Pi.
+Any nonempty value selects external Pi, including an explicitly saved `pi` command; existing overrides are not rewritten.
+Reset removes only the selected scope's override, so another effective override can still select external Pi.
 
-```bash
-pi --version
-```
-
-In Remote SSH, WSL, or container windows, Pi runs on the remote Extension Host. Install and configure Pi there, not only on the local computer. Set `pi.executablePath` if VS Code cannot find it.
+Pi runs as a subprocess on the workspace Extension Host, including in Remote SSH, WSL, and container windows.
+Bundled Pi reuses that host's existing Pi configuration, credentials, resources, provider environment, and sessions without migration or separate user stores.
+Configure providers on that host.
+Extension releases own bundled runtime updates; ordinary terminals and external Pi installations remain unchanged.
+Missing or invalid bundled assets fail without PATH fallback or automatic operation replay.
+See [Runtime selection and recovery](docs/USER_GUIDE.md#runtime-selection-and-recovery) and [validation coverage](docs/BUNDLED_RUNTIME_VALIDATION.md) for compatibility limits and unverified targets.
 
 | Capability | Pi compatibility |
 | --- | --- |
-| Sidebar chat and focused edit requests | Use Pi's public RPC interface. Pi **1.3.0** is the checked reference; no broader version range is verified. |
+| Sidebar chat and focused edit requests | Use Pi's public RPC interface with bundled **1.3.0** by default; no broader external version range is verified. |
 | **Pi: Sign In to Provider** / **Pi: Sign Out of Provider** | The isolated helper accepts **1.3.0 only**. Other versions must use Pi's own authentication flow. |
 | JSONL session export, import, and GitHub sharing | The isolated helper requires **1.3.0**. JSONL export covers the active branch, not the complete tree. |
 | Direct shell (`!` / `!!`) | Requires **1.3.0** compatibility verified through read-only sentinel version metadata. Other versions leave this feature unavailable. |
 | Resource reload and session-tree controls | Require verified packaged-command ownership metadata, checked against **1.3.0**. Unsupported routes fail without sending a model prompt. |
 
-Windows supports native executables and standard npm Node shims, not custom batch wrappers. See [Windows process launches](docs/USER_GUIDE.md#windows-process-launches) for lookup and cleanup limits.
+External Pi on Windows supports native executables and standard npm Node shims, not custom batch wrappers.
+See [Windows process launches](docs/USER_GUIDE.md#windows-process-launches) for lookup and cleanup limits.
 
 ## Install
 
@@ -107,8 +112,13 @@ Reconnect does not restart Pi.
 The webview receives validated common-setting values, safe MCP metadata, and opaque revision tokens, not raw native files or MCP transport/authentication fields.
 Full snapshots stay in Extension Host memory; native draft persistence contains only bounded validated common-setting drafts.
 
-1. `pi.approveProjectResources` defaults to `false`. Enable it only for trusted project-local Pi resources.
-2. `pi.inlineCompletions.enabled` defaults to `false`. Manual inline completion remains available.
+1. `pi.executablePath` defaults to empty, which selects bundled Pi **1.3.0**.
+   Set a nonempty command or path to use compatible external Pi on the workspace Extension Host.
+   Opening Settings does not start or validate either runtime.
+2. `pi.approveProjectResources` defaults to `false`.
+   Enable it only for trusted project-local Pi resources.
+3. `pi.inlineCompletions.enabled` defaults to `false`.
+   Manual inline completion remains available.
 
 See the [settings reference](docs/USER_GUIDE.md#settings) and [native Pi settings and MCP controls](docs/USER_GUIDE.md#native-pi-settings-and-mcp).
 

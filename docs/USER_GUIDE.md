@@ -3,7 +3,7 @@
 Use the [overview](../README.md) for requirements, Marketplace installation, and first use.
 This guide contains detailed controls, compatibility boundaries, and operational limits.
 
-[Installation alternatives](#installation-alternatives) · [Conversation controls](#conversation-controls) · [Workflows](#focused-workflows) · [Settings](#settings) · [Security](#security-and-limits) · [Extension bridge](#extension-bridge)
+[Installation alternatives](#installation-alternatives) · [Runtime selection](#runtime-selection-and-recovery) · [Conversation controls](#conversation-controls) · [Workflows](#focused-workflows) · [Settings](#settings) · [Security](#security-and-limits) · [Extension bridge](#extension-bridge)
 
 ## Installation alternatives
 
@@ -43,11 +43,57 @@ After installation or an update, run **Developer: Reload Window**.
 Sidebar sessions and **More… → Open in Terminal** load the bundled bridge automatically.
 See [Extension bridge](#extension-bridge) to use its tools in an ordinary integrated terminal.
 
+## Runtime selection and recovery
+
+The extension includes the exact production dependency `@earendil-works/pi-coding-agent@1.3.0`.
+No separate Pi or Node.js installation is required for the default runtime.
+
+1. An unset, empty, or whitespace-only `pi.executablePath` selects bundled Pi.
+2. Any nonempty value selects external Pi on the workspace Extension Host.
+   This includes a saved `pi` command, an absolute path, or a directory-qualified path relative to the workspace launch directory.
+   Existing User, Workspace, and folder overrides are not rewritten.
+3. Reset removes only the selected target's override.
+   The resulting effective value selects either another external override or the new bundled default.
+
+Bundled Pi starts as a separate process through the workspace Extension Host's `process.execPath` and a small packaged bootstrap.
+The bootstrap starts the absolute pinned npm entry `dist/bundle/cli.js`, not a command found on PATH.
+Desktop Electron uses `ELECTRON_RUN_AS_NODE=1` only for initial startup; the bootstrap removes it before importing Pi or starting tools.
+All extension-owned launches use the selected runtime, including RPC, focused requests, helpers, diagnostics, background/worktree agents, and controlled terminal handoff.
+Ordinary user-created terminals are unchanged; bundling does not install a `pi` command or change PATH.
+
+Ordinary launches reuse the Extension Host's existing `~/.pi/agent` or `PI_CODING_AGENT_DIR`, normal session storage, configured resources, and provider environment.
+No credentials, configuration, or sessions are copied, migrated, or isolated by runtime selection.
+The isolated authentication/session helper still uses disposable stores and its environment allowlist until an explicitly approved operation selects a store.
+User-installed Pi extensions must be compatible with Pi 1.3.0; bundled Pi does not guarantee compatibility with every extension.
+External Pi keeps its existing Node/shim lookup and `PI_PACKAGE_DIR` behavior.
+
+Extension releases own bundled Pi updates.
+Bundled launches set `PI_SKIP_VERSION_CHECK=1`, clear `PI_PACKAGE_DIR` and `PI_MANAGED_INSTALL_ROOT`, and reject an initial CLI `update` command before importing Pi, including with a configured `npmCommand`.
+Pi 1.3.0 has no built-in TUI `/update` route.
+This does not change external Pi updates or commands in ordinary terminals.
+
+Settings changes affect new processes, not a running client.
+Use the explicitly confirmed **Restart Pi (Current Launch Policy)** action to apply a changed runtime to the current persistent session.
+Opening or saving Settings does not start or validate Pi.
+Trust, project-resource approval, tool permissions, Preview/Apply, and terminal ownership checks remain unchanged.
+
+If bundled assets are missing or invalid, startup fails without PATH fallback, a replacement session, or automatic operation replay.
+Reinstall the extension, or set `pi.executablePath` to compatible external Pi and use the confirmed restart flow.
+Inspect uncertain work and resolve terminal ownership or cleanup warnings before restarting or repeating an operation.
+An extension downgrade does not roll back shared credentials or session formats; preserve backups and check compatibility before using older Pi with newer data.
+
+Remote SSH, WSL, and container windows resolve the package and stores on the remote workspace Extension Host, not the local UI computer.
+A universal asset layout is not proof that every platform or remote topology has been tested.
+See [Bundled runtime validation](BUNDLED_RUNTIME_VALIDATION.md) for separate platform results and release gates.
+
 ## Windows process launches
 
-Windows supports native `.exe` files and the standard npm `cmd-shim` Node template without custom shebang arguments or environment assignments.
+Bundled Pi uses the Extension Host runtime and does not need a PATH Node executable.
+The following external-Pi rules remain unchanged.
+
+External Pi supports native `.exe` files and the standard npm `cmd-shim` Node template without custom shebang arguments or environment assignments.
 The extension resolves that template to its JavaScript entry point and starts `node.exe` directly, without a command shell.
-Node must be beside the shim or in the child PATH; the VS Code executable is not used as Node.
+For external npm shims, Node must be beside the shim or in the child PATH; the VS Code executable is not substituted for Node.
 Custom `.cmd`/`.bat` wrappers are rejected with a launch error.
 Use a native executable or reinstall Pi with npm when a wrapper is unsupported.
 This restriction does not change an explicit terminal handoff.
@@ -415,9 +461,10 @@ An invalid record requires explicit recovery and does not resume a guessed sessi
 Ordinary attachments and typed drafts remain available during handoff.
 A terminal process can receive the foreground bridge token; independent background/worktree agents do not.
 
-The terminal and Pi executable run in the workspace Extension Host: remote SSH, WSL, and container windows use that environment's executable and filesystem.
+The controlled terminal and selected Pi runtime run in the workspace Extension Host.
+Remote SSH, WSL, and container windows use that host's bundled package or explicit external executable and filesystem.
 Argument arrays preserve paths with spaces.
-Remote and non-Linux handoff behavior still require separate validation.
+See [Bundled runtime validation](BUNDLED_RUNTIME_VALIDATION.md) for current native results and unverified remote/platform handoff paths.
 
 ### Extension-author compatibility
 
@@ -453,7 +500,7 @@ The extension does not add a PTY or a component protocol.
 
 Run **Pi: Sign In to Provider** or **Pi: Sign Out of Provider**, also available under **More…**.
 These actions require a trusted, file-backed workspace.
-They use the configured Pi executable on the Extension Host, not a Pi runtime inside VS Code.
+They use the selected bundled or external Pi subprocess on the workspace Extension Host.
 The isolated helper currently accepts Pi **1.3.0** only.
 Unsupported installations fail without attempting another authentication route.
 
@@ -621,7 +668,7 @@ Existing VS Code configuration reads are not restricted by these page edit limit
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `pi.executablePath` | `pi` | Pi executable name, absolute path, or directory-qualified path relative to the workspace launch directory. |
+| `pi.executablePath` | Empty | Empty/whitespace selects bundled Pi 1.3.0; a nonempty value selects an external command or path on the workspace Extension Host. |
 | `pi.provider` | Empty | Optional provider override; empty uses Pi settings. |
 | `pi.model` | Empty | Optional model override; empty uses Pi settings. |
 | `pi.thinkingLevel` | `default` | Optional thinking-level override. |
@@ -773,7 +820,8 @@ The bridge provides `vscode_context`, `vscode_code_context`, `vscode_open_file`,
 The additional `vscode_annotate` tool is restricted to the foreground sidebar session and requires separate private authorization.
 
 A new ordinary integrated terminal inherits the authenticated bridge environment and bridge path, but plain `pi` does not load the bridge.
-Load it explicitly when you need these tools:
+The following commands require a separately available external Pi; the bundled runtime does not add `pi` to PATH.
+Load the bridge explicitly when you need these tools:
 
 ```bash
 pi --extension "$PI_VSCODE_BRIDGE_EXTENSION"

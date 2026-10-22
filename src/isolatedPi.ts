@@ -86,6 +86,7 @@ export function buildIsolatedPiHelperEnvironment(
   directory: string,
   cwd: string,
   base = process.env,
+  runtime?: Pick<PiInvocationOptions, "env" | "unsetEnv">,
 ): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(base)) {
@@ -96,7 +97,7 @@ export function buildIsolatedPiHelperEnvironment(
     )
       environment[key] = value;
   }
-  const env = buildPiProcessEnvironment(environment);
+  const env = buildPiProcessEnvironment(environment, runtime?.env, runtime?.unsetEnv);
   if (process.platform !== "win32" && env.PATH)
     env.PATH = env.PATH.split(path.delimiter)
       .filter(Boolean)
@@ -126,12 +127,19 @@ export async function runIsolatedPiHelper(
   if (signal?.aborted) throw new IsolatedPiHelperError("cancelled");
   const directory = await mkdtemp(path.join(tmpdir(), "pi-isolated-"));
   try {
-    const env = buildIsolatedPiHelperEnvironment(directory, invocation.cwd);
+    const env = buildIsolatedPiHelperEnvironment(directory, invocation.cwd, process.env, invocation);
     const executable =
       /[/\\]/.test(invocation.executablePath) && !path.isAbsolute(invocation.executablePath)
         ? path.resolve(invocation.cwd, invocation.executablePath)
         : invocation.executablePath;
-    const plan = planPiSpawn(executable, buildIsolatedPiHelperArguments(helperPath), { cwd: invocation.cwd, env });
+    const plan = planPiSpawn(
+      executable,
+      [...(invocation.executableArgs ?? []), ...buildIsolatedPiHelperArguments(helperPath)],
+      {
+        cwd: invocation.cwd,
+        env,
+      },
+    );
     const child = spawn(plan.command, plan.args, {
       cwd: directory,
       env,

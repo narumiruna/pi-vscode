@@ -7,9 +7,10 @@ import { acquireOperation } from "./operationLocks";
 import { controlCommand, controlResultPrefix, type PiSessionTree, verifyPackagedCommands } from "./piControl";
 import { buildRpcArguments, type PiRpcClient, type PiRpcClientOptions, type PiRpcEvent } from "./piRpcClient";
 import type { PiRuntimeState } from "./piRuntime";
+import { buildPiProcessEnvironment, planPiSpawn } from "./piSpawn";
 import { assertSessionWorkspace, canonicalAssignedSessionPath } from "./sessionIdentity";
 import { vscodeAnnotationTokenEnvironmentKey } from "./vscodeBridgeProtocol";
-import { readPiInvocationOptions } from "./vscodePi";
+import { readPiInvocationSettings } from "./vscodePi";
 
 export interface RuntimeControlHost {
   readonly context: vscode.ExtensionContext;
@@ -168,7 +169,7 @@ export class PiRuntimeControl {
   private policyFingerprint(): string {
     const config = piConfiguration();
     return JSON.stringify({
-      ...readPiInvocationOptions(this.host.resource),
+      ...readPiInvocationSettings(this.host.resource),
       approveProjectResources: config.get<boolean>("approveProjectResources", false),
     });
   }
@@ -689,13 +690,22 @@ export class PiRuntimeControl {
         this.host.client
       )
         throw new Error("Terminal launch origin changed. Return ownership explicitly before retrying.");
-      // createTerminal takes an argument array, not shell text: paths with spaces stay single arguments.
+      const unsetEnv = [...(options.unsetEnv ?? []), vscodeAnnotationTokenEnvironmentKey];
+      const env = buildPiProcessEnvironment(process.env, options.env, unsetEnv);
+      const plan = planPiSpawn(
+        options.executablePath,
+        [...(options.executableArgs ?? []), ...buildRpcArguments(options).slice(2)],
+        { cwd: options.cwd, env },
+      );
+      const terminalEnv: Record<string, string | null | undefined> = buildPiProcessEnvironment({}, options.env);
+      for (const key of unsetEnv) terminalEnv[process.platform === "win32" ? key.toUpperCase() : key] = null;
+      // Use the normalized executable and argument array, including standard Windows npm shims.
       const terminal = vscode.window.createTerminal({
         name: "Pi",
         cwd: options.cwd,
-        shellPath: options.executablePath,
-        shellArgs: buildRpcArguments(options).slice(2),
-        env: { ...options.env, [vscodeAnnotationTokenEnvironmentKey]: null },
+        shellPath: plan.command,
+        shellArgs: plan.args,
+        env: terminalEnv,
       });
       terminal.show();
     });

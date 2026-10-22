@@ -82,7 +82,7 @@ jobs:
     needs: version
     if: needs.version.outputs.release == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     outputs:
       sha: ${{ github.sha }}
 
@@ -116,6 +116,9 @@ jobs:
           archive_version="$(unzip -p "${VSIX_PATH}" extension/package.json | node -p 'JSON.parse(require("node:fs").readFileSync(0, "utf8")).version')"
           test "${archive_version}" = "${VERSION}"
 
+      - name: Verify the extracted runtime before upload
+        run: npm run test:bundled-runtime
+
       - name: Upload the verified VSIX
         uses: actions/upload-artifact@v4
         with:
@@ -123,12 +126,51 @@ jobs:
           path: pi.vsix
           if-no-files-found: error
 
+  verify-runtime:
+    name: Verify release runtime (${{ matrix.os }})
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.sha }}
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install verification dependencies
+        run: npm ci
+      - name: Download the same verified VSIX
+        uses: actions/download-artifact@v4
+        with:
+          name: release-vsix
+      - name: Verify the extracted runtime without a live provider
+        run: npm run test:bundled-runtime
+
+  github-release:
+    name: Create the verified GitHub release
+    needs: [version, release, verify-runtime]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download the verified VSIX
+        uses: actions/download-artifact@v4
+        with:
+          name: release-vsix
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
           TAG: ${{ needs.version.outputs.tag }}
           VERSION: ${{ needs.version.outputs.version }}
-          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_SHA: ${{ needs.release.outputs.sha }}
           VSIX_PATH: pi.vsix
         shell: bash
         run: |
@@ -140,8 +182,8 @@ jobs:
             --generate-notes
 
   publish:
-    name: Publish the extension
-    needs: release
+    name: Publish the verified extension
+    needs: [release, github-release]
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -165,6 +207,9 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: release-vsix
+
+      - name: Recheck the exact artifact before publication
+        run: npm run test:bundled-runtime
 
       - name: Publish to Visual Studio Marketplace
         env:

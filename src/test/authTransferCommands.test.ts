@@ -22,6 +22,7 @@ const { registerProviderAuthentication } = require("../providerAuth") as typeof 
 const { registerSessionTransfer } =
   require("../sessionTransferController") as typeof import("../sessionTransferController");
 const helper = require("../isolatedPi") as typeof import("../isolatedPi");
+const { initializePiRuntime } = require("../vscodePi") as typeof import("../vscodePi");
 const share = require("../sessionShare") as typeof import("../sessionShare");
 afterAll(() => mock.restore());
 afterEach(() => {
@@ -30,7 +31,8 @@ afterEach(() => {
 });
 
 async function fixture() {
-  const root = await mkdtemp(path.join(tmpdir(), "pi-transfer-command-"));
+  initializePiRuntime(process.cwd());
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "pi-transfer-command-")));
   const source = path.join(root, "source.jsonl");
   const timestamp = "2026-01-01T00:00:00.000Z";
   const bytes = Buffer.from(

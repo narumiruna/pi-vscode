@@ -17,6 +17,7 @@ import {
   type OperationId,
   safeRpcCommand,
 } from "./logging";
+import type { PiInvocationOptions } from "./piClient";
 import { type PiSessionTree, parseSessionTree, validId } from "./piControl";
 import { PiProcessOwner } from "./piProcess";
 import { buildPiProcessEnvironment, planPiSpawn } from "./piSpawn";
@@ -56,20 +57,12 @@ export interface PiRpcImage {
   readonly mimeType: string;
 }
 
-export interface PiRpcClientOptions {
-  readonly executablePath: string;
-  readonly executableArgs?: readonly string[];
-  readonly cwd: string;
-  readonly provider?: string;
-  readonly model?: string;
-  readonly thinkingLevel?: string;
+export interface PiRpcClientOptions extends PiInvocationOptions {
   readonly appendSystemPrompt?: string;
   readonly extensions?: readonly string[];
   readonly sessionPath?: string;
   readonly approveProjectResources?: boolean;
   readonly requestTimeoutMs?: number;
-  readonly env?: NodeJS.ProcessEnv;
-  readonly unsetEnv?: readonly string[];
 }
 
 export interface PiRpcDiagnostics {
