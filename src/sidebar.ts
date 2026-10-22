@@ -1615,9 +1615,10 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     return reloaded;
   }
 
-  public async restartSessionProcess(): Promise<void> {
+  public async restartSessionProcess(): Promise<boolean> {
     if (this.isForegroundRequestActive()) throw new Error("Wait for Pi before restarting.");
-    if (await this.runtime.restartSessionProcess()) {
+    const restarted = await this.runtime.restartSessionProcess();
+    if (restarted) {
       this.proposals.clear();
       this.clearToolMessages();
       this.retryRequest = undefined;
@@ -1626,6 +1627,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.status = "Pi restarted · No requests replayed";
       this.postState();
     }
+    return restarted;
   }
 
   public async returnFromTerminal(): Promise<void> {

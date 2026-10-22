@@ -35,8 +35,10 @@ In remote windows these are remote host paths, not browser/client paths.
 Project Pi files live in the current launch workspace's `.pi`, using the existing first workspace folder behavior.
 There is no multi-root folder selector.
 Pi loads project resources only under the existing project-resource approval policy.
-Passive inspection marks unapproved project overrides inactive.
-The Project Pi form and native dialogs include inactive project settings and MCP entries even when approval is off; editing does not activate them.
+Passive inspection marks unapproved saved Project overrides inactive, not inherited Global values.
+The Project Pi form has one warning above the sections and a **Review project approval setting** button.
+That button only opens native Settings filtered to `pi.approveProjectResources`; it changes no approval, trust, or runtime state.
+The form and native dialogs include inactive project settings and MCP entries even when approval is off; editing does not activate them.
 Saving does not change VS Code trust, native Pi trust, project-resource approval, runtime settings, packages or installed extensions.
 
 Common settings use project-over-global inheritance; nested objects merge.
@@ -58,15 +60,19 @@ Runtime trust and project-resource guards remain independent of native Settings 
 
 **Pi: Open Pi Configuration** (`pi.openPiConfiguration`) opens one dedicated panel; repeated invocation reveals it.
 It is also available in the Pi view's secondary title actions.
-The panel has only a **Global Pi / Project Pi** selector, with no General/Permissions/Editor form or User/Workspace selector.
+The panel's **Save to** selector has **Global Pi / Project Pi** scopes, with no General/Permissions/Editor form or User/Workspace selector.
+Project Pi shows **First workspace folder · .pi**.
 One **Open VS Code Settings** action opens extension settings.
-**Pi: Open Native Pi Settings** (`pi.openNativeSettings`) and **Pi: Manage Native MCP Configuration** (`pi.openNativeMcp`) retain their existing native dialog behavior.
+The **Model**, **Behavior**, and **MCP** sections use level-two headings.
+Model contains provider, model, thinking level, and ordered patterns; Behavior contains steering, follow-up, compaction, and retry.
+The secondary **Advanced** menu contains **Open Pi settings dialog…** and **Manage MCP servers…**, not direct JSON editor actions.
+**Pi: Open Native Pi Settings** (`pi.openNativeSettings`) and **Pi: Manage Native MCP Configuration** (`pi.openNativeMcp`) retain their command IDs and existing native dialog behavior.
 The Pi Configuration form uses the eight existing `nativeSettingControls` descriptors and their validation:
 
 | Setting | Control |
 | --- | --- |
-| `defaultProvider` | Startup provider text input |
-| `defaultModel` | Startup model text input |
+| `defaultProvider` | Manual Provider ID text input for startup |
+| `defaultModel` | Manual Model ID text input for startup |
 | `defaultThinkingLevel` | Startup thinking level select with existing supported values |
 | `enabledModels` | Ordered multiline patterns, one pattern per line |
 | `steeringMode` | Select: `one-at-a-time`, `all` |
@@ -74,23 +80,29 @@ The Pi Configuration form uses the eight existing `nativeSettingControls` descri
 | `compaction.enabled` | Automatic compaction checkbox |
 | `retry.enabled` | Automatic retry checkbox |
 
-Provider and model inputs require neither model discovery nor a running Pi process.
-Each flat row shows its selected-scope override, inherited/default value, and source.
-Saved overrides and unsaved drafts have separate indicators.
-**Save** appears only for a draft, pending operation, or unresolved save error.
-It remains visible but disabled while pending or stale; after success it hides and focus returns to the field.
+Provider and model inputs are explicitly manual; no cached choices, catalog fetch, model-discovery RPC, helper, or credential read is added.
+See the manual-entry decision in [Current-change implementation evidence](#current-change-implementation-evidence).
+An inherited row shows a read-only value and one source label in `.meta`: **Inherited from Global** or **Pi default**.
+**Set global override** or **Set project override** opens a local draft initialized from the displayed value without writing a file or creating directories.
+A saved override remains editable with **Global override** or **Project override** metadata, separate from the unsaved-draft indicator.
+Only an unapproved saved Project override has inactive source metadata; inherited Global values are not flagged inactive.
+**Save** stays visible in editable rows and is disabled without a draft, while pending, or when stale.
+After a successful override save it stays visible but disabled until another edit.
 Select, checkbox, and MCP metadata changes only create drafts; editing alone sends no save or reset.
 A value equal to an inherited value can still represent an explicit selected-scope override.
+**Discard changes** clears only the local draft, without a file operation or removal of a saved override.
 
-A compact row actions menu contains **Reset override** and **Reload row**.
-Reset removes only the selected-scope member and preserves inherited values.
+The row actions menu contains **Remove global override** or **Remove project override**, and **Reload row**.
+Removal resets only the saved selected-scope member and preserves inherited values; it does not write a copy of the inherited value.
 It is disabled without a selected-scope override, or while pending or stale.
 Reload discards the row's draft and reads current values when no operation blocks it.
 Opening or closing the menu never discards drafts; keyboard access and Escape are supported.
 Drafts are separate by scope and key and remain on failed saves and scope changes.
 Conflicting drafts show an inline **Reload row** recovery action and require explicit reload before another save.
-**Reload configuration** reads saved values and preserves unrelated drafts; it does not reload Pi resources.
+Secondary **Reload saved values** reads saved values and preserves unrelated drafts; it does not reload Pi resources.
 There is no Save All or Reset All.
+One shared save/restart explanation replaces repeated row text; expandable help retains file locations and detailed precedence.
+Configured and draft values are never labelled as verified active-session values.
 
 The configured MCP list exposes validated name, transport type, source, enabled state, and exposure metadata, with connection state **unknown**.
 Enabled and server exposure edits and resets use the selected native scope and explicit save/reset actions.
@@ -99,18 +111,21 @@ Server creation, transport editing, credentials, authentication, diagnostics, an
 Command Palette native management remains available.
 Native controls require a trusted, file-backed workspace, including for Global Pi.
 
-The browser receives only validated allowlisted common-setting values, safe MCP metadata, and opaque revision tokens.
+The browser receives only validated allowlisted common-setting values, safe MCP metadata, opaque revision tokens, and a host-owned restart action token.
 Invalid existing common-setting values produce fixed diagnostics without the raw value.
 Raw native file text, unlisted settings, URLs, commands, arguments, environment/header values, OAuth objects, credentials, and raw errors remain host-only.
 Full native snapshots are kept only in Extension Host memory.
-Native webview persistence is limited to bounded validated common-setting drafts, not complete snapshots or MCP data.
+Native draft persistence is limited to bounded validated common-setting drafts, not complete snapshots or MCP data.
+Webview state also keeps one bounded restart request ID and fixed outcome status, never action authority.
+The panel retains its latest bounded restart result in host memory and repeats the result on webview readiness; recovery never dispatches a restart.
+Panel disposal clears this retained result and suppresses late posts; an already accepted restart can still finish.
 Native projections load only when the Pi Configuration panel opens or is explicitly refreshed, not when native VS Code Settings opens.
 The Pi Configuration webview has no VS Code configuration save/reset protocol.
 The browser cannot select filesystem paths, JSON member paths, command identifiers, or complete native objects.
 The host resolves targets and member paths from its allowlists.
 No `auth.json` or `mcp-auth.json` is read by management code.
 
-Opening, reading, refreshing, or switching Pi file scopes never creates files or directories.
+Opening, reading, refreshing, switching Pi file scopes, entering edit mode, or discarding drafts never creates files or directories.
 Only the first explicit override save creates the required `settings.json` or `mcp.json` and missing Pi directories under the validated ancestor.
 Reset of an absent override creates nothing; saving one file does not create the other.
 
@@ -193,14 +208,87 @@ Save does not invoke Apply.
 Background agents are unchanged.
 A failed reload retains saved files and reports saved-versus-active uncertainty; retry is deliberate.
 Startup defaults/scoped models are not claimed live-applied.
-Use **Pi: Restart Pi (Current Launch Policy)** explicitly to restart the same session and load startup preferences.
-Resumed model/thinking state can still take precedence.
-Restart approval and cleanup inspection belong to the shared runtime lifecycle; saving never calls it.
+The separate **Restart Pi…** button (`native-restart-pi`) routes to **Pi: Restart Pi (Current Launch Policy)** (`pi.restartResources`) to restart the same session and load startup preferences.
+Resumed-session values and VS Code launch overrides can still take precedence.
+Restart approval and cleanup inspection belong to the existing shared runtime lifecycle; saving or removing an override never calls it.
+Cancellation or failure retains saved files and drafts, without rollback or automatic retry.
+Failure reports runtime uncertainty rather than successful application.
 No private scoped-model mutation or second session writer is added.
+
+The approval route accepts exactly `{ type: "openProjectApproval" }` and opens the host-owned native Settings filter `pi.approveProjectResources`.
+The restart route accepts exactly `{ type: "restartPi", id, actionToken }`, using the snapshot's opaque `restartActionToken`.
+The token is short-lived host action authority bound to the panel's runtime, workspace, and policy origin, not a browser-selected command.
+The host rejects invalid, unavailable, stale, or disposed actions and consumes accepted restart authority before dispatch.
+The fixed `{ type: "restartResult", id, status }` response uses a bounded request ID and only `completed`, `cancelled`, `failed`, or `rejected` status.
+Existing restart confirmation, trust, canonical workspace, launch-policy, session, ownership, queue, dialog, and cleanup checks remain required.
+The sidebar restart command returns an internal Boolean result for this route without changing its existing user behavior.
+
+## Current-change implementation evidence
+
+The configuration usability change keeps native setting descriptors and the guarded member-level writer unchanged.
+`src/settingsHtml.ts` owns the shared save/restart explanation, separate restart button, and expandable file help.
+`src/webview/nativeSettings.mts` owns Save to, grouped sections, inherited/override/draft states, local discard, saved-override removal, and secondary actions.
+`src/settingsPanel.ts`, `src/settingsModel.ts`, and `src/webview/settings.mts` own the fixed approval/restart messages, opaque action authority, and bounded results.
+`src/sidebar.ts` returns the existing restart outcome internally; `src/piRuntimeControl.ts` retains the confirmed lifecycle path.
+
+The approved fallback is manual **Provider ID** and **Model ID** entry.
+Source verification found that `PiRuntime.refreshState()` assigns `availableModels` without an independent catalog workspace/origin token.
+`stopClient()` and disconnect retain the `availableModels` cache, and `currentCwd` reads current invocation settings rather than a captured catalog origin.
+A safe owned cached picker would require a new runtime ownership contract, which is outside this change.
+No cached catalog projection, catalog fetch, helper, credential read, model-discovery call, or second model registry is added.
+Ordered model patterns keep their existing Pi semantics.
+Independent diff review found lost restart feedback on webview recreation and an incorrect fallback-value diagnostic.
+The fixes add bounded feedback recovery/result replay and distinguish invalid saved/inherited values from the value displayed in a draft.
+Regression tests cover both findings, Advanced popup bounds, and invalid launch settings that must disable restart without blocking Settings navigation.
+This source evidence explains the implementation choices; test-run evidence follows below.
 
 ## Validation and support limits
 
-The results below are historical evidence for earlier native dialogs and the previous inline form, not validation of the native Settings route or compact Pi Configuration layout.
+### Current validation
+
+Validation ran on Linux x64 with local fixtures and no live provider or external MCP server.
+`npm ci` installed the locked dependencies without dependency or version changes.
+The final checks passed after the restart-recovery, invalid-inheritance diagnostic, and Advanced menu fixes.
+A browser fixture rerun exposed a race between synthetic recovery injection and current-document persistence.
+The mock now holds injected host recovery for the next document; three consecutive `npm run test:settings` runs passed.
+The failed attempt is retained in `/tmp/pi-configuration-usability/browser-settings-state-injection-race.log`; repeat logs are `browser-settings-repeat-{1,2,3}.log` in the same directory.
+
+| Check | Result |
+| --- | --- |
+| `npm test` | 102 test files passed; 1,595 tests passed and three skipped. Includes host action/token guards, malformed launch-setting recovery, result replay, and same-value override/reset regressions. |
+| `npm exec --yes --package=@biomejs/biome@2.5.13 -- biome check src resources` | Passed with warnings and informational diagnostics; no errors. |
+| `npm run test:settings` | Passed all eight controls and MCP fields at both scopes, inherited/override/draft states, explicit saves/removal, local discard, failures, conflicts, bounded recovery, restart result recovery/replay, DOM status semantics, focus, CSP, and no discovery. |
+| Settings layout matrix | 36 row-menu states and 18 Advanced menu layouts passed across light, dark, and high-contrast themes at widths 280, 360, 400, 650, 1100, and 1150. Tests check popup bounds and visible keyboard focus. |
+| `npm run test:rich-content` | Passed rich-content, interface, and lifecycle browser fixtures. |
+| `xvfb-run -a npm run test:native -- 1.140.0` | Passed isolated trusted Extension Host checks, including native configuration lifecycle/scopes and fixture-only process workflows. |
+| `xvfb-run -a npm run test:native -- 1.140.0 untrusted` | Passed Restricted Mode guards before Pi process launch. |
+| `xvfb-run -a npm run test:native-ui -- 1.140.0 settings` | Passed native Settings and Pi Configuration UI checks on VS Code 1.140.0. |
+| `xvfb-run -a npm run test:native-ui -- stable settings` | Passed the same checks on stable VS Code 1.143.0. |
+
+The native UI fixtures exercised all 11 native `pi.*` controls, native arrays, User/Workspace save-on-edit and scoped Reset, and the separate configuration singleton in three native themes.
+They also exercised all eight Pi file fields at both scopes, inherited-to-draft editing, local discard, stable Save, scoped removal, keyboard focus, and hide/reveal draft recovery.
+Native Settings UI validation started no Pi process or model prompt.
+Host and browser fixtures cover restart outcomes and webview recreation; these are not live-provider restart evidence.
+DOM status assertions are not a screen-reader test.
+No installed-VSIX, Windows/macOS, remote-host, native virtual-workspace, live-provider, or external-MCP verification is claimed for this change.
+
+Local captures and logs are retained under `/tmp/pi-configuration-usability/`, outside Git:
+
+- `before-project-inactive-inherited-1150x859.png` and `after-project-inactive-inherited-1150x859.png`: matching dark fixture views, Project scope, inherited Global values, inactive approval, 1150 × 859.
+- `after-project-draft-360x859.png`: unsaved Project override with inherited Global source and explicit Save/Discard.
+- `after-saved-override-360x859.png`: saved Project override marked inactive, with stable disabled Save.
+- `after-stale-recovery-360x859.png`: retained stale draft with disabled Save and explicit Reload row.
+- `native-{1.140.0,1.143.0}-{vscode-dark,vscode-light,vscode-high-contrast}.png`: native workbench captures in three themes on both versions.
+- `browser-settings-final.log`, `native-settings-1.140.0-final.log`, and `native-settings-stable-final.log`: final browser and native UI command evidence.
+
+Additional final logs are `/tmp/pi-config-npm-test.log`, `/tmp/pi-config-biome.log`, `/tmp/pi-config-rich-content.log`, `/tmp/pi-config-native-1.140.0.log`, and `/tmp/pi-config-native-untrusted.log`.
+These local temporary artifacts are not durable repository assets or proof of subjective user acceptance.
+The external handoff below retains unverified targets and usability review after plan completion.
+
+### Historical evidence
+
+The results below predate the current configuration usability change and do not validate its revised controls or host routes.
+The first group covers earlier native dialogs and the previous inline form, before the native Settings route and compact Pi Configuration layout.
 Earlier Linux native validation covers Quick Picks, passive MCP metadata, scoped writes/reset, dirty-buffer rejection, workspace aliases and packaged behavior.
 The previous inline form had offline model/host regressions and local Chromium fixtures for explicit saves, scopes, inheritance, secret exclusion, stale drafts, recovery, keyboard focus, themes, and layout.
 The earlier macOS arm64 Extension Host fixture exercised all eight controls at both scopes and MCP metadata inheritance through the production form protocol and cold operation owner on VS Code 1.140.0 and 1.143.0.
@@ -211,7 +299,7 @@ Those checks did not establish native webview interaction, remote-host behavior,
 The actual Pi 1.3.0 local stdio reference verifies inherited tools/resources and exposure.
 See [Integrated validation](NATIVE_PARITY_VALIDATION.md).
 
-For the native Settings route and compact Pi Configuration layout, the macOS arm64 offline suite passed 99 files with 1,466 tests passed and three skipped.
+In the historical native Settings route and compact-layout change, the macOS arm64 offline suite passed 99 files with 1,466 tests passed and three skipped.
 The standalone Settings browser fixture passed native file scope/inheritance, explicit saves, action menus, stale recovery with field focus, migration and recovery bounds, safe projections, CSP, and 24 width/theme combinations.
 The rich-content browser suite also passed.
 Native Extension Host checks passed on VS Code 1.140.0 and stable 1.143.0, with separate Restricted Mode checks that rejected untrusted execution.
@@ -219,7 +307,7 @@ Focused native UI checks passed on both versions for all 11 native settings, arr
 The final local package and extracted bundled-runtime smoke check passed using a single test worker; an earlier default-concurrency package attempt failed on an existing one-second RPC fixture timeout.
 No dependency versions were changed; npm audit reports three existing development-only transitive advisories.
 Virtual-workspace rejection is covered by unit tests, not a native virtual-window check.
-Full Linux UI and annotation suites, Windows native behavior, actual remote-user scopes, Remote SSH/WSL/container, screen readers, live providers, and external MCP servers were not checked for this change.
+Full Linux UI and annotation suites, Windows native behavior, actual remote-user scopes, Remote SSH/WSL/container, screen readers, live providers, and external MCP servers were not checked in that historical run.
 Source-development native UI results are not installed-package UI evidence.
 
 1. Structured authoritative live MCP state, retry-enabled reads, general native settings/live scoped-model apply and durable setter results need public upstream contracts before equivalent in-panel claims.
@@ -228,3 +316,20 @@ Source-development native UI results are not installed-package UI evidence.
 3. Remote hosts, Windows/Linux native behavior, live providers and external MCP servers were not tested for the inline form.
    macOS native protocol checks are not native UI or remote-host evidence.
    Local stdio fixtures are not external-server evidence.
+
+## External handoff
+
+1. User usability review — product owner or requesting user.
+   - Prerequisite: a tested implementation and before/after fixture captures recorded above.
+   - Review whether value ownership, Save, discard, saved-override removal, and restart are understandable without detailed file help.
+   - Record concrete task feedback; automated assertions do not establish subjective ease of use.
+   - User acceptance is unverified; this handoff does not add a mandatory release-approval gate.
+2. Additional host and assistive-technology coverage — maintainer with Windows/macOS, remote-host, and screen-reader environments.
+   - Prerequisite: passing local fixture suites and a recorded current-change test matrix.
+   - Check remote file-scope wording and actions, platform keyboard behavior, and screen-reader announcements without live provider requests.
+   - Record evidence for each tested operating system, remote target, and assistive technology separately.
+   - Windows/macOS, Remote SSH/WSL/container, and screen-reader behavior remain unverified for this change until those checks are recorded.
+   - Local Linux/browser/native results do not establish cross-platform, remote, screen-reader, or installed-package behavior.
+3. Live providers and external MCP servers remain outside fixture validation.
+   - Obtain explicit approval before a live-provider check and record its scope separately.
+   - Do not present configured or fixture state as provider connectivity, credential validity, or current-session MCP connection evidence.

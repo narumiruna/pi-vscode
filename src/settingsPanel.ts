@@ -1,8 +1,15 @@
+import { randomUUID } from "node:crypto";
 import * as vscode from "vscode";
 import { NativePiForm } from "./nativePiForm";
 import type { PiRuntimeManager } from "./piRuntime";
 import { getSettingsHtml } from "./settingsHtml";
-import { maxSettingsMessage, type SettingsSnapshot, serializedSize } from "./settingsModel";
+import {
+  maxSettingsMessage,
+  type SettingsRestartResult,
+  type SettingsRestartStatus,
+  type SettingsSnapshot,
+  serializedSize,
+} from "./settingsModel";
 
 function openSettings(): Thenable<unknown> {
   return vscode.commands.executeCommand("workbench.action.openSettings", "@ext:narumi.narumi-pi");
@@ -28,6 +35,9 @@ export class SettingsPanelController implements vscode.Disposable {
   private queued = 0;
   private disposed = false;
   private nativeForm?: NativePiForm;
+  private actionGeneration = 0;
+  private restartAction?: { token: string; origin: string };
+  private restartResult?: SettingsRestartResult;
 
   public constructor(
     private readonly extensionUri: vscode.Uri,
@@ -46,11 +56,13 @@ export class SettingsPanelController implements vscode.Disposable {
       localResourceRoots: [root],
     });
     this.panel = panel;
+    this.invalidateActions();
     const nativeForm = this.runtime
       ? new NativePiForm(this.runtime, () => this.panel === panel && !this.disposed)
       : undefined;
     this.nativeForm = nativeForm;
     const invalidateNative = () => {
+      this.invalidateActions();
       nativeForm?.invalidate();
       // Availability must reach the browser before an invalidation can trigger a new load.
       this.postSnapshot(panel);
@@ -64,7 +76,9 @@ export class SettingsPanelController implements vscode.Disposable {
           typeof message === "object" &&
           !Array.isArray(message) &&
           ["nativeLoad", "nativeSave", "nativeReset"].includes(String((message as Record<string, unknown>).type));
+        const actionGeneration = this.actionGeneration;
         if (this.queued >= 16) {
+          this.postRestartResult(panel, message, "rejected");
           if (native) {
             const { id } = message as Record<string, unknown>;
             if (typeof id === "string" && /^[a-zA-Z0-9-]{1,80}$/.test(id)) {
@@ -84,7 +98,7 @@ export class SettingsPanelController implements vscode.Disposable {
             : nativeForm?.currentGeneration;
         this.queued++;
         this.queue = this.queue
-          .then(() => this.handleMessage(panel, message, native, generation))
+          .then(() => this.handleMessage(panel, message, native, generation, actionGeneration))
           .finally(() => {
             this.queued--;
           });
@@ -110,16 +124,58 @@ export class SettingsPanelController implements vscode.Disposable {
   private release(panel: vscode.WebviewPanel): void {
     if (this.panel !== panel) return;
     this.panel = undefined;
+    this.restartResult = undefined;
+    this.invalidateActions();
     this.nativeForm?.invalidate();
     this.nativeForm = undefined;
     for (const listener of this.listeners.splice(0)) listener.dispose();
   }
 
+  private invalidateActions(): void {
+    this.actionGeneration++;
+    this.restartAction = undefined;
+  }
+
+  private restartOrigin(): string {
+    const state = this.runtime?.currentState;
+    return JSON.stringify([
+      this.actionGeneration,
+      vscode.workspace.workspaceFolders?.[0]?.uri.toString(),
+      process.env.PI_CODING_AGENT_DIR,
+      this.runtime?.currentCwd,
+      this.runtime?.clientGeneration,
+      state?.sessionId,
+      state?.sessionFile,
+      state?.connected,
+    ]);
+  }
+
   private snapshot(): SettingsSnapshot {
+    const nativeFilesAvailable =
+      vscode.workspace.isTrusted && vscode.workspace.workspaceFolders?.[0]?.uri.scheme === "file";
+    if (nativeFilesAvailable && this.runtime) {
+      try {
+        const origin = this.restartOrigin();
+        if (this.restartAction?.origin !== origin) this.restartAction = { token: randomUUID(), origin };
+      } catch {
+        // Invalid launch settings must not prevent navigation to Settings or poison the panel queue.
+        this.restartAction = undefined;
+      }
+    } else this.restartAction = undefined;
     return {
       type: "snapshot",
-      nativeFilesAvailable: vscode.workspace.isTrusted && vscode.workspace.workspaceFolders?.[0]?.uri.scheme === "file",
+      nativeFilesAvailable,
+      ...(this.restartAction ? { restartActionToken: this.restartAction.token } : {}),
     };
+  }
+
+  private postRestartResult(panel: vscode.WebviewPanel, input: unknown, status: SettingsRestartStatus): void {
+    if (this.panel !== panel || this.disposed || !input || typeof input !== "object") return;
+    const message = input as Record<string, unknown>;
+    if (message.type !== "restartPi" || typeof message.id !== "string" || !/^[a-zA-Z0-9-]{1,80}$/.test(message.id))
+      return;
+    this.restartResult = { type: "restartResult", id: message.id, status };
+    void panel.webview.postMessage(this.restartResult);
   }
 
   private postSnapshot(panel: vscode.WebviewPanel): void {
@@ -131,6 +187,7 @@ export class SettingsPanelController implements vscode.Disposable {
     input: unknown,
     native: boolean,
     generation?: number,
+    actionGeneration?: number,
   ): Promise<void> {
     if (this.panel !== panel || this.disposed) return;
     try {
@@ -146,10 +203,53 @@ export class SettingsPanelController implements vscode.Disposable {
       }
       if (message.type === "ready") {
         this.postSnapshot(panel);
+        // A hidden webview can miss an outcome. Reconcile it on reveal without replaying the action.
+        if (this.restartResult) void panel.webview.postMessage(this.restartResult);
         return;
       }
       if (message.type === "openNative") {
         await openSettings();
+        return;
+      }
+      if (message.type === "openProjectApproval") {
+        if (
+          Object.keys(message).some((key) => key !== "type") ||
+          actionGeneration !== this.actionGeneration ||
+          !this.snapshot().nativeFilesAvailable
+        )
+          throw new Error("Project approval settings are unavailable or the request expired.");
+        await vscode.commands.executeCommand("workbench.action.openSettings", "pi.approveProjectResources");
+        return;
+      }
+      if (message.type === "restartPi") {
+        if (
+          Object.keys(message).some((key) => !["type", "id", "actionToken"].includes(key)) ||
+          typeof message.id !== "string" ||
+          !/^[a-zA-Z0-9-]{1,80}$/.test(message.id) ||
+          typeof message.actionToken !== "string" ||
+          message.actionToken !== this.restartAction?.token ||
+          this.restartAction?.origin !== this.restartOrigin() ||
+          actionGeneration !== this.actionGeneration ||
+          !this.runtime ||
+          !this.snapshot().nativeFilesAvailable
+        ) {
+          this.postSnapshot(panel);
+          this.postRestartResult(panel, message, "rejected");
+          return;
+        }
+        this.restartAction = undefined;
+        this.restartResult = undefined;
+        try {
+          const completed = await vscode.commands.executeCommand("pi.restartResources");
+          this.postRestartResult(
+            panel,
+            message,
+            completed === true ? "completed" : completed === false ? "cancelled" : "failed",
+          );
+        } catch {
+          this.postRestartResult(panel, message, "failed");
+        }
+        this.postSnapshot(panel);
         return;
       }
       if (message.type === "openPiFile") {
@@ -165,7 +265,10 @@ export class SettingsPanelController implements vscode.Disposable {
       throw new Error("Unknown configuration action.");
     } catch {
       if (this.panel !== panel) return;
-      if (native) {
+      if (input && typeof input === "object" && (input as Record<string, unknown>).type === "restartPi") {
+        this.postSnapshot(panel);
+        this.postRestartResult(panel, input, "rejected");
+      } else if (native) {
         const candidate = input && typeof input === "object" ? (input as Record<string, unknown>).id : undefined;
         if (typeof candidate === "string" && /^[a-zA-Z0-9-]{1,80}$/.test(candidate))
           void panel.webview.postMessage({

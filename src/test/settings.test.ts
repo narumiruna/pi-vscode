@@ -195,3 +195,75 @@ test("Settings uses the native route while Pi Configuration stays bounded, singl
     vscode.restore();
   }
 });
+
+test("restart command preserves Sidebar guards and cleanup while returning cancellation or completion", async () => {
+  const vscode = installVscodeMock();
+  vscode.window.registerWebviewViewProvider = () => ({ dispose() {} });
+  delete require.cache[require.resolve("../sidebar")];
+  const { registerPiSidebar } = require("../sidebar") as typeof import("../sidebar");
+  const subscription = () => ({ dispose() {} });
+  const calls: string[] = [];
+  let outcome: boolean | Error = false;
+  const runtime = {
+    currentState: { connected: true },
+    clientGeneration: 7,
+    currentCwd: process.cwd(),
+    onEvent: subscription,
+    onDidChangeState: subscription,
+    restartSessionProcess: async () => {
+      calls.push("restart");
+      if (outcome instanceof Error) throw outcome;
+      return outcome;
+    },
+  };
+  const context = {
+    workspaceState: { get: () => undefined, update: async () => {} },
+    extensionUri: MockUri.file("/extension"),
+    subscriptions: [] as import("vscode").Disposable[],
+  };
+  const provider = registerPiSidebar(
+    context as unknown as import("vscode").ExtensionContext,
+    runtime as unknown as import("../piRuntime").PiRuntimeManager,
+  ) as unknown as {
+    isForegroundRequestActive(): boolean;
+    proposals: { clear(): void };
+    clearToolMessages(): void;
+    attachments: { clearPins(): void };
+    syncMessagesFromPi(...args: unknown[]): Promise<void>;
+    postState(): void;
+    retryRequest: unknown;
+  };
+  provider.isForegroundRequestActive = () => false;
+  provider.proposals.clear = () => calls.push("proposals");
+  provider.clearToolMessages = () => calls.push("tools");
+  provider.attachments.clearPins = () => calls.push("pins");
+  provider.syncMessagesFromPi = async (...args: unknown[]) => {
+    assert.deepEqual(args, [false, undefined, "history-refresh", true]);
+    calls.push("history");
+  };
+  provider.postState = () => calls.push("state");
+  const retry = {};
+  provider.retryRequest = retry;
+  try {
+    const restart = vscode.registrations.get("pi.restartResources");
+    assert.equal(await restart(), false);
+    assert.deepEqual(calls, ["restart"]);
+    assert.equal(provider.retryRequest, retry);
+    outcome = new Error("Restart failed");
+    await assert.rejects(restart(), /Restart failed/);
+    assert.deepEqual(calls, ["restart", "restart"]);
+    assert.equal(provider.retryRequest, retry);
+    provider.isForegroundRequestActive = () => true;
+    await assert.rejects(restart(), /Wait for Pi/);
+    assert.deepEqual(calls, ["restart", "restart"]);
+    provider.isForegroundRequestActive = () => false;
+    outcome = true;
+    calls.length = 0;
+    assert.equal(await restart(), true);
+    assert.deepEqual(calls, ["restart", "proposals", "tools", "pins", "history", "state"]);
+    assert.equal(provider.retryRequest, undefined);
+  } finally {
+    for (const disposable of context.subscriptions) disposable.dispose();
+    vscode.restore();
+  }
+});

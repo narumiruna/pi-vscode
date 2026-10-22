@@ -12,6 +12,21 @@ type Draft = { raw: string | boolean; base: string; origin: string; conflict: bo
 type Pending = { id: string; scope: Scope; key: string; server?: string };
 type Recovery = { scope: Scope; drafts: Record<string, Draft> };
 const limit = 28 * 1024;
+const fieldLabels: Readonly<Record<string, string>> = {
+  defaultProvider: "Provider ID",
+  defaultModel: "Model ID",
+  defaultThinkingLevel: "Thinking level",
+  enabledModels: "Model patterns",
+};
+const fieldHelp: Readonly<Record<string, string>> = {
+  defaultProvider: "Enter a Pi provider ID. This page does not discover providers or check credentials.",
+  defaultModel: "Enter a Pi model ID, including custom models. This page does not check model availability.",
+  enabledModels: "One pattern per line, in order. Pi matching syntax applies; this is not access control.",
+  steeringMode: "Send queued steering messages one at a time or all together.",
+  followUpMode: "Send queued follow-up messages one at a time or all together.",
+  "compaction.enabled": "Let Pi compact context automatically.",
+  "retry.enabled": "Let Pi retry transient provider errors automatically.",
+};
 const token = (value: unknown): value is string => typeof value === "string" && value.length > 0 && value.length <= 256;
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
@@ -196,7 +211,7 @@ export class NativeSettingsForm {
   render(main: HTMLElement): void {
     const scopes = element("div");
     scopes.className = "scope";
-    const label = element("label", "Native scope");
+    const label = element("label", "Save to");
     label.htmlFor = "native-scope";
     const select = element("select");
     select.id = "native-scope";
@@ -219,19 +234,13 @@ export class NativeSettingsForm {
       this.redraw();
     });
     scopes.append(label, select);
+    if (this.scope === "project") scopes.append(element("span", "First workspace folder · .pi"));
     main.append(scopes);
     const actions = element("div");
     actions.className = "actions native-actions";
-    for (const kind of ["settings", "mcp"] as const) {
-      const button = element("button", kind === "settings" ? "Native settings management" : "Native MCP management");
-      button.type = "button";
-      button.id = `native-manage-${kind}`;
-      button.disabled = !this.available;
-      button.addEventListener("click", () => this.post({ type: "openPiFile", kind, scope: this.scope }));
-      actions.append(button);
-    }
-    const reload = element("button", "Reload configuration");
+    const reload = element("button", "Reload saved values");
     reload.type = "button";
+    reload.className = "secondary";
     reload.id = "native-reload-configuration";
     reload.title = "Read saved values without discarding unrelated drafts. This does not reload Pi resources.";
     reload.disabled = !this.available || !!this.loadId;
@@ -240,39 +249,87 @@ export class NativeSettingsForm {
       this.redraw();
     });
     actions.append(reload);
+    const advanced = element("details");
+    advanced.className = "setting-actions advanced-actions";
+    const summary = element("summary", "Advanced");
+    summary.id = "native-advanced";
+    summary.setAttribute("aria-expanded", "false");
+    summary.setAttribute("aria-controls", "native-advanced-menu");
+    const menu = element("div");
+    menu.id = "native-advanced-menu";
+    menu.className = "setting-menu";
+    for (const kind of ["settings", "mcp"] as const) {
+      const button = element("button", kind === "settings" ? "Open Pi settings dialog…" : "Manage MCP servers…");
+      button.type = "button";
+      button.id = `native-manage-${kind}`;
+      button.disabled = !this.available;
+      button.addEventListener("click", () => this.post({ type: "openPiFile", kind, scope: this.scope }));
+      menu.append(button);
+    }
+    advanced.append(summary, menu);
+    actions.append(advanced);
     main.append(actions);
     const notice = element(
       "p",
       this.available ? this.notice : "Open a trusted, file-backed workspace to edit Pi configuration.",
     );
+    notice.className = "configuration-notice";
     notice.setAttribute("role", "status");
     main.append(notice);
     if (!this.available || !this.snapshot) return;
-    if (this.scope === "project" && !this.snapshot.approved)
-      main.append(
+    if (this.scope === "project" && !this.snapshot.approved) {
+      const warning = element("div");
+      warning.id = "native-project-warning";
+      warning.className = "project-warning";
+      const approval = element("button", "Review project approval setting");
+      approval.id = "native-project-approval";
+      approval.type = "button";
+      approval.className = "secondary";
+      approval.addEventListener("click", () => this.post({ type: "openProjectApproval" }));
+      warning.append(
         element(
           "p",
-          "Project overrides remain inactive until project resources are approved. These are configured values, not active runtime settings.",
+          "Project overrides are inactive until project resources are approved. Saving does not approve them.",
         ),
+        approval,
       );
-    for (const control of nativeSettingControls) {
-      const entry = this.snapshot.entries.find((entry) => entry.key === control.key);
-      if (entry) this.row(main, control, entry);
+      main.append(warning);
     }
-    main.append(
-      element("h3", "Configured MCP servers"),
+    for (const [index, title] of ["Model", "Behavior"].entries()) {
+      const section = element("section");
+      section.id = index === 0 ? "native-model" : "native-behavior";
+      section.className = "configuration-section";
+      const heading = element("h2", title);
+      heading.id = `${section.id}-heading`;
+      section.setAttribute("aria-labelledby", heading.id);
+      section.append(heading);
+      if (index === 0) section.append(element("p", "Defaults for Pi startup, not current session values."));
+      for (const control of nativeSettingControls.slice(index * 4, index * 4 + 4)) {
+        const entry = this.snapshot.entries.find((entry) => entry.key === control.key);
+        if (entry) this.row(section, control, entry);
+      }
+      main.append(section);
+    }
+    const mcp = element("section");
+    mcp.id = "native-mcp";
+    mcp.className = "configuration-section";
+    mcp.setAttribute("aria-labelledby", "native-mcp-heading");
+    const mcpHeading = element("h2", "MCP");
+    mcpHeading.id = "native-mcp-heading";
+    mcp.append(
+      mcpHeading,
       element(
         "p",
-        "Connection state is unknown. Use native management for creation, transport, credentials, authentication, and diagnostics.",
+        "Configured servers, not live connections. Use Advanced → Manage MCP servers for setup and diagnostics.",
       ),
     );
-    if (!this.snapshot.servers.length) main.append(element("p", "No configured MCP servers."));
+    if (!this.snapshot.servers.length) mcp.append(element("p", "No configured MCP servers."));
     for (const [index, server] of this.snapshot.servers.entries()) {
       const section = element("section");
       section.className = "mcp-server";
       section.dataset.server = server.name;
       section.append(
-        element("h4", server.name),
+        element("h3", server.name),
         element("p", `Transport: ${server.type} · Source: ${server.source} · Connection: unknown`),
       );
       for (const field of server.fields) {
@@ -283,12 +340,13 @@ export class NativeSettingsForm {
           path: [],
           defaultValue: field.key === "enabled" ? true : "codemode",
           ...(field.key === "exposure" ? { choices: mcpExposures } : {}),
-          effect: "Configured state only; saving does not connect a server.",
+          effect: "",
         };
         this.row(section, control, field, server.name, index);
       }
-      main.append(section);
+      mcp.append(section);
     }
+    main.append(mcp);
   }
 
   private row(
@@ -309,34 +367,33 @@ export class NativeSettingsForm {
         draft.base !== fingerprint(entry) ||
         (server !== undefined && this.mcpRevisions.get(key) !== snapshot.revision));
     const blocked = this.pending.has(key) || !!this.loadId;
+    const editable = entry.hasOverride || !!draft;
     const row = element("section");
     row.className = "setting";
     row.dataset.nativeKey = descriptor.key;
     row.dataset.override = String(entry.hasOverride);
     row.dataset.draft = String(!!draft);
     const id = `native-${server === undefined ? descriptor.key : `mcp-${index}-${descriptor.key}`}`;
-    const label = element("label", descriptor.label);
+    const label = element("label", fieldLabels[descriptor.key] ?? descriptor.label);
     label.htmlFor = id;
-    const description = element(
-      "p",
-      descriptor.effect +
-        (Array.isArray(descriptor.defaultValue) ? " Enter one pattern per line; order is preserved." : ""),
-    );
+    const description = element("p", fieldHelp[descriptor.key] ?? "");
     description.id = `${id}-description`;
+    description.className = "field-help";
     const boolean = typeof descriptor.defaultValue === "boolean";
-    const control = boolean
-      ? element("input")
-      : descriptor.choices
-        ? element("select")
-        : Array.isArray(descriptor.defaultValue)
-          ? element("textarea")
-          : element("input");
+    const control =
+      boolean && editable
+        ? element("input")
+        : descriptor.choices && editable
+          ? element("select")
+          : Array.isArray(descriptor.defaultValue)
+            ? element("textarea")
+            : element("input");
     control.id = id;
     control.disabled = blocked;
-    control.setAttribute("aria-describedby", `${description.id} ${id}-meta ${id}-status`);
+    control.setAttribute("aria-describedby", `${description.id} ${id}-meta ${id}-diagnostic ${id}-status`);
     if (control instanceof HTMLInputElement) {
-      control.type = boolean ? "checkbox" : "text";
-      if (!boolean) control.maxLength = 256;
+      control.type = boolean && editable ? "checkbox" : "text";
+      if (control.type === "text") control.maxLength = 256;
     }
     if (control instanceof HTMLSelectElement) {
       for (const value of descriptor.choices ?? []) {
@@ -344,9 +401,13 @@ export class NativeSettingsForm {
         option.value = value;
         control.append(option);
       }
+    } else {
+      control.readOnly = !editable;
+      if (!editable) control.className = "inherited-value";
+      control.placeholder = Array.isArray(descriptor.defaultValue) ? "No model patterns" : "Not set";
     }
     const raw = draft?.raw ?? (Array.isArray(entry.value) ? entry.value.join("\n") : entry.value);
-    if (control instanceof HTMLInputElement && boolean) control.checked = raw === true;
+    if (control instanceof HTMLInputElement && control.type === "checkbox") control.checked = raw === true;
     else control.value = String(raw);
     const status = element(
       "p",
@@ -359,28 +420,37 @@ export class NativeSettingsForm {
     status.id = `${id}-status`;
     status.className = conflict ? "row-status conflict" : "row-status";
     status.setAttribute("role", "status");
-    const display = (value: NativeFormValue | undefined) =>
-      value === undefined
-        ? "None"
-        : Array.isArray(value)
-          ? value.join("; ") || "(empty list)"
-          : String(value) || "(empty)";
     const meta = element(
-      "p",
-      `Selected-scope override: ${entry.invalid ? "Invalid value (not displayed)" : entry.hasOverride ? display(entry.own) : "None"} · Inherited/default: ${entry.inheritedInvalid ? "Invalid inherited value; default shown: " : ""}${display(entry.inherited)} · Source: ${entry.source}${this.scope === "project" && !snapshot.approved ? " · Project values inactive" : ""}`,
+      "span",
+      entry.hasOverride
+        ? `${this.scope === "project" ? "Project" : "Global"} override${this.scope === "project" && !snapshot.approved ? " · inactive" : ""}`
+        : entry.source === "global"
+          ? "Inherited from Global"
+          : "Pi default",
     );
     meta.id = `${id}-meta`;
     meta.className = "meta";
+    const diagnostic = element(
+      "p",
+      entry.invalid
+        ? "Saved override is invalid (not displayed). Save a replacement or remove the override."
+        : entry.inheritedInvalid
+          ? `Inherited value is invalid (not displayed).${entry.hasOverride || draft ? "" : " Pi default shown."}`
+          : "",
+    );
+    diagnostic.id = `${id}-diagnostic`;
+    diagnostic.className = "field-diagnostic";
     const actions = element("div");
-    actions.className = "actions";
+    actions.className = "actions row-actions";
+    actions.hidden = !editable;
     const save = element("button", "Save");
     save.type = "button";
     save.id = `${id}-save`;
     save.dataset.focusControl = id;
-    save.hidden = !draft && !this.pending.has(key);
-    save.disabled = blocked || conflict;
+    save.hidden = !editable;
+    save.disabled = !draft || blocked || conflict;
     const submit = (reset: boolean) => {
-      if (this.pending.has(key) || this.loadId || conflict || !this.snapshot) return;
+      if (this.pending.has(key) || this.loadId || conflict || !this.snapshot || (!reset && !this.drafts[key])) return;
       const raw = this.drafts[key]?.raw ?? (Array.isArray(entry.value) ? entry.value.join("\n") : entry.value);
       if (!reset && !valid(descriptor, raw)) {
         this.messages.set(
@@ -402,7 +472,7 @@ export class NativeSettingsForm {
         id,
         scope: this.scope,
         key: descriptor.key,
-        ...(server !== undefined ? { server } : {}),
+        ...(server === undefined ? {} : { server }),
       });
       this.post({
         type: reset ? "nativeReset" : "nativeSave",
@@ -410,24 +480,27 @@ export class NativeSettingsForm {
         scope: this.scope,
         revision: this.snapshot.revision,
         key: descriptor.key,
-        ...(server !== undefined ? { server } : {}),
+        ...(server === undefined ? {} : { server }),
         ...(!reset ? { value: parsed(descriptor, raw) } : {}),
       });
       this.persist();
       this.redraw();
     };
     save.addEventListener("click", () => submit(false));
-    const reset = element("button", "Reset override");
+    const reset = element("button", `Remove ${this.scope} override`);
     reset.type = "button";
     reset.id = `${id}-reset`;
     reset.dataset.focusControl = id;
     reset.className = "secondary";
     reset.disabled = blocked || conflict || !entry.hasOverride;
     reset.addEventListener("click", () => submit(true));
-    const reloadRow = () => {
+    const clearDraft = () => {
       delete this.drafts[key];
       this.mcpRevisions.delete(key);
       this.messages.delete(key);
+    };
+    const reloadRow = () => {
+      clearDraft();
       this.load();
       this.persist();
       this.redraw();
@@ -437,7 +510,7 @@ export class NativeSettingsForm {
     menu.className = "setting-actions";
     const summary = element("summary", "…");
     summary.id = `${id}-actions`;
-    summary.setAttribute("aria-label", `Actions for ${descriptor.label}`);
+    summary.setAttribute("aria-label", `Actions for ${label.textContent}`);
     summary.setAttribute("aria-expanded", "false");
     summary.setAttribute("aria-controls", `${id}-menu`);
     const menuItems = element("div");
@@ -453,25 +526,68 @@ export class NativeSettingsForm {
     menu.append(summary, menuItems);
     const heading = element("div");
     heading.className = "setting-heading";
-    heading.append(label, menu);
-    if (entry.hasOverride) heading.insertBefore(element("span", "Override"), menu);
+    heading.append(label, meta, menu);
     const update = () => {
       if (server !== undefined && !this.mcpRevisions.has(key)) this.mcpRevisions.set(key, snapshot.revision);
       this.drafts[key] = {
-        raw: control instanceof HTMLInputElement && boolean ? control.checked : control.value,
+        raw: control instanceof HTMLInputElement && control.type === "checkbox" ? control.checked : control.value,
         base: draft?.base ?? fingerprint(entry),
         origin: draft?.origin ?? snapshot.origin,
         conflict: draft?.conflict ?? false,
       };
       this.messages.delete(key);
       save.hidden = false;
+      save.disabled = blocked || conflict;
       row.dataset.draft = "true";
+      discard.hidden = false;
       status.textContent = conflict ? "Configuration changed. Reload this row before saving." : "Unsaved changes";
       this.persist();
     };
-    control.addEventListener("input", update);
-    control.addEventListener("change", update);
-    actions.append(save);
+    control.addEventListener("input", () => {
+      if (editable) update();
+    });
+    control.addEventListener("change", () => {
+      if (editable) update();
+    });
+    const value = element("div");
+    value.className = "setting-value";
+    value.append(control);
+    if (!editable) {
+      const override = element("button", `Set ${this.scope} override`);
+      override.id = `${id}-override`;
+      override.type = "button";
+      override.className = "secondary";
+      override.dataset.focusControl = id;
+      override.disabled = blocked;
+      override.addEventListener("click", () => {
+        this.drafts[key] = {
+          raw: Array.isArray(entry.value) ? entry.value.join("\n") : entry.value,
+          base: fingerprint(entry),
+          origin: snapshot.origin,
+          conflict: false,
+        };
+        if (server !== undefined) this.mcpRevisions.set(key, snapshot.revision);
+        this.messages.delete(key);
+        this.persist();
+        this.redraw();
+        document.getElementById(id)?.focus();
+      });
+      value.append(override);
+    }
+    const discard = element("button", "Discard changes");
+    discard.id = `${id}-discard`;
+    discard.type = "button";
+    discard.className = "secondary";
+    discard.dataset.focusControl = id;
+    discard.hidden = !draft;
+    discard.disabled = blocked;
+    discard.addEventListener("click", () => {
+      clearDraft();
+      this.persist();
+      this.redraw();
+      document.getElementById(id)?.focus();
+    });
+    actions.append(save, discard);
     if (conflict) {
       const recover = element("button", "Reload row");
       recover.type = "button";
@@ -482,7 +598,7 @@ export class NativeSettingsForm {
       recover.addEventListener("click", reloadRow);
       actions.append(recover);
     }
-    row.append(heading, description, control, meta, actions, status);
+    row.append(heading, description, value, diagnostic, actions, status);
     main.append(row);
   }
 }

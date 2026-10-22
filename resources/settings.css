@@ -34,7 +34,9 @@ summary {
   cursor: pointer;
 }
 #status,
-.meta {
+#operation-status,
+.meta,
+.scope > span {
   color: var(--vscode-descriptionForeground);
   font-size: 12px;
 }
@@ -42,14 +44,15 @@ summary {
   display: flex;
   gap: 12px;
   align-items: center;
-  margin-top: 16px;
+  flex-wrap: wrap;
+  margin-top: 12px;
 }
 main {
   min-width: 0;
 }
 .setting {
   border-left: 2px solid transparent;
-  padding: 12px 14px;
+  padding: 10px 12px;
   min-width: 0;
 }
 .setting[data-override="true"] {
@@ -59,6 +62,7 @@ main {
   display: flex;
   align-items: baseline;
   gap: 8px;
+  flex-wrap: wrap;
 }
 .setting-heading label {
   font-weight: 600;
@@ -67,7 +71,7 @@ main {
 }
 .setting-heading > span {
   color: var(--vscode-descriptionForeground);
-  font-size: 11px;
+  font-size: 12px;
 }
 .setting-actions {
   position: relative;
@@ -80,6 +84,9 @@ main {
   padding: 2px 8px;
   border: 1px solid var(--vscode-contrastBorder, transparent);
   color: var(--vscode-icon-foreground, var(--vscode-foreground));
+}
+.advanced-actions summary {
+  padding: 5px 10px;
 }
 .setting-actions summary::-webkit-details-marker {
   display: none;
@@ -101,14 +108,64 @@ main {
   box-shadow: 0 2px 8px var(--vscode-widget-shadow);
 }
 .native-actions {
+  margin-top: 10px;
+  align-items: center;
+}
+.advanced-actions {
+  margin-left: 0;
+}
+.runtime-actions {
+  align-items: center;
+}
+.runtime-actions #configuration-details {
+  flex: 1;
+  min-width: 160px;
+}
+.runtime-actions #configuration-details[open] {
+  flex-basis: 100%;
+}
+#status:empty,
+#operation-status:empty,
+.configuration-notice:empty,
+.field-help:empty,
+.field-diagnostic:empty {
+  display: none;
+}
+.configuration-section {
+  margin-top: 20px;
+}
+.configuration-section h2 {
+  margin: 0 0 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  font-size: 18px;
+  font-weight: 500;
+}
+.configuration-section > p {
+  margin: 4px 0;
+  color: var(--vscode-descriptionForeground);
+}
+.project-warning {
   margin-top: 12px;
+  padding: 8px 12px;
+  border-left: 2px solid var(--vscode-editorWarning-foreground, var(--vscode-focusBorder));
+  background: var(--vscode-textBlockQuote-background);
+}
+.project-warning p {
+  margin: 0 0 6px;
+}
+.row-actions {
+  margin-top: 6px;
+}
+.row-actions[hidden] {
+  display: none;
 }
 .mcp-server {
   min-width: 0;
   border-top: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
   padding-top: 12px;
 }
-.mcp-server h4 {
+.mcp-server h3 {
   overflow-wrap: anywhere;
 }
 .setting p {
@@ -158,6 +215,30 @@ button.secondary {
   background: var(--vscode-button-secondaryBackground);
   color: var(--vscode-button-secondaryForeground);
 }
+.setting-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.setting-value > input:not([type="checkbox"]),
+.setting-value > textarea,
+.setting-value > select {
+  flex: 1;
+  min-width: 0;
+}
+.setting-value > button {
+  flex-shrink: 0;
+}
+.setting-value .inherited-value {
+  color: var(--vscode-foreground);
+  background: transparent;
+  border-color: var(--vscode-contrastBorder, transparent);
+}
+.setting-value textarea.inherited-value {
+  min-height: 32px;
+  height: 32px;
+}
 .setting-menu button,
 .setting-menu button.secondary {
   display: block;
@@ -201,6 +282,21 @@ textarea:disabled {
   }
   .setting {
     padding: 10px;
+  }
+  .setting-value {
+    flex-wrap: wrap;
+  }
+  .setting-value > input:not([type="checkbox"]),
+  .setting-value > textarea,
+  .setting-value > select {
+    flex-basis: 100%;
+  }
+  .setting-value > button {
+    flex-shrink: 1;
+  }
+  .setting-heading > .meta {
+    flex-basis: calc(100% - 40px);
+    order: 2;
   }
 }
 @media (prefers-reduced-motion: reduce) {
