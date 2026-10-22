@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { hashSessionEntries, validateSessionJsonl } from "../sessionTransfer";
@@ -39,7 +39,7 @@ async function run(script: string, cwd: string, input: unknown[], env: NodeJS.Pr
 }
 
 test("native fixture persists v3 entries and restores history; snapshot is a read-only source/memory digest", async () => {
-  const directory = await mkdtemp(path.join(tmpdir(), "pi-native-tree-unit-"));
+  const directory = await realpath(await mkdtemp(path.join(tmpdir(), "pi-native-tree-unit-")));
   try {
     await writeFile(path.join(directory, "response.txt"), "Fixture answer");
     const script = path.join(root, "scripts/fixtures/native-pi.cjs");
@@ -82,7 +82,7 @@ test("native fixture persists v3 entries and restores history; snapshot is a rea
 });
 
 test("isolated fixture export selects a branch; import retains the complete known v3 tree and source", async () => {
-  const directory = await mkdtemp(path.join(tmpdir(), "pi-native-helper-unit-"));
+  const directory = await realpath(await mkdtemp(path.join(tmpdir(), "pi-native-helper-unit-")));
   try {
     const stamp = "2026-01-01T00:00:00.000Z";
     const entries = [

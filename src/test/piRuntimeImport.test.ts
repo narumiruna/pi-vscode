@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type * as vscode from "vscode";
@@ -12,7 +12,7 @@ afterAll(() => mock.restore());
 
 for (const outcome of ["success", "cancelled", "switch-failed", "refresh-failed", "wrong-session"] as const) {
   test(`import activation ${outcome} stays in captured ownership and reconciles without replay`, async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "pi-runtime-import-"));
+    const root = await realpath(await mkdtemp(path.join(tmpdir(), "pi-runtime-import-")));
     const target = path.join(root, "import.jsonl");
     await writeFile(target, `${JSON.stringify({ type: "session", cwd: root })}\n`);
     mock.workspace.workspaceFolders = [{ uri: mock.Uri.file(root) }];

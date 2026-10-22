@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, link, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { gistCreateArguments, gistUrl, redactSessionPayload, uploadSessionGist } from "../sessionShare";
@@ -218,7 +218,7 @@ test("multiple roots are valid Pi tree semantics, not silently joined", () => {
   );
 });
 test("bounded descriptor snapshots reject links, path aliases, directories, changed source and oversized files", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "pi-transfer-files-"));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "pi-transfer-files-")));
   try {
     const source = path.join(root, "source.jsonl");
     await writeFile(source, sessionFixture(root));
@@ -230,6 +230,9 @@ test("bounded descriptor snapshots reject links, path aliases, directories, chan
     );
     await symlink(source, path.join(root, "symlink.jsonl"));
     await assert.rejects(readTransferFile(path.join(root, "symlink.jsonl")), /links|aliases/);
+    const alias = path.join(root, "directory-alias");
+    await symlink(root, alias, "junction");
+    await assert.rejects(readTransferFile(path.join(alias, "source.jsonl")), /links|aliases/);
     await link(source, path.join(root, "hardlink.jsonl"));
     await assert.rejects(readTransferFile(source), /unsupported/);
     await assert.rejects(readTransferFile(root));
@@ -239,7 +242,7 @@ test("bounded descriptor snapshots reject links, path aliases, directories, chan
   }
 });
 test("exclusive local writes never replace a concurrent destination or follow a destination symlink", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "pi-transfer-write-"));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "pi-transfer-write-")));
   try {
     const target = path.join(root, "output.jsonl");
     const original = sessionFixture(root);
@@ -248,6 +251,10 @@ test("exclusive local writes never replace a concurrent destination or follow a 
     assert.deepEqual(await readFile(target), original);
     await symlink(target, path.join(root, "link.jsonl"));
     await assert.rejects(writeTransferFile(path.join(root, "link.jsonl"), Buffer.from("unsafe")));
+    const alias = path.join(root, "directory-alias");
+    await symlink(root, alias, "junction");
+    await assert.rejects(writeTransferFile(path.join(alias, "new.jsonl"), Buffer.from("unsafe")), /links|aliases/);
+    await assert.rejects(readFile(path.join(root, "new.jsonl")), { code: "ENOENT" });
     assert.deepEqual(await readFile(target), original);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -264,7 +271,7 @@ test("share literal redaction changes exact JSON string values without dropping 
   assert.throws(() => redactSessionPayload(source, ""));
 });
 test("public gh adapter uses exact approved stdin payload and explicit non-public visibility, not a private API", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "pi-gist-fixture-"));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "pi-gist-fixture-")));
   try {
     const executable = path.join(root, "gh-fixture.mjs");
     const captured = path.join(root, "captured.json");
