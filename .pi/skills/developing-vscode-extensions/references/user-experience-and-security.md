@@ -12,6 +12,29 @@ Use this guide when adding commands, menus, views, notifications, settings, stat
 - Treat hidden UI as presentation only because a command remains callable by identifier.
 - Follow existing VS Code naming, icon, placement, keyboard, and progress patterns instead of creating a parallel interaction model.
 
+## Use Native Settings
+
+- Contribute extension settings through `contributes.configuration` instead of creating a custom Settings page or webview.
+- Open native Settings with an extension or setting filter when the user needs to configure the extension.
+- Use the native editor's save-on-edit behavior, scope controls, search, `@modified` filter, and gear-menu Reset action instead of duplicating them.
+- Provide a default and a short, clear description for each setting.
+  - Link to documentation for complex behavior and to related setting IDs where useful.
+- Use multiple configuration objects for category navigation and explicit `order` values for category and setting order.
+  - Keep existing setting IDs, defaults, types, bounds, and scopes when changing only presentation.
+- Use native list controls for simple arrays of strings, numbers, or booleans instead of adding a custom list editor.
+- Verify the required native Settings behavior on the extension's minimum supported VS Code version.
+- For configuration files outside VS Code configuration, first check whether native commands or editors can meet the requirement.
+  - If a custom file editor is necessary, document the platform limitation and treat the exception as a project decision, not an official recommendation.
+  - Do not copy external file values into VS Code settings merely to obtain native controls.
+  - Define file-save behavior separately from runtime Apply, restart, trust approval, or network connections; native save-on-edit is not a requirement for external files.
+
+Official sources:
+
+- [Settings UX guidelines](https://code.visualstudio.com/api/ux-guidelines/settings): use native Settings rather than a custom Settings page and keep descriptions short.
+- [Settings editor](https://code.visualstudio.com/docs/configure/settings#_settings-editor): save-on-edit, configured-value indicators, search, filters, and gear-menu actions.
+- [Configuration contribution point](https://code.visualstudio.com/api/references/contribution-points#contributesconfiguration): categories, ordering, descriptions, related-setting links, and native array controls.
+- [Webview UX guidelines](https://code.visualstudio.com/api/ux-guidelines/webviews): use webviews only when necessary, do not duplicate native Settings, and support themes and accessibility.
+
 ## Account for Webview Placement
 
 - A webview runs on the user's UI side even when the extension code that owns it runs in a remote Workspace Extension Host.
