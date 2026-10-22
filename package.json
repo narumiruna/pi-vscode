@@ -184,14 +184,15 @@
       },
       {
         "command": "pi.openSettings",
-        "title": "Open Settings",
+        "title": "Extension Settings",
         "category": "Pi",
         "icon": "$(gear)"
       },
       {
         "command": "pi.openPiConfiguration",
-        "title": "Open Pi Configuration",
-        "category": "Pi"
+        "title": "Pi Configuration",
+        "category": "Pi",
+        "icon": "$(gear)"
       },
       {
         "command": "pi.reviewChanges",
@@ -362,12 +363,12 @@
         {
           "command": "pi.openSettings",
           "when": "view == pi.chatView",
-          "group": "navigation@10"
+          "group": "configuration@10"
         },
         {
           "command": "pi.openPiConfiguration",
           "when": "view == pi.chatView",
-          "group": "configuration@10"
+          "group": "configuration@20"
         }
       ],
       "commandPalette": [

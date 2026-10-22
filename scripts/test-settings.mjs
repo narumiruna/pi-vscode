@@ -190,7 +190,7 @@ try {
   await page.waitForFunction(() => document.querySelector("#native-settings") !== null);
   assert.equal(await page.locator("h1").innerText(), "Pi Configuration");
   assert.equal(await page.locator("nav,#target,[data-key]").count(), 0);
-  assert.equal(await page.locator("#native-settings").innerText(), "Open VS Code Settings");
+  assert.equal(await page.locator("#native-settings").innerText(), "Open Extension Settings");
   assert.equal(messages.filter((message) => message.type === "nativeLoad").length, 0);
   await push();
   await loadNative();

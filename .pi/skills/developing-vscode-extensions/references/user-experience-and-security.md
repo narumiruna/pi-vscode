@@ -12,6 +12,19 @@ Use this guide when adding commands, menus, views, notifications, settings, stat
 - Treat hidden UI as presentation only because a command remains callable by identifier.
 - Follow existing VS Code naming, icon, placement, keyboard, and progress patterns instead of creating a parallel interaction model.
 
+## Place View Title Actions
+
+For the stable `view/title` menu, `group: "navigation"` makes a primary title action; other groups appear in the native `...` overflow menu.
+Use the same group name for related overflow entries and append `@<number>` to set their order.
+Keep `when: "view == <view-id>"` aligned with the contributed view ID.
+Command titles and icons come from `contributes.commands`; moving a menu item does not require changing its command ID or handler.
+These are stable contribution rules applicable to VS Code 1.140 and newer; no proposed API is required.
+
+Official sources:
+
+- [Tree View actions](https://code.visualstudio.com/api/extension-guides/tree-view#view-actions): primary `navigation` actions, secondary overflow actions, and group ordering.
+- [Menus contribution point](https://code.visualstudio.com/api/references/contribution-points#contributes.menus): menu locations, view conditions, and `@<number>` ordering inside groups.
+
 ## Use Native Settings
 
 - Contribute extension settings through `contributes.configuration` instead of creating a custom Settings page or webview.

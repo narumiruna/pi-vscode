@@ -10,7 +10,7 @@ export function getSettingsHtml(assets: { source: string; script: string; style:
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pi Configuration</title><link rel="stylesheet" href="${escapeAttribute(assets.style)}">
 </head><body>
-<header><h1>Pi Configuration</h1><button id="native-settings" type="button" class="secondary">Open VS Code Settings</button></header>
+<header><h1>Pi Configuration</h1><button id="native-settings" type="button" class="secondary">Open Extension Settings</button></header>
 <p>Edit Pi files with explicit Save. Opening this page starts no Pi process or connection.</p>
 <details id="configuration-details"><summary>File locations and save behavior</summary>
 <p>Global Pi uses the Extension Host's ~/.pi/agent/settings.json and mcp.json, or PI_CODING_AGENT_DIR. Project Pi uses .pi/settings.json and .pi/mcp.json in the first workspace folder. Remote windows use remote host paths.</p>
