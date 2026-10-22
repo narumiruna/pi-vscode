@@ -193,8 +193,19 @@ Replace `1.140.0` with `stable` to check the current VS Code release.
 2. Append `alias` to the `test:native-ui` command to test a workspace opened through a directory symlink.
 3. Append `packaged` to the `test:native-ui` command to install and test the local `pi.vsix`.
 
+The current settings entry-point contract uses the Pi view title's native **⋯** overflow menu.
+**Extension Settings** (`pi.openSettings`) and **Pi Configuration** (`pi.openPiConfiguration`) appear directly in the same configuration group, in that order.
+Both commands use category **Pi**, so their Command Palette names are **Pi: Extension Settings** and **Pi: Pi Configuration**.
+There is no standalone settings gear or settings submenu, and composer **More…** retains session and work actions without duplicate entries.
+Extension Settings retains the native Settings route; Pi Configuration retains its singleton panel and uses **Open Extension Settings** for its cross-link.
+Setting values, defaults, scopes, trust checks, and save behavior are unchanged.
+Focused Linux x64 native UI checks passed on VS Code 1.140.0 and 1.143.0 for the ordered menu entries, keyboard opening/Escape, both destinations, and the renamed panel cross-link.
+Both commands declare gear icons, but the tested native overflow menus render text labels without icons.
+
 Append `settings` to `test:native-ui` for focused native Settings and Pi Configuration UI checks.
-This mode supports Linux and macOS with disposable profiles, native configuration controls, and fixture-only file edits; it does not start Pi.
+This mode supports Linux and macOS with disposable profiles, native configuration controls, and fixture-only file edits.
+Passive settings routes are checked before opening Sessions and must not start Pi.
+The title-menu checks then open Sessions, which initializes one fixture Pi runtime, and verify that settings actions start no additional process or model request.
 On macOS, run `TMPDIR=/private/tmp npm run test:native-ui -- 1.140.0 settings` and repeat with `stable`.
 The checks cover all 11 native settings, array edits, category labels, User/Workspace save-on-edit and Reset, plus Pi Configuration singleton, draft recovery, row menus, explicit Save/Reset, and field focus.
 Actual remote-user targets and native virtual workspaces are not covered by this local mode.

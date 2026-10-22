@@ -102,13 +102,16 @@ The foreground sidebar agent can add [temporary passage annotations](docs/USER_G
 
 ## Settings
 
-Run **Pi: Open Settings** (`pi.openSettings`) or use the gear in the Pi view title to open native VS Code Settings filtered to `@ext:narumi.narumi-pi`.
+In the Pi view title's native **⋯** overflow menu, **Extension Settings** and **Pi Configuration** appear directly in the same configuration group, in that order.
+There is no standalone settings gear or settings submenu.
+Composer **More…** remains for session and work actions; it has no duplicate entries for these commands.
+Run **Pi: Extension Settings** (`pi.openSettings`) or select **Extension Settings** in that menu to open native VS Code Settings filtered to `@ext:narumi.narumi-pi`.
 **General**, **Permissions**, and **Editor** group the existing 11 `pi.*` settings without changing their IDs, defaults, bounds, scopes, or runtime behavior.
 Use native scope selection, validation, save-on-edit, search, configured-value indicators, and Reset menus.
 
-Run **Pi: Open Pi Configuration** (`pi.openPiConfiguration`), also in the Pi view's secondary title actions, to open the separate **Pi Configuration** panel.
+Run **Pi: Pi Configuration** (`pi.openPiConfiguration`) or select **Pi Configuration** in the same overflow menu to open the separate **Pi Configuration** panel.
 Repeated invocation reveals the same panel.
-It has only **Global Pi / Project Pi** file scopes, with no User/Workspace selector, and one **Open VS Code Settings** action.
+It has only **Global Pi / Project Pi** file scopes, with no User/Workspace selector, and one **Open Extension Settings** action.
 Its controls edit startup provider, model, thinking level, ordered model patterns, steering mode, follow-up mode, automatic compaction, and automatic retry.
 Each row shows override, inherited/default value, and source; saved overrides and unsaved drafts have separate indicators.
 **Save** appears only for a draft, pending operation, or unresolved save error; it is disabled while pending or stale and hides after success.

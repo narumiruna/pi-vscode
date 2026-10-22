@@ -11,6 +11,7 @@ interface ConfigurationGroup {
 const manifest = JSON.parse(readFileSync(path.resolve("package.json"), "utf8")) as {
   contributes: {
     configuration: ConfigurationGroup[];
+    commands: { command: string; title: string; icon?: string }[];
     menus: Record<string, { command: string; when: string; group: string }[]>;
   };
 };
@@ -62,13 +63,28 @@ test("native Settings categories preserve every existing property contract", () 
     assert.ok(description || markdownDescription, key);
     assert.ok(Number.isInteger(order), key);
   }
-  const primary = manifest.contributes.menus["view/title"].find((item) => item.command === "pi.openSettings");
-  const secondary = manifest.contributes.menus["view/title"].find((item) => item.command === "pi.openPiConfiguration");
-  assert.ok(primary && secondary);
-  assert.equal(primary.when, "view == pi.chatView");
-  assert.equal(primary.group, "navigation@10");
-  assert.equal(secondary.when, "view == pi.chatView");
-  assert.ok(!secondary.group.startsWith("navigation"));
+});
+
+test("both settings destinations share the title overflow group with clear names and gear icons", () => {
+  const destinations = [
+    ["pi.openSettings", "Extension Settings", "configuration@10"],
+    ["pi.openPiConfiguration", "Pi Configuration", "configuration@20"],
+  ];
+  for (const [id, title, group] of destinations) {
+    const entries = manifest.contributes.menus["view/title"].filter((item) => item.command === id);
+    assert.deepEqual(entries, [{ command: id, when: "view == pi.chatView", group }]);
+    assert.ok(!group.startsWith("navigation"), "Settings must not have standalone title buttons");
+    const command = manifest.contributes.commands.find((item) => item.command === id);
+    assert.equal(command?.title, title);
+    assert.equal(command?.icon, "$(gear)");
+  }
+  const sidebar = readFileSync(path.resolve("src/sidebar.ts"), "utf8");
+  const more = sidebar.slice(
+    sidebar.indexOf("private async showMoreActions("),
+    sidebar.indexOf("private assertSettingsIdle("),
+  );
+  assert.ok(more.length > 0);
+  for (const [id] of destinations) assert.ok(!more.includes(id), "Composer More must not duplicate global settings");
 });
 
 test("Settings uses the native route while Pi Configuration stays bounded, singleton, and process-free", async () => {
@@ -104,6 +120,8 @@ test("Settings uses the native route while Pi Configuration stays bounded, singl
     assert.ok(panel.webview.html.includes("default-src 'none'"));
     assert.ok(!panel.webview.html.includes("unsafe-inline"));
     assert.ok(!panel.webview.html.includes('id="target"'));
+    assert.ok(panel.webview.html.includes(">Open Extension Settings</button>"));
+    assert.ok(!panel.webview.html.includes("Open VS Code Settings"));
     panel.receive({ type: "ready" });
     await flush();
     const state = () => panel.webview.messages.filter((item: { type?: string }) => item.type === "snapshot").at(-1);
