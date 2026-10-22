@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.9.0
+
+### Minor Changes
+
+- bf9a978: Bundle Pi 1.3.0 as the default runtime without requiring a separate Pi or Node.js installation.
+  Reuse existing Pi configuration, credentials, resources and sessions on the workspace Extension Host.
+  Keep nonempty `pi.executablePath` overrides, including saved `pi`, unchanged; resetting an override uses the resulting effective override or bundled default.
+  Manage bundled runtime updates through extension releases and fail without PATH fallback when bundled assets are missing or invalid.
+
+### Patch Changes
+
+- bc1cb13: Open native VS Code Settings from Pi: Open Settings and the sidebar gear, with the existing 11 settings grouped under General, Permissions, and Editor.
+  Move Pi file controls to a separate singleton Pi Configuration panel, available through Pi: Open Pi Configuration.
+  Show row Save only for drafts or unresolved operations, and put Reset override and Reload row in a compact actions menu with explicit stale-draft recovery.
+  Keep Pi file saves explicit and guarded, separate from runtime Apply, restart, project approval, and MCP connections.
+  Existing native settings and MCP management commands are unchanged.
+- 5b1bfd3: Add a scoped Pi Configuration form for eight common native settings and safe MCP enabled/exposure edits.
+  Provide explicit save/reset, inactive project labels, guarded writes, and validated browser projections without exposing native snapshots or sensitive MCP fields.
+  Saving remains separate from runtime apply, restart, and connection checks.
+
 ## 0.8.1
 
 ### Patch Changes
