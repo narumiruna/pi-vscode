@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.2
+
+### Patch Changes
+
+- 38db7c9: Make Pi Configuration value ownership explicit with read-only inheritance, local override drafts, stable Save actions, discard, and scope-specific override removal.
+  Group Model, Behavior, and MCP controls, retain manual provider/model ID entry, and move native management dialogs to Advanced.
+  Add a fixed project-approval Settings link and a separate confirmed Pi restart action without automatic application or loss of saved files and drafts on cancellation or failure.
+- a727ada: Add searchable session switching and previous/next session shortcuts with stable cycling and guarded session transitions.
+- 687b247: Group Extension Settings and Pi Configuration in the Pi view title overflow menu instead of a standalone settings button.
+  Rename the Pi Configuration cross-link to Open Extension Settings without changing command IDs, configuration scopes, or save behavior.
+
 ## 0.9.1
 
 ### Patch Changes
