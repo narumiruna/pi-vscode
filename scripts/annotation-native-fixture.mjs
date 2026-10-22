@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
+import { openNativeSetting, resetNativeSetting, selectNativeSetting } from "./settings-native-fixture.mjs";
 
 // Native comments may open the Comments panel and change layout/visible ranges.
 // Source state, tabs, active editor and selections must still be unchanged.
@@ -402,32 +403,21 @@ export async function assertNativeAnnotations({ page, directory, workspace, invo
   });
   const initialState = async (value) => {
     const pids = await readFile(path.join(directory, "pids.jsonl"), "utf8");
-    await invoke("command", { command: "pi.openSettings" });
-    const settings = await until(async () => {
-      for (const candidate of page.frames()) {
-        try {
-          if (await candidate.locator("#native-settings").count()) return candidate;
-        } catch (error) {
-          if (!candidate.isDetached()) throw error;
-        }
-      }
-    }, "annotation Settings webview");
-    await settings.locator("#target").selectOption("workspace");
-    await settings.getByRole("button", { name: "Editor", exact: true }).click();
-    const row = settings.locator('section[data-key="annotations.initialState"]');
-    const control = row.getByLabel("Annotation initial state", { exact: true });
-    await control.waitFor();
-    assert.deepEqual(await control.locator("option").evaluateAll((options) => options.map((option) => option.value)),
-      ["collapsed", "expanded"]);
-    if (value === "reset") await row.getByRole("button", { name: "Reset", exact: true }).click();
-    else await control.selectOption(value);
-    const expected = value === "reset" ? "collapsed" : value;
-    await until(async () => (await row.locator(".row-status").innerText()).includes("Saved") &&
-      (await control.inputValue()) === expected &&
-      (await row.locator(".meta").innerText()) ===
-        `${value === "reset" ? "Inherited" : "Set in Workspace"} · Effective: ${JSON.stringify(expected)}`,
-    "annotation initial state saved in Workspace scope");
-    assert.equal(await row.getByRole("button", { name: "Reset", exact: true }).isDisabled(), value === "reset");
+    const row = await openNativeSetting({ page, invoke }, "annotations.initialState");
+    const control = row.locator("select");
+    if (await control.count()) {
+      assert.deepEqual(await control.locator("option").evaluateAll((options) => options.map((option) => option.value)),
+        ["collapsed", "expanded"]);
+    }
+    if (value === "reset") await resetNativeSetting(page, row);
+    else await selectNativeSetting(page, row, value);
+    const expected = value === "reset" ? undefined : value;
+    await until(async () => {
+      const saved = await readFile(workspaceSettings, "utf8").then(JSON.parse).catch(() => ({}));
+      return saved["pi.annotations.initialState"] === expected;
+    }, "native annotation initial state saved in Workspace scope");
+    await until(async () => (await row.evaluate((element) => element.classList.contains("is-configured"))) === (value !== "reset"),
+      "native configured-value indicator matches the selected Workspace override");
     await invoke("command", { command: "workbench.action.closeActiveEditor" });
     await invoke("annotationsOpen", { file: "code" });
     assert.equal(await readFile(userSettings, "utf8"), originalUserSettings, "Annotation settings must not write User or global comments settings");
@@ -622,7 +612,7 @@ export async function assertNativeAnnotations({ page, directory, workspace, invo
   assert.equal(await readFile(path.join(workspace, "annotations.md"), "utf8"), markdown);
   console.log("PI_NATIVE_ANNOTATIONS", JSON.stringify({
     bridge: "foreground child authenticated annotationOrigin + annotate; no tool-registry loading in fixture",
-    initialState: "default collapsed glyph/highlight/hover and click-to-open; Pi Settings Workspace expanded/reset apply only to new/replaced threads, not retained collapse/expansion; no User settings writes or Pi restart",
+    initialState: "default collapsed glyph/highlight/hover and click-to-open; native Settings Workspace expanded/reset apply only to new/replaced threads, not retained collapse/expansion; no User settings writes or Pi restart",
     rendered: "code/Markdown highlights, expanded native below-code literal/Chinese explanations, same-anchor grouping, collapse retention, EOF, modified-side diff, Comments panel cleanup, safe hover, inactive tab, four themes",
     preserved: "native focus, multiple selections, active editor, tabs, buffer versions and file bytes; native panel/layout changes permitted",
     cleared: "edit, Undo, close/reopen, empty array, Command Palette, resource reload, cloned session, disconnect/replacement",

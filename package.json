@@ -189,6 +189,11 @@
         "icon": "$(gear)"
       },
       {
+        "command": "pi.openPiConfiguration",
+        "title": "Open Pi Configuration",
+        "category": "Pi"
+      },
+      {
         "command": "pi.reviewChanges",
         "title": "Review Changes",
         "category": "Pi",
@@ -358,6 +363,11 @@
           "command": "pi.openSettings",
           "when": "view == pi.chatView",
           "group": "navigation@10"
+        },
+        {
+          "command": "pi.openPiConfiguration",
+          "when": "view == pi.chatView",
+          "group": "configuration@10"
         }
       ],
       "commandPalette": [
@@ -475,99 +485,128 @@
         "when": "editorTextFocus && !editorReadonly"
       }
     ],
-    "configuration": {
-      "title": "Pi",
-      "properties": {
-        "pi.sensitiveContextNames": {
-          "type": "array",
-          "items": {
-            "type": "string"
+    "configuration": [
+      {
+        "id": "pi.general",
+        "title": "General",
+        "order": 1,
+        "properties": {
+          "pi.executablePath": {
+            "type": "string",
+            "default": "",
+            "order": 1,
+            "markdownDescription": "Empty or whitespace uses packaged Pi 1.3.0. A nonempty command or path selects external Pi on the workspace Extension Host. Used for new processes only. See [runtime selection](https://github.com/narumiruna/pi-vscode/blob/main/docs/USER_GUIDE.md#runtime-selection-and-recovery) for path and Windows limits."
           },
-          "default": [
-            ".env",
-            "credential",
-            "secret",
-            "id_rsa",
-            "id_ed25519"
-          ],
-          "description": "Best-effort warnings for attachment labels containing these names. Inspect/redact before transmission."
-        },
-        "pi.annotations.initialState": {
-          "type": "string",
-          "default": "collapsed",
-          "enum": [
-            "collapsed",
-            "expanded"
-          ],
-          "description": "Initial state of new or replaced Pi annotation threads. Collapsed uses the VS Code API default; expanded opens explanations below the marked text. Does not change existing threads or shared Comments settings."
-        },
-        "pi.inlineCompletions.enabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Request automatic Pi inline completions after a typing pause. Disabled by default to avoid unexpected model usage; manual trigger remains available."
-        },
-        "pi.inlineCompletions.debounceMilliseconds": {
-          "type": "number",
-          "default": 650,
-          "minimum": 100,
-          "maximum": 5000,
-          "description": "Delay before an automatic inline completion request."
-        },
-        "pi.inlineCompletions.minimumPrefixLength": {
-          "type": "number",
-          "default": 3,
-          "minimum": 0,
-          "maximum": 100,
-          "description": "Minimum non-whitespace characters on the current line before automatic completion."
-        },
-        "pi.inlineCompletions.excludedLanguages": {
-          "type": "array",
-          "items": {
-            "type": "string"
+          "pi.provider": {
+            "type": "string",
+            "default": "",
+            "order": 2,
+            "markdownDescription": "Provider override for new Pi processes; empty uses Pi settings. Running sessions are unchanged."
           },
-          "default": [
-            "plaintext",
-            "scminput"
-          ],
-          "description": "Language IDs excluded from Pi inline completions."
-        },
-        "pi.approveProjectResources": {
-          "type": "boolean",
-          "default": false,
-          "description": "Trust and load project-local Pi settings, extensions, skills, and prompts for RPC sessions. Enable only for workspaces you trust."
-        },
-        "pi.executablePath": {
-          "type": "string",
-          "default": "",
-          "description": "Empty or whitespace uses packaged Pi 1.3.0. A nonempty executable name or path uses external Pi on the workspace Extension Host, including a saved pi command. Relative paths use the workspace launch directory. Windows external overrides support native .exe files and standard npm Node shims, not custom batch wrappers."
-        },
-        "pi.provider": {
-          "type": "string",
-          "default": "",
-          "description": "Optional Pi provider override. Leave empty to use Pi settings."
-        },
-        "pi.model": {
-          "type": "string",
-          "default": "",
-          "description": "Optional Pi model override. Leave empty to use Pi settings."
-        },
-        "pi.thinkingLevel": {
-          "type": "string",
-          "default": "default",
-          "enum": [
-            "default",
-            "off",
-            "minimal",
-            "low",
-            "medium",
-            "high",
-            "xhigh",
-            "max"
-          ],
-          "description": "Pi thinking-level override."
+          "pi.model": {
+            "type": "string",
+            "default": "",
+            "order": 3,
+            "markdownDescription": "Model override for new Pi processes; empty uses Pi settings. Resumed sessions can restore their own model."
+          },
+          "pi.thinkingLevel": {
+            "type": "string",
+            "default": "default",
+            "enum": [
+              "default",
+              "off",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "order": 4,
+            "markdownDescription": "Thinking-level override for new Pi processes. Default uses Pi settings; chat controls change the current session separately."
+          }
+        }
+      },
+      {
+        "id": "pi.permissions",
+        "title": "Permissions",
+        "order": 2,
+        "properties": {
+          "pi.approveProjectResources": {
+            "type": "boolean",
+            "default": false,
+            "order": 1,
+            "markdownDescription": "Allow project-local Pi settings, extensions, skills, and prompts for new Pi processes. Extensions execute with your permissions. Enable only for trusted projects. See [project trust](https://github.com/narumiruna/pi-vscode/blob/main/docs/SECURITY.md#project-trust)."
+          },
+          "pi.sensitiveContextNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              ".env",
+              "credential",
+              "secret",
+              "id_rsa",
+              "id_ed25519"
+            ],
+            "description": "Best-effort warnings for attachment labels containing these names. Inspect/redact before transmission.",
+            "order": 2
+          }
+        }
+      },
+      {
+        "id": "pi.editor",
+        "title": "Editor",
+        "order": 3,
+        "properties": {
+          "pi.annotations.initialState": {
+            "type": "string",
+            "default": "collapsed",
+            "enum": [
+              "collapsed",
+              "expanded"
+            ],
+            "order": 1,
+            "markdownDescription": "Initial state of new or replaced Pi annotation threads. Collapsed uses the VS Code API default. Existing threads and shared Comments settings are unchanged."
+          },
+          "pi.inlineCompletions.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Request automatic Pi inline completions after a typing pause. Disabled by default to avoid unexpected model usage; manual trigger remains available.",
+            "order": 2
+          },
+          "pi.inlineCompletions.debounceMilliseconds": {
+            "type": "number",
+            "default": 650,
+            "minimum": 100,
+            "maximum": 5000,
+            "description": "Delay before an automatic inline completion request.",
+            "order": 3
+          },
+          "pi.inlineCompletions.minimumPrefixLength": {
+            "type": "number",
+            "default": 3,
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Minimum non-whitespace characters on the current line before automatic completion.",
+            "order": 4
+          },
+          "pi.inlineCompletions.excludedLanguages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "plaintext",
+              "scminput"
+            ],
+            "description": "Language IDs excluded from Pi inline completions.",
+            "order": 5
+          }
         }
       }
-    }
+    ]
   },
   "scripts": {
     "compile": "tsc -p ./ && tsc -p tsconfig.webview.json && node scripts/build-rich-content.mjs",

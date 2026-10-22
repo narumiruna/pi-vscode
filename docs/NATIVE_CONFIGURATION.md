@@ -10,8 +10,8 @@ Native file controls implement the documented strict JSON format, not an indepen
 
 | Control | Read source | Write target | Active effect |
 | --- | --- | --- | --- |
-| Pi Settings: General, Permissions, Editor | VS Code configuration | Selected User/Workspace `pi.*` override | Existing launch/editor behavior; no Pi process |
-| Pi Settings: Pi Configuration | Validated common settings and safe MCP metadata at its Global Pi/Project Pi selector | Selected allowlisted `settings.json` or `mcp.json` member through shared guarded writes | Explicit save/reset only; no live apply, new configuration keys or duplicate schema |
+| Pi: Open Settings / sidebar gear | Native VS Code Settings filtered to `@ext:narumi.narumi-pi`; General, Permissions, Editor group the existing 11 keys | Native configuration target allowed by each setting's declared scope | Native save-on-edit and validation; existing launch/editor behavior; no Pi process |
+| Pi: Open Pi Configuration | Validated common settings and safe MCP metadata at its Global Pi/Project Pi selector | Selected allowlisted `settings.json` or `mcp.json` member through shared guarded writes | Explicit row save/reset only; no live apply, new configuration keys or duplicate schema |
 | Native startup provider/model/thinking | Global Pi/Project Pi `settings.json` | Selected Global Pi/Project Pi member | Next controlled restart; launch overrides and resumed session state can take precedence |
 | Ordered `enabledModels` | Global Pi/Project Pi `settings.json` | Selected file member | Startup/cycling preferences, not model access control; no supported live setter |
 | Queue grouping files | Global Pi/Project Pi `settings.json` | Selected file member | Later restart; runtime controls are separate |
@@ -51,8 +51,17 @@ Server names differing only in `-` and `_` cannot be added in the same file.
 
 ## Editing boundaries
 
-**Pi Settings → Pi Configuration** has an internal **Global Pi / Project Pi** selector, independent of VS Code User/Workspace targets.
-The form uses the eight existing `nativeSettingControls` descriptors and their validation:
+**Pi: Open Settings** (`pi.openSettings`) and the sidebar gear open real native Settings, not a custom `pi.*` form.
+VS Code owns validation, configuration scopes, incomplete-input behavior, array controls, and save-on-edit.
+The former custom page's 4,096-character string, 100-item list, and 16 KiB serialized-list edit limits do not apply to native Settings.
+Runtime trust and project-resource guards remain independent of native Settings editability.
+
+**Pi: Open Pi Configuration** (`pi.openPiConfiguration`) opens one dedicated panel; repeated invocation reveals it.
+It is also available in the Pi view's secondary title actions.
+The panel has only a **Global Pi / Project Pi** selector, with no General/Permissions/Editor form or User/Workspace selector.
+One **Open VS Code Settings** action opens extension settings.
+**Pi: Open Native Pi Settings** (`pi.openNativeSettings`) and **Pi: Manage Native MCP Configuration** (`pi.openNativeMcp`) retain their existing native dialog behavior.
+The Pi Configuration form uses the eight existing `nativeSettingControls` descriptors and their validation:
 
 | Setting | Control |
 | --- | --- |
@@ -66,11 +75,22 @@ The form uses the eight existing `nativeSettingControls` descriptors and their v
 | `retry.enabled` | Automatic retry checkbox |
 
 Provider and model inputs require neither model discovery nor a running Pi process.
-Each row shows its selected-scope override, inherited/default value, and source.
-**Save**, **Reset override**, and **Reload row** are explicit row actions; select and checkbox changes only create drafts.
+Each flat row shows its selected-scope override, inherited/default value, and source.
+Saved overrides and unsaved drafts have separate indicators.
+**Save** appears only for a draft, pending operation, or unresolved save error.
+It remains visible but disabled while pending or stale; after success it hides and focus returns to the field.
+Select, checkbox, and MCP metadata changes only create drafts; editing alone sends no save or reset.
+A value equal to an inherited value can still represent an explicit selected-scope override.
+
+A compact row actions menu contains **Reset override** and **Reload row**.
 Reset removes only the selected-scope member and preserves inherited values.
-Drafts are separate by scope and key and remain on failed saves and scope/category changes.
-Conflicting drafts require explicit **Reload row** before another save.
+It is disabled without a selected-scope override, or while pending or stale.
+Reload discards the row's draft and reads current values when no operation blocks it.
+Opening or closing the menu never discards drafts; keyboard access and Escape are supported.
+Drafts are separate by scope and key and remain on failed saves and scope changes.
+Conflicting drafts show an inline **Reload row** recovery action and require explicit reload before another save.
+**Reload configuration** reads saved values and preserves unrelated drafts; it does not reload Pi resources.
+There is no Save All or Reset All.
 
 The configured MCP list exposes validated name, transport type, source, enabled state, and exposure metadata, with connection state **unknown**.
 Enabled and server exposure edits and resets use the selected native scope and explicit save/reset actions.
@@ -84,13 +104,13 @@ Invalid existing common-setting values produce fixed diagnostics without the raw
 Raw native file text, unlisted settings, URLs, commands, arguments, environment/header values, OAuth objects, credentials, and raw errors remain host-only.
 Full native snapshots are kept only in Extension Host memory.
 Native webview persistence is limited to bounded validated common-setting drafts, not complete snapshots or MCP data.
-Native projections load only when Pi Configuration is selected or explicitly refreshed, not when unrelated categories open.
-Native-file messages are separate from VS Code configuration messages.
+Native projections load only when the Pi Configuration panel opens or is explicitly refreshed, not when native VS Code Settings opens.
+The Pi Configuration webview has no VS Code configuration save/reset protocol.
 The browser cannot select filesystem paths, JSON member paths, command identifiers, or complete native objects.
 The host resolves targets and member paths from its allowlists.
 No `auth.json` or `mcp-auth.json` is read by management code.
 
-Opening, reading, or switching categories/scopes never creates files or directories.
+Opening, reading, refreshing, or switching Pi file scopes never creates files or directories.
 Only the first explicit override save creates the required `settings.json` or `mcp.json` and missing Pi directories under the validated ancestor.
 Reset of an absent override creates nothing; saving one file does not create the other.
 
@@ -180,15 +200,27 @@ No private scoped-model mutation or second session writer is added.
 
 ## Validation and support limits
 
+The results below are historical evidence for earlier native dialogs and the previous inline form, not validation of the native Settings route or compact Pi Configuration layout.
 Earlier Linux native validation covers Quick Picks, passive MCP metadata, scoped writes/reset, dirty-buffer rejection, workspace aliases and packaged behavior.
-The inline form has offline model/host regressions and local Chromium fixtures for explicit saves, scopes, inheritance, secret exclusion, stale drafts, recovery, keyboard focus, themes, and layout.
-The macOS arm64 Extension Host fixture exercises all eight controls at both scopes and MCP metadata inheritance through the production form protocol and cold operation owner on VS Code 1.140.0 and 1.143.0.
-These checks use disposable profiles and files without a live provider or external MCP server.
-The local VSIX build passed, and archive inspection confirmed the new host modules and bundled settings assets.
+The previous inline form had offline model/host regressions and local Chromium fixtures for explicit saves, scopes, inheritance, secret exclusion, stale drafts, recovery, keyboard focus, themes, and layout.
+The earlier macOS arm64 Extension Host fixture exercised all eight controls at both scopes and MCP metadata inheritance through the production form protocol and cold operation owner on VS Code 1.140.0 and 1.143.0.
+Those checks used disposable profiles and files without a live provider or external MCP server.
+The earlier local VSIX build passed, and archive inspection confirmed the then-new host modules and bundled settings assets.
 The initial default package test run failed under macOS temporary-directory aliases and concurrent fixtures; the documented canonical temporary-directory and single-worker workaround passed.
-These checks do not establish native webview interaction, remote-host behavior, or packaged installation behavior for the new form.
+Those checks did not establish native webview interaction, remote-host behavior, or packaged installation behavior for the previous inline form.
 The actual Pi 1.3.0 local stdio reference verifies inherited tools/resources and exposure.
 See [Integrated validation](NATIVE_PARITY_VALIDATION.md).
+
+For the native Settings route and compact Pi Configuration layout, the macOS arm64 offline suite passed 99 files with 1,466 tests passed and three skipped.
+The standalone Settings browser fixture passed native file scope/inheritance, explicit saves, action menus, stale recovery with field focus, migration and recovery bounds, safe projections, CSP, and 24 width/theme combinations.
+The rich-content browser suite also passed.
+Native Extension Host checks passed on VS Code 1.140.0 and stable 1.143.0, with separate Restricted Mode checks that rejected untrusted execution.
+Focused native UI checks passed on both versions for all 11 native settings, array edits, categories, User/Workspace save-on-edit and scoped Reset, and the dedicated Pi Configuration panel's singleton, three native themes, draft-only edits, keyboard actions, hide/reveal, explicit Save/focus, and Reset.
+The final local package and extracted bundled-runtime smoke check passed using a single test worker; an earlier default-concurrency package attempt failed on an existing one-second RPC fixture timeout.
+No dependency versions were changed; npm audit reports three existing development-only transitive advisories.
+Virtual-workspace rejection is covered by unit tests, not a native virtual-window check.
+Full Linux UI and annotation suites, Windows native behavior, actual remote-user scopes, Remote SSH/WSL/container, screen readers, live providers, and external MCP servers were not checked for this change.
+Source-development native UI results are not installed-package UI evidence.
 
 1. Structured authoritative live MCP state, retry-enabled reads, general native settings/live scoped-model apply and durable setter results need public upstream contracts before equivalent in-panel claims.
 2. Interactive MCP authentication remains in Pi.

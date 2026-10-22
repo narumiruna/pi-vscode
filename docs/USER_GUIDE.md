@@ -264,7 +264,7 @@ The foreground sidebar agent can use `vscode_annotate` in already-open code or t
 Whole-line highlights and hovers remain available.
 Read-only native comments contain explanations below each range, grouped at its end line, with **Pi** as author and **Pi annotation** as label.
 They start collapsed by default.
-In **Pi Settings → Editor → Annotation initial state**, choose `collapsed` (default) or `expanded` for `pi.annotations.initialState`.
+In **VS Code Settings → Pi → Editor → Annotation initial state**, choose `collapsed` (default) or `expanded` for `pi.annotations.initialState`.
 The setting applies only to newly created or replaced annotations; it does not change existing thread handles or user state on redraw.
 Explanations are literal untrusted text, not verified diagnostics, and have no reply or edit actions.
 The native Comments panel also lists them.
@@ -517,7 +517,7 @@ Environment and `models.json` credentials can remain effective.
 A verified store change and a store change followed by catalog-refresh failure have different notices.
 Restart a running Pi explicitly to refresh model availability; authentication does not change its selected model, conversation, or composer.
 Cancellation or uncertain completion never triggers another login.
-Opening Pi Settings does not authenticate or start this helper.
+Opening native VS Code Settings or Pi Configuration does not authenticate or start this helper.
 
 API-key, browser, device, manual-redirect, and cancellation behavior has deterministic fixture coverage.
 Live-provider and remote authorization are not validated.
@@ -635,21 +635,21 @@ Native `@pi` chat and Pi HTML exports retain their own renderers.
 
 ## Settings
 
-Run **Pi: Open Settings** or select the gear in the Pi view title to open a dedicated settings tab.
-Use **General**, **Permissions**, and **Editor** to edit the existing VS Code extension settings.
-**Pi Configuration** edits common native Pi settings and safe MCP metadata inline, as described [below](#native-pi-settings-and-mcp).
-Opening or saving this page does not start Pi or send a model request.
+Run **Pi: Open Settings** (`pi.openSettings`) or select the gear in the Pi view title to open native VS Code Settings filtered to `@ext:narumi.narumi-pi`.
+**General**, **Permissions**, and **Editor** group the existing 11 extension settings.
+Their IDs, defaults, types, bounds, configuration scopes, and runtime behavior are unchanged.
+This command does not open the Pi Configuration panel, start Pi, or send a model request.
 
-For VS Code configuration, choose **User** or **Workspace** before editing.
-Text, number, and list fields have a **Save** button; checkboxes and selects save on change.
-If an automatic save fails, use **Retry save** to submit the same value again.
-A full host queue returns an error and leaves the row available for retry.
-Lists use one item per line; empty lines are omitted.
-**Reset** removes only the selected scope's override.
-Inherited and effective values remain visible.
-A newer external edit keeps your draft but requires **Reload row** before saving.
-Small drafts survive hiding the tab; closing it discards them.
-The page warns if drafts exceed the 32 KiB recovery limit.
+VS Code owns scope selection, validation, save-on-edit, array controls, search, configured-value indicators, and Reset menus.
+Select the native settings scope before editing; available User, Workspace, folder, language, and remote-user targets depend on the window and each setting's declared scope.
+**Reset Setting** removes the selected target's override; another effective override can remain.
+Invalid or incomplete input follows native Settings validation and draft behavior, not the former custom page's Save/Retry or stale-row protocol.
+The former custom VS Code form limits of 4,096 characters per string, 100 list items, and 16 KiB of serialized list text do not apply to native Settings.
+See [VS Code Settings](https://code.visualstudio.com/docs/configure/settings#_settings-editor) for native controls.
+
+Use **Pi: Open Pi Configuration** (`pi.openPiConfiguration`), also in the Pi view's secondary title actions, for the separate Pi file editor [below](#native-pi-settings-and-mcp).
+Repeated invocation reveals the same panel.
+Pi file controls retain explicit row saves; they do not use native Settings save-on-edit.
 
 Executable, provider, model, thinking, and project-resource settings are used when a Pi process starts.
 Running foreground and background sessions are unchanged.
@@ -658,13 +658,10 @@ The model and thinking controls in chat change the current session separately; r
 Completion settings affect later requests, subject to in-flight work and cached results.
 Sensitive-name settings affect later warning checks.
 
-**Open in VS Code Settings** provides the native editor for advanced scope handling.
-VS Code configuration controls support User and Workspace only, not folder or language overrides.
-In remote windows, use native Settings to distinguish local-user and remote-user values; the custom page does not expose separate controls for those layers.
+In remote windows, native Settings handles local-user and remote-user values where available.
 The extension's existing Restricted Mode and virtual-workspace limits are unchanged.
-
-VS Code configuration page edits allow up to 4,096 characters per string, 100 list items, and 16 KiB of serialized list text.
-Existing VS Code configuration reads are not restricted by these page edit limits.
+Do not assume that native Settings disables `pi.approveProjectResources` in an untrusted window.
+Host trust and launch checks independently prevent untrusted process launches and resource activation.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
@@ -675,16 +672,18 @@ Existing VS Code configuration reads are not restricted by these page edit limit
 | `pi.approveProjectResources` | `false` | Allow trusted project-local Pi settings, extensions, skills, and prompts. |
 | `pi.sensitiveContextNames` | Sensitive filename fragments | Add best-effort warnings to matching attachment labels. |
 | `pi.inlineCompletions.enabled` | `false` | Enable automatic inline completions. |
+| `pi.inlineCompletions.debounceMilliseconds` | `650` | Delay before an automatic completion request, in milliseconds. |
+| `pi.inlineCompletions.minimumPrefixLength` | `3` | Minimum non-whitespace characters on the current line for an automatic completion request. |
+| `pi.inlineCompletions.excludedLanguages` | `plaintext`, `scminput` | Language IDs excluded from Pi inline completions. |
 | `pi.annotations.initialState` | `collapsed` | Initial native annotation state: `collapsed` or `expanded`; see [Temporary passage annotations](#temporary-passage-annotations). |
 
 **Editor → Annotation initial state** applies only to newly created or replaced annotations, not existing threads or user state on redraw.
 
-Additional settings control inline-completion delay, minimum prefix length, and excluded languages.
-
 ### Native Pi settings and MCP
 
-Open **Pi Settings → Pi Configuration** and use its **Global Pi / Project Pi** selector.
-User/Workspace applies only to VS Code configuration; it does not select Pi file scope.
+Run **Pi: Open Pi Configuration** and use its **Global Pi / Project Pi** selector.
+This dedicated panel contains only Pi file controls, with no General/Permissions/Editor form or User/Workspace selector.
+Use its **Open VS Code Settings** action for extension settings.
 The form uses the existing native setting descriptors, not a second settings database or arbitrary JSON editor.
 No new VS Code configuration keys are added.
 The Command Palette commands below remain available.
@@ -700,12 +699,22 @@ The Command Palette commands below remain available.
 | Automatic compaction | Checkbox |
 | Automatic retry | Checkbox |
 
-Each row shows the selected-scope override, inherited/default value, and source.
-Use **Save** to write that row, **Reset override** to remove only its selected-scope member, or **Reload row** to discard its draft and read current values.
-Checkbox and select changes create drafts; they do not save automatically.
-Reset preserves inherited values and unrelated file members.
-Drafts remain separate by native scope and setting and survive failed saves and scope/category changes.
-A stale draft requires explicit **Reload row** before saving.
+Each flat row shows the selected-scope override, inherited/default value, and source.
+A saved-override indicator is separate from the unsaved-draft indicator.
+**Save** appears only for a draft, pending operation, or unresolved save error.
+It stays visible but disabled while pending or stale; after success it hides and focus returns to the field.
+Checkbox, select, and MCP metadata changes create drafts; editing alone never saves or resets a file.
+A draft equal to an inherited value can still save an explicit selected-scope override.
+
+Open the compact row actions menu for **Reset override** or **Reload row**.
+Reset removes only the selected-scope member and preserves inherited values and unrelated file members.
+Reset is disabled without a selected-scope override, or while the row is pending or stale.
+Reload discards that row's draft and reads current values when no operation blocks it.
+The menu supports keyboard use and Escape; opening or closing it does not discard drafts.
+Drafts remain separate by native scope and setting and survive failed saves and scope changes.
+A stale draft shows an inline **Reload row** recovery action and requires explicit reload before saving.
+**Reload configuration** reads saved file values and preserves unrelated drafts; it does not reload Pi resources.
+There is no Save All or Reset All.
 Only bounded validated common-setting drafts are kept in webview state; full native snapshots and MCP transport data are never persisted there.
 Closing the panel discards these drafts.
 
@@ -722,7 +731,7 @@ Project Pi uses the current launch workspace's `.pi`: the existing first workspa
 Remote windows use the remote Extension Host's paths.
 Native controls require a trusted, file-backed workspace, including for Global Pi.
 
-Opening, reading, or switching categories/scopes never creates files.
+Opening, reading, refreshing, or switching Pi file scopes never creates files.
 The first explicit override save creates only the required `settings.json` or `mcp.json` and missing Pi directories.
 Resetting an absent override creates nothing.
 Project setting values and MCP entries are labelled **inactive** when project-resource approval is off, not shown as active runtime settings.
@@ -730,14 +739,14 @@ Editing does not activate or approve them.
 
 Native controls use Pi terms such as **Steering mode**, **Follow-up mode**, **thinking level**, and **scoped model patterns**:
 
-- **Pi: Open Native Pi Settings** edits common Global Pi or Project Pi `settings.json` overrides through native dialogs.
+- **Pi: Open Native Pi Settings** (`pi.openNativeSettings`) keeps its existing native dialogs for common Global Pi or Project Pi `settings.json` overrides.
   Reset removes only the chosen override.
   Startup provider/model/thinking level and scoped model patterns are restart preferences, not access control.
   An explicit advanced action opens the native file in VS Code.
 - **Pi: Native Runtime Controls (Global Save)** changes idle foreground queue grouping, auto-compaction or auto-retry through public Pi setters.
   These setters also request a **Global Pi** settings save.
   An acknowledgment does not verify disk persistence; retry state has no public read in Pi 1.3.0.
-- **Pi: Manage Native MCP Configuration** passively shows configured metadata, with current connection state **unknown**.
+- **Pi: Manage Native MCP Configuration** (`pi.openNativeMcp`) keeps its existing native management dialogs and passively shows configured metadata, with current connection state **unknown**.
   Add/edit/remove, enable/disable and exposure changes only save the selected file.
   Environment/header/OAuth values and credentials do not enter the browser.
   The explicit approved CLI diagnostic connects all enabled file-configured servers separately from the current session.

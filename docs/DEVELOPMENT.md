@@ -160,6 +160,13 @@ Replace `1.140.0` with `stable` to check the current VS Code release.
 2. Append `alias` to the `test:native-ui` command to test a workspace opened through a directory symlink.
 3. Append `packaged` to the `test:native-ui` command to install and test the local `pi.vsix`.
 
+Append `settings` to `test:native-ui` for focused native Settings and Pi Configuration UI checks.
+This mode supports Linux and macOS with disposable profiles, native configuration controls, and fixture-only file edits; it does not start Pi.
+On macOS, run `TMPDIR=/private/tmp npm run test:native-ui -- 1.140.0 settings` and repeat with `stable`.
+The checks cover all 11 native settings, array edits, category labels, User/Workspace save-on-edit and Reset, plus Pi Configuration singleton, draft recovery, row menus, explicit Save/Reset, and field focus.
+Actual remote-user targets and native virtual workspaces are not covered by this local mode.
+The other native UI modes remain Linux-only.
+
 Append `transfer` to `test:native-ui` for native export/import/sharing/authentication dialogs only.
 These fixtures use fake credentials, cancel browser/upload approval, and never contact a provider or GitHub.
 
@@ -168,7 +175,7 @@ The current annotation contract uses `pi.annotations.initialState`:
 - `collapsed` (default) leaves `CommentThread.collapsibleState` unset, using the API's collapsed default.
 - `expanded` explicitly sets `CommentThreadCollapsibleState.Expanded`.
 
-**Pi Settings → Editor → Annotation initial state** affects only newly created or replaced annotations, not existing handles or user state on redraw.
+**VS Code Settings → Pi → Editor → Annotation initial state** affects only newly created or replaced annotations, not existing handles or user state on redraw.
 No global VS Code comments settings are written.
 
 Append `annotations` to `test:native-ui` to check the production editor-annotation workflow in isolation.

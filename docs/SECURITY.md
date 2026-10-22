@@ -246,7 +246,7 @@ It transfers the canonical gate without an unlock/relock gap and holds it until 
 
 `vscode_annotate` adds temporary whole-line highlights, hovers and read-only native CommentThreads.
 Threads are grouped at each range's end line and show **Pi** as author and **Pi annotation** as label.
-`pi.annotations.initialState` accepts `collapsed` (default) or `expanded`, exposed as **Pi Settings → Editor → Annotation initial state**.
+`pi.annotations.initialState` accepts `collapsed` (default) or `expanded`, exposed as **VS Code Settings → Pi → Editor → Annotation initial state**.
 For `collapsed`, `CommentThread.collapsibleState` remains unset, using the API's collapsed default; `expanded` explicitly sets `CommentThreadCollapsibleState.Expanded`.
 The setting affects only newly created or replaced annotations, not existing thread handles or user state on redraw.
 The native Comments panel also lists explanations.
@@ -359,48 +359,62 @@ The modal image preview uses a native button trigger, supports Escape/close, cle
 
 ## Settings Page
 
-The General, Permissions, and Editor categories write only existing allowlisted `pi.*` properties through VS Code configuration APIs with an explicit User or Workspace target.
-Pi Configuration has an internal Global Pi/Project Pi selector, independent of VS Code User/Workspace targets.
-Its inline form edits only the eight existing common native settings and safe MCP enabled/exposure metadata through host-owned allowlists.
-The common fields are startup provider, startup model, startup thinking level, ordered model patterns, steering mode, follow-up mode, automatic compaction, and automatic retry.
-Each native row requires explicit Save or Reset override; checkbox and select changes create drafts only.
-Rows show override, inherited/default value, and source; unapproved project values are labelled inactive rather than active runtime settings.
-This adds no configuration keys or duplicate schema; Command Palette native management remains available.
-Opening or switching categories does not create files, read credentials, discover models, start or restart Pi, or change current session RPC state.
-Existing extension activation still initializes the bridge and performs legacy bridge cleanup.
+**Pi: Open Settings** (`pi.openSettings`) and the sidebar gear run `workbench.action.openSettings` with the fixed filter `@ext:narumi.narumi-pi`.
+They do not open a custom `pi.*` settings form or start Pi.
+General, Permissions, and Editor group all 11 existing settings without changing IDs, defaults, types, bounds, declared scopes, or runtime behavior.
+VS Code owns configuration targets, native validation, incomplete-input behavior, and save-on-edit.
+The former custom page's 4,096-character string, 100-item list, 16 KiB serialized-list edit limits, and custom save/retry/revision protocol do not apply to native Settings.
+Native Settings editability is not a security boundary.
+In particular, do not assume that `pi.approveProjectResources` is disabled in native Settings in an untrusted window.
+Host trust, file-workspace, launch-policy, and project-resource checks remain independent of configuration editing and reject untrusted process launches and resource activation.
+Current Restricted Mode and virtual-workspace activation support is unchanged.
+Reset removes only the selected configuration target's override.
+For `pi.executablePath`, another effective override can still select external Pi; otherwise the empty default selects bundled Pi.
 Launch settings affect later process creation, not running foreground or background agents.
 
-Host validation checks message size, request ID, key, target, revision, value type, enum, integer bounds, and edit limits.
-VS Code configuration page edits permit 4,096 characters per string, 100 list items, and 16 KiB of serialized list text; messages are capped at 32 KiB.
-VS Code configuration reads keep their existing behavior.
-Native-file messages are separate from VS Code configuration messages and accept only descriptor-bound common-setting values or allowlisted MCP metadata edits.
+**Pi: Open Pi Configuration** (`pi.openPiConfiguration`) opens one dedicated panel; repeated invocation reveals it.
+It has only a Global Pi/Project Pi file selector, with no User/Workspace selector or General/Permissions/Editor controls.
+Its inline form edits only the eight existing common native settings and safe MCP enabled/exposure metadata through host-owned allowlists.
+The common fields are startup provider, startup model, startup thinking level, ordered model patterns, steering mode, follow-up mode, automatic compaction, and automatic retry.
+Each native row requires explicit Save or Reset override; checkbox, select, and MCP metadata changes create drafts only.
+Save appears only for a draft, pending operation, or unresolved save error, and is disabled while pending or stale.
+Reset override and Reload row are in a compact row actions menu; stale drafts also show an inline Reload row recovery action.
+Opening or closing the menu does not discard drafts.
+Rows distinguish saved overrides from drafts and show inherited/default value and source; unapproved project values are labelled inactive rather than active runtime settings.
+Reload configuration reads saved values and preserves unrelated drafts; it does not reload Pi resources.
+There is no Save All or Reset All.
+This adds no configuration keys or duplicate schema.
+`pi.openNativeSettings` and `pi.openNativeMcp` retain their existing native management dialog behavior.
+Opening, reading, refreshing, or switching Pi file scopes does not create files, read credentials, discover models, start or restart Pi, or change current session RPC state.
+Existing extension activation still initializes the bridge and performs legacy bridge cleanup.
+
+The Pi Configuration webview has no VS Code configuration save/reset protocol.
+Host validation checks native message size, request ID, key, scope, revision, value type, enum, and descriptor bounds.
+Native-file messages accept only descriptor-bound common-setting values or allowlisted MCP metadata edits.
 Incoming native requests are capped at 32 KiB; validated native projections are capped at 512 KiB to support bounded file reads and inherited values.
 The browser cannot supply filesystem paths, JSON member paths, command identifiers, or complete native objects.
 The host resolves native targets and member paths and checks trust, file-workspace availability, origin, and revision on each operation.
-Project-resource edits and resets require workspace trust.
-Current Restricted Mode activation support is unchanged.
+Native file edits and resets require a trusted, file-backed workspace, including for Global Pi.
 
-Each save is bound to its submitted scope.
-Revision checks and configuration snapshots reject known stale writes, including changes detected before their configuration event arrives.
-These checks are not atomic against other windows or external configuration writers.
-Conflicting drafts require an explicit row reload.
-Failed automatic VS Code configuration saves retain the selected draft and offer Retry save without changing the value.
-Native drafts remain separate by scope and key and survive failed saves and scope/category changes; native saves are never automatic.
-The host queue admits at most 16 operations; a rejected save or reset gets an error with only its bounded request ID.
-It does not write configuration.
-Reset removes only the selected target override.
-For `pi.executablePath`, another effective override can still select external Pi; otherwise the empty default selects bundled Pi.
+Each native save is bound to its submitted scope.
+Revision checks and file snapshots reject known stale writes, including changed inheritance sources.
+These checks are not atomic against other windows or external file writers.
+Conflicting drafts require an explicit row reload; a page refresh does not authorize a stale draft against a new revision.
+Native drafts remain separate by scope and key and survive failed saves and scope changes; native saves are never automatic.
+The host queue admits at most 16 operations; a rejected save or reset gets an error with only its bounded request ID and writes nothing.
+Reset removes only the selected native scope's override.
 Small drafts are kept in webview state while hidden, not in Pi settings or extension global/workspace storage; closing the panel discards them.
-For native controls, this persistence permits only bounded validated common-setting drafts, never complete native snapshots or MCP data, including transport/authentication fields.
+This persistence permits only bounded validated common-setting drafts, never complete native snapshots or MCP data, including transport/authentication fields.
+Obsolete General/Permissions/Editor recovery data is ignored, not replayed as configuration writes.
 Workspace, approval, or agent-directory changes invalidate native snapshots.
 Replaced loads and disposed panels reject stale or late results; rejected save/reset requests return bounded results so pending rows can recover.
 
-Settings scripts and styles are bundled under `out/settings`, which is the panel's only local resource root.
+Pi Configuration scripts and styles are bundled under `out/settings`, which is the panel's only local resource root.
 The page uses `default-src 'none'`, nonce-only external scripts, local stylesheet resources, and no inline-style exception.
 It enables no network connections, images, fonts, frames, or objects.
 Configuration values enter the DOM through input values and `textContent`, not HTML.
-The native Settings action runs one fixed host-owned command/filter, never a browser-supplied command ID.
-Panel disposal removes its listeners and prevents late posts; a configuration write already accepted by VS Code can finish after the panel closes.
+Open VS Code Settings runs one fixed host-owned command/filter, never a browser-supplied command ID.
+Panel disposal removes its listeners and prevents late posts; a native file operation already accepted by the host can finish after the panel closes.
 
 ## Native Pi Configuration
 
@@ -409,7 +423,7 @@ Server creation, transport editing, credentials, authentication, diagnostics, an
 Command Palette native management remains available.
 Native controls require a trusted, file-backed workspace even for Global Pi.
 Passive opening or reading starts no Pi process, server, credential command, authentication flow or connection and creates no files.
-Native projections load only when Pi Configuration is selected or explicitly refreshed; unrelated categories do not read native files.
+Native projections load only when the Pi Configuration panel opens or is explicitly refreshed; opening native VS Code Settings does not read native files.
 Global Pi uses the Extension Host's `~/.pi/agent` or `PI_CODING_AGENT_DIR`; Project Pi uses the current launch workspace's `.pi` (the existing first workspace folder behavior, not multi-root selection).
 Remote windows use remote host paths.
 The Project Pi form and native dialogs label unapproved project settings and MCP entries inactive; editing does not activate them.
@@ -432,7 +446,7 @@ Host-owned member-level patches preserve unrelated data; there is no second pers
 The shared canonical workspace gate and canonical target-file gate serialize extension-owned work.
 Reset removes only the selected override; unknown keys and unrelated member bytes remain unchanged.
 Only an explicit override save can create the needed configuration file and missing Pi directories under the captured canonical ancestor.
-Reading, opening, switching categories/scopes, or resetting an absent override creates nothing; saving `settings.json` does not create `mcp.json`, or conversely.
+Reading, opening, refreshing, switching Pi file scopes, or resetting an absent override creates nothing; saving `settings.json` does not create `mcp.json`, or conversely.
 An external process or another window can still race checks, and an I/O failure can leave a partial write or newly created file.
 No compensating write restores stale full-file content.
 The explicit advanced native editor opens an existing `settings.json` or `mcp.json` after a warning and uses normal VS Code Save/backups, not the bounded common-control path.
@@ -792,7 +806,7 @@ Debug snapshots cannot be pinned.
 
 ## Isolated Provider Authentication
 
-Provider sign-in/sign-out is separate from the process-free Pi Settings page.
+Provider sign-in/sign-out is separate from process-free native VS Code Settings and Pi Configuration.
 A user command acquires foreground ownership and the canonical workspace operation gate without starting the ordinary agent.
 Authentication also serializes the selected canonical Pi store within this Extension Host.
 This does not lock another VS Code window; Pi owns cross-process credential-store synchronization.
