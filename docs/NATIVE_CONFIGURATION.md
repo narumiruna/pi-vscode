@@ -10,8 +10,8 @@ Native file controls implement the documented strict JSON format, not an indepen
 
 | Control | Read source | Write target | Active effect |
 | --- | --- | --- | --- |
-| Pi: Open Settings / sidebar gear | Native VS Code Settings filtered to `@ext:narumi.narumi-pi`; General, Permissions, Editor group the existing 11 keys | Native configuration target allowed by each setting's declared scope | Native save-on-edit and validation; existing launch/editor behavior; no Pi process |
-| Pi: Open Pi Configuration | Validated common settings and safe MCP metadata at its Global Pi/Project Pi selector | Selected allowlisted `settings.json` or `mcp.json` member through shared guarded writes | Explicit row save/reset only; no live apply, new configuration keys or duplicate schema |
+| Pi: Extension Settings / Pi view title ⋯ → Extension Settings | Native VS Code Settings filtered to `@ext:narumi.narumi-pi`; General, Permissions, Editor group the existing 11 keys | Native configuration target allowed by each setting's declared scope | Native save-on-edit and validation; existing launch/editor behavior; no Pi process |
+| Pi: Pi Configuration / Pi view title ⋯ → Pi Configuration | Validated common settings and safe MCP metadata at its Global Pi/Project Pi selector | Selected allowlisted `settings.json` or `mcp.json` member through shared guarded writes | Explicit row save/reset only; no live apply, new configuration keys or duplicate schema |
 | Native startup provider/model/thinking | Global Pi/Project Pi `settings.json` | Selected Global Pi/Project Pi member | Next controlled restart; launch overrides and resumed session state can take precedence |
 | Ordered `enabledModels` | Global Pi/Project Pi `settings.json` | Selected file member | Startup/cycling preferences, not model access control; no supported live setter |
 | Queue grouping files | Global Pi/Project Pi `settings.json` | Selected file member | Later restart; runtime controls are separate |
@@ -53,16 +53,19 @@ Server names differing only in `-` and `_` cannot be added in the same file.
 
 ## Editing boundaries
 
-**Pi: Open Settings** (`pi.openSettings`) and the sidebar gear open real native Settings, not a custom `pi.*` form.
+The Pi view title's native **⋯** overflow menu lists **Extension Settings** then **Pi Configuration**, directly in the same configuration group.
+There is no standalone settings gear or settings submenu.
+Composer **More…** retains session and work actions without duplicate entries for these commands.
+**Pi: Extension Settings** (`pi.openSettings`) opens real native Settings, not a custom `pi.*` form.
 VS Code owns validation, configuration scopes, incomplete-input behavior, array controls, and save-on-edit.
 The former custom page's 4,096-character string, 100-item list, and 16 KiB serialized-list edit limits do not apply to native Settings.
 Runtime trust and project-resource guards remain independent of native Settings editability.
 
-**Pi: Open Pi Configuration** (`pi.openPiConfiguration`) opens one dedicated panel; repeated invocation reveals it.
-It is also available in the Pi view's secondary title actions.
+**Pi: Pi Configuration** (`pi.openPiConfiguration`) opens one dedicated panel; repeated invocation reveals it.
+It is also available directly in the Pi view title's native overflow menu.
 The panel's **Save to** selector has **Global Pi / Project Pi** scopes, with no General/Permissions/Editor form or User/Workspace selector.
 Project Pi shows **First workspace folder · .pi**.
-One **Open VS Code Settings** action opens extension settings.
+One **Open Extension Settings** action opens extension settings.
 The **Model**, **Behavior**, and **MCP** sections use level-two headings.
 Model contains provider, model, thinking level, and ordered patterns; Behavior contains steering, follow-up, compaction, and retry.
 The secondary **Advanced** menu contains **Open Pi settings dialog…** and **Manage MCP servers…**, not direct JSON editor actions.
@@ -246,16 +249,18 @@ This source evidence explains the implementation choices; test-run evidence foll
 
 ### Current validation
 
+All checks below were rerun after merging `origin/main` (`37758e4`) and resolving the configuration usability and overflow-menu conflicts.
+The merge preserves the direct adjacent menu entries, the Open Extension Settings cross-link, and the revised inherited/override/draft controls.
 Validation ran on Linux x64 with local fixtures and no live provider or external MCP server.
 `npm ci` installed the locked dependencies without dependency or version changes.
 The final checks passed after the restart-recovery, invalid-inheritance diagnostic, and Advanced menu fixes.
 A browser fixture rerun exposed a race between synthetic recovery injection and current-document persistence.
-The mock now holds injected host recovery for the next document; three consecutive `npm run test:settings` runs passed.
+The mock now holds injected host recovery for the next document; three consecutive pre-merge `npm run test:settings` runs passed, followed by a successful merged-source run.
 The failed attempt is retained in `/tmp/pi-configuration-usability/browser-settings-state-injection-race.log`; repeat logs are `browser-settings-repeat-{1,2,3}.log` in the same directory.
 
 | Check | Result |
 | --- | --- |
-| `npm test` | 102 test files passed; 1,595 tests passed and three skipped. Includes host action/token guards, malformed launch-setting recovery, result replay, and same-value override/reset regressions. |
+| `npm test` | 102 test files passed; 1,596 tests passed and three skipped. Includes host action/token guards, malformed launch-setting recovery, result replay, same-value override/reset regressions, and the upstream overflow-menu contract. |
 | `npm exec --yes --package=@biomejs/biome@2.5.13 -- biome check src resources` | Passed with warnings and informational diagnostics; no errors. |
 | `npm run test:settings` | Passed all eight controls and MCP fields at both scopes, inherited/override/draft states, explicit saves/removal, local discard, failures, conflicts, bounded recovery, restart result recovery/replay, DOM status semantics, focus, CSP, and no discovery. |
 | Settings layout matrix | 36 row-menu states and 18 Advanced menu layouts passed across light, dark, and high-contrast themes at widths 280, 360, 400, 650, 1100, and 1150. Tests check popup bounds and visible keyboard focus. |
@@ -267,7 +272,8 @@ The failed attempt is retained in `/tmp/pi-configuration-usability/browser-setti
 
 The native UI fixtures exercised all 11 native `pi.*` controls, native arrays, User/Workspace save-on-edit and scoped Reset, and the separate configuration singleton in three native themes.
 They also exercised all eight Pi file fields at both scopes, inherited-to-draft editing, local discard, stable Save, scoped removal, keyboard focus, and hide/reveal draft recovery.
-Native Settings UI validation started no Pi process or model prompt.
+Passive Settings and Pi Configuration routes started no Pi process or model prompt.
+The subsequent title-menu checks established one fixture-only sidebar startup, then verified adjacent ordered destinations, keyboard opening/Escape, the renamed cross-link, and no extra process or model request.
 Host and browser fixtures cover restart outcomes and webview recreation; these are not live-provider restart evidence.
 DOM status assertions are not a screen-reader test.
 No installed-VSIX, Windows/macOS, remote-host, native virtual-workspace, live-provider, or external-MCP verification is claimed for this change.
@@ -279,15 +285,17 @@ Local captures and logs are retained under `/tmp/pi-configuration-usability/`, o
 - `after-saved-override-360x859.png`: saved Project override marked inactive, with stable disabled Save.
 - `after-stale-recovery-360x859.png`: retained stale draft with disabled Save and explicit Reload row.
 - `native-{1.140.0,1.143.0}-{vscode-dark,vscode-light,vscode-high-contrast}.png`: native workbench captures in three themes on both versions.
-- `browser-settings-final.log`, `native-settings-1.140.0-final.log`, and `native-settings-stable-final.log`: final browser and native UI command evidence.
+- `browser-settings-final.log`, `native-settings-1.140.0-final.log`, and `native-settings-stable-final.log`: pre-merge browser and native UI command evidence.
 
-Additional final logs are `/tmp/pi-config-npm-test.log`, `/tmp/pi-config-biome.log`, `/tmp/pi-config-rich-content.log`, `/tmp/pi-config-native-1.140.0.log`, and `/tmp/pi-config-native-untrusted.log`.
+Merged-source logs are `/tmp/pi-config-merge-npm-test.log`, `/tmp/pi-config-merge-biome.log`, `/tmp/pi-config-merge-settings.log`, `/tmp/pi-config-merge-rich.log`, `/tmp/pi-config-merge-native.log`, `/tmp/pi-config-merge-untrusted.log`, `/tmp/pi-config-merge-ui-1.140.0.log`, and `/tmp/pi-config-merge-ui-stable.log`.
+Fresh native overflow captures are `/tmp/pi-settings-overflow-1.140.0.png` and `/tmp/pi-settings-overflow-1.143.0.png`.
 These local temporary artifacts are not durable repository assets or proof of subjective user acceptance.
 The external handoff below retains unverified targets and usability review after plan completion.
 
 ### Historical evidence
 
-The results below predate the current configuration usability change and do not validate its revised controls or host routes.
+The results below cover earlier native configuration work and the separate upstream overflow-menu change.
+They do not validate the revised usability controls, host routes, or merged source.
 The first group covers earlier native dialogs and the previous inline form, before the native Settings route and compact Pi Configuration layout.
 Earlier Linux native validation covers Quick Picks, passive MCP metadata, scoped writes/reset, dirty-buffer rejection, workspace aliases and packaged behavior.
 The previous inline form had offline model/host regressions and local Chromium fixtures for explicit saves, scopes, inheritance, secret exclusion, stale drafts, recovery, keyboard focus, themes, and layout.
@@ -308,6 +316,15 @@ The final local package and extracted bundled-runtime smoke check passed using a
 No dependency versions were changed; npm audit reports three existing development-only transitive advisories.
 Virtual-workspace rejection is covered by unit tests, not a native virtual-window check.
 Full Linux UI and annotation suites, Windows native behavior, actual remote-user scopes, Remote SSH/WSL/container, screen readers, live providers, and external MCP servers were not checked in that historical run.
+
+For the historical upstream overflow-menu change, the Linux x64 offline suite passed 1,494 tests with three skipped across 99 files.
+Settings browser and rich-content checks passed.
+Focused native Settings UI checks passed on VS Code 1.140.0 and 1.143.0 for direct adjacent menu entries, keyboard opening/Escape, no standalone settings gear, both destinations, and the renamed cross-link.
+The command declarations use gear icons, but these native overflow menus render text labels without icons.
+Passive settings routes started no Pi process; opening Sessions established one fixture-only startup baseline, and menu actions added no process or model request.
+Temporary menu captures are `/tmp/pi-settings-overflow-1.140.0.png` and `/tmp/pi-settings-overflow-1.143.0.png`.
+Maintainer visual/usability review remains separate from automated checks.
+Remote targets, native virtual workspaces, Windows/macOS, real screen readers, live providers, and installed-package UI were not checked for that overflow-menu change.
 Source-development native UI results are not installed-package UI evidence.
 
 1. Structured authoritative live MCP state, retry-enabled reads, general native settings/live scoped-model apply and durable setter results need public upstream contracts before equivalent in-panel claims.

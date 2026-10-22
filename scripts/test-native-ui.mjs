@@ -29,7 +29,7 @@ import { assertNativeDirectShell } from "./direct-shell-fixture.mjs";
 import { assertAuthTransferDialogs, seedTransferSession } from "./auth-transfer-native-fixture.mjs";
 import { assertNativeAnnotationPrototype, assertNativeAnnotations } from "./annotation-native-fixture.mjs";
 import { assertNativeOutputDiagnostics } from "./output-diagnostics-native-fixture.mjs";
-import { assertNativeSettings, settingsCoordinatorSource } from "./settings-native-fixture.mjs";
+import { assertNativeSettings, openSettingsOverflow, settingsCoordinatorSource } from "./settings-native-fixture.mjs";
 
 // Actual Quick Picks, modals, Problems, code actions and webview clicks; only Pi is simulated.
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -420,12 +420,8 @@ try {
   // VS Code settings use the real native editor; Pi file drafts use their own panel.
   const pidsBeforeSettings = await readFile(path.join(directory, "pids.jsonl"), "utf8");
   const promptsBeforeSettings = await readFile(path.join(directory, "prompts.jsonl"), "utf8").catch(() => "");
-  const gear = page
-    .locator(
-      '[aria-label="Open Settings"], [aria-label="Pi: Open Settings"], [title="Open Settings"], [title="Pi: Open Settings"]',
-    )
-    .first();
-  await gear.click();
+  const settingsMenu = await openSettingsOverflow(page);
+  await settingsMenu.extension.click();
   await page.locator(".settings-editor").waitFor({ state: "visible" });
   await assertNativeSettings({ page, directory, workspace, invoke, until, version: ready.version });
   await page.screenshot({ path: path.join(tmpdir(), `pi-settings-native-${evidenceLabel}.png`) });
@@ -441,7 +437,7 @@ try {
   );
   await invoke("command", { command: "workbench.action.closeActiveEditor" });
   await invoke("source");
-  console.log("PI_NATIVE_UI settings gear, native controls, scopes, reset and no Pi side effects passed");
+  console.log("PI_NATIVE_UI settings overflow, native controls, scopes, reset and no Pi side effects passed");
   // Native file controls are separate host dialogs. Passive opens and saves must not launch Pi.
   const nativeSettingsDone = await invoke("command", { command: "pi.openNativeSettings" }, false);
   await pick("Project Pi");

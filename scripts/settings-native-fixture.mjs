@@ -92,7 +92,28 @@ export async function selectNativeSetting(page, row, value) {
   }
 }
 
-/** Real Settings controls and real configuration writes, without a Pi process. */
+/** Open the native Pi title overflow, not the composer More menu. */
+export async function openSettingsOverflow(page) {
+  const sidebar = page.locator(".part.auxiliarybar");
+  const titles = sidebar.locator(".title-actions, .pane-header");
+  assert.equal(await titles.locator(".codicon-gear").count(), 0, "Settings must not have standalone title gears");
+  const overflow = titles.getByRole("button", { name: /^(?:Views and )?More Actions\.\.\.$/ }).first();
+  await overflow.focus();
+  await overflow.press("Enter");
+  const extension = page.getByRole("menuitem", { name: /^(?:Pi: )?Extension Settings$/ });
+  const configuration = page.getByRole("menuitem", { name: /^(?:Pi: )?Pi Configuration$/ });
+  await extension.waitFor({ state: "visible" });
+  await configuration.waitFor({ state: "visible" });
+  const labels = await page.locator(".context-view .action-label").allTextContents();
+  const index = labels.findIndex((label) => label.trim() === "Extension Settings");
+  assert.ok(index >= 0);
+  assert.equal(labels[index + 1]?.trim(), "Pi Configuration", "Settings destinations must be adjacent and ordered");
+  for (const item of [extension, configuration])
+    assert.notEqual(await item.getAttribute("aria-haspopup"), "true", "Settings must not require another submenu");
+  return { extension, configuration };
+}
+
+/** Real Settings controls and real configuration writes; passive routes do not start Pi. */
 export async function assertNativeSettings({ page, directory, workspace, invoke, until, baseline = false, version }) {
   const read = (name) =>
     readFile(path.join(directory, name), "utf8").catch((error) => {
@@ -187,6 +208,7 @@ export async function assertNativeSettings({ page, directory, workspace, invoke,
   if (!baseline) await assertPiConfiguration({ page, invoke, until, directory, workspace, version });
   assert.equal(await read("pids.jsonl"), before.pids, "Pi Configuration must not start or restart Pi");
   assert.equal(await read("prompts.jsonl"), before.prompts, "Pi Configuration must not submit a model prompt");
+  if (!baseline) await assertSettingsOverflow({ page, invoke, until, directory, version });
   console.log(
     "PI_NATIVE_SETTINGS",
     JSON.stringify({
@@ -195,11 +217,46 @@ export async function assertNativeSettings({ page, directory, workspace, invoke,
       keys: settingKeys.length,
       arrays: "native list controls and Add Item save-on-edit",
       scopes: "User/Workspace save-on-edit and scoped Reset",
-      sideEffects: "no Pi process or model prompt; native files absent before explicit Pi Configuration Save",
+      sideEffects: "passive settings routes start no Pi; title menu checks follow one sidebar fixture startup; no model prompt",
       remote: "not available in local host",
       virtual: "not exercised",
     }),
   );
+}
+
+async function assertSettingsOverflow({ page, invoke, until, directory, version }) {
+  // Opening Sessions initializes the fixture runtime. Menu actions must not start another process.
+  await invoke("command", { command: "pi.chatView.focus" });
+  const sidebar = await until(async () => {
+    for (const candidate of page.frames()) {
+      try {
+        const model = candidate.locator("#model-picker");
+        if ((await model.count()) && (await model.isEnabled())) return candidate;
+      } catch (error) {
+        if (!candidate.isDetached()) throw error;
+      }
+    }
+  }, "Pi sidebar fixture ready for title menu checks");
+  assert.ok(sidebar);
+  const read = (name) => readFile(path.join(directory, name), "utf8").catch(() => "");
+  const pids = await read("pids.jsonl");
+  const prompts = await read("prompts.jsonl");
+  assert.ok(pids.trim(), "The menu test has an explicit sidebar startup baseline");
+  let menu = await openSettingsOverflow(page);
+  const screenshot = path.join(tmpdir(), `pi-settings-overflow-${version}.png`);
+  await page.screenshot({ path: screenshot });
+  await menu.extension.press("Escape");
+  await menu.extension.waitFor({ state: "hidden" });
+  await menu.configuration.waitFor({ state: "hidden" });
+  menu = await openSettingsOverflow(page);
+  await menu.extension.click();
+  await page.locator(".settings-editor").waitFor({ state: "visible" });
+  menu = await openSettingsOverflow(page);
+  await menu.configuration.click();
+  await until(async () => (await invoke("settingsState")).tabs === 1, "Pi Configuration from title overflow");
+  assert.equal(await read("pids.jsonl"), pids, "Title menu actions must not start or restart Pi");
+  assert.equal(await read("prompts.jsonl"), prompts, "Title menu actions must not submit a prompt");
+  console.log("PI_SETTINGS_OVERFLOW", JSON.stringify({ version, screenshot, standaloneGears: 0, submenu: false }));
 }
 
 async function assertMissingNativeFiles(directory, workspace) {
@@ -350,8 +407,9 @@ async function assertPiConfiguration({ page, invoke, until, directory, workspace
     "Escape closes row actions",
   );
   await assertMissingNativeFiles(directory, workspace);
-  // Hide/reveal must keep a native file draft without submitting it.
-  await invoke("command", { command: "workbench.action.openSettings", args: ["@ext:narumi.narumi-pi"] });
+  // The labelled cross-link must use the native Settings route and keep the unsaved Pi draft.
+  await form.getByRole("button", { name: "Open Extension Settings", exact: true }).click();
+  await page.locator(".settings-editor").waitFor({ state: "visible" });
   await invoke("command", { command: "pi.openPiConfiguration" });
   form = await frame();
   await until(async () => (await input().inputValue()) === "native-configuration-draft", "Pi file draft reveal");

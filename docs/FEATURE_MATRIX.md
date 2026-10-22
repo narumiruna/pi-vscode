@@ -57,7 +57,7 @@ Persistent Pi session files and exact legacy global bridge cleanup paths are unc
 | Direct shell | Explicit idle-session `!command` / `!!command`, no extra pi-vscode approval in the sidebar or controlled TUI, correlated plain-text cards, Stop and a finite deadline | [Shell contract and evidence](#direct-shell). |
 | In-flight instructions | Visible Next and After this actions, Enter/platform alternate shortcuts, Submission help, attachment snapshots, pending text, delivery-time transcript entries and recovered drafts | [Queue evidence and limits](#in-flight-instructions). |
 | Debug-context questions | Explicit bounded paused Node.js capture, variable selection, inspection/redaction, read-only question | [Debugger evidence and limits](#debug-context-questions). |
-| Pi Settings | Open Settings / sidebar gear open real filtered native Settings with General, Permissions, and Editor groups; Open Pi Configuration opens a separate singleton Global Pi/Project Pi file editor | [Settings behavior and evidence](#pi-settings). |
+| Pi Settings | Pi view title native ⋯ menu: Extension Settings then Pi Configuration, directly in one configuration group; native Settings and singleton Global Pi/Project Pi file editor | [Settings behavior and evidence](#pi-settings). |
 | Pi extension status and text widgets | Keyed text-only status in More → Conversation details; above/below-editor widgets retain their placement, separate from host status and controls | [Extension UI evidence and limits](#pi-extension-status-and-text-widgets). |
 | Thinking blocks | Collapsed **Thinking** plain-text disclosures during streaming and Pi history refresh, including thinking-only and redacted responses | [Thinking evidence and limits](#thinking-blocks). |
 | Rich panel responses | Markdown tables, nested/task lists, quotes, links, strikethrough, highlighted code, KaTeX math, and Mermaid flowchart/sequence SVG | [Renderer evidence and limits](#rich-panel-responses). |
@@ -319,17 +319,19 @@ Only checked js-debug read paths; no evaluate/recursive capture.
 
 ### Pi Settings
 
-**Pi: Open Settings** (`pi.openSettings`) and the sidebar gear open native VS Code Settings filtered to `@ext:narumi.narumi-pi`, without a custom `pi.*` form or Pi launch.
+The Pi view title's native **⋯** overflow menu contains **Extension Settings** then **Pi Configuration**, directly in the same configuration group.
+There is no standalone settings gear or settings submenu, and composer **More…** has no duplicate entries for these commands.
+**Pi: Extension Settings** (`pi.openSettings`) opens native VS Code Settings filtered to `@ext:narumi.narumi-pi`, without a custom `pi.*` form or Pi launch.
 General, Permissions, and Editor group all 11 existing settings without changing IDs, defaults, types, bounds, declared scopes, or runtime behavior.
 VS Code owns save-on-edit, validation, draft handling, scope selection, native array controls, search, configured-value indicators, and Reset menus.
 The former custom page's 4,096-character string, 100-item list, and 16 KiB serialized-list edit limits do not apply to native Settings.
 Native Settings editability is not a runtime authorization check; untrusted launch and resource activation remain blocked by host guards independently of `pi.approveProjectResources` editing.
 
-**Pi: Open Pi Configuration** (`pi.openPiConfiguration`), also in the Pi view's secondary title actions, opens a dedicated singleton panel.
+**Pi: Pi Configuration** (`pi.openPiConfiguration`) opens a dedicated singleton panel.
 Repeated invocation reveals it.
 Save to selects Global Pi or Project Pi, with Project Pi identified as the first workspace folder's `.pi` directory.
 Model groups manual Provider ID, Model ID, thinking level, and ordered patterns; Behavior groups steering, follow-up, compaction, and retry; MCP groups safe configured-server metadata.
-The panel has one Open VS Code Settings action and no User/Workspace selector or duplicate General/Permissions/Editor controls.
+The panel has one Open Extension Settings action and no User/Workspace selector or duplicate General/Permissions/Editor controls.
 Inherited rows show read-only values with one source label, Inherited from Global or Pi default.
 Set global override or Set project override opens a local draft initialized from the displayed value without a file write.
 Saved Global override or Project override rows remain editable, with a separate unsaved-draft indicator.
@@ -367,9 +369,18 @@ These checks used disposable local profiles and fixture responses, not a live pr
 A local VSIX package and extracted bundled-runtime smoke check passed with a single test worker; the first concurrent package attempt hit an existing RPC fixture timeout.
 Virtual-workspace rejection has unit coverage, not a native virtual-window run.
 Full Linux UI and annotation suites, Windows native behavior, actual remote-user targets, Remote SSH/WSL/container, screen readers, live providers, and external MCP servers were not checked in that historical run.
-Current configuration usability validation passed on Linux: 102 test files with 1,595 tests passed and three skipped, settings/rich-content browser suites, and minimum-version native Extension Host and Restricted Mode checks.
+
+Historical upstream overflow-menu evidence: Linux x64 unit checks passed 1,494 tests with three skipped across 99 files; Settings browser and rich-content checks passed.
+Focused native UI checks passed on VS Code 1.140.0 and 1.143.0 for the ordered direct menu entries, keyboard opening/Escape, both destinations, the cross-link, and no standalone gear.
+Both commands declare gear icons; the tested native overflow menus render text labels without icons.
+Passive settings routes did not start Pi; menu checks followed one fixture sidebar startup and added no process or model request.
+Remote, native virtual-workspace, Windows/macOS, real screen-reader, live-provider, and installed-package UI checks were not run for that overflow-menu change.
+These results do not validate the merged source.
+
+Merged configuration usability and overflow-menu validation passed on Linux: 102 test files with 1,596 tests passed and three skipped, settings/rich-content browser suites, and minimum-version native Extension Host and Restricted Mode checks.
 Focused native Settings UI checks passed on VS Code 1.140.0 and stable 1.143.0 for all 11 native controls and all eight Pi file controls at both scopes.
 The settings browser matrix passed 36 row-menu states and 18 Advanced menu layouts in three themes, including restart feedback recovery, scoped removal, local discard, and stale-draft recovery.
+These checks were rerun after merging `origin/main` (`37758e4`), including the adjacent ordered menu entries, renamed cross-link, keyboard opening/Escape, and no additional process or model request after the fixture sidebar startup.
 See [Current validation](NATIVE_CONFIGURATION.md#current-validation) for commands and local captures, and [External handoff](NATIVE_CONFIGURATION.md#external-handoff) for unverified usability, platform, remote, and screen-reader checks.
 
 ### Pi extension status and text widgets

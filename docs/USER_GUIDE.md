@@ -222,7 +222,7 @@ An uncertain authoritative runtime refresh disconnects safely rather than presen
   Message headings support assistive-technology navigation.
   Earlier Orca evidence applies to the previous layout; screen-reader behavior for this relocation requires a separate check.
 - **More…** has one searchable native picker with **Session management**, **Conversation display**, **Review and repair**, **Background work**, and **Pi configuration** groups.
-  Existing action names and commands remain available.
+  Existing session and work actions remain available; **Extension Settings** and **Pi Configuration** are not duplicated here.
 
 #### Operation diagnostics
 
@@ -687,7 +687,10 @@ Native `@pi` chat and Pi HTML exports retain their own renderers.
 
 ## Settings
 
-Run **Pi: Open Settings** (`pi.openSettings`) or select the gear in the Pi view title to open native VS Code Settings filtered to `@ext:narumi.narumi-pi`.
+Open the native **⋯** overflow menu in the Pi view title for **Extension Settings** followed by **Pi Configuration**.
+Both commands appear directly in the same configuration group.
+There is no standalone settings gear or settings submenu.
+Run **Pi: Extension Settings** (`pi.openSettings`) or select **Extension Settings** in that menu to open native VS Code Settings filtered to `@ext:narumi.narumi-pi`.
 **General**, **Permissions**, and **Editor** group the existing 11 extension settings.
 Their IDs, defaults, types, bounds, configuration scopes, and runtime behavior are unchanged.
 This command does not open the Pi Configuration panel, start Pi, or send a model request.
@@ -699,7 +702,7 @@ Invalid or incomplete input follows native Settings validation and draft behavio
 The former custom VS Code form limits of 4,096 characters per string, 100 list items, and 16 KiB of serialized list text do not apply to native Settings.
 See [VS Code Settings](https://code.visualstudio.com/docs/configure/settings#_settings-editor) for native controls.
 
-Use **Pi: Open Pi Configuration** (`pi.openPiConfiguration`), also in the Pi view's secondary title actions, for the separate Pi file editor [below](#native-pi-settings-and-mcp).
+Use **Pi: Pi Configuration** (`pi.openPiConfiguration`) or **Pi Configuration** in the same overflow menu for the separate Pi file editor [below](#native-pi-settings-and-mcp).
 Repeated invocation reveals the same panel.
 Pi file controls retain explicit row saves; they do not use native Settings save-on-edit.
 
@@ -733,10 +736,10 @@ Host trust and launch checks independently prevent untrusted process launches an
 
 ### Native Pi settings and MCP
 
-Run **Pi: Open Pi Configuration** and select **Global Pi** or **Project Pi** under **Save to**.
+Run **Pi: Pi Configuration** and select **Global Pi** or **Project Pi** under **Save to**.
 Project Pi shows **First workspace folder · .pi**; there is no multi-root selector.
 This dedicated panel contains only Pi file controls, with no General/Permissions/Editor form or User/Workspace selector.
-Use its **Open VS Code Settings** action for extension settings.
+Use its **Open Extension Settings** action for extension settings.
 The **Model**, **Behavior**, and **MCP** sections group startup preferences, session behavior defaults, and configured servers.
 File locations and detailed precedence rules are in expandable help.
 The secondary **Advanced** menu opens **Open Pi settings dialog…** or **Manage MCP servers…**.

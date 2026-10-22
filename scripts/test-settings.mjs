@@ -247,7 +247,7 @@ try {
   await page.evaluate(() => document.body.classList.add("fixture-dark"));
   assert.equal(await page.locator("h1").innerText(), "Pi Configuration");
   assert.equal(await page.locator("nav,#target,[data-key]").count(), 0);
-  assert.equal(await page.locator("#native-settings").innerText(), "Open VS Code Settings");
+  assert.equal(await page.locator("#native-settings").innerText(), "Open Extension Settings");
   assert.equal(await page.locator("#operation-status").getAttribute("role"), "status");
   assert.equal(await page.locator("#operation-status").getAttribute("aria-live"), null);
   assert.equal(await page.locator("#operation-status [aria-live],[aria-live]:has(#operation-status)").count(), 0);

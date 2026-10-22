@@ -378,8 +378,11 @@ The modal image preview uses a native button trigger, supports Escape/close, cle
 
 ## Settings Page
 
-**Pi: Open Settings** (`pi.openSettings`) and the sidebar gear run `workbench.action.openSettings` with the fixed filter `@ext:narumi.narumi-pi`.
-They do not open a custom `pi.*` settings form or start Pi.
+The Pi view title's native **⋯** overflow menu lists **Extension Settings** then **Pi Configuration**, directly in the same configuration group.
+There is no standalone settings gear or settings submenu.
+Composer **More…** retains session and work actions without duplicate entries for these commands.
+**Pi: Extension Settings** (`pi.openSettings`) runs `workbench.action.openSettings` with the fixed filter `@ext:narumi.narumi-pi`.
+It does not open a custom `pi.*` settings form or start Pi.
 General, Permissions, and Editor group all 11 existing settings without changing IDs, defaults, types, bounds, declared scopes, or runtime behavior.
 VS Code owns configuration targets, native validation, incomplete-input behavior, and save-on-edit.
 The former custom page's 4,096-character string, 100-item list, 16 KiB serialized-list edit limits, and custom save/retry/revision protocol do not apply to native Settings.
@@ -391,7 +394,7 @@ Reset removes only the selected configuration target's override.
 For `pi.executablePath`, another effective override can still select external Pi; otherwise the empty default selects bundled Pi.
 Launch settings affect later process creation, not running foreground or background agents.
 
-**Pi: Open Pi Configuration** (`pi.openPiConfiguration`) opens one dedicated panel; repeated invocation reveals it.
+**Pi: Pi Configuration** (`pi.openPiConfiguration`) opens one dedicated panel; repeated invocation reveals it.
 It has only a Global Pi/Project Pi file selector, with no User/Workspace selector or General/Permissions/Editor controls.
 Its inline form edits only the eight existing common native settings and safe MCP enabled/exposure metadata through host-owned allowlists.
 The common fields are startup provider, startup model, startup thinking level, ordered model patterns, steering mode, follow-up mode, automatic compaction, and automatic retry.
@@ -446,7 +449,7 @@ Pi Configuration scripts and styles are bundled under `out/settings`, which is t
 The page uses `default-src 'none'`, nonce-only external scripts, local stylesheet resources, and no inline-style exception.
 It enables no network connections, images, fonts, frames, or objects.
 Configuration values enter the DOM through input values and `textContent`, not HTML.
-Open VS Code Settings runs one fixed host-owned command/filter, never a browser-supplied command ID.
+Open Extension Settings runs one fixed host-owned command/filter, never a browser-supplied command ID.
 Review project approval setting accepts exactly `{ type: "openProjectApproval" }` and runs `workbench.action.openSettings` with the fixed filter `pi.approveProjectResources`.
 It requires current panel authority and native-file availability and changes no approval, trust, or runtime state.
 The separate Restart Pi… button (`native-restart-pi`) sends exactly `{ type: "restartPi", id, actionToken }` to the fixed host-owned `pi.restartResources` route.

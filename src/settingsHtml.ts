@@ -10,7 +10,7 @@ export function getSettingsHtml(assets: { source: string; script: string; style:
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pi Configuration</title><link rel="stylesheet" href="${escapeAttribute(assets.style)}">
 </head><body>
-<header><h1>Pi Configuration</h1><button id="native-settings" type="button" class="secondary">Open VS Code Settings</button></header>
+<header><h1>Pi Configuration</h1><button id="native-settings" type="button" class="secondary">Open Extension Settings</button></header>
 <p id="save-behavior">Save changes Pi files only. Running sessions are unchanged. Restart Pi to load saved settings.</p>
 <div class="actions runtime-actions"><button id="native-restart-pi" type="button" class="secondary" disabled>Restart Pi…</button>
 <details id="configuration-details"><summary>File locations and precedence</summary>
