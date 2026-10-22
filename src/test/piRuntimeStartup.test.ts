@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type * as vscode from "vscode";
@@ -12,7 +12,7 @@ const vscodePi = require("../vscodePi") as typeof import("../vscodePi");
 afterAll(() => mock.restore());
 
 async function fixture(action: (runtime: any, internal: any, root: string, starts: () => number) => Promise<void>) {
-  const root = await mkdtemp(path.join(tmpdir(), "pi-startup-"));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "pi-startup-")));
   const folder = { uri: MockUri.file(root) };
   mock.workspace.isTrusted = true;
   mock.workspace.workspaceFolders = [folder];
