@@ -146,6 +146,43 @@ Check remaining work before starting conflicting operations.
 Use `@pi` in VS Code's native Chat view when you prefer the native participant workflow.
 Native Chat history is separate from the Pi sidebar session.
 
+### Switch sessions
+
+Run **Pi: Switch Session** (`pi.switchSession`) to open a native searchable Quick Pick.
+Search matches titles and session IDs; **Current** identifies the active saved session.
+Press Enter to resume the selected session, or Escape to cancel without changing the conversation or composer.
+Selecting the active session is a no-op.
+
+| Action | Windows/Linux | macOS |
+| --- | --- | --- |
+| Switch Session | Ctrl+K, then Ctrl+Alt+Shift+S | Cmd+K, then Cmd+Alt+Shift+S |
+| Previous Session | Ctrl+K, then Ctrl+Alt+Shift+Left | Cmd+K, then Cmd+Alt+Shift+Left |
+| Next Session | Ctrl+K, then Ctrl+Alt+Shift+Right | Cmd+K, then Cmd+Alt+Shift+Right |
+
+The previous/next command IDs are `pi.previousSession` and `pi.nextSession`.
+Change these shortcuts in VS Code **Keyboard Shortcuts** if needed.
+The defaults do not run in terminal input or while another Quick Pick is open.
+
+Discovery uses the active session directory on the workspace Extension Host, keeps at most 100 saved sessions with matching canonical workspace, and shares a 64 MiB metadata-read budget.
+It is not a complete search across all Pi stores.
+The first navigation can start or restore Pi through the normal trusted startup path; it does not send a model request.
+Use **More… → Resume Session** to select a saved file outside this discovered list.
+A session from another workspace or worktree must be opened in its matching VS Code window.
+
+Next moves forward through a newest-first snapshot; Previous moves backward, and both wrap around.
+Updates to session modification times do not reorder an active cycle.
+Search selection, other session transitions, changed membership, resource controls, and client/workspace changes rebuild the cycle.
+An unsaved current session is not a resumable destination; Next starts at the first saved entry and Previous at the last.
+An empty list does not switch; a list containing only the active session is a no-op.
+
+Switching requires an idle trusted file-backed workspace, sidebar ownership, and no pending queues or extension dialogs.
+Repeated navigation while a picker or switch is pending is rejected rather than queued.
+Existing draft binding and recovery checks remain in effect; switching does not automatically restore or send a draft.
+Attachments, edit proposals, checkpoints, and retry state clear through the successful conversation transition.
+Extension-provided status and widget text reset before dispatch so fresh destination updates cannot mix with outgoing UI.
+If switching succeeds but history refresh fails, use **Refresh history** or reconnect as directed; do not repeat the switch to recover history.
+An uncertain authoritative runtime refresh disconnects safely rather than presenting the old session as usable.
+
 ### Conversation controls
 
 - One primary status area stays inside the composer, directly above the composer box and outside the transcript and workflow scrollers.

@@ -74,6 +74,12 @@ export async function assertComposerNavigation(pi, page) {
   await settings.waitFor({ state: "hidden" });
   assert.equal(await input.inputValue(), "Native navigation draft, never sent");
   const scroller = pi.locator("#conversation");
+  // Consume any output retained by the previous fixture before testing blocker-only changes.
+  await scroller.evaluate((node) => {
+    node.scrollTop = node.scrollHeight;
+    node.dispatchEvent(new Event("scroll"));
+  });
+  await page.waitForTimeout(150);
   await scroller.hover();
   await page.mouse.wheel(0, -100000);
   await page.waitForTimeout(150);

@@ -66,6 +66,9 @@ export async function run(): Promise<void> {
   let extensionEditor: vscode.TextDocument | undefined;
   let extensionConfirmation: vscode.TextDocument | undefined;
   const commands = new Map<number, { complete: boolean; error?: string }>();
+  let sessionSwitchTerminal: vscode.Terminal | undefined;
+  let sessionSwitchTerminalInput = "";
+  const sessionSwitchTerminalWrite = new vscode.EventEmitter<string>();
   let lastId = await readFile(path.join(directory, "request.json"), "utf8")
     .then((text) => JSON.parse(text).id as number)
     .catch(() => 0);
@@ -92,6 +95,42 @@ export async function run(): Promise<void> {
         switch (request.action) {
           case "command":
             result = await vscode.commands.executeCommand(request.command, ...(request.args ?? []));
+            break;
+          case "clipboardRead":
+            result = await vscode.env.clipboard.readText();
+            break;
+          case "sessionSwitchDefaults": {
+            await vscode.commands.executeCommand("workbench.action.openDefaultKeybindingsFile");
+            const document = vscode.window.activeTextEditor?.document;
+            assert.ok(document, "Native default keyboard shortcuts document must be active");
+            result = document.getText();
+            break;
+          }
+          case "sessionSwitchTerminal":
+            if (request.operation === "open") {
+              sessionSwitchTerminalInput = "";
+              sessionSwitchTerminal = vscode.window.createTerminal({
+                name: "Session switch input fixture",
+                pty: {
+                  onDidWrite: sessionSwitchTerminalWrite.event,
+                  open: () => sessionSwitchTerminalWrite.fire("Session switch input fixture\r\n"),
+                  close() {},
+                  handleInput: (data: string) => {
+                    sessionSwitchTerminalInput += data;
+                    sessionSwitchTerminalWrite.fire(data);
+                  },
+                },
+              });
+              sessionSwitchTerminal.show(false);
+            } else if (request.operation === "close") {
+              sessionSwitchTerminal?.dispose();
+              sessionSwitchTerminal = undefined;
+            } else {
+              result = {
+                input: sessionSwitchTerminalInput,
+                active: vscode.window.activeTerminal === sessionSwitchTerminal,
+              };
+            }
             break;
           case "startCommand": {
             const id = request.id as number;
@@ -439,6 +478,8 @@ export async function run(): Promise<void> {
     }
     throw new Error("Native UI coordinator timed out");
   } finally {
+    sessionSwitchTerminal?.dispose();
+    sessionSwitchTerminalWrite.dispose();
     subscription.dispose();
     annotationPrototype.dispose();
     diagnostics.dispose();

@@ -15,7 +15,7 @@ export async function assertDiscoveryWrap(frame, toggleWrapping) {
   assert.equal(new Set(labels.map((item) => item.label)).size, labels.length);
   for (const item of labels) {
     assert.match(item.id, /^pi-message-heading-\d+$/);
-    assert.match(item.label, /^(?:You|Pi|Shell) message \d+$/);
+    assert.match(item.label, /^(?:You|Pi|Shell|Tool) message \d+$/);
     assert.equal(item.owner, item.id);
   }
   assert.equal(await frame.locator("#messages").getAttribute("aria-live"), "off");

@@ -161,6 +161,37 @@ test("workflow commands are contributed, registered, documented and keep minimum
     assert.ok(readme.includes(`Pi: ${label}`));
 });
 
+test("session navigation commands keep stable IDs and guarded, overridable chords", () => {
+  const raw = JSON.parse(readFileSync("package.json", "utf8"));
+  const sidebar = readFileSync("src/sidebar.ts", "utf8");
+  for (const [command, title, key, mac] of [
+    ["pi.switchSession", "Switch Session", "s", "s"],
+    ["pi.previousSession", "Previous Session", "left", "left"],
+    ["pi.nextSession", "Next Session", "right", "right"],
+  ]) {
+    assert.deepEqual(
+      manifest.contributes.commands.find((item) => item.command === command),
+      {
+        command,
+        title,
+        category: "Pi",
+        enablement: "isWorkspaceTrusted",
+      },
+    );
+    assert.ok(sidebar.includes(`registerCommand("${command}"`));
+    assert.deepEqual(
+      raw.contributes.keybindings.find((item: { command: string }) => item.command === command),
+      {
+        command,
+        key: `ctrl+k ctrl+alt+shift+${key}`,
+        mac: `cmd+k cmd+alt+shift+${mac}`,
+        when: "isWorkspaceTrusted && !terminalFocus && !inQuickOpen",
+      },
+    );
+  }
+  assert.ok(sidebar.includes('registerCommand("pi.openChat", () => provider.showSessions())'));
+});
+
 test("extension editor commands use matching IDs, guarded context and keyboard bindings", () => {
   const controller = readFileSync("src/extensionUiDialogs.ts", "utf8");
   assert.ok(readFileSync("src/extension.ts", "utf8").includes("registerExtensionUiDialogs(context, runtime)"));

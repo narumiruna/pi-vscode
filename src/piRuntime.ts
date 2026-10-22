@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { lstat, realpath } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, open, realpath } from "node:fs/promises";
 import path from "node:path";
 import * as vscode from "vscode";
 import { piConfiguration } from "./configuration";
@@ -258,14 +259,7 @@ export class PiRuntimeManager implements vscode.Disposable {
         return runtime.hasPendingExtensionDialogs;
       },
       get queuePending() {
-        return (
-          runtime.queueGate.isPending ||
-          Boolean(
-            runtime.state.queue?.steering.length ||
-              runtime.state.queue?.followUp.length ||
-              runtime.awaitingQueueStarts.length,
-          )
-        );
+        return runtime.hasPendingQueueWork;
       },
       owned: (action) => runtime.owned(action),
       start: () => runtime.ensureStarted(runtime.resource),
@@ -292,6 +286,21 @@ export class PiRuntimeManager implements vscode.Disposable {
 
   private get generation(): number {
     return (this.client && this.clientGenerations.get(this.client)) ?? this.nextClientGeneration;
+  }
+
+  private get hasPendingQueueWork(): boolean {
+    return (
+      this.queueGate.isPending ||
+      this.queueStopping ||
+      Boolean(
+        this.pendingInstruction ||
+          this.state.queue?.steering.length ||
+          this.state.queue?.followUp.length ||
+          this.state.pendingQueue?.steering.length ||
+          this.state.pendingQueue?.followUp.length ||
+          this.awaitingQueueStarts.length,
+      )
+    );
   }
 
   private logWarning(
@@ -1187,20 +1196,90 @@ export class PiRuntimeManager implements vscode.Disposable {
     await this.refreshState(false);
   }
 
-  public async switchSession(sessionPath: string): Promise<void> {
-    return this.owned(async () => {
-      if (this.state.busy) throw new Error("Stop or wait for Pi before switching session.");
-      await this.ensureStarted(this.resource);
-      await assertSessionWorkspace(sessionPath, this.currentCwd);
-      if (this.hasPendingExtensionDialogs) throw new Error("Finish or cancel the Pi extension dialog first.");
-      this.invalidateExtensionDialogs();
+  public async switchSession(sessionPath: string, expectedSessionId?: string): Promise<void> {
+    return this.withForegroundOperation("switching session", async (client, assertCurrent) => {
+      const cwd = this.currentCwd;
+      const resource = this.resource;
+      const generation = this.generation;
+      const origin = JSON.stringify([this.state.sessionFile, this.state.sessionId]);
+      const policy = () =>
+        JSON.stringify({
+          ...readPiInvocationSettings(this.resource),
+          approveProjectResources: piConfiguration().get<boolean>("approveProjectResources", false),
+        });
+      const launchPolicy = policy();
+      const root = await realpath(cwd);
+      const target = await readSessionSwitchTarget(sessionPath, root);
+      if (expectedSessionId !== undefined && target.sessionId !== expectedSessionId)
+        throw new Error("The destination session no longer matches the selected session.");
+      const assertSwitchOrigin = (checkSession = false) => {
+        this.control.assertSidebarOwnership();
+        const folder =
+          (resource ? vscode.workspace.getWorkspaceFolder(resource) : undefined) ??
+          vscode.workspace.workspaceFolders?.[0];
+        if (
+          this.disposed ||
+          !vscode.workspace.isTrusted ||
+          !folder ||
+          folder.uri.scheme !== "file" ||
+          client !== this.client ||
+          !client.isRunning ||
+          this.state.busy ||
+          this.hasPendingQueueWork ||
+          this.hasPendingExtensionDialogs ||
+          generation !== this.generation ||
+          resource !== this.resource ||
+          (checkSession && origin !== JSON.stringify([this.state.sessionFile, this.state.sessionId])) ||
+          cwd !== this.currentCwd ||
+          launchPolicy !== policy()
+        )
+          throw new Error("Pi session switch origin changed. Inspect the current session before trying again.");
+      };
+      await assertCurrent();
+      // Validate again after asynchronous origin checks; a picker destination can be removed or replaced.
+      const currentTarget = await readSessionSwitchTarget(sessionPath, root);
+      if (JSON.stringify(currentTarget) !== JSON.stringify(target))
+        throw new Error("The destination session changed before switching.");
+      if ((await realpath(cwd)) !== root) throw new Error("Pi workspace changed before switching session.");
+      assertSwitchOrigin(true);
       this.control.invalidate();
+      // Pi can emit new extension UI during switch_session, so retain the existing pre-dispatch reset.
       this.resetExtensionUi();
-      const result = await this.requireClient().switchSession(sessionPath);
-      if (isRecord(result) && result.cancelled) throw new Error("Pi cancelled the session switch.");
-      this.resetQueueTracking();
-      this.updateState({ queue: { steering: [], followUp: [] }, pendingQueue: emptyPendingQueue(), queueable: false });
-      await this.refreshState(true);
+      assertSwitchOrigin(true);
+      let cancelled = false;
+      try {
+        const result = await client.switchSession(target.sessionFile);
+        cancelled = isRecord(result) && result.cancelled === true;
+        if (cancelled) throw new Error("Pi cancelled the session switch.");
+        assertSwitchOrigin();
+        await this.refreshState(true, true, target);
+        if ((await realpath(cwd)) !== root) throw new Error("Pi workspace changed during session switch.");
+        assertSwitchOrigin();
+        if (this.state.sessionFile !== target.sessionFile || this.state.sessionId !== target.sessionId)
+          throw new Error("Pi could not verify the destination session as active.");
+        this.resetQueueTracking();
+        this.updateState({
+          queue: { steering: [], followUp: [] },
+          pendingQueue: emptyPendingQueue(),
+          queueable: false,
+        });
+      } catch (error) {
+        if (cancelled) throw error;
+        // A lost RPC response can also hide a completed switch. Never retain a usable, stale session.
+        if (this.client === client) {
+          try {
+            await this.stopClient();
+          } finally {
+            if (!this.client) this.updateState({ connected: false, busy: false, queueable: false });
+          }
+        } else {
+          await this.stopDetachedClient(client);
+        }
+        throw new Error(
+          "Pi may have switched sessions, but verification failed. Pi disconnected; inspect the session before reconnecting. Do not repeat the switch automatically.",
+          { cause: error },
+        );
+      }
     });
   }
 
@@ -1695,7 +1774,11 @@ export class PiRuntimeManager implements vscode.Disposable {
     }
   }
 
-  private async refreshState(includeCatalogs: boolean, strict = false): Promise<void> {
+  private async refreshState(
+    includeCatalogs: boolean,
+    strict = false,
+    expectedSession?: { readonly sessionFile: string; readonly sessionId: string },
+  ): Promise<void> {
     const client = this.requireClient();
     const revision = ++this.refreshRevision;
     const [rpcState, stats, models, thinkingLevels, commands] = await Promise.all([
@@ -1717,21 +1800,42 @@ export class PiRuntimeManager implements vscode.Disposable {
           : client.getCommands().catch(() => [])
         : Promise.resolve(this.state.commands),
     ]);
-    if (revision !== this.refreshRevision || this.client !== client) return;
+    const assertRefreshCurrent = () => {
+      const current = revision === this.refreshRevision && this.client === client;
+      if (!current && expectedSession) throw new Error("Pi session-switch state refresh expired.");
+      return current;
+    };
+    if (!assertRefreshCurrent()) return;
     const sessionFile = stringField(rpcState, "sessionFile");
+    if (
+      expectedSession &&
+      (sessionFile !== expectedSession.sessionFile ||
+        stringField(rpcState, "sessionId") !== expectedSession.sessionId ||
+        rpcState.isStreaming ||
+        rpcState.isCompacting ||
+        Number(rpcState.pendingMessageCount ?? 0) > 0)
+    )
+      throw new Error("Pi reported a different destination session after switching.");
     let savedSession = sessionFile;
     if (sessionFile) {
       try {
-        await assertSessionWorkspace(sessionFile, this.currentCwd);
+        if (expectedSession) {
+          const target = await readSessionSwitchTarget(sessionFile, await realpath(this.currentCwd));
+          if (target.sessionFile !== expectedSession.sessionFile || target.sessionId !== expectedSession.sessionId)
+            throw new Error("The destination session identity changed after switching.");
+        } else {
+          await assertSessionWorkspace(sessionFile, this.currentCwd);
+        }
       } catch (error) {
         if (!(error instanceof MissingSessionFileError)) throw error;
         savedSession = undefined;
       }
     }
-    if (revision !== this.refreshRevision || this.client !== client) return;
+    if (expectedSession && !savedSession) throw new Error("The switched session file is no longer available.");
+    if (!assertRefreshCurrent()) return;
     // Pi assigns a path before its first save. Never restore that path, or an older session, after reload.
     await this.context.workspaceState.update(sessionPathKey, savedSession);
-    if (revision !== this.refreshRevision || this.client !== client) return;
+    if (!assertRefreshCurrent()) return;
     if (
       runtimeSessionIdentityChanged(this.state, {
         sessionId: stringField(rpcState, "sessionId"),
@@ -2190,6 +2294,43 @@ export class PiRuntimeManager implements vscode.Disposable {
       queue: { steering: [], followUp: [] },
       pendingQueue: emptyPendingQueue(),
     });
+  }
+}
+
+/** A bounded header and file snapshot; no transcript content enters switch validation. */
+async function readSessionSwitchTarget(sessionPath: string, root: string) {
+  if (!path.isAbsolute(sessionPath) || sessionPath.includes("\0")) throw new Error("Invalid Pi session path.");
+  const sessionFile = await realpath(sessionPath);
+  const handle = await open(sessionPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const before = await handle.stat({ bigint: true });
+    if (!before.isFile()) throw new Error("Pi session is not a regular file.");
+    const bytes = Buffer.alloc(16_384);
+    const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
+    const newline = bytes.subarray(0, bytesRead).indexOf(10);
+    if (newline < 0) throw new Error("Pi session header is missing or oversized.");
+    const header: unknown = JSON.parse(bytes.subarray(0, newline).toString("utf8"));
+    if (
+      !isRecord(header) ||
+      header.type !== "session" ||
+      typeof header.id !== "string" ||
+      !header.id ||
+      typeof header.cwd !== "string" ||
+      !path.isAbsolute(header.cwd) ||
+      (await realpath(header.cwd)) !== root
+    )
+      throw new Error("Pi session identity is invalid or belongs to another working directory.");
+    const fingerprint = (stat: typeof before) => [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(":");
+    const revision = fingerprint(before);
+    if (
+      revision !== fingerprint(await handle.stat({ bigint: true })) ||
+      revision !== fingerprint(await lstat(sessionPath, { bigint: true })) ||
+      sessionFile !== (await realpath(sessionPath))
+    )
+      throw new Error("The destination session changed during validation.");
+    return { sessionFile, sessionId: header.id, revision };
+  } finally {
+    await handle.close();
   }
 }
 

@@ -198,6 +198,15 @@ Pi extensions execute with the user's permissions and must be reviewed before in
 Reload, fork, clone, navigation, restart, and terminal ownership share the foreground operation owner and canonical workspace operation gate with Apply/import/restore.
 The gate prevents conflicting extension-owned operations.
 
+Searchable switching, previous/next commands, and saved-session sidebar routes share the guarded runtime switch path.
+Discovery uses bounded same-workspace metadata from the active session directory, not arbitrary stores or full transcript search.
+Picker preparation and acceptance reject stale session/client/view lifecycle state; failed discovery cannot authorize a retained index.
+A selected saved session ID must still match its bounded header, and repeated file/header snapshots reject observed destination replacement before dispatch.
+The canonical operation gate excludes Apply, imports, restores, direct shell, and terminal handoff during RPC switching and authoritative runtime refresh.
+A verified cancellation keeps the current session; a thrown RPC result or failed authoritative refresh disconnects safely because the destination can already be active.
+Neither outcome automatically repeats switching or sends a model request.
+Existing composer binding/recovery checks remain unchanged; extension status/widget UI still resets before dispatch, while the conversation workflow reset follows verified switching.
+
 - Controls reject busy sessions, queued instructions, active extension dialogs, untrusted/virtual workspaces, stale client generations, changed session/leaf identity, and canonical workspace mismatches.
   Approval callbacks revalidate the origin after asynchronous UI.
 - Cold configuration operations can hold the same guard without starting Pi.

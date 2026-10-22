@@ -19,6 +19,7 @@ import {
 import { assertDiscoveryWrap } from "./discovery-wrap-fixture.mjs";
 import { assertNativeConversationHistory, historyFixtureMessages } from "./history-fixture.mjs";
 import { assertSessionActions } from "./session-actions-fixture.mjs";
+import { assertNativeSessionSwitch, seedSessionSwitch } from "./session-switch-fixture.mjs";
 import { assertNativeDraftLocalCommands, assertNativeDraftRecovery } from "./draft-native-fixture.mjs";
 import { assertToolActivity } from "./tool-activity-fixture.mjs";
 import { assertNativeFileCompletion } from "./completion-native-fixture.mjs";
@@ -36,13 +37,14 @@ const version = process.argv[2] ?? "1.140.0";
 const workspaceAlias = process.argv[3] === "alias";
 const packaged = process.argv.includes("packaged");
 const selectionOnly = process.argv.includes("selection");
+const sessionSwitchOnly = process.argv.includes("session-switch");
 const settingsBaseline = process.argv.includes("settings-baseline");
 const settingsOnly = settingsBaseline || process.argv.includes("settings");
 const outputDiagnosticsOnly = process.argv.includes("output-diagnostics");
 if (outputDiagnosticsOnly && packaged) throw new Error("Output diagnostics uses a source development profile only.");
 const annotationPrototypeOnly = process.argv.includes("annotation-prototype");
 const annotationsOnly = process.argv.includes("annotations") || annotationPrototypeOnly;
-const evidenceLabel = `${version}${workspaceAlias ? "-alias" : ""}${packaged ? "-packaged" : ""}${selectionOnly ? "-selection" : ""}${annotationsOnly ? "-annotations" : ""}${annotationPrototypeOnly ? "-prototype" : ""}${outputDiagnosticsOnly ? "-output-diagnostics" : ""}${settingsOnly ? settingsBaseline ? "-settings-baseline" : "-settings" : ""}`;
+const evidenceLabel = `${version}${workspaceAlias ? "-alias" : ""}${packaged ? "-packaged" : ""}${selectionOnly ? "-selection" : ""}${sessionSwitchOnly ? "-session-switch" : ""}${annotationsOnly ? "-annotations" : ""}${annotationPrototypeOnly ? "-prototype" : ""}${outputDiagnosticsOnly ? "-output-diagnostics" : ""}${settingsOnly ? settingsBaseline ? "-settings-baseline" : "-settings" : ""}`;
 if (process.platform !== "linux" && !(process.platform === "darwin" && settingsOnly)) {
   throw new Error("The native UI runner supports Linux; focused Settings checks also support macOS.");
 }
@@ -101,6 +103,9 @@ try {
   await writeFile(executableFixture, fixtureSource.replace('import("../../src/test/fixtures/isolated-pi-fixture.mjs")', `import(${JSON.stringify(fixtureModule)})`));
   await chmod(executableFixture, 0o700);
   await seedTransferSession(directory, workspace);
+  if (!selectionOnly && !annotationsOnly && !outputDiagnosticsOnly && !settingsOnly) {
+    await seedSessionSwitch(directory, workspace);
+  }
   const fixtureBin = path.join(directory, "bin");
   await mkdir(fixtureBin);
   // Fail closed even if an upload approval regression invokes gh. Never delegates to real gh.
@@ -298,6 +303,11 @@ try {
     await assertNativeAnnotationPrototype({ page, workspace, invoke, until, version: ready.version, evidenceLabel });
   } else if (annotationsOnly) {
     await assertNativeAnnotations({ page, directory, workspace, invoke, until, frame, pick });
+  } else if (sessionSwitchOnly) {
+    const pi = await frame();
+    await until(async () => (await pi.locator("#runtime").getAttribute("data-connection")) === "connected",
+      "session switch fixture runtime connected");
+    await assertNativeSessionSwitch({ page, directory, workspace, invoke, until, frame });
   } else if (selectionOnly) {
     // No pi.openChat, view focus, or webview message may prepare this first-open command.
     for (const candidate of page.frames()) assert.equal(await candidate.locator("#add-context").count(), 0);
@@ -347,6 +357,7 @@ try {
   await until(async () => (await pi.locator("#runtime").getAttribute("data-connection")) === "connected" &&
     (await pi.locator("#status").textContent()) === "", "Pi runtime idle with reserved empty status");
   await assertComposerStatusContract(pi);
+  await assertNativeSessionSwitch({ page, directory, workspace, invoke, until, frame });
   // Inspect the VS Code-owned tab without changing shared bar presentation settings.
   const nativeTab = page.locator(".part.auxiliarybar .composite-bar").getByRole("tab", { name: "Pi", exact: true });
   await nativeTab.waitFor({ state: "visible" });
@@ -461,14 +472,9 @@ try {
   assert.deepEqual(JSON.parse(await readFile(path.join(workspace, ".pi/settings.json"), "utf8")), {});
   assert.equal((await invoke("nativeSettingsDirty")).dirty, true);
   const nativeBlockedDone = await invoke("command", { command: "pi.openNativeSettings" }, false);
-  await pick("Project Pi");
-  await pick("Startup model");
-  await pick("Edit selected override");
-  await nativeInput.waitFor({ state: "visible" });
-  await nativeInput.fill("must-not-write-behind-dirty-buffer");
-  await nativeInput.press("Enter");
-  await page.getByRole("button", { name: "Save only", exact: true }).click();
+  // Dirty native targets now fail during loading, before a scope picker, editable row, or Save approval exists.
   await nativeBlockedDone();
+  await page.getByText("Native Pi operation did not complete.", { exact: false }).first().waitFor();
   assert.deepEqual(JSON.parse(await readFile(path.join(workspace, ".pi/settings.json"), "utf8")), {}, "Dirty native editor, including workspace aliases, blocks disk writes");
   const ordinarySave = await invoke("nativeSettingsSave");
   assert.equal(ordinarySave.saved, true);
@@ -1039,6 +1045,7 @@ try {
       cancellation: "passed",
       reloadCleanup: "passed",
       sessionControls: "3 handled reloads, clone, no-summary navigate, fork, native dialogs, unchanged draft, and terminal ownership across EH reload passed",
+      sessionQuickSwitch: "native title/ID search, cancellation/current no-op, three-session fixed cycle, editor/composer chords, terminal/Quick Pick exclusion and changed-cwd rejection",
       provider: "deterministic RPC fixture; no model calls",
       screenshot,
     }),

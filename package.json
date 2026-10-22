@@ -257,6 +257,24 @@
         }
       },
       {
+        "command": "pi.switchSession",
+        "title": "Switch Session",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "pi.previousSession",
+        "title": "Previous Session",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "pi.nextSession",
+        "title": "Next Session",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
         "command": "pi.clearAnnotations",
         "title": "Clear Annotations",
         "category": "Pi"
@@ -455,6 +473,24 @@
       ]
     },
     "keybindings": [
+      {
+        "command": "pi.switchSession",
+        "key": "ctrl+k ctrl+alt+shift+s",
+        "mac": "cmd+k cmd+alt+shift+s",
+        "when": "isWorkspaceTrusted && !terminalFocus && !inQuickOpen"
+      },
+      {
+        "command": "pi.previousSession",
+        "key": "ctrl+k ctrl+alt+shift+left",
+        "mac": "cmd+k cmd+alt+shift+left",
+        "when": "isWorkspaceTrusted && !terminalFocus && !inQuickOpen"
+      },
+      {
+        "command": "pi.nextSession",
+        "key": "ctrl+k ctrl+alt+shift+right",
+        "mac": "cmd+k cmd+alt+shift+right",
+        "when": "isWorkspaceTrusted && !terminalFocus && !inQuickOpen"
+      },
       {
         "command": "pi.extensionEditor.submit",
         "key": "ctrl+enter",

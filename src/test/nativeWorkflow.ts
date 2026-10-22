@@ -17,6 +17,7 @@ import { verifyNativeAuthTransfer } from "./nativeAuthTransfer";
 import { verifyDiagnosticEncodings } from "./nativeDiagnosticEncoding";
 import { verifyNativeDirectShell } from "./nativeDirectShell";
 import { verifyNativePiControl } from "./nativePiControl";
+import { verifyNativeSessionSwitch } from "./nativeSessionSwitch";
 import { verifyNativeSettings } from "./nativeSettings";
 
 export async function run(): Promise<void> {
@@ -31,6 +32,7 @@ export async function run(): Promise<void> {
   const uri = vscode.Uri.joinPath(root, "source.ts");
   const source = await vscode.workspace.openTextDocument(uri);
   const directShell = await verifyNativeDirectShell();
+  const sessionQuickSwitch = await verifyNativeSessionSwitch(root);
   if (!vscode.workspace.isTrusted) {
     await verifyNativePiControl(root);
     await assert.rejects(queryCodeContext("definition", uri, new vscode.Position(1, 0)), /trusted/);
@@ -41,6 +43,7 @@ export async function run(): Promise<void> {
       trustGuard: "passed",
       annotations: "Clear command needs no client; authenticated foreground annotation routes reject Restricted Mode",
       directShell,
+      sessionQuickSwitch,
     });
     return;
   }
@@ -180,6 +183,7 @@ export async function run(): Promise<void> {
     nativeUndo: "passed",
     diagnosticEncodingCases,
     directShell,
+    sessionQuickSwitch,
   });
 }
 

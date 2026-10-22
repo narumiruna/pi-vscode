@@ -146,6 +146,39 @@ Report these results separately from extracted-archive smoke, browser fixtures, 
 Unresolved distribution/runtime requirements must be resolved before release, not silently waived.
 No model request, login, live MCP service, installation into an existing profile, or publication is authorized by the offline checks.
 
+### Session quick switch validation
+
+Local validation on 2026-10-22 used Node.js 26.8.2 and a Linux x64 Extension Host under a WSL2 kernel.
+These local Linux runs do not verify VS Code Remote WSL.
+
+| Check | Result |
+| --- | --- |
+| `npm test` | 101 files passed; 1,585 tests passed and 3 skipped. |
+| Documented Biome 2.5.13 check | Passed with warnings and informational diagnostics; no errors. |
+| `xvfb-run -a npm run test:native -- 1.140.0` and `stable` | Passed; stable resolved to 1.143.0. |
+| The same Extension Host commands with `untrusted` | Passed; all three navigation handlers reject Restricted Mode before process launch. |
+| `xvfb-run -a npm run test:native-ui -- 1.140.0` and `stable` | Full suites passed, including session search, authoritative history, three-session cycling, editor/composer chords, terminal/Quick Pick exclusion, and changed-workspace rejection. |
+| `npm run test:rich-content` | Passed, including clipboard success/failure IPC and lifecycle assertions. |
+| `npm run package` | Passed full tests and extracted bundled-runtime smoke; ZIP inspection confirmed all three commands and guarded shifted chords. |
+
+The native UI runner also accepts `session-switch` after the version for focused iteration.
+Default native UI runs include the same assertions.
+Generated native default-keybinding JSON confirmed no Linux built-in conflicts for the shifted chords.
+Static checks of VS Code 1.140.0 and 1.143.0 bundles found conflicts with the original unshifted Git and macOS editor-group chords; the final chords avoid these known conflicts.
+
+Full-suite validation corrected stale fixture expectations without changing production rendering or native settings behavior.
+The dirty-native-settings picker timeout was reproduced from unmodified `origin/main` at `1affb5a`; the fixture now checks rejection before scope selection and verifies retained editor text through an explicit save.
+Clipboard assertions now read the actual VS Code host clipboard instead of replacing the unused browser API; deterministic failure coverage remains in unit and browser tests.
+Composer navigation consumes prior fixture output before testing blocker-only changes, and message-heading assertions include the existing Tool role.
+An initial 1.143.0 run timed out while reopening the existing More picker; two later full runs passed without a code change for that timeout.
+
+Windows/macOS maintainers need a disposable native VS Code profile and the fixture build to verify OS-level shortcut dispatch and platform-specific conflicts.
+Expected behavior is the same searchable selection and stable cycling without capturing terminal input or another Quick Pick.
+Remote-host maintainers need an existing authorized Remote SSH, WSL, or container environment to verify session discovery on that host and canonical workspace rejection.
+Windows/macOS dispatch, remote deployment, and live-provider behavior remain unverified by this change.
+Do not claim those paths are verified until their results are recorded; the local agent checks do not establish release readiness or subjective usability acceptance.
+No live-provider request, login, upload, user-profile installation, release, or publication was part of these checks.
+
 ### Native VS Code checks
 
 | Command | Purpose |
