@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { realpath } from "node:fs/promises";
+import { lstat, realpath } from "node:fs/promises";
 import path from "node:path";
 import * as vscode from "vscode";
 import { piConfiguration } from "./configuration";
@@ -22,7 +22,7 @@ import {
   parseRpcQueue,
 } from "./piRpcClient";
 import { PiRuntimeControl } from "./piRuntimeControl";
-import { assertAssignedSessionWorkspace, assertSessionWorkspace } from "./sessionIdentity";
+import { assertAssignedSessionWorkspace, assertSessionWorkspace, MissingSessionFileError } from "./sessionIdentity";
 import { VscodeBridgeServer } from "./vscodeBridge";
 import {
   vscodeAnnotationTokenEnvironmentKey,
@@ -1463,17 +1463,54 @@ export class PiRuntimeManager implements vscode.Disposable {
     const savedSession = this.context.workspaceState.get<string>(sessionPathKey);
     const settings = readPiInvocationSettings(this.resource);
     const approveProjectResources = piConfiguration().get<boolean>("approveProjectResources", false);
+    let root: string | undefined;
     try {
-      await this.createAndStartClient(savedSession, false, undefined, operationId);
+      root = await realpath(this.currentCwd);
+      await this.createAndStartClient(savedSession, false, root, operationId);
     } catch (error) {
       if (
         !savedSession ||
         this.disposed ||
-        settings.executablePath === "" ||
+        (settings.executablePath === "" && !(error instanceof MissingSessionFileError)) ||
         JSON.stringify(settings) !== JSON.stringify(readPiInvocationSettings(this.resource)) ||
         approveProjectResources !== piConfiguration().get<boolean>("approveProjectResources", false)
       ) {
         throw error;
+      }
+      const assertRecoveryCurrent = async (expectedSession: string | undefined) => {
+        const currentRoot = await realpath(this.currentCwd);
+        this.control.assertSidebarOwnership();
+        if (
+          this.disposed ||
+          !vscode.workspace.isTrusted ||
+          this.context.workspaceState.get<string>(sessionPathKey) !== expectedSession ||
+          JSON.stringify(settings) !== JSON.stringify(readPiInvocationSettings(this.resource)) ||
+          approveProjectResources !== piConfiguration().get<boolean>("approveProjectResources", false) ||
+          currentRoot !== root
+        )
+          throw new Error("Pi session recovery changed. Reconnect before trying again.");
+        // Validate the selected runtime before changing the restore pointer or starting Pi.
+        this.buildClientOptions(undefined, {});
+      };
+      if (error instanceof MissingSessionFileError) {
+        await assertRecoveryCurrent(savedSession);
+        const choice = await vscode.window.showWarningMessage(
+          "The remembered Pi session file is missing. It may never have been saved or may have been removed. Start a new session? Any pending request will use the new session. Existing session files will not be changed.",
+          { modal: true },
+          "Start New Session",
+        );
+        if (choice !== "Start New Session") throw error;
+        await assertRecoveryCurrent(savedSession);
+        // A file restored while the dialog was open must not be forgotten.
+        await lstat(savedSession).then(
+          () => {
+            throw new Error("The Pi session file is available again. Reconnect to restore it.");
+          },
+          (failure: NodeJS.ErrnoException) => {
+            if (failure.code !== "ENOENT") throw failure;
+          },
+        );
+        await assertRecoveryCurrent(savedSession);
       }
       this.logger.record("warn", "restore-fallback", {
         operationId,
@@ -1500,7 +1537,8 @@ export class PiRuntimeManager implements vscode.Disposable {
         throw storageError;
       }
       try {
-        await this.createAndStartClient(undefined, false, undefined, operationId);
+        if (error instanceof MissingSessionFileError) await assertRecoveryCurrent(undefined);
+        await this.createAndStartClient(undefined, false, root, operationId);
         this.logger.record("info", "restore-fallback", { operationId, generation: this.generation, result: "ready" });
       } catch (recoveryError) {
         this.logger.record("error", "restore-fallback", {
@@ -1681,9 +1719,18 @@ export class PiRuntimeManager implements vscode.Disposable {
     ]);
     if (revision !== this.refreshRevision || this.client !== client) return;
     const sessionFile = stringField(rpcState, "sessionFile");
+    let savedSession = sessionFile;
     if (sessionFile) {
-      await this.context.workspaceState.update(sessionPathKey, sessionFile);
+      try {
+        await assertSessionWorkspace(sessionFile, this.currentCwd);
+      } catch (error) {
+        if (!(error instanceof MissingSessionFileError)) throw error;
+        savedSession = undefined;
+      }
     }
+    if (revision !== this.refreshRevision || this.client !== client) return;
+    // Pi assigns a path before its first save. Never restore that path, or an older session, after reload.
+    await this.context.workspaceState.update(sessionPathKey, savedSession);
     if (revision !== this.refreshRevision || this.client !== client) return;
     if (
       runtimeSessionIdentityChanged(this.state, {

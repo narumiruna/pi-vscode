@@ -2,6 +2,15 @@ import { constants } from "node:fs";
 import { lstat, open, realpath } from "node:fs/promises";
 import path from "node:path";
 
+export class MissingSessionFileError extends Error {
+  public readonly code = "ENOENT";
+
+  public constructor(cause: unknown) {
+    super("ENOENT: The saved Pi session file is missing.", { cause });
+    this.name = "MissingSessionFileError";
+  }
+}
+
 /** Resolve a Pi-assigned file path without creating its not-yet-written leaf. */
 export async function canonicalAssignedSessionPath(sessionFile: string): Promise<string> {
   if (!path.isAbsolute(sessionFile) || sessionFile.length > 4_096 || sessionFile.includes("\0"))
@@ -36,7 +45,19 @@ export async function assertAssignedSessionWorkspace(sessionFile: string, cwd: s
 /** Read only the bounded JSONL header; never load a full session to identify its workspace. */
 export async function assertSessionWorkspace(sessionFile: string, cwd: string): Promise<void> {
   if (!path.isAbsolute(sessionFile) || sessionFile.includes("\0")) throw new Error("Invalid Pi session path.");
-  const handle = await open(sessionFile, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const handle = await open(sessionFile, constants.O_RDONLY | constants.O_NOFOLLOW).catch(async (error) => {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      const missing = await lstat(sessionFile).then(
+        () => false,
+        (failure: NodeJS.ErrnoException) => {
+          if (failure.code === "ENOENT") return true;
+          throw failure;
+        },
+      );
+      if (missing) throw new MissingSessionFileError(error);
+    }
+    throw error;
+  });
   try {
     if (!(await handle.stat()).isFile()) throw new Error("Pi session is not a regular file.");
     const bytes = Buffer.alloc(16_384);
