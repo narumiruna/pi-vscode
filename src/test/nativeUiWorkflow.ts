@@ -91,12 +91,12 @@ export async function run(): Promise<void> {
       try {
         switch (request.action) {
           case "command":
-            result = await vscode.commands.executeCommand(request.command);
+            result = await vscode.commands.executeCommand(request.command, ...(request.args ?? []));
             break;
           case "startCommand": {
             const id = request.id as number;
             commands.set(id, { complete: false });
-            void Promise.resolve(vscode.commands.executeCommand(request.command)).then(
+            void Promise.resolve(vscode.commands.executeCommand(request.command, ...(request.args ?? []))).then(
               () => commands.set(id, { complete: true }),
               (failure) => commands.set(id, { complete: true, error: String(failure) }),
             );
@@ -268,10 +268,31 @@ export async function run(): Promise<void> {
           }
           case "settingsState":
             result = {
+              values: Object.fromEntries(
+                [
+                  "executablePath",
+                  "provider",
+                  "model",
+                  "thinkingLevel",
+                  "approveProjectResources",
+                  "sensitiveContextNames",
+                  "annotations.initialState",
+                  "inlineCompletions.enabled",
+                  "inlineCompletions.debounceMilliseconds",
+                  "inlineCompletions.minimumPrefixLength",
+                  "inlineCompletions.excludedLanguages",
+                ].map((key) => [key, vscode.workspace.getConfiguration("pi").inspect(key)]),
+              ),
+              nativeTabs: vscode.window.tabGroups.all
+                .flatMap((group) => group.tabs)
+                .map((tab) => ({
+                  label: tab.label,
+                  webview: tab.input instanceof vscode.TabInputWebview,
+                })),
               model: vscode.workspace.getConfiguration("pi").inspect("model"),
               tabs: vscode.window.tabGroups.all
                 .flatMap((group) => group.tabs)
-                .filter((tab) => tab.label === "Pi Settings").length,
+                .filter((tab) => tab.label === "Pi Configuration").length,
             };
             break;
           case "selection": {

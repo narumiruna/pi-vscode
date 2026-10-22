@@ -27,11 +27,15 @@ interface ExtensionManifest {
     readonly chatParticipants: readonly { readonly id: string; readonly name: string; readonly fullName: string }[];
     readonly submenus: readonly { readonly label: string }[];
     readonly menus: Record<string, readonly MenuContribution[]>;
-    readonly configuration: { readonly title: string; readonly properties: Record<string, unknown> };
+    readonly configuration: readonly { readonly title: string; readonly properties: Record<string, unknown> }[];
   };
 }
 
 const manifest = JSON.parse(readFileSync("package.json", "utf8")) as ExtensionManifest;
+const configurationProperties = Object.assign(
+  {},
+  ...manifest.contributes.configuration.map((group) => group.properties),
+);
 
 test("extension identity stays consistent across packaging, settings, and documentation", () => {
   assert.equal(manifest.name, "narumi-pi");
@@ -49,7 +53,10 @@ test("extension identity stays consistent across packaging, settings, and docume
     [{ name: "pi", fullName: "Pi" }],
   );
   assert.ok(manifest.contributes.submenus.every((submenu) => submenu.label === "Pi"));
-  assert.equal(manifest.contributes.configuration.title, "Pi");
+  assert.deepEqual(
+    manifest.contributes.configuration.map((group) => group.title),
+    ["General", "Permissions", "Editor"],
+  );
   assert.equal(manifest.publisher, "narumi");
   const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
   assert.equal(lock.name, manifest.name);
@@ -60,7 +67,7 @@ test("extension identity stays consistent across packaging, settings, and docume
   assert.ok(manifest.scripts.package.includes("--out pi.vsix"));
   assert.ok(manifest.scripts["install:vsix"].includes("code --install-extension pi.vsix --force"));
   assert.ok(manifest.contributes.commands.every((command) => command.command.startsWith("pi.")));
-  assert.ok(Object.keys(manifest.contributes.configuration.properties).every((key) => key.startsWith("pi.")));
+  assert.ok(Object.keys(configurationProperties).every((key) => key.startsWith("pi.")));
   for (const path of [
     "resources/pi.svg",
     "resources/pi-bridge.ts",
@@ -81,7 +88,7 @@ test("extension identity stays consistent across packaging, settings, and docume
     assert.equal(existsSync(path), false, `obsolete PiCode asset: ${path}`);
   }
   assert.equal(existsSync("resources/pi-permission-gate.ts"), false);
-  assert.equal(manifest.contributes.configuration.properties["pi.agent.confirmToolCalls"], undefined);
+  assert.equal(configurationProperties["pi.agent.confirmToolCalls"], undefined);
   assert.equal(existsSync("justfile"), false);
   assert.equal(manifest.scripts.install, undefined, "npm install must not install the extension");
   assert.equal(
@@ -117,7 +124,7 @@ test("workflow commands are contributed, registered, documented and keep minimum
   assert.equal(lock.packages[""].engines.vscode, manifest.engines.vscode);
   assert.equal(lock.packages[""].devDependencies["@types/vscode"], vscodeTypesVersion);
   assert.equal(lock.packages["node_modules/@types/vscode"].version, vscodeTypesVersion);
-  assert.equal(manifest.contributes.configuration.properties["pi.defaultMode"], undefined);
+  assert.equal(configurationProperties["pi.defaultMode"], undefined);
   assert.equal(existsSync("src/runtimeProfiles.ts"), false);
   assert.equal(existsSync("src/test/runtimeProfiles.test.ts"), false);
   const entry = readFileSync("src/extension.ts", "utf8");

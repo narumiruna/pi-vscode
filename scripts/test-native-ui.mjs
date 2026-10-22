@@ -28,6 +28,7 @@ import { assertNativeDirectShell } from "./direct-shell-fixture.mjs";
 import { assertAuthTransferDialogs, seedTransferSession } from "./auth-transfer-native-fixture.mjs";
 import { assertNativeAnnotationPrototype, assertNativeAnnotations } from "./annotation-native-fixture.mjs";
 import { assertNativeOutputDiagnostics } from "./output-diagnostics-native-fixture.mjs";
+import { assertNativeSettings, settingsCoordinatorSource } from "./settings-native-fixture.mjs";
 
 // Actual Quick Picks, modals, Problems, code actions and webview clicks; only Pi is simulated.
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -35,12 +36,16 @@ const version = process.argv[2] ?? "1.140.0";
 const workspaceAlias = process.argv[3] === "alias";
 const packaged = process.argv.includes("packaged");
 const selectionOnly = process.argv.includes("selection");
+const settingsBaseline = process.argv.includes("settings-baseline");
+const settingsOnly = settingsBaseline || process.argv.includes("settings");
 const outputDiagnosticsOnly = process.argv.includes("output-diagnostics");
 if (outputDiagnosticsOnly && packaged) throw new Error("Output diagnostics uses a source development profile only.");
 const annotationPrototypeOnly = process.argv.includes("annotation-prototype");
 const annotationsOnly = process.argv.includes("annotations") || annotationPrototypeOnly;
-const evidenceLabel = `${version}${workspaceAlias ? "-alias" : ""}${packaged ? "-packaged" : ""}${selectionOnly ? "-selection" : ""}${annotationsOnly ? "-annotations" : ""}${annotationPrototypeOnly ? "-prototype" : ""}${outputDiagnosticsOnly ? "-output-diagnostics" : ""}`;
-if (process.platform !== "linux") throw new Error("The native UI runner currently supports Linux only.");
+const evidenceLabel = `${version}${workspaceAlias ? "-alias" : ""}${packaged ? "-packaged" : ""}${selectionOnly ? "-selection" : ""}${annotationsOnly ? "-annotations" : ""}${annotationPrototypeOnly ? "-prototype" : ""}${outputDiagnosticsOnly ? "-output-diagnostics" : ""}${settingsOnly ? settingsBaseline ? "-settings-baseline" : "-settings" : ""}`;
+if (process.platform !== "linux" && !(process.platform === "darwin" && settingsOnly)) {
+  throw new Error("The native UI runner supports Linux; focused Settings checks also support macOS.");
+}
 const directory = await realpath(await mkdtemp(path.join(tmpdir(), "pi-native-ui-")));
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(fn, description, timeout = 20_000) {
@@ -111,6 +116,7 @@ try {
       "pi.executablePath": executableFixture,
       "workbench.startupEditor": "none",
       "window.dialogStyle": "custom",
+      ...(settingsOnly ? { "window.menuStyle": "custom" } : {}),
       "files.simpleDialog.enable": true,
       "window.zoomLevel": 0,
       "git.openRepositoryInParentFolders": "never",
@@ -167,7 +173,8 @@ try {
   );
   await writeFile(
     path.join(helper, "main.cjs"),
-    `exports.activate = () => { require('./workflow.js').run().catch(error => { require('node:fs').writeFileSync(require('node:path').join(process.env.PI_VSCODE_UI_FIXTURE, 'coordinator-error.txt'), String(error.stack)); }); };`,
+    settingsOnly ? settingsCoordinatorSource :
+      `exports.activate = () => { require('./workflow.js').run().catch(error => { require('node:fs').writeFileSync(require('node:path').join(process.env.PI_VSCODE_UI_FIXTURE, 'coordinator-error.txt'), String(error.stack)); }); };`,
   );
   const executable = await downloadAndUnzipVSCode({
     version,
@@ -283,7 +290,9 @@ try {
       "Quick Pick accepted or advanced",
     );
   };
-  if (outputDiagnosticsOnly) {
+  if (settingsOnly) {
+    await assertNativeSettings({ page, directory, workspace, invoke, until, baseline: settingsBaseline, version: ready.version });
+  } else if (outputDiagnosticsOnly) {
     await assertNativeOutputDiagnostics({ page, directory, userData, invoke, until, frame, version: ready.version });
   } else if (annotationPrototypeOnly) {
     await assertNativeAnnotationPrototype({ page, workspace, invoke, until, version: ready.version, evidenceLabel });
@@ -397,17 +406,7 @@ try {
   }
   if (!process.argv.includes("editor") && !process.argv.includes("transfer")) {
   const initial = await invoke("state");
-  // Settings uses the real Extension Host configuration API and packaged webview.
-  const settingsFrame = () =>
-    until(async () => {
-      for (const candidate of page.frames()) {
-        try {
-          if (await candidate.locator("#native-settings").count()) return candidate;
-        } catch (error) {
-          if (!candidate.isDetached()) throw error;
-        }
-      }
-    }, "Settings webview");
+  // VS Code settings use the real native editor; Pi file drafts use their own panel.
   const pidsBeforeSettings = await readFile(path.join(directory, "pids.jsonl"), "utf8");
   const promptsBeforeSettings = await readFile(path.join(directory, "prompts.jsonl"), "utf8").catch(() => "");
   const gear = page
@@ -416,42 +415,9 @@ try {
     )
     .first();
   await gear.click();
-  let settings = await settingsFrame();
-  await settings.locator('section[data-key="model"] input').waitFor();
-  await invoke("command", { command: "pi.openSettings" });
-  assert.equal((await invoke("settingsState")).tabs, 1);
-  const settingsRow = () => settings.locator('section[data-key="model"]');
-  await settingsRow().locator("input").fill("native-user-model");
-  await settingsRow().getByRole("button", { name: "Save", exact: true }).click();
-  await until(
-    async () => (await invoke("settingsState")).model.globalValue === "native-user-model",
-    "User setting saved",
-  );
-  await until(async () => (await settingsRow().innerText()).includes("Saved"), "User save acknowledged");
-  await settings.locator("#target").selectOption("workspace");
-  await settingsRow().locator("input").fill("native-workspace-model");
-  await settingsRow().getByRole("button", { name: "Save", exact: true }).click();
-  await until(
-    async () => (await invoke("settingsState")).model.workspaceValue === "native-workspace-model",
-    "Workspace setting saved",
-  );
-  await until(async () => (await settingsRow().innerText()).includes("Saved"), "Workspace save acknowledged");
-  await settingsRow().getByRole("button", { name: "Reset", exact: true }).click();
-  await until(async () => (await invoke("settingsState")).model.workspaceValue === undefined, "Workspace reset");
-  await settings.locator("#target").selectOption("user");
-  await settingsRow().getByRole("button", { name: "Reset", exact: true }).click();
-  await until(async () => (await invoke("settingsState")).model.globalValue === undefined, "User reset");
+  await page.locator(".settings-editor").waitFor({ state: "visible" });
+  await assertNativeSettings({ page, directory, workspace, invoke, until, version: ready.version });
   await page.screenshot({ path: path.join(tmpdir(), `pi-settings-native-${evidenceLabel}.png`) });
-  await settingsRow().locator("input").fill("hidden-draft");
-  await invoke("source");
-  await delay(400);
-  await invoke("command", { command: "pi.openSettings" });
-  settings = await settingsFrame();
-  await until(
-    async () => (await settingsRow().locator("input").inputValue()) === "hidden-draft",
-    "Draft survives hide/reveal",
-  );
-  assert.equal((await invoke("settingsState")).tabs, 1);
   assert.equal(
     await readFile(path.join(directory, "pids.jsonl"), "utf8"),
     pidsBeforeSettings,
@@ -464,7 +430,7 @@ try {
   );
   await invoke("command", { command: "workbench.action.closeActiveEditor" });
   await invoke("source");
-  console.log("PI_NATIVE_UI settings gear, singleton, scopes, reset, drafts and no Pi side effects passed");
+  console.log("PI_NATIVE_UI settings gear, native controls, scopes, reset and no Pi side effects passed");
   // Native file controls are separate host dialogs. Passive opens and saves must not launch Pi.
   const nativeSettingsDone = await invoke("command", { command: "pi.openNativeSettings" }, false);
   await pick("Project Pi");
@@ -1060,7 +1026,7 @@ try {
       packaged,
       richContent: "Markdown, math fonts, flowchart and sequence SVG passed",
       thinkingTranscript: thinkingEvidence,
-      settingsPanel: "gear, singleton, User/Workspace writes, reset, hide/reveal drafts, no Pi side effects passed",
+      settingsPanel: "gear opens native Settings; all controls, arrays, User/Workspace writes, scoped Reset; separate singleton Pi Configuration drafts and no Pi side effects passed",
       semanticAttachmentPicker: "passed",
       composerFileCompletion: "search, dirty snapshot, inspection, path-only Tab, failed capture, stale draft and explicit single Send passed",
       interface:

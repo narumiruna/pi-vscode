@@ -194,21 +194,6 @@ export class NativeSettingsForm {
   }
 
   render(main: HTMLElement): void {
-    main.append(
-      element("p", "Edit common native settings with explicit Save. Changing a field never writes automatically."),
-      element(
-        "p",
-        "Only validated common-setting drafts within the 28 KiB recovery limit are restored after hiding this page. MCP drafts stay in memory only.",
-      ),
-      element(
-        "p",
-        "Global Pi uses the Extension Host's ~/.pi/agent/settings.json and mcp.json, or PI_CODING_AGENT_DIR. Project Pi uses .pi/settings.json and .pi/mcp.json in the first workspace folder. Remote windows use remote host paths.",
-      ),
-      element(
-        "p",
-        "Opening, switching, and resetting an absent override create nothing. Save does not restart Pi, connect MCP servers, or approve project resources. VS Code launch overrides can take precedence.",
-      ),
-    );
     const scopes = element("div");
     scopes.className = "scope";
     const label = element("label", "Native scope");
@@ -248,6 +233,7 @@ export class NativeSettingsForm {
     const reload = element("button", "Reload configuration");
     reload.type = "button";
     reload.id = "native-reload-configuration";
+    reload.title = "Read saved values without discarding unrelated drafts. This does not reload Pi resources.";
     reload.disabled = !this.available || !!this.loadId;
     reload.addEventListener("click", () => {
       this.load();
@@ -326,6 +312,8 @@ export class NativeSettingsForm {
     const row = element("section");
     row.className = "setting";
     row.dataset.nativeKey = descriptor.key;
+    row.dataset.override = String(entry.hasOverride);
+    row.dataset.draft = String(!!draft);
     const id = `native-${server === undefined ? descriptor.key : `mcp-${index}-${descriptor.key}`}`;
     const label = element("label", descriptor.label);
     label.htmlFor = id;
@@ -388,6 +376,8 @@ export class NativeSettingsForm {
     const save = element("button", "Save");
     save.type = "button";
     save.id = `${id}-save`;
+    save.dataset.focusControl = id;
+    save.hidden = !draft && !this.pending.has(key);
     save.disabled = blocked || conflict;
     const submit = (reset: boolean) => {
       if (this.pending.has(key) || this.loadId || conflict || !this.snapshot) return;
@@ -434,12 +424,7 @@ export class NativeSettingsForm {
     reset.className = "secondary";
     reset.disabled = blocked || conflict || !entry.hasOverride;
     reset.addEventListener("click", () => submit(true));
-    const reload = element("button", "Reload row");
-    reload.type = "button";
-    reload.id = `${id}-reload`;
-    reload.className = "secondary";
-    reload.disabled = blocked;
-    reload.addEventListener("click", () => {
+    const reloadRow = () => {
       delete this.drafts[key];
       this.mcpRevisions.delete(key);
       this.messages.delete(key);
@@ -447,7 +432,29 @@ export class NativeSettingsForm {
       this.persist();
       this.redraw();
       document.getElementById(id)?.focus();
-    });
+    };
+    const menu = element("details");
+    menu.className = "setting-actions";
+    const summary = element("summary", "…");
+    summary.id = `${id}-actions`;
+    summary.setAttribute("aria-label", `Actions for ${descriptor.label}`);
+    summary.setAttribute("aria-expanded", "false");
+    summary.setAttribute("aria-controls", `${id}-menu`);
+    const menuItems = element("div");
+    menuItems.id = `${id}-menu`;
+    menuItems.className = "setting-menu";
+    const reload = element("button", "Reload row");
+    reload.type = "button";
+    reload.id = `${id}-reload`;
+    reload.dataset.focusControl = id;
+    reload.disabled = blocked;
+    reload.addEventListener("click", reloadRow);
+    menuItems.append(reset, reload);
+    menu.append(summary, menuItems);
+    const heading = element("div");
+    heading.className = "setting-heading";
+    heading.append(label, menu);
+    if (entry.hasOverride) heading.insertBefore(element("span", "Override"), menu);
     const update = () => {
       if (server !== undefined && !this.mcpRevisions.has(key)) this.mcpRevisions.set(key, snapshot.revision);
       this.drafts[key] = {
@@ -457,13 +464,25 @@ export class NativeSettingsForm {
         conflict: draft?.conflict ?? false,
       };
       this.messages.delete(key);
+      save.hidden = false;
+      row.dataset.draft = "true";
       status.textContent = conflict ? "Configuration changed. Reload this row before saving." : "Unsaved changes";
       this.persist();
     };
     control.addEventListener("input", update);
     control.addEventListener("change", update);
-    actions.append(save, reset, reload);
-    row.append(label, description, control, meta, actions, status);
+    actions.append(save);
+    if (conflict) {
+      const recover = element("button", "Reload row");
+      recover.type = "button";
+      recover.id = `${id}-recover`;
+      recover.className = "secondary";
+      recover.dataset.focusControl = id;
+      recover.disabled = blocked;
+      recover.addEventListener("click", reloadRow);
+      actions.append(recover);
+    }
+    row.append(heading, description, control, meta, actions, status);
     main.append(row);
   }
 }

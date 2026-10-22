@@ -90,16 +90,27 @@ Use `@pi` in VS Code's native Chat view if you prefer that interface. Native Cha
 
 See [workflow instructions and limits](docs/USER_GUIDE.md#focused-workflows) and the [feature matrix](docs/FEATURE_MATRIX.md). Responses support Markdown, highlighted code, math, and supported Mermaid diagrams with bundled rendering assets. Tool calls appear in conversation order between responses, each collapsed by default. Expand a call to inspect its input, output, and status. History navigation keeps responses accessible when tool calls reach a window limit.
 
-The foreground sidebar agent can add [temporary passage annotations](docs/USER_GUIDE.md#temporary-passage-annotations): whole-line highlights, literal hovers and read-only native comments below the marked code or text. Comments start collapsed by default. Set `pi.annotations.initialState` to `expanded` in **Pi Settings → Editor → Annotation initial state** to expand newly created or replaced annotations; existing threads and user state on redraw are unchanged. VS Code may open the Comments panel and change editor layout or scroll position; source files remain unchanged. Use **Pi: Clear Annotations** to remove them.
+The foreground sidebar agent can add [temporary passage annotations](docs/USER_GUIDE.md#temporary-passage-annotations): whole-line highlights, literal hovers and read-only native comments below the marked code or text. Comments start collapsed by default. Set `pi.annotations.initialState` to `expanded` in **VS Code Settings → Pi → Editor → Annotation initial state** to expand newly created or replaced annotations; existing threads and user state on redraw are unchanged. VS Code may open the Comments panel and change editor layout or scroll position; source files remain unchanged. Use **Pi: Clear Annotations** to remove them.
 
 ## Settings
 
-Run **Pi: Open Settings** or use the gear in the Pi view title.
-**General**, **Permissions**, and **Editor** edit VS Code configuration at User or Workspace scope.
-**Pi Configuration** has its own **Global Pi / Project Pi** selector and inline controls for startup provider, model, thinking level, ordered model patterns, steering mode, follow-up mode, automatic compaction, and automatic retry.
-Each row shows override, inherited/default value, and source, with explicit **Save**, **Reset override**, and **Reload row** actions; checkbox and select changes are drafts until saved.
+Run **Pi: Open Settings** (`pi.openSettings`) or use the gear in the Pi view title to open native VS Code Settings filtered to `@ext:narumi.narumi-pi`.
+**General**, **Permissions**, and **Editor** group the existing 11 `pi.*` settings without changing their IDs, defaults, bounds, scopes, or runtime behavior.
+Use native scope selection, validation, save-on-edit, search, configured-value indicators, and Reset menus.
+
+Run **Pi: Open Pi Configuration** (`pi.openPiConfiguration`), also in the Pi view's secondary title actions, to open the separate **Pi Configuration** panel.
+Repeated invocation reveals the same panel.
+It has only **Global Pi / Project Pi** file scopes, with no User/Workspace selector, and one **Open VS Code Settings** action.
+Its controls edit startup provider, model, thinking level, ordered model patterns, steering mode, follow-up mode, automatic compaction, and automatic retry.
+Each row shows override, inherited/default value, and source; saved overrides and unsaved drafts have separate indicators.
+**Save** appears only for a draft, pending operation, or unresolved save error; it is disabled while pending or stale and hides after success.
+Checkboxes and selects remain drafts until explicitly saved.
+A compact row actions menu contains **Reset override** and **Reload row**; stale drafts also show an inline **Reload row** recovery action.
+**Reload configuration** reads saved values, preserves unrelated drafts, and does not reload Pi resources.
+There is no Save All or Reset All.
 Configured MCP servers expose safe metadata and inline enabled/exposure edits and resets, not transport or credentials; connection state remains **unknown**.
-Server creation, transport editing, authentication, diagnostics, and advanced editing remain in existing native management interfaces, also available through the Command Palette.
+Server creation, transport editing, authentication, diagnostics, and advanced editing remain in existing native management interfaces.
+**Pi: Open Native Pi Settings** (`pi.openNativeSettings`) and **Pi: Manage Native MCP Configuration** (`pi.openNativeMcp`) keep their existing dialog behavior.
 
 Global Pi uses the Extension Host's `~/.pi/agent` or `PI_CODING_AGENT_DIR`.
 Project Pi uses the launch workspace's `.pi` (the first workspace folder, not a multi-root selector).

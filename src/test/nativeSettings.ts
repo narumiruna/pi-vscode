@@ -13,6 +13,7 @@ export async function verifyNativeSettings(): Promise<void> {
   const commands = await vscode.commands.getCommands(true);
   for (const command of [
     "pi.openSettings",
+    "pi.openPiConfiguration",
     "pi.openNativeSettings",
     "pi.openNativeMcp",
     "pi.nativeRuntimeControls",
@@ -20,7 +21,7 @@ export async function verifyNativeSettings(): Promise<void> {
   ])
     assert.ok(commands.includes(command), `${command} must be registered independently`);
   const tabs = () =>
-    vscode.window.tabGroups.all.flatMap((group) => group.tabs).filter((tab) => tab.label === "Pi Settings");
+    vscode.window.tabGroups.all.flatMap((group) => group.tabs).filter((tab) => tab.label === "Pi Configuration");
   const waitForTab = async () => {
     for (let attempt = 0; attempt < 100 && tabs().length !== 1; attempt++) {
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -29,9 +30,12 @@ export async function verifyNativeSettings(): Promise<void> {
   };
   await vscode.commands.executeCommand("pi.openSettings");
   await vscode.commands.executeCommand("pi.openSettings");
+  assert.equal(tabs().length, 0, "Native Settings must not create the Pi Configuration panel");
+  await vscode.commands.executeCommand("pi.openPiConfiguration");
+  await vscode.commands.executeCommand("pi.openPiConfiguration");
   await waitForTab();
   assert.ok(await vscode.window.tabGroups.close(tabs()));
-  await vscode.commands.executeCommand("pi.openSettings");
+  await vscode.commands.executeCommand("pi.openPiConfiguration");
   await waitForTab();
   await verifyNativeForm();
   const config = vscode.workspace.getConfiguration("pi");

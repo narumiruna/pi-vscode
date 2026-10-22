@@ -12,7 +12,7 @@ import {
   projectNativeSettings,
 } from "../nativePiFormModel";
 import { mcpExposures, nativeSettingControls, nativeSettingValue } from "../nativePiModel";
-import { maxSettingsMessage, settingsDescriptors } from "../settingsModel";
+import { maxSettingsMessage } from "../settingsModel";
 import { installVscodeMock, MockUri } from "./vscodeMock";
 
 const unavailable =
@@ -288,7 +288,6 @@ async function createHost() {
   const agent = path.join(root, "agent");
   process.env.PI_CODING_AGENT_DIR = agent;
   const config = new Map<string, unknown>();
-  const defaults = new Map(settingsDescriptors.map((descriptor) => [descriptor.key, descriptor.default]));
   const unexpected: string[] = [];
   mock.workspace.isTrusted = true;
   mock.workspace.workspaceFolders = [{ uri: MockUri.file(root) }];
@@ -296,8 +295,8 @@ async function createHost() {
   mock.workspace.getConfiguration = (section: string) => {
     assert.equal(section, "pi");
     return {
-      get: (key: string, fallback: unknown) => config.get(key) ?? defaults.get(key) ?? fallback,
-      inspect: (key: string) => ({ defaultValue: defaults.get(key), globalValue: config.get(key) }),
+      get: (key: string, fallback: unknown) => config.get(key) ?? fallback,
+      inspect: (key: string) => ({ globalValue: config.get(key) }),
       update: async () => {
         unexpected.push("configuration.update");
       },

@@ -1,15 +1,4 @@
-import {
-  entryFingerprint,
-  maxSettingsMessage,
-  type SettingDescriptor,
-  type SettingEntry,
-  type SettingsSnapshot,
-  type SettingsTarget,
-  serializedSize,
-  settingsDescriptors,
-  targetValue,
-  validSettingValue,
-} from "../settingsModel";
+import { maxSettingsMessage, type SettingsSnapshot, serializedSize } from "../settingsModel";
 import { NativeSettingsForm } from "./nativeSettings.mjs";
 
 declare function acquireVsCodeApi(): {
@@ -18,285 +7,98 @@ declare function acquireVsCodeApi(): {
   setState(state: unknown): void;
 };
 const api = acquireVsCodeApi();
-const categories = ["General", "Permissions", "Editor", "Pi Configuration"] as const;
-type Draft = { raw: string | boolean; base: string };
-const drafts: Record<string, Draft> = {};
-const pending = new Map<string, { id: string }>();
-const messages = new Map<string, string>();
-let snapshot: SettingsSnapshot | undefined;
-let category: string = "General";
-let target: SettingsTarget = "user";
-let counter = 0;
-const instance = crypto.randomUUID();
-const nativeRecoveryWarning =
-  "Native drafts exceed the 28 KiB recovery limit. They will not be restored after hiding this page. Save or shorten them first.";
-const saved = api.getState() as
-  | { category?: string; target?: string; drafts?: Record<string, Draft>; native?: unknown }
-  | undefined;
-if (saved && serializedSize(saved) <= maxSettingsMessage) {
-  const savedCategory = saved.category === "Pi Files" ? "Pi Configuration" : saved.category;
-  if (savedCategory && categories.some((name) => name === savedCategory)) category = savedCategory;
-  if (saved.target === "workspace") target = "workspace";
-  for (const scope of ["user", "workspace"]) {
-    for (const descriptor of settingsDescriptors) {
-      const key = `${scope}:${descriptor.key}`;
-      const draft = saved.drafts?.[key];
-      if (draft && (typeof draft.raw === "string" || typeof draft.raw === "boolean") && typeof draft.base === "string")
-        drafts[key] = { raw: draft.raw, base: draft.base };
-    }
-  }
-}
-const nativeForm = new NativeSettingsForm((message) => api.postMessage(message), render, persist, saved?.native);
+const recovered = api.getState();
+const saved =
+  recovered && typeof recovered === "object" && serializedSize(recovered) <= maxSettingsMessage
+    ? (recovered as { native?: unknown; detailsOpen?: boolean })
+    : undefined;
 const main = document.querySelector<HTMLElement>("main")!;
-const nav = document.querySelector<HTMLElement>("nav")!;
-const scope = document.querySelector<HTMLSelectElement>("#target")!;
 const status = document.querySelector<HTMLElement>("#status")!;
+const details = document.querySelector<HTMLDetailsElement>("#configuration-details")!;
+details.open = saved?.detailsOpen === true;
+let snapshot: SettingsSnapshot | undefined;
 let focusId: string | undefined;
-document.addEventListener("focusin", (event) => {
-  const node = event.target;
-  focusId = node instanceof HTMLElement && main.contains(node) ? node.id : undefined;
-});
+let focusControlId: string | undefined;
+const nativeForm = new NativeSettingsForm((message) => api.postMessage(message), render, persist, saved?.native);
+
 function persist(): void {
-  const state = { category, target, drafts, native: nativeForm.recovery() };
-  // Never persist configuration snapshots, and bound the total draft state.
-  if (serializedSize(state) <= maxSettingsMessage) {
-    api.setState(state);
-    status.textContent = nativeForm.recoveryOverflowed()
-      ? nativeRecoveryWarning
-      : "Extension settings are stored by VS Code. Pi Configuration saves native files explicitly. Saving starts no Pi process.";
-  } else {
-    api.setState({ category, target });
-    status.textContent = "Drafts exceed the 32 KiB recovery limit. Save or shorten them before hiding this tab.";
-  }
+  // Ignore legacy category, target, and VS Code drafts; never persist native file snapshots or MCP data.
+  api.setState({ native: nativeForm.recovery(), detailsOpen: details.open });
+  status.textContent = nativeForm.recoveryOverflowed()
+    ? "Native drafts exceed the 28 KiB recovery limit. They will not be restored after hiding this page. Save or shorten them first."
+    : "Pi files save only with Save or Reset override. Running sessions are unchanged.";
 }
-function element<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-function rawValue(descriptor: SettingDescriptor, value: unknown): string | boolean {
-  if (descriptor.type === "boolean") return value === true;
-  if (descriptor.type === "array" && Array.isArray(value)) return value.join("\n");
-  return typeof value === "string" ? value : JSON.stringify(value);
-}
-function parsed(descriptor: SettingDescriptor, raw: string | boolean): unknown {
-  if (descriptor.type === "number") return typeof raw === "string" && raw.trim() !== "" ? Number(raw) : null;
-  if (descriptor.type === "array")
-    return String(raw)
-      .split("\n")
-      .filter((line) => line !== "");
-  return raw;
-}
-function save(descriptor: SettingDescriptor, entry: SettingEntry, reset = false): void {
-  if (!snapshot) return;
-  const key = `${target}:${descriptor.key}`;
-  const draft = drafts[key];
-  if (draft && draft.base !== entryFingerprint(entry)) {
-    messages.set(key, "Settings changed. Reload this row before saving.");
-    render();
-    return;
-  }
-  const value = parsed(descriptor, draft?.raw ?? rawValue(descriptor, targetValue(entry, target)));
-  if (!reset && !validSettingValue(descriptor, value)) {
-    messages.set(
-      key,
-      "Invalid value. Check the range or edit limits (4,096 characters, 100 list items, 16 KiB per list).",
-    );
-    render();
-    return;
-  }
-  const id = `${instance}-${++counter}`;
-  pending.set(key, { id });
-  messages.delete(key);
-  api.postMessage({
-    type: reset ? "reset" : "save",
-    id,
-    key: descriptor.key,
-    target,
-    revision: snapshot.revision,
-    ...(!reset ? { value } : {}),
-  });
-  render();
-}
+
 function render(): void {
-  scope.value = target;
-  scope.disabled = category === "Pi Configuration";
-  scope.querySelector<HTMLOptionElement>('option[value="workspace"]')!.disabled = !snapshot?.workspace;
-  document.querySelector<HTMLElement>("#scope-note")!.textContent =
-    category === "Pi Configuration"
-      ? "Pi Configuration uses Global Pi or Project Pi below, not the VS Code User/Workspace target."
-      : snapshot?.remote
-        ? "Remote window: use VS Code Settings for local-user versus remote-user scope. Reset removes only this page's selected override."
-        : "Reset removes only the selected scope's override. User edits can be overridden by Workspace settings.";
-  nav.replaceChildren();
-  for (const name of categories) {
-    const button = element("button", name);
-    button.type = "button";
-    button.setAttribute("aria-pressed", String(category === name));
-    button.addEventListener("click", () => {
-      category = name;
-      persist();
-      render();
-      nav.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus();
-    });
-    nav.append(button);
-  }
-  main.replaceChildren(element("h2", category));
-  nativeForm.setContext(category === "Pi Configuration", snapshot?.nativeFilesAvailable === true);
-  if (!snapshot) return;
-  if (category === "Pi Configuration") nativeForm.render(main);
-  if (category === "Editor")
-    main.append(
-      element(
-        "p",
-        "Annotation changes affect only new or replaced annotations. Completion changes affect later requests; in-flight requests and cached results can remain unchanged.",
-      ),
-    );
-  for (const descriptor of settingsDescriptors.filter((item) => item.category === category)) {
-    const entry = snapshot.entries.find((item) => item.key === descriptor.key);
-    if (!entry) continue;
-    const key = `${target}:${descriptor.key}`;
-    const draft = drafts[key];
-    const conflict = !!draft && draft.base !== entryFingerprint(entry) && !pending.has(key);
-    const blocked = pending.has(key) || (descriptor.key === "approveProjectResources" && !snapshot.trusted);
-    const row = element("section");
-    row.className = "setting";
-    row.dataset.key = descriptor.key;
-    const label = element("label", descriptor.label);
-    label.htmlFor = descriptor.key;
-    const description = element("p", descriptor.description);
-    description.id = `${descriptor.key}-description`;
-    const control = descriptor.enum
-      ? element("select")
-      : descriptor.type === "array"
-        ? element("textarea")
-        : element("input");
-    control.id = descriptor.key;
-    control.setAttribute("aria-describedby", description.id);
-    control.disabled = blocked;
-    if (control instanceof HTMLInputElement) {
-      control.type = descriptor.type === "boolean" ? "checkbox" : descriptor.type === "number" ? "number" : "text";
-      if (descriptor.minimum !== undefined) control.min = String(descriptor.minimum);
-      if (descriptor.maximum !== undefined) control.max = String(descriptor.maximum);
-      if (descriptor.type === "number") control.step = "1";
-    }
-    if (control instanceof HTMLSelectElement)
-      for (const value of descriptor.enum!) {
-        const option = element("option", value === "default" ? "Default (use Pi settings)" : value);
-        option.value = value;
-        control.append(option);
-      }
-    const raw = draft?.raw ?? rawValue(descriptor, targetValue(entry, target));
-    if (control instanceof HTMLInputElement && control.type === "checkbox") control.checked = raw === true;
-    else control.value = String(raw);
-    const rowStatus = element(
-      "p",
-      pending.has(key)
-        ? "Saving…"
-        : conflict
-          ? "Settings changed. Draft retained; reload this row before saving."
-          : (messages.get(key) ?? ""),
-    );
-    rowStatus.className = conflict ? "row-status conflict" : "row-status";
-    rowStatus.setAttribute("role", "status");
-    const updateDraft = () => {
-      drafts[key] = {
-        raw: control instanceof HTMLInputElement && control.type === "checkbox" ? control.checked : control.value,
-        base: drafts[key]?.base ?? entryFingerprint(entry),
-      };
-      messages.delete(key);
-      rowStatus.textContent = conflict ? "Settings changed. Reload this row before saving." : "Unsaved changes";
-      persist();
-    };
-    control.addEventListener("input", updateDraft);
-    if (descriptor.enum || descriptor.type === "boolean")
-      control.addEventListener("change", () => {
-        updateDraft();
-        save(descriptor, entry);
-      });
-    const meta = element(
-      "p",
-      `${entry[target] === undefined ? "Inherited" : `Set in ${target === "user" ? "User" : "Workspace"}`} · Effective: ${JSON.stringify(entry.effective)}`,
-    );
-    meta.className = "meta";
-    const actions = element("div");
-    actions.className = "actions";
-    const automatic = !!descriptor.enum || descriptor.type === "boolean";
-    if (!automatic || (draft && !pending.has(key))) {
-      const button = element("button", automatic ? "Retry save" : "Save");
-      button.type = "button";
-      button.id = `${key}-save`;
-      button.disabled = blocked || conflict;
-      button.addEventListener("click", () => save(descriptor, entry));
-      actions.append(button);
-    }
-    const reset = element("button", "Reset");
-    reset.type = "button";
-    reset.id = `${key}-reset`;
-    reset.className = "secondary";
-    reset.disabled = blocked || conflict || entry[target] === undefined;
-    reset.addEventListener("click", () => save(descriptor, entry, true));
-    const reload = element("button", "Reload row");
-    reload.type = "button";
-    reload.id = `${key}-reload`;
-    reload.className = "secondary";
-    reload.disabled = pending.has(key);
-    reload.addEventListener("click", () => {
-      delete drafts[key];
-      messages.delete(key);
-      persist();
-      render();
-      document.getElementById(descriptor.key)?.focus();
-    });
-    actions.append(reset, reload);
-    row.append(label, description);
-    if (descriptor.launch) row.append(element("p", "Used when a Pi process starts; running sessions are unchanged."));
-    row.append(control, meta, actions, rowStatus);
-    main.append(row);
-  }
-  if (nativeForm.recoveryOverflowed()) status.textContent = nativeRecoveryWarning;
-  if (serializedSize({ category, target, drafts, native: nativeForm.recovery() }) > maxSettingsMessage) {
-    status.textContent = "Drafts exceed the 32 KiB recovery limit. Save or shorten them before hiding this tab.";
-  }
+  main.replaceChildren();
+  nativeForm.setContext(true, snapshot?.nativeFilesAvailable === true);
+  nativeForm.render(main);
+  persist();
   if (focusId) {
     const previous = document.getElementById(focusId);
+    const fallback = previous?.dataset.focusControl ?? focusControlId;
+    const menu = previous?.closest<HTMLDetailsElement>("details.setting-actions");
     const next =
-      previous instanceof HTMLButtonElement && previous.disabled && previous.dataset.focusControl
-        ? document.getElementById(previous.dataset.focusControl)
+      fallback &&
+      (!previous ||
+        previous.hidden ||
+        (previous instanceof HTMLButtonElement && previous.disabled) ||
+        (menu && !menu.open))
+        ? document.getElementById(fallback)
         : previous;
     next?.focus({ preventScroll: true });
   }
 }
-scope.addEventListener("change", () => {
-  target = scope.value === "workspace" ? "workspace" : "user";
+
+document.addEventListener("focusin", (event) => {
+  const node = event.target;
+  focusId = node instanceof HTMLElement && main.contains(node) ? node.id : undefined;
+  focusControlId = node instanceof HTMLElement && main.contains(node) ? node.dataset.focusControl : undefined;
+});
+function closeMenu(menu: HTMLDetailsElement): void {
+  menu.open = false;
+  menu.querySelector("summary")?.setAttribute("aria-expanded", "false");
+}
+
+document.addEventListener(
+  "toggle",
+  (event) => {
+    const node = event.target;
+    if (!(node instanceof HTMLDetailsElement) || !node.classList.contains("setting-actions")) return;
+    node.querySelector("summary")?.setAttribute("aria-expanded", String(node.open));
+    if (node.open)
+      for (const other of document.querySelectorAll<HTMLDetailsElement>("details.setting-actions[open]"))
+        if (other !== node) closeMenu(other);
+  },
+  true,
+);
+document.addEventListener("pointerdown", (event) => {
+  for (const menu of document.querySelectorAll<HTMLDetailsElement>("details.setting-actions[open]"))
+    if (event.target instanceof Node && !menu.contains(event.target)) closeMenu(menu);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  const menu = document.querySelector<HTMLDetailsElement>("details.setting-actions[open]");
+  if (!menu) return;
+  event.preventDefault();
+  closeMenu(menu);
+  menu.querySelector("summary")?.focus();
+});
+details.addEventListener("toggle", persist);
+details.querySelector("summary")?.addEventListener("click", (event) => {
+  event.preventDefault();
+  details.open = !details.open;
   persist();
-  render();
 });
 document.querySelector("#native-settings")!.addEventListener("click", () => api.postMessage({ type: "openNative" }));
 window.addEventListener("message", (event: MessageEvent) => {
   const data = event.data;
   if (nativeForm.receive(data)) return;
-  if (data?.type === "snapshot" && Number.isSafeInteger(data.revision) && Array.isArray(data.entries)) {
-    if (snapshot && data.revision < snapshot.revision) return;
+  if (data?.type === "snapshot" && typeof data.nativeFilesAvailable === "boolean") {
     snapshot = data as SettingsSnapshot;
-    if (!snapshot.workspace && target === "workspace") {
-      target = "user";
-      persist();
-    }
-    status.textContent =
-      "Extension settings are stored by VS Code. Pi Configuration saves native files explicitly. Saving starts no Pi process.";
     render();
-  } else if (data?.type === "result") {
-    const match = [...pending].find(([, item]) => item.id === data.id);
-    if (!match) return;
-    const [key] = match;
-    pending.delete(key);
-    if (data.ok === true) {
-      delete drafts[key];
-      messages.set(key, "Saved. Running sessions are unchanged.");
-    } else messages.set(key, typeof data.error === "string" ? data.error : "Could not save settings.");
-    persist();
-    render();
+  } else if (data?.type === "result" && data.ok === false) {
+    status.textContent = data.error || "Could not open configuration. Use the Command Palette.";
   }
 });
 render();

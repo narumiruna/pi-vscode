@@ -2,9 +2,10 @@
   color-scheme: light dark;
 }
 body {
+  box-sizing: border-box;
   margin: 0 auto;
-  padding: 32px;
-  max-width: 1100px;
+  padding: 24px;
+  max-width: 1000px;
   color: var(--vscode-foreground);
   background: var(--vscode-editor-background);
   font-family: var(--vscode-font-family, sans-serif);
@@ -14,57 +15,93 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   flex-wrap: wrap;
 }
 h1 {
+  margin: 0;
   font-size: 24px;
-  font-weight: 500;
-}
-h2 {
-  margin-top: 0;
-  font-size: 21px;
   font-weight: 500;
 }
 p {
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
+#configuration-details {
+  color: var(--vscode-descriptionForeground);
+}
+summary {
+  cursor: pointer;
+}
+#status,
+.meta {
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+}
 .scope {
   display: flex;
   gap: 12px;
   align-items: center;
-  margin-top: 12px;
-}
-.layout {
-  display: grid;
-  grid-template-columns: 170px minmax(0, 1fr);
-  gap: 32px;
-  margin-top: 28px;
-}
-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-self: start;
+  margin-top: 16px;
 }
 main {
   min-width: 0;
 }
 .setting {
-  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
-  border-radius: 12px;
-  padding: 20px;
-  margin-bottom: 16px;
+  border-left: 2px solid transparent;
+  padding: 12px 14px;
   min-width: 0;
 }
-.setting label {
-  display: block;
-  margin-bottom: 8px;
+.setting[data-override="true"] {
+  border-left-color: var(--vscode-settings-modifiedItemIndicator, var(--vscode-focusBorder));
+}
+.setting-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.setting-heading label {
   font-weight: 600;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.setting-heading > span {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+.setting-actions {
+  position: relative;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.setting-actions summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 2px 8px;
+  border: 1px solid var(--vscode-contrastBorder, transparent);
+  color: var(--vscode-icon-foreground, var(--vscode-foreground));
+}
+.setting-actions summary::-webkit-details-marker {
+  display: none;
+}
+.setting-actions summary:hover,
+.setting-actions[open] summary {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+.setting-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 10;
+  box-sizing: border-box;
+  width: min(210px, calc(100vw - 52px));
+  padding: 4px;
+  border: 1px solid var(--vscode-menu-border, var(--vscode-contrastBorder, var(--vscode-panel-border)));
+  background: var(--vscode-menu-background, var(--vscode-editor-background));
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow);
 }
 .native-actions {
-  margin-top: 16px;
+  margin-top: 12px;
 }
 .mcp-server {
   min-width: 0;
@@ -74,13 +111,9 @@ main {
 .mcp-server h4 {
   overflow-wrap: anywhere;
 }
-button {
-  overflow-wrap: anywhere;
-  max-width: 100%;
-}
 .setting p {
   color: var(--vscode-descriptionForeground);
-  margin: 8px 0 12px;
+  margin: 4px 0 8px;
 }
 input:not([type="checkbox"]),
 textarea,
@@ -88,15 +121,15 @@ select {
   box-sizing: border-box;
   max-width: 100%;
   width: 100%;
-  padding: 7px 9px;
+  padding: 5px 8px;
   color: var(--vscode-input-foreground);
   background: var(--vscode-input-background);
   border: 1px solid var(--vscode-input-border, var(--vscode-widget-border));
-  border-radius: 4px;
+  border-radius: 2px;
   font: inherit;
 }
 textarea {
-  min-height: 90px;
+  min-height: 72px;
   resize: vertical;
 }
 input[type="checkbox"] {
@@ -108,31 +141,34 @@ input[type="checkbox"] {
   width: auto;
 }
 button {
+  overflow-wrap: anywhere;
+  max-width: 100%;
   cursor: pointer;
   border: 1px solid var(--vscode-contrastBorder, transparent);
-  border-radius: 4px;
-  padding: 7px 12px;
+  border-radius: 2px;
+  padding: 5px 10px;
   font: inherit;
   color: var(--vscode-button-foreground);
   background: var(--vscode-button-background);
 }
-button:hover {
+button:hover:not(:disabled) {
   background: var(--vscode-button-hoverBackground);
 }
 button.secondary {
   background: var(--vscode-button-secondaryBackground);
   color: var(--vscode-button-secondaryForeground);
 }
-nav button {
+.setting-menu button,
+.setting-menu button.secondary {
+  display: block;
+  width: 100%;
   text-align: left;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
   background: transparent;
-  color: var(--vscode-foreground);
-  border: 1px solid transparent;
 }
-nav button[aria-pressed="true"] {
-  background: var(--vscode-list-activeSelectionBackground);
-  color: var(--vscode-list-activeSelectionForeground);
-  border-color: var(--vscode-contrastActiveBorder, transparent);
+.setting-menu button:hover:not(:disabled) {
+  color: var(--vscode-menu-selectionForeground, var(--vscode-foreground));
+  background: var(--vscode-menu-selectionBackground, var(--vscode-toolbar-hoverBackground));
 }
 button:disabled,
 input:disabled,
@@ -150,11 +186,10 @@ textarea:disabled {
   flex-wrap: wrap;
   gap: 8px;
 }
-.meta {
-  font-size: 12px;
+.setting .row-status:empty {
+  display: none;
 }
 .setting .row-status {
-  min-height: 1.5em;
   margin-bottom: 0;
 }
 .setting .conflict {
@@ -164,16 +199,8 @@ textarea:disabled {
   body {
     padding: 16px;
   }
-  .layout {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 20px;
-  }
-  nav {
-    flex-direction: row;
-    flex-wrap: wrap;
-  }
   .setting {
-    padding: 14px;
+    padding: 10px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
