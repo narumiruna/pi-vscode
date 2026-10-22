@@ -1,5 +1,7 @@
 import { nativeObject } from "./nativePiJson";
 
+export type NativeScope = "global" | "project";
+
 export interface NativeSettingControl {
   readonly key: string;
   readonly label: string;

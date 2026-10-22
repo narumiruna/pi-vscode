@@ -85,7 +85,7 @@ async function activateWithLogger(
   registerExtensionUiDialogs(context, runtime);
   const conversation = registerPiSidebar(context, runtime, logger);
   registerPiCompatibility(context, runtime);
-  registerSettingsPanel(context);
+  registerSettingsPanel(context, runtime);
   registerNativePiManagement(context, runtime);
   registerProviderAuthentication(context, runtime);
   registerPiChat(context);

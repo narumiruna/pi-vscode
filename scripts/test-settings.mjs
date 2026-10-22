@@ -7,6 +7,7 @@ import { chromium } from "playwright-core";
 const require = createRequire(import.meta.url);
 const { getSettingsHtml } = require("../out/settingsHtml.js");
 const { settingsDescriptors } = require("../out/settingsModel.js");
+const { nativeSettingControls, mcpExposures } = require("../out/nativePiModel.js");
 let origin;
 const server = http.createServer(async (request, response) => {
   try {
@@ -83,11 +84,86 @@ try {
       message.id,
     );
   };
+  const send = (data) => page.evaluate((data) => window.dispatchEvent(new MessageEvent("message", { data })), data);
+  const waitMessage = async (type, after = -1) => {
+    for (let i = 0; i < 100; i++) {
+      const result = messages.slice(after + 1).findLast((message) => message.type === type);
+      if (result) return result;
+      await page.waitForTimeout(10);
+    }
+    throw new Error(`Missing ${type} request`);
+  };
+  const nativeRow = (key) => page.locator(`section[data-native-key="${key}"]`);
+  const nativeOverrides = { global: {}, project: {} };
+  const mcpOverrides = { global: {}, project: {} };
+  let nativeRevision = 1;
+  let nativeOrigin = "a".repeat(64);
+  const project = (key, fallback, scope, overrides) => {
+    const own = overrides[scope][key];
+    const inherited = scope === "project" ? (overrides.global[key] ?? fallback) : fallback;
+    return {
+      key,
+      ...(own !== undefined ? { own } : {}),
+      inherited,
+      value: own ?? inherited,
+      source:
+        own !== undefined ? scope : scope === "project" && overrides.global[key] !== undefined ? "global" : "default",
+      hasOverride: own !== undefined,
+      invalid: false,
+      inheritedInvalid: false,
+    };
+  };
+  const nativeProjection = (request) => ({
+    type: "nativeSnapshot",
+    id: request.id,
+    scope: request.scope,
+    origin: nativeOrigin,
+    revision: nativeRevision.toString(16).padStart(64, "0"),
+    approved: false,
+    entries: [
+      ...nativeSettingControls.map((control) =>
+        project(control.key, control.defaultValue, request.scope, nativeOverrides),
+      ),
+      { key: "unknownNative", value: "UNKNOWN_NATIVE_CANARY" },
+    ],
+    unknown: "UNKNOWN_NATIVE_CANARY",
+    servers: [
+      {
+        name: "fixture-server",
+        type: "stdio",
+        source: "global",
+        enabled: true,
+        exposure: "codemode",
+        state: "unknown",
+        command: "TRANSPORT_CANARY",
+        env: { SECRET: "AUTH_CANARY" },
+        fields: [
+          project("enabled", true, request.scope, mcpOverrides),
+          project("exposure", "codemode", request.scope, mcpOverrides),
+        ],
+      },
+    ],
+  });
+  const loadNative = async (after = -1) => {
+    const request = await waitMessage("nativeLoad", after);
+    await send(nativeProjection(request));
+    await send({ type: "nativeResult", id: request.id, ok: true });
+    return request;
+  };
+  const acceptNative = async (request) => {
+    const overrides = request.server === undefined ? nativeOverrides : mcpOverrides;
+    if (request.type === "nativeReset") delete overrides[request.scope][request.key];
+    else overrides[request.scope][request.key] = request.value;
+    nativeRevision++;
+    await send(nativeProjection(request));
+    await send({ type: "nativeResult", id: request.id, ok: true });
+  };
+  const writeCount = () => messages.filter((message) => ["nativeSave", "nativeReset"].includes(message.type)).length;
   await page.goto(origin);
   await page.waitForFunction(() => document.querySelector("nav button") !== null);
   assert.match(await page.locator("body").innerText(), /General, Permissions, and Editor edit VS Code pi\.\* settings/);
   assert.match(await page.locator("body").innerText(), /Pi Configuration/);
-  assert.match(await page.locator("body").innerText(), /Opening these dialogs starts no Pi process or connection/);
+  assert.match(await page.locator("body").innerText(), /Opening this page starts no Pi process or connection/);
   assert.doesNotMatch(await page.locator("body").innerText(), /Pi Files/);
   await push();
   assert.equal(await page.locator("section").count(), 4);
@@ -280,6 +356,11 @@ try {
     await page.getByRole("button", { name: "Permissions", exact: true }).getAttribute("aria-pressed"),
     "true",
   );
+  assert.equal(
+    messages.filter((message) => message.type === "nativeLoad").length,
+    0,
+    "Unrelated categories never load native files",
+  );
   // Native controls remain keyboard accessible.
   await page.getByRole("button", { name: "General", exact: true }).focus();
   await page.keyboard.press("Enter");
@@ -295,7 +376,9 @@ try {
     for (const width of [280, 400, 650, 1100]) {
       await page.setViewportSize({ width, height: 800 });
       for (const category of ["General", "Pi Configuration"]) {
+        const before = messages.length - 1;
         await page.getByRole("button", { name: category, exact: true }).click();
+        if (category === "Pi Configuration") await loadNative(before);
         assert.ok(
           await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
           `${category} ${theme} ${width}: overflow`,
@@ -307,43 +390,334 @@ try {
   assert.match(await page.locator("#scope-note").innerText(), /Global Pi or Project Pi/);
   assert.match(await page.locator("main").innerText(), /~\/\.pi\/agent\/settings\.json/);
   assert.match(await page.locator("main").innerText(), /\.pi\/settings\.json/);
-  assert.match(await page.locator("main").innerText(), /Project overrides remain inactive/);
+  assert.equal(await page.locator("[data-native-key]").count(), 10);
+  assert.equal(writeCount(), 0, "Loading, layout checks, and scope changes never write native files");
+  const selectNativeScope = async (scope) => {
+    const before = messages.length - 1;
+    await page.locator("#native-scope").selectOption(scope);
+    await loadNative(before);
+  };
+  const values = {
+    defaultProvider: "fixture-provider",
+    defaultModel: "fixture-model",
+    defaultThinkingLevel: "high",
+    enabledModels: ["provider/second:high", "provider/first"],
+    steeringMode: "all",
+    followUpMode: "all",
+    "compaction.enabled": false,
+    "retry.enabled": false,
+  };
+  const editNative = async (control, value) => {
+    const field = control.locator("input,select,textarea");
+    if (typeof value === "boolean") await field.setChecked(value);
+    else if (await field.evaluate((element) => element.tagName === "SELECT")) await field.selectOption(value);
+    else await field.fill(Array.isArray(value) ? value.join("\n") : value);
+  };
+  // Every native control uses explicit Save at both scopes, including checkboxes and selects.
   for (const scope of ["global", "project"]) {
-    const title = scope === "global" ? "Global Pi" : "Project Pi";
-    for (const kind of ["settings", "mcp"]) {
-      const before = messages.length;
-      await page.getByRole("button", { name: `Edit ${title} ${kind}.json`, exact: true }).click();
-      for (let i = 0; i < 50 && messages.length === before; i++) await page.waitForTimeout(10);
-      assert.deepEqual(messages.at(-1), { type: "openPiFile", kind, scope });
+    if (scope !== "global") await selectNativeScope(scope);
+    if (scope === "project") assert.match(await page.locator("main").innerText(), /Project overrides remain inactive/);
+    for (const descriptor of nativeSettingControls) {
+      const control = nativeRow(descriptor.key);
+      assert.equal(await control.locator("label").getAttribute("for"), `native-${descriptor.key}`);
+      const before = writeCount();
+      // Project inherits the Global value; choose a different project value where possible.
+      const value =
+        scope === "global"
+          ? values[descriptor.key]
+          : typeof descriptor.defaultValue === "boolean"
+            ? true
+            : Array.isArray(descriptor.defaultValue)
+              ? ["project/model", "project/*:low"]
+              : descriptor.choices
+                ? descriptor.choices[0]
+                : `project-${descriptor.key}`;
+      await editNative(control, value);
+      assert.equal(writeCount(), before, `${descriptor.key}: editing alone must not save`);
+      const after = messages.length - 1;
+      await control.getByRole("button", { name: "Save", exact: true }).click();
+      const request = await waitMessage("nativeSave", after);
+      assert.equal(request.scope, scope);
+      assert.equal(request.key, descriptor.key);
+      assert.equal(request.server, undefined);
+      assert.deepEqual(request.value, value);
+      assert.ok(request.id.length <= 80 && /^[a-zA-Z0-9_-]+$/.test(request.id));
+      assert.equal(await control.locator("input,select,textarea").isDisabled(), true);
+      await acceptNative(request);
+      assert.match(await control.innerText(), /Saved/);
+      assert.equal(await page.evaluate(() => document.activeElement.id), `native-${descriptor.key}-save`);
+      assert.match(await control.locator(".meta").innerText(), /Selected-scope override:/);
+    }
+    for (const [kind, name] of [
+      ["settings", "Native settings management"],
+      ["mcp", "Native MCP management"],
+    ]) {
+      const after = messages.length - 1;
+      await page.getByRole("button", { name, exact: true }).click();
+      assert.deepEqual(await waitMessage("openPiFile", after), { type: "openPiFile", kind, scope });
+    }
+    const server = page.locator('[data-server="fixture-server"]');
+    assert.match(await server.innerText(), /Transport: stdio.*Source: global.*Connection: unknown/s);
+    for (const key of ["enabled", "exposure"]) {
+      const control = server.locator(`[data-native-key="${key}"]`);
+      const value = key === "enabled" ? scope === "project" : scope === "global" ? "direct" : "hidden";
+      const before = writeCount();
+      await editNative(control, value);
+      assert.equal(writeCount(), before, "MCP drafts do not auto-save");
+      if (key === "exposure") assert.deepEqual(await control.locator("option").allTextContents(), mcpExposures);
+      const after = messages.length - 1;
+      await control.getByRole("button", { name: "Save", exact: true }).click();
+      const request = await waitMessage("nativeSave", after);
+      assert.equal(request.server, "fixture-server");
+      assert.equal(request.scope, scope);
+      assert.equal(request.key, key);
+      assert.equal(request.value, value);
+      await acceptNative(request);
     }
   }
-  // The native scope is independent of VS Code's User/Workspace target and survives panel recreation.
+  // Reset removes only the selected scope, then exposes the inherited/default value.
+  for (const scope of ["project", "global"]) {
+    await selectNativeScope(scope);
+    for (const descriptor of nativeSettingControls) {
+      const control = nativeRow(descriptor.key);
+      const after = messages.length - 1;
+      await control.getByRole("button", { name: "Reset override", exact: true }).focus();
+      await page.keyboard.press("Enter");
+      const request = await waitMessage("nativeReset", after);
+      assert.equal(request.scope, scope);
+      assert.ok(!Object.hasOwn(request, "value"));
+      await acceptNative(request);
+      assert.match(await control.locator(".meta").innerText(), /Selected-scope override: None/);
+      assert.equal(await control.getByRole("button", { name: "Reset override", exact: true }).isDisabled(), true);
+      assert.equal(
+        await page.evaluate(() => document.activeElement.id),
+        `native-${descriptor.key}`,
+        "Reset returns focus to its field when the override no longer exists",
+      );
+      if (scope === "project") assert.deepEqual(nativeOverrides.global[descriptor.key], values[descriptor.key]);
+    }
+    for (const key of ["enabled", "exposure"]) {
+      const control = page.locator(`[data-server] [data-native-key="${key}"]`);
+      const after = messages.length - 1;
+      await control.getByRole("button", { name: "Reset override", exact: true }).click();
+      const request = await waitMessage("nativeReset", after);
+      assert.equal(request.server, "fixture-server");
+      await acceptNative(request);
+      assert.match(await control.locator(".meta").innerText(), /Selected-scope override: None/);
+      assert.equal(await page.evaluate(() => document.activeElement.id), `native-mcp-0-${key}`);
+    }
+  }
+  // MCP drafts bind to the whole opaque file revision, not only visible metadata.
+  const exposureRow = page.locator('[data-server] [data-native-key="exposure"]');
+  const mcpWritesBefore = writeCount();
+  await exposureRow.locator("select").selectOption("direct");
+  await page.getByRole("button", { name: "General", exact: true }).click();
+  // A host revision changes after a same-name transport/credential replacement; safe metadata stays equal.
+  nativeRevision++;
+  let mcpAfter = messages.length - 1;
+  await page.getByRole("button", { name: "Pi Configuration", exact: true }).click();
+  await loadNative(mcpAfter);
+  assert.equal(await exposureRow.locator("select").inputValue(), "direct");
+  assert.equal(await exposureRow.getByRole("button", { name: "Save", exact: true }).isDisabled(), true);
+  mcpAfter = messages.length - 1;
+  await exposureRow.getByRole("button", { name: "Reload row" }).click();
+  await loadNative(mcpAfter);
+  await exposureRow.locator("select").selectOption("hidden");
+  await selectNativeScope("project");
+  nativeRevision++;
+  await selectNativeScope("global");
+  assert.equal(await exposureRow.locator("select").inputValue(), "hidden");
+  assert.equal(await exposureRow.getByRole("button", { name: "Save", exact: true }).isDisabled(), true);
+  mcpAfter = messages.length - 1;
+  await exposureRow.getByRole("button", { name: "Reload row" }).click();
+  await loadNative(mcpAfter);
+  assert.equal(await exposureRow.locator("select").inputValue(), "codemode");
+  assert.equal(writeCount(), mcpWritesBefore);
+  const providerRow = nativeRow("defaultProvider");
+  // Unsolicited and missing-ID projections cannot replace the loaded scope.
+  await send({ ...nativeProjection({ scope: "project", id: "unsolicited" }), id: undefined });
+  assert.equal(await page.locator("#native-scope").inputValue(), "global");
+  const modelRow = nativeRow("defaultModel");
+  await modelRow.locator("input").fill("local-model-draft");
+  nativeOverrides.global.defaultModel = "external-model";
+  nativeRevision++;
+  let refreshAfter = messages.length - 1;
+  await page.getByRole("button", { name: "Reload configuration", exact: true }).click();
+  await loadNative(refreshAfter);
+  assert.equal(await modelRow.locator("input").inputValue(), "local-model-draft");
+  assert.equal(await modelRow.getByRole("button", { name: "Save", exact: true }).isDisabled(), true);
+  refreshAfter = messages.length - 1;
+  await modelRow.getByRole("button", { name: "Reload row" }).click();
+  await loadNative(refreshAfter);
+  assert.equal(await modelRow.locator("input").inputValue(), "external-model");
+  await providerRow.locator("input").fill("unsaved-global");
+  let after = messages.length - 1;
+  await providerRow.getByRole("button", { name: "Save", exact: true }).click();
+  let failedNative = await waitMessage("nativeSave", after);
+  await send({
+    type: "nativeResult",
+    id: failedNative.id,
+    ok: false,
+    error: "Native configuration is unavailable. Try again.",
+  });
+  assert.equal(await providerRow.locator("input").inputValue(), "unsaved-global");
+  assert.equal(await providerRow.getByRole("button", { name: "Save", exact: true }).isDisabled(), false);
+  assert.match(await providerRow.innerText(), /unavailable/);
+  await selectNativeScope("project");
+  await providerRow.locator("input").fill("unsaved-project");
+  await selectNativeScope("global");
+  assert.equal(await providerRow.locator("input").inputValue(), "unsaved-global");
+  after = messages.length - 1;
+  await providerRow.getByRole("button", { name: "Save", exact: true }).click();
+  failedNative = await waitMessage("nativeSave", after);
+  await send({
+    type: "nativeResult",
+    id: failedNative.id,
+    ok: false,
+    error: "Native configuration changed. Reload this row.",
+  });
+  assert.equal(await providerRow.getByRole("button", { name: "Save", exact: true }).isDisabled(), true);
+  assert.match(await providerRow.innerText(), /Draft retained/);
+  after = messages.length - 1;
+  await providerRow.getByRole("button", { name: "Reload row" }).click();
+  await loadNative(after);
+  assert.equal(await providerRow.locator("input").inputValue(), "");
+  // A replaced load or save must not change the selected scope or leave a row pending.
+  await providerRow.locator("input").fill("superseded-draft");
+  after = messages.length - 1;
+  await providerRow.getByRole("button", { name: "Save", exact: true }).click();
+  const lateSave = await waitMessage("nativeSave", after);
+  after = messages.length - 1;
+  await page.locator("#native-scope").selectOption("project");
+  const lateLoad = await waitMessage("nativeLoad", after);
+  after = messages.length - 1;
+  await page.locator("#native-scope").selectOption("global");
+  await loadNative(after);
+  await send(nativeProjection(lateLoad));
+  await send(nativeProjection(lateSave));
+  await send({ type: "nativeResult", id: lateSave.id, ok: true });
+  assert.equal(await page.locator("#native-scope").inputValue(), "global");
+  assert.equal(await providerRow.locator("input").isDisabled(), false);
+  assert.equal(await providerRow.locator("input").inputValue(), "superseded-draft");
+  assert.equal(await providerRow.getByRole("button", { name: "Save", exact: true }).isDisabled(), true);
+  // Invalidation while another category is selected is lazy and retains draft conflict state.
+  await page.getByRole("button", { name: "General", exact: true }).click();
+  const loadCount = messages.filter((message) => message.type === "nativeLoad").length;
+  await send({ type: "nativeInvalidated" });
+  assert.equal(messages.filter((message) => message.type === "nativeLoad").length, loadCount);
+  after = messages.length - 1;
+  await page.getByRole("button", { name: "Pi Configuration", exact: true }).click();
+  await loadNative(after);
+  assert.equal(await providerRow.getByRole("button", { name: "Save", exact: true }).isDisabled(), true);
+  after = messages.length - 1;
+  await providerRow.getByRole("button", { name: "Reload row" }).click();
+  await loadNative(after);
+  // Native load failure recovers through an explicit reload, not an automatic retry loop.
+  after = messages.length - 1;
+  await page.getByRole("button", { name: "Reload configuration", exact: true }).click();
+  const failedLoad = await waitMessage("nativeLoad", after);
+  await send({ type: "nativeResult", id: failedLoad.id, ok: false, error: "Native configuration is unavailable." });
+  assert.match(await page.locator("main").innerText(), /unavailable/);
+  assert.equal(await page.locator("[data-native-key]").count(), 0);
+  after = messages.length - 1;
+  await page.getByRole("button", { name: "Reload configuration", exact: true }).click();
+  await loadNative(after);
+  // Scope and common drafts recover independently of VS Code User/Workspace.
+  await selectNativeScope("project");
+  await providerRow.locator("input").fill("restored-project-draft");
+  after = messages.length - 1;
   await page.reload();
   await push();
-  assert.equal(
-    await page.getByRole("button", { name: "Pi Configuration", exact: true }).getAttribute("aria-pressed"),
-    "true",
+  await loadNative(after);
+  assert.equal(await page.locator("#native-scope").inputValue(), "project");
+  assert.equal(await providerRow.locator("input").inputValue(), "restored-project-draft");
+  await selectNativeScope("global");
+  await providerRow.locator("input").fill("restored-common-draft");
+  await page.locator('[data-server] [data-native-key="exposure"] select').selectOption("hidden");
+  const recovered = await page.evaluate(() => JSON.parse(localStorage.getItem("fixtureState")));
+  assert.equal(recovered.native.drafts["global:defaultProvider"].raw, "restored-common-draft");
+  assert.ok(Object.keys(recovered.native.drafts).every((key) => !key.includes("mcp:")));
+  assert.doesNotMatch(
+    JSON.stringify(recovered),
+    /UNKNOWN_NATIVE_CANARY|TRANSPORT_CANARY|AUTH_CANARY|nativeSnapshot|revision/,
   );
-  // Keep the selected category when restoring state saved with the old label.
+  assert.doesNotMatch(await page.locator("main").innerText(), /UNKNOWN_NATIVE_CANARY|TRANSPORT_CANARY|AUTH_CANARY/);
+  const writesBeforeRestore = writeCount();
+  after = messages.length - 1;
+  await page.reload();
+  await push();
+  await loadNative(after);
+  assert.equal(await providerRow.locator("input").inputValue(), "restored-common-draft");
+  assert.equal(await page.locator('[data-server] [data-native-key="exposure"] select').inputValue(), "codemode");
+  assert.equal(writeCount(), writesBeforeRestore);
+  assert.equal(await providerRow.getByRole("button", { name: "Save", exact: true }).isDisabled(), false);
+  // Origin changes cannot carry an old draft into a new workspace, directory, or approval policy.
+  nativeOrigin = "b".repeat(64);
+  after = messages.length - 1;
+  await page.getByRole("button", { name: "Reload configuration", exact: true }).click();
+  await loadNative(after);
+  assert.equal(await providerRow.locator("input").inputValue(), "restored-common-draft");
+  assert.equal(await providerRow.getByRole("button", { name: "Save", exact: true }).isDisabled(), true);
+  // Keep the old category migration and reject unknown or invalid native recovery data.
   const previousState = await page.evaluate(() => {
     const state = JSON.parse(localStorage.getItem("fixtureState"));
-    localStorage.setItem("fixtureState", JSON.stringify({ ...state, category: "Pi Files" }));
+    const changed = structuredClone(state);
+    changed.category = "Pi Files";
+    changed.native.drafts["global:unknown"] = { raw: "UNKNOWN_RECOVERY_CANARY", base: "12345678", origin: "origin" };
+    changed.native.drafts["global:defaultModel"] = { raw: "x".repeat(257), base: "12345678", origin: "origin" };
+    changed.native.drafts["global:defaultProvider"].unknown = "UNKNOWN_RECOVERY_CANARY";
+    localStorage.setItem("fixtureState", JSON.stringify(changed));
     return state;
   });
+  after = messages.length - 1;
   await page.reload();
   await push();
-  assert.equal(
-    await page.getByRole("button", { name: "Pi Configuration", exact: true }).getAttribute("aria-pressed"),
-    "true",
-  );
-  assert.equal(await page.locator("#target").inputValue(), previousState.target);
-  assert.equal(await page.locator("#target").isDisabled(), true);
-  assert.doesNotMatch(await page.locator("body").innerText(), /Pi Files/);
-  // Saving the new category label must keep existing extension-setting drafts.
+  await loadNative(after);
   await page.getByRole("button", { name: "Pi Configuration", exact: true }).click();
   const restoredState = await page.evaluate(() => JSON.parse(localStorage.getItem("fixtureState")));
   assert.equal(restoredState.category, "Pi Configuration");
   assert.deepEqual(restoredState.drafts, previousState.drafts);
+  assert.doesNotMatch(JSON.stringify(restoredState.native), /UNKNOWN_RECOVERY_CANARY/);
+  assert.equal(await page.locator("#target").inputValue(), previousState.target);
+  assert.equal(await page.locator("#target").isDisabled(), true);
+  assert.doesNotMatch(await page.locator("body").innerText(), /Pi Files/);
+  // A labelled field and its explicit Save action are reachable with the keyboard.
+  after = messages.length - 1;
+  await providerRow.getByRole("button", { name: "Reload row" }).click();
+  await loadNative(after);
+  await providerRow.locator("input").focus();
+  await page.keyboard.type("keyboard-draft");
+  await page.keyboard.press("Tab");
+  assert.equal(await page.evaluate(() => document.activeElement.id), "native-defaultProvider-save");
+  after = messages.length - 1;
+  await page.keyboard.press("Enter");
+  await acceptNative(await waitMessage("nativeSave", after));
+  // Two individually valid lists exceed the native recovery cap, but remain editable in memory.
+  const largePatterns = Array.from(
+    { length: 100 },
+    (_, index) => `${String(index).padStart(3, "0")}${"x".repeat(253)}`,
+  ).join("\n");
+  const beforeLargeDrafts = writeCount();
+  await nativeRow("enabledModels").locator("textarea").fill(largePatterns);
+  let boundedState = await page.evaluate(() => localStorage.getItem("fixtureState"));
+  assert.ok(JSON.parse(boundedState).native.drafts["global:enabledModels"]);
+  await selectNativeScope("project");
+  await nativeRow("enabledModels").locator("textarea").fill(largePatterns);
+  assert.match(await page.locator("#status").innerText(), /28 KiB recovery limit.*will not be restored/);
+  boundedState = await page.evaluate(() => localStorage.getItem("fixtureState"));
+  assert.ok(Buffer.byteLength(boundedState) <= 32 * 1024);
+  assert.deepEqual(JSON.parse(boundedState).native.drafts, {});
+  snapshot.revision++;
+  await push();
+  assert.match(await page.locator("#status").innerText(), /28 KiB recovery limit/);
+  await selectNativeScope("global");
+  assert.equal(await nativeRow("enabledModels").locator("textarea").inputValue(), largePatterns);
+  await nativeRow("enabledModels").locator("textarea").fill("global/*");
+  assert.doesNotMatch(await page.locator("#status").innerText(), /exceed/);
+  await selectNativeScope("project");
+  await nativeRow("enabledModels").locator("textarea").fill("project/*");
+  await selectNativeScope("global");
+  assert.equal(writeCount(), beforeLargeDrafts);
   snapshot.nativeFilesAvailable = false;
   snapshot.revision++;
   await push();
@@ -388,7 +762,7 @@ try {
   assert.deepEqual(errors, []);
   await page.close();
   console.log(
-    "Settings browser: controls, scopes, Pi Configuration routing, reset, conflicts, drafts, keyboard, 24 layouts/themes, CSP and teardown passed.",
+    "Settings browser: General regression, eight native fields at both scopes, MCP, explicit Save/reset, lazy loads, failures, superseded replies, conflicts, recovery, keyboard, 24 layouts/themes, CSP and teardown passed.",
   );
 } finally {
   await browser?.close();

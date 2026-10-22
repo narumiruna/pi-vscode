@@ -4,11 +4,12 @@ import { lstat, mkdir, open, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parseNativeJson, patchNativeJson } from "./nativePiJson";
+import type { NativeScope } from "./nativePiModel";
 import { acquireOperation } from "./operationLocks";
 import { readWorkspaceFile, safeRelativePath } from "./workspaceFiles";
 
 export const nativeFileByteLimit = 128 * 1024;
-export type NativeScope = "global" | "project";
+export type { NativeScope } from "./nativePiModel";
 export type NativeFileKind = "settings" | "mcp";
 export interface NativeFileTarget {
   readonly root: string;
