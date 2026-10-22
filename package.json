@@ -2,7 +2,7 @@
   "name": "narumi-pi",
   "displayName": "Pi",
   "description": "Use Pi in VS Code to understand code and apply focused modifications.",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "private": true,
   "publisher": "narumi",
   "license": "MIT",
