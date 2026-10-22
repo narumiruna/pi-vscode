@@ -736,17 +736,22 @@ Host trust and launch checks independently prevent untrusted process launches an
 
 ### Native Pi settings and MCP
 
-Run **Pi: Pi Configuration** and use its **Global Pi / Project Pi** selector.
+Run **Pi: Pi Configuration** and select **Global Pi** or **Project Pi** under **Save to**.
+Project Pi shows **First workspace folder · .pi**; there is no multi-root selector.
 This dedicated panel contains only Pi file controls, with no General/Permissions/Editor form or User/Workspace selector.
 Use its **Open Extension Settings** action for extension settings.
+The **Model**, **Behavior**, and **MCP** sections group startup preferences, session behavior defaults, and configured servers.
+File locations and detailed precedence rules are in expandable help.
+The secondary **Advanced** menu opens **Open Pi settings dialog…** or **Manage MCP servers…**.
+These actions open the existing native dialogs, not a direct JSON editor.
 The form uses the existing native setting descriptors, not a second settings database or arbitrary JSON editor.
 No new VS Code configuration keys are added.
 The Command Palette commands below remain available.
 
 | Field | Inline control |
 | --- | --- |
-| Startup provider | Text input; no model discovery required |
-| Startup model | Text input; no running Pi process required |
+| Provider ID | Manual text input for the startup provider |
+| Model ID | Manual text input for the startup model |
 | Startup thinking level | Select: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` |
 | Scoped model patterns | Ordered multiline input, one pattern per line |
 | Steering mode | Select: `one-at-a-time`, `all` |
@@ -754,23 +759,32 @@ The Command Palette commands below remain available.
 | Automatic compaction | Checkbox |
 | Automatic retry | Checkbox |
 
-Each flat row shows the selected-scope override, inherited/default value, and source.
-A saved-override indicator is separate from the unsaved-draft indicator.
-**Save** appears only for a draft, pending operation, or unresolved save error.
-It stays visible but disabled while pending or stale; after success it hides and focus returns to the field.
+Provider and model entry is manual, including custom IDs; this page offers no cached catalog or model discovery.
+It does not start a helper or read credentials to assist entry.
+Ordered model patterns retain Pi's matching semantics; they are not model access control.
+
+An inherited row shows a read-only value with **Inherited from Global** or **Pi default** as its source.
+Choose **Set global override** or **Set project override** to open a local draft initialized from that value.
+Entering edit mode does not write a file or create directories.
+A saved row shows **Global override** or **Project override** and remains editable.
+Unsaved changes have a separate draft indicator; neither saved nor draft values are verified current-session values.
+**Save** stays visible in editable rows and is disabled without a draft, during a pending operation, or when stale.
+After a successful save it stays visible but disabled until another edit.
 Checkbox, select, and MCP metadata changes create drafts; editing alone never saves or resets a file.
 A draft equal to an inherited value can still save an explicit selected-scope override.
+**Discard changes** removes the local draft without changing saved files or removing a saved override.
 
-Open the compact row actions menu for **Reset override** or **Reload row**.
-Reset removes only the selected-scope member and preserves inherited values and unrelated file members.
-Reset is disabled without a selected-scope override, or while the row is pending or stale.
+Open the row actions menu for **Remove global override** or **Remove project override**, or **Reload row**.
+Remove deletes only the saved selected-scope member and preserves inherited values and unrelated file members.
+It does not save a copy of the inherited value and is disabled without a saved override, or while pending or stale.
 Reload discards that row's draft and reads current values when no operation blocks it.
 The menu supports keyboard use and Escape; opening or closing it does not discard drafts.
 Drafts remain separate by native scope and setting and survive failed saves and scope changes.
 A stale draft shows an inline **Reload row** recovery action and requires explicit reload before saving.
-**Reload configuration** reads saved file values and preserves unrelated drafts; it does not reload Pi resources.
+The secondary **Reload saved values** action reads saved file values and preserves unrelated drafts; it does not reload Pi resources.
 There is no Save All or Reset All.
 Only bounded validated common-setting drafts are kept in webview state; full native snapshots and MCP transport data are never persisted there.
+A bounded restart request ID and fixed outcome status also recover feedback after hide/reveal, without repeating the action or storing its authority token.
 Closing the panel discards these drafts.
 
 The configured MCP list shows validated server names, transport type, source, enabled state, and exposure metadata.
@@ -779,18 +793,27 @@ Project metadata overrides preserve inherited transport and credentials.
 Configured state is not connection evidence; connection state remains **unknown**.
 Server creation, transport editing, credentials, authentication, diagnostics, and advanced editing remain in existing explicit native management interfaces.
 Raw file text, unlisted settings, URLs, commands, arguments, environment/header values, and OAuth objects stay out of the browser.
-Only validated common-setting values, safe MCP metadata, and opaque revision tokens reach the form; full file snapshots remain in Extension Host memory.
+Only validated common-setting values, safe MCP metadata, opaque revision tokens, and a host-owned restart action token reach the form; full file snapshots remain in Extension Host memory.
 
 Global Pi uses the Extension Host's `~/.pi/agent`, or `PI_CODING_AGENT_DIR` when set.
 Project Pi uses the current launch workspace's `.pi`: the existing first workspace folder behavior, not multi-root selection.
 Remote windows use the remote Extension Host's paths.
 Native controls require a trusted, file-backed workspace, including for Global Pi.
 
-Opening, reading, refreshing, or switching Pi file scopes never creates files.
+Opening, reading, refreshing, switching Pi file scopes, entering edit mode, or discarding drafts never creates files.
 The first explicit override save creates only the required `settings.json` or `mcp.json` and missing Pi directories.
 Resetting an absent override creates nothing.
-Project setting values and MCP entries are labelled **inactive** when project-resource approval is off, not shown as active runtime settings.
-Editing does not activate or approve them.
+When project-resource approval is off, one warning appears above the sections and saved Project overrides are labelled **inactive**.
+Inherited Global values are not marked inactive.
+**Review project approval setting** opens native Settings filtered to `pi.approveProjectResources` only.
+Opening that setting does not change approval, trust, or runtime state; editing Pi files does not activate or approve project resources.
+
+One shared explanation states that Save changes files only, not running sessions.
+After a save or override removal, the result distinguishes saved files from unchanged runtime state.
+Choose the separate **Restart Pi…** action to use the existing **Pi: Restart Pi (Current Launch Policy)** confirmation and lifecycle checks.
+Restart is not automatic and does not replace **Reload saved values** or the resource-reload command.
+Cancellation or failure retains saved files and drafts; failure reports runtime uncertainty and requires inspection before retry.
+Resumed-session values and VS Code launch overrides can still take precedence after restart.
 
 Native controls use Pi terms such as **Steering mode**, **Follow-up mode**, **thinking level**, and **scoped model patterns**:
 

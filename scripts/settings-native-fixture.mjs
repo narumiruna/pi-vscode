@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -270,6 +270,80 @@ async function assertMissingNativeFiles(directory, workspace) {
   }
 }
 
+async function assertAllPiFields({ form, directory, workspace, until }) {
+  const values = {
+    defaultProvider: "fixture-provider",
+    defaultModel: "fixture-model",
+    defaultThinkingLevel: "high",
+    enabledModels: ["fixture/model:high", "fixture/*"],
+    steeringMode: "all",
+    followUpMode: "all",
+    "compaction.enabled": false,
+    "retry.enabled": false,
+  };
+  const target = (scope) =>
+    path.join(scope === "global" ? path.join(directory, "pi") : path.join(workspace, ".pi"), "settings.json");
+  const saved = async (scope) =>
+    JSON.parse(
+      await readFile(target(scope), "utf8").catch((error) => {
+        if (error.code === "ENOENT") return "{}";
+        throw error;
+      }),
+    );
+  const member = (data, key) => key.split(".").reduce((value, part) => value?.[part], data);
+  const control = (key, suffix = "") => form.locator(`[id="native-${key}${suffix}"]`);
+  for (const scope of ["global", "project"]) {
+    await form.locator("#native-scope").selectOption(scope);
+    await until(async () => await control("defaultProvider", "-override").isVisible(), `${scope} inherited rows`);
+    for (const [key, value] of Object.entries(values)) {
+      const beforeEdit = await saved(scope);
+      const expected = scope === "project" && typeof value === "boolean" ? true : value;
+      assert.equal(await control(key).getAttribute("readonly"), "");
+      const inherited = await control(key).inputValue();
+      await control(key, "-override").click();
+      if (typeof expected === "boolean") assert.equal(await control(key).isChecked(), inherited === "true");
+      else assert.equal(await control(key).inputValue(), inherited);
+      assert.equal(await control(key, "-save").isEnabled(), true, "Inherited-value overrides can be saved");
+      if (typeof expected === "boolean") await control(key).setChecked(expected);
+      else if (await control(key).evaluate((element) => element.tagName === "SELECT"))
+        await control(key).selectOption(expected);
+      else await control(key).fill(Array.isArray(expected) ? expected.join("\n") : expected);
+      assert.deepEqual(await saved(scope), beforeEdit, "Entering override mode and editing never save");
+      await control(key).focus();
+      await control(key).press("Tab");
+      assert.equal(await form.evaluate(() => document.activeElement.id), `native-${key}-save`);
+      await control(key, "-save").press("Enter");
+      await until(
+        async () => JSON.stringify(member(await saved(scope), key)) === JSON.stringify(expected),
+        `${scope} ${key} saved`,
+      );
+      await until(
+        async () => (await control(key).locator("xpath=ancestor::section[1]").getAttribute("data-draft")) === "false",
+        `${scope} ${key} acknowledged`,
+      );
+      assert.equal(await control(key, "-save").isVisible(), true);
+      assert.equal(await control(key).evaluate((element) => document.activeElement === element), true);
+    }
+    const beforeDiscard = await readFile(target(scope), "utf8");
+    await control("defaultModel").fill("saved-override-local-draft");
+    await control("defaultModel", "-discard").click();
+    assert.equal(await control("defaultModel").inputValue(), values.defaultModel);
+    assert.equal(await readFile(target(scope), "utf8"), beforeDiscard, "Discard preserves saved overrides");
+  }
+  for (const scope of ["project", "global"]) {
+    await form.locator("#native-scope").selectOption(scope);
+    await until(async () => await control("defaultProvider", "-save").isVisible(), `${scope} saved overrides loaded`);
+    for (const key of Object.keys(values)) {
+      await control(key, "-actions").click();
+      assert.match(await control(key, "-reset").innerText(), scope === "project" ? /project/i : /global/i);
+      await control(key, "-reset").click();
+      await until(async () => member(await saved(scope), key) === undefined, `${scope} ${key} reset`);
+      await until(async () => await control(key, "-override").isVisible(), `${scope} ${key} inherited`);
+      if (scope === "project") assert.deepEqual(member(await saved("global"), key), values[key]);
+    }
+  }
+}
+
 async function assertPiConfiguration({ page, invoke, until, directory, workspace, version }) {
   const frame = () =>
     until(async () => {
@@ -288,7 +362,10 @@ async function assertPiConfiguration({ page, invoke, until, directory, workspace
   let form = await frame();
   await form.locator("#native-defaultModel").waitFor({ state: "visible" });
   assert.equal(await form.locator("#target, #categories").count(), 0);
+  assert.equal(await form.locator("#native-defaultModel").getAttribute("readonly"), "");
   assert.equal(await form.locator("#native-defaultModel-save").isVisible(), false);
+  const evidence = path.join(tmpdir(), "pi-configuration-usability");
+  await mkdir(evidence, { recursive: true });
   for (const [theme, cssClass] of [
     ["Default Dark Modern", "vscode-dark"],
     ["Default Light Modern", "vscode-light"],
@@ -299,13 +376,22 @@ async function assertPiConfiguration({ page, invoke, until, directory, workspace
     assert.ok(
       await form.evaluate(() => getComputedStyle(document.body).getPropertyValue("--vscode-editor-background").trim()),
     );
-    await page.screenshot({ path: path.join(tmpdir(), `pi-configuration-${version}-${cssClass}.png`) });
+    await page.screenshot({ path: path.join(evidence, `native-${version}-${cssClass}.png`) });
   }
   await invoke("theme", { theme: "Default Dark Modern" });
   await form.waitForFunction(() => document.body.classList.contains("vscode-dark"));
   await form.locator("#native-scope").selectOption("project");
-  await until(async () => await form.locator("#native-defaultModel").isEnabled(), "Project Pi snapshot");
+  await until(async () => await form.locator("#native-defaultModel-override").isVisible(), "Project Pi snapshot");
   const input = () => form.locator("#native-defaultModel");
+  assert.equal(await input().getAttribute("readonly"), "");
+  await form.locator("#native-defaultModel-override").focus();
+  await form.locator("#native-defaultModel-override").press("Enter");
+  assert.equal(await input().inputValue(), "");
+  await input().fill("discard-only-draft");
+  await form.locator("#native-defaultModel-discard").click();
+  assert.equal(await input().getAttribute("readonly"), "");
+  await assertMissingNativeFiles(directory, workspace);
+  await form.locator("#native-defaultModel-override").click();
   await input().fill("native-configuration-draft");
   await form.locator("#native-defaultModel-save").waitFor({ state: "visible" });
   await form.locator("#native-defaultModel-actions").focus();
@@ -328,7 +414,11 @@ async function assertPiConfiguration({ page, invoke, until, directory, workspace
   form = await frame();
   await until(async () => (await input().inputValue()) === "native-configuration-draft", "Pi file draft reveal");
   await form.locator("#native-defaultModel-save").click();
-  await until(async () => !(await form.locator("#native-defaultModel-save").isVisible()), "Pi file Save acknowledged");
+  await until(
+    async () => (await input().locator("xpath=ancestor::section[1]").getAttribute("data-draft")) === "false",
+    "Pi file Save acknowledged",
+  );
+  assert.equal(await form.locator("#native-defaultModel-save").isVisible(), true, "Saved overrides retain Save");
   assert.equal(
     await input().evaluate((element) => document.activeElement === element),
     true,
@@ -344,9 +434,14 @@ async function assertPiConfiguration({ page, invoke, until, directory, workspace
     const saved = JSON.parse(await readFile(path.join(workspace, ".pi/settings.json"), "utf8"));
     return saved.defaultModel === undefined;
   }, "Pi file Reset override");
+  await until(
+    async () => await form.locator("#native-defaultModel-override").isVisible(),
+    "Reset restores inherited mode",
+  );
   assert.equal(await form.locator("#native-defaultModel-save").isVisible(), false);
+  await assertAllPiFields({ form, directory, workspace, until });
   await invoke("command", { command: "workbench.action.closeActiveEditor" });
   console.log(
-    "PI_NATIVE_CONFIGURATION singleton, immediate form, three native themes, separate scopes, draft-only edits, keyboard actions, hide/reveal, explicit Save/focus and Reset passed",
+    "PI_NATIVE_CONFIGURATION singleton, three native themes, eight fields at both scopes, inherited editing, local discard, stable Save, keyboard actions/focus, hide/reveal and scoped Reset passed",
   );
 }

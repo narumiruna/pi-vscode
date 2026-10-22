@@ -398,12 +398,23 @@ Launch settings affect later process creation, not running foreground or backgro
 It has only a Global Pi/Project Pi file selector, with no User/Workspace selector or General/Permissions/Editor controls.
 Its inline form edits only the eight existing common native settings and safe MCP enabled/exposure metadata through host-owned allowlists.
 The common fields are startup provider, startup model, startup thinking level, ordered model patterns, steering mode, follow-up mode, automatic compaction, and automatic retry.
-Each native row requires explicit Save or Reset override; checkbox, select, and MCP metadata changes create drafts only.
-Save appears only for a draft, pending operation, or unresolved save error, and is disabled while pending or stale.
-Reset override and Reload row are in a compact row actions menu; stale drafts also show an inline Reload row recovery action.
+Save to selects Global Pi or Project Pi, with Project Pi identified as the first workspace folder's `.pi` directory.
+Model, Behavior, and MCP sections group controls without adding new configuration targets.
+Provider ID and Model ID are manual inputs; no cached catalog projection, catalog fetch, model-discovery RPC, helper, or credential read is added.
+Inherited rows show read-only values and one source label, Inherited from Global or Pi default.
+Set global override or Set project override opens a local draft initialized from the displayed value without writing a file or creating directories.
+Saved overrides remain editable and distinct from unsaved drafts; a same-value override is valid.
+Save stays visible in editable rows, disabled without a draft, while pending, or when stale.
+Checkbox, select, and MCP metadata changes create drafts only.
+Discard changes removes only the local draft; it never removes a saved override or writes a file.
+Remove global override or Remove project override resets only the saved selected-scope member through the existing guarded path, not a copy of the inherited value.
+These removal actions and Reload row are in the row menu; stale drafts also show an inline Reload row recovery action.
 Opening or closing the menu does not discard drafts.
-Rows distinguish saved overrides from drafts and show inherited/default value and source; unapproved project values are labelled inactive rather than active runtime settings.
-Reload configuration reads saved values and preserves unrelated drafts; it does not reload Pi resources.
+One warning identifies inactive Project overrides when project-resource approval is off; inherited Global values are not flagged inactive.
+Neither saved nor draft values are represented as verified active-session values.
+Secondary Reload saved values reads saved values and preserves unrelated drafts; it does not reload Pi resources.
+Advanced opens Open Pi settings dialog… or Manage MCP servers… through the existing native dialog routes, not a direct JSON editor.
+One shared explanation distinguishes file saves from running sessions; file locations and precedence remain in expandable help.
 There is no Save All or Reset All.
 This adds no configuration keys or duplicate schema.
 `pi.openNativeSettings` and `pi.openNativeMcp` retain their existing native management dialog behavior.
@@ -426,7 +437,10 @@ Native drafts remain separate by scope and key and survive failed saves and scop
 The host queue admits at most 16 operations; a rejected save or reset gets an error with only its bounded request ID and writes nothing.
 Reset removes only the selected native scope's override.
 Small drafts are kept in webview state while hidden, not in Pi settings or extension global/workspace storage; closing the panel discards them.
-This persistence permits only bounded validated common-setting drafts, never complete native snapshots or MCP data, including transport/authentication fields.
+The separate restart action retains saved files and drafts on cancellation or failure; it never rolls back saved files or reports failed application as success.
+Draft persistence permits only bounded validated common-setting drafts, never complete native snapshots or MCP data, including transport/authentication fields.
+Webview state also keeps one bounded restart request ID and fixed outcome status for feedback recovery, never the action token.
+Recovery does not dispatch a restart; the panel retains its latest bounded result in host memory and repeats only that result on webview readiness.
 Obsolete General/Permissions/Editor recovery data is ignored, not replayed as configuration writes.
 Workspace, approval, or agent-directory changes invalidate native snapshots.
 Replaced loads and disposed panels reject stale or late results; rejected save/reset requests return bounded results so pending rows can recover.
@@ -436,7 +450,19 @@ The page uses `default-src 'none'`, nonce-only external scripts, local styleshee
 It enables no network connections, images, fonts, frames, or objects.
 Configuration values enter the DOM through input values and `textContent`, not HTML.
 Open Extension Settings runs one fixed host-owned command/filter, never a browser-supplied command ID.
-Panel disposal removes its listeners and prevents late posts; a native file operation already accepted by the host can finish after the panel closes.
+Review project approval setting accepts exactly `{ type: "openProjectApproval" }` and runs `workbench.action.openSettings` with the fixed filter `pi.approveProjectResources`.
+It requires current panel authority and native-file availability and changes no approval, trust, or runtime state.
+The separate Restart Pi… button (`native-restart-pi`) sends exactly `{ type: "restartPi", id, actionToken }` to the fixed host-owned `pi.restartResources` route.
+Its snapshot `restartActionToken` is opaque, short-lived action authority bound to the host runtime, workspace, and policy origin.
+The host rejects invalid shapes, unavailable state, stale authority, and disposed panels, and consumes accepted authority before dispatch.
+No browser-supplied command identifier or file path is accepted.
+The fixed `{ type: "restartResult", id, status }` response contains a bounded request ID and only `completed`, `cancelled`, `failed`, or `rejected` status.
+The route reuses the existing restart confirmation and runtime lifecycle checks, including trust, canonical workspace, launch policy, session identity, ownership, queues, dialogs, and cleanup inspection.
+The sidebar command's internal Boolean return does not change those checks or its user behavior.
+A failed restart reports runtime uncertainty; resumed-session values and VS Code launch overrides can still take precedence after a completed restart.
+Save, saved-override removal, and Reload saved values never dispatch restart.
+Panel disposal removes its listeners, clears retained restart feedback, and prevents late posts.
+A native file operation or confirmed restart already accepted by the host can finish after the panel closes.
 
 ## Native Pi Configuration
 
@@ -449,8 +475,9 @@ Native projections load only when the Pi Configuration panel opens or is explici
 Global Pi uses the Extension Host's `~/.pi/agent` or `PI_CODING_AGENT_DIR`; Project Pi uses the current launch workspace's `.pi` (the existing first workspace folder behavior, not multi-root selection).
 Remote windows use remote host paths.
 The Project Pi form and native dialogs label unapproved project settings and MCP entries inactive; editing does not activate them.
+The form marks only saved Project overrides inactive, not inherited Global values.
 Management code never reads `auth.json` or `mcp-auth.json`.
-The browser receives only validated allowlisted common-setting values, safe MCP metadata, and opaque revision tokens.
+The browser receives only validated allowlisted common-setting values, safe MCP metadata, opaque revision tokens, and a host-owned restart action token.
 Invalid existing common-setting values produce fixed diagnostics without the raw value.
 MCP projections contain validated names, transport type, source, enabled/exposure metadata and unknown connection state, not URLs, commands, arguments, environment/header values, OAuth fields or raw errors.
 Raw file text, unlisted settings, and MCP transport/authentication fields remain host-only and do not enter browser messages, persisted browser state, or logs.
@@ -468,7 +495,7 @@ Host-owned member-level patches preserve unrelated data; there is no second pers
 The shared canonical workspace gate and canonical target-file gate serialize extension-owned work.
 Reset removes only the selected override; unknown keys and unrelated member bytes remain unchanged.
 Only an explicit override save can create the needed configuration file and missing Pi directories under the captured canonical ancestor.
-Reading, opening, refreshing, switching Pi file scopes, or resetting an absent override creates nothing; saving `settings.json` does not create `mcp.json`, or conversely.
+Reading, opening, refreshing, switching Pi file scopes, entering edit mode, discarding drafts, or resetting an absent override creates nothing; saving `settings.json` does not create `mcp.json`, or conversely.
 An external process or another window can still race checks, and an I/O failure can leave a partial write or newly created file.
 No compensating write restores stale full-file content.
 The explicit advanced native editor opens an existing `settings.json` or `mcp.json` after a warning and uses normal VS Code Save/backups, not the bounded common-control path.

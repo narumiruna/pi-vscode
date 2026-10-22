@@ -576,6 +576,33 @@ test("host saves and resets all eight controls at both native scopes, preserving
   });
 });
 
+test("same-value project overrides remain explicit and reset restores inheritance without changing Global Pi", async () => {
+  await withHost(async (host) => {
+    await host.seed("global", "settings", settingObject(values));
+    const globalBytes = await readFile(host.file("global", "settings"), "utf8");
+    let project = await host.load("project");
+    for (const control of nativeSettingControls) {
+      const before = entry(project, control.key);
+      assert.equal(before.hasOverride, false);
+      const saved = await host.edit(project, control.key, before.inherited);
+      assert.equal(saved.result.ok, true);
+      project = saved.snapshot!;
+      assert.equal(entry(project, control.key).hasOverride, true);
+      assert.equal(entry(project, control.key).source, "project");
+      assert.deepEqual(entry(project, control.key).own, before.inherited);
+      assert.equal(project.approved, false, "Saving never approves project resources");
+      const reset = await host.edit(project, control.key);
+      assert.equal(reset.result.ok, true);
+      project = reset.snapshot!;
+      assert.equal(entry(project, control.key).hasOverride, false);
+      assert.equal(entry(project, control.key).source, "global");
+      assert.deepEqual(entry(project, control.key).value, before.inherited);
+    }
+    assert.equal(await readFile(host.file("global", "settings"), "utf8"), globalBytes);
+    await assert.rejects(lstat(host.file("project", "mcp")), { code: "ENOENT" });
+  });
+});
+
 test("host MCP metadata edits preserve inherited transports and secrets; last reset removes a metadata-only server", async () => {
   await withHost(async (host) => {
     const globalBytes = `${JSON.stringify(mcpFixture(), null, 2)}\n`;

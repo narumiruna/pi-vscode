@@ -329,40 +329,59 @@ Native Settings editability is not a runtime authorization check; untrusted laun
 
 **Pi: Pi Configuration** (`pi.openPiConfiguration`) opens a dedicated singleton panel.
 Repeated invocation reveals it.
-The panel has only Global Pi/Project Pi file scopes, eight common native setting controls, safe MCP metadata edits, and one Open Extension Settings action.
-It has no User/Workspace selector or duplicate General/Permissions/Editor controls.
-Flat rows show override, inherited/default value, and source, with separate saved-override and unsaved-draft indicators.
-Save appears only for drafts, pending operations, or unresolved save errors; it is disabled while pending or stale and hides after success with focus returned to the field.
-Select, checkbox, and MCP metadata changes create drafts, not immediate writes.
-Reset override and Reload row are in a compact row actions menu; stale drafts also show an inline Reload row recovery action.
-Reset is disabled without a selected-scope override, or while pending or stale.
+Save to selects Global Pi or Project Pi, with Project Pi identified as the first workspace folder's `.pi` directory.
+Model groups manual Provider ID, Model ID, thinking level, and ordered patterns; Behavior groups steering, follow-up, compaction, and retry; MCP groups safe configured-server metadata.
+The panel has one Open Extension Settings action and no User/Workspace selector or duplicate General/Permissions/Editor controls.
+Inherited rows show read-only values with one source label, Inherited from Global or Pi default.
+Set global override or Set project override opens a local draft initialized from the displayed value without a file write.
+Saved Global override or Project override rows remain editable, with a separate unsaved-draft indicator.
+Save stays visible in editable rows, disabled without a draft, while pending, or when stale; it does not hide after a successful override save.
+Select, checkbox, and MCP metadata changes create drafts, not immediate writes; same-value overrides remain valid.
+Discard changes removes only the local draft, not a saved override.
+Remove global override or Remove project override and Reload row are in the row actions menu; stale drafts also show an inline Reload row recovery action.
+Removal resets only the saved selected-scope member and is disabled without an override, or while pending or stale.
 Opening or closing the keyboard-accessible menu preserves drafts.
 Failed saves and scope changes preserve drafts by scope and key; stale drafts require explicit Reload row.
-Reload configuration reads saved values and preserves unrelated drafts; it does not reload Pi resources.
+Secondary Reload saved values reads saved values and preserves unrelated drafts; it does not reload Pi resources.
+Advanced contains Open Pi settings dialog… and Manage MCP servers…, retaining the existing native dialog routes.
+One warning identifies inactive Project overrides; Review project approval setting only opens native `pi.approveProjectResources` Settings.
+Inherited Global values are not flagged inactive, and neither saved nor draft values are verified current-session values.
+One shared save/restart explanation replaces repeated row text; file locations and precedence remain in expandable help.
+Restart Pi… is a separate fixed host route to the existing confirmed restart, not a Save side effect.
+Cancellation or failure retains saved files and drafts; failure reports runtime uncertainty, and resumed-session values or launch overrides can still take precedence.
+Bounded restart ID/status recovery and host result replay preserve feedback after hide/reveal without storing authority or repeating the action.
 There is no Save All or Reset All.
-The webview receives validated allowlisted common-setting values, safe MCP metadata, and opaque revision tokens, not raw files, unlisted settings, or MCP transport/authentication fields.
+The webview receives validated allowlisted common-setting values, safe MCP metadata, opaque revision tokens, and a host-owned restart action token, not raw files, unlisted settings, or MCP transport/authentication fields.
 Full snapshots stay in Extension Host memory; native webview persistence contains only bounded validated common-setting drafts, not complete snapshots or MCP data.
 Trust, canonical paths, dirty-buffer checks, member-level patches, and revision checks remain required for native file operations.
-No duplicate schema, new VS Code keys, higher minimum VS Code version, Pi launch, automatic file write, live apply, restart, approval, or connection is added.
+No duplicate schema, new VS Code keys, higher minimum VS Code version, passive Pi launch, automatic file write, live apply, automatic restart, approval, or connection is added.
 `pi.openNativeSettings` and `pi.openNativeMcp` retain their existing native management dialogs.
 
 Historical inline-form evidence: offline model/host tests and the settings browser fixture covered inline controls, native scopes, inheritance, reset, stale drafts, bounds, secret exclusion, keyboard focus, themes, and layout.
 The earlier macOS arm64 Extension Host fixture exercised the production form protocol and cold operation owner on VS Code 1.140.0 and 1.143.0.
 These results predate the native Settings route and compact Pi Configuration layout and do not validate them.
-For the earlier native Settings route and compact Pi Configuration layout, the offline suite passed 99 test files with 1,466 tests passed and three skipped on macOS arm64.
+Historical native Settings route and compact-layout evidence: the offline suite passed 99 test files with 1,466 tests passed and three skipped on macOS arm64.
+The following results predate the configuration usability change and do not validate the revised controls or host routes.
 The standalone Settings browser fixture passed explicit saves, menus, stale recovery and focus, bounded draft migration, secret exclusion, CSP, and 24 width/theme combinations; rich-content checks also passed.
 Native Extension Host checks passed on VS Code 1.140.0 and 1.143.0, including separate Restricted Mode runs that rejected process launches.
 Focused native UI checks passed on both versions for all 11 controls, native array edits, category labels, User/Workspace save-on-edit and scoped Reset, plus the separate Pi Configuration singleton, three native themes, draft recovery, keyboard actions, explicit file Save and Reset, and focus return.
 These checks used disposable local profiles and fixture responses, not a live provider or external MCP server.
 A local VSIX package and extracted bundled-runtime smoke check passed with a single test worker; the first concurrent package attempt hit an existing RPC fixture timeout.
 Virtual-workspace rejection has unit coverage, not a native virtual-window run.
-Full Linux UI and annotation suites, Windows native behavior, actual remote-user targets, Remote SSH/WSL/container, screen readers, live providers, and external MCP servers were not checked for that earlier change.
-For the current overflow-menu change, Linux x64 unit checks passed 1,494 tests with three skipped across 99 files; Settings browser and rich-content checks passed.
+Full Linux UI and annotation suites, Windows native behavior, actual remote-user targets, Remote SSH/WSL/container, screen readers, live providers, and external MCP servers were not checked in that historical run.
+
+Historical upstream overflow-menu evidence: Linux x64 unit checks passed 1,494 tests with three skipped across 99 files; Settings browser and rich-content checks passed.
 Focused native UI checks passed on VS Code 1.140.0 and 1.143.0 for the ordered direct menu entries, keyboard opening/Escape, both destinations, the cross-link, and no standalone gear.
 Both commands declare gear icons; the tested native overflow menus render text labels without icons.
 Passive settings routes did not start Pi; menu checks followed one fixture sidebar startup and added no process or model request.
-Remote, native virtual-workspace, Windows/macOS, real screen-reader, live-provider, and installed-package UI checks were not run for this change.
-See [Native configuration support limits](NATIVE_CONFIGURATION.md#validation-and-support-limits).
+Remote, native virtual-workspace, Windows/macOS, real screen-reader, live-provider, and installed-package UI checks were not run for that overflow-menu change.
+These results do not validate the merged source.
+
+Merged configuration usability and overflow-menu validation passed on Linux: 102 test files with 1,596 tests passed and three skipped, settings/rich-content browser suites, and minimum-version native Extension Host and Restricted Mode checks.
+Focused native Settings UI checks passed on VS Code 1.140.0 and stable 1.143.0 for all 11 native controls and all eight Pi file controls at both scopes.
+The settings browser matrix passed 36 row-menu states and 18 Advanced menu layouts in three themes, including restart feedback recovery, scoped removal, local discard, and stale-draft recovery.
+These checks were rerun after merging `origin/main` (`37758e4`), including the adjacent ordered menu entries, renamed cross-link, keyboard opening/Escape, and no additional process or model request after the fixture sidebar startup.
+See [Current validation](NATIVE_CONFIGURATION.md#current-validation) for commands and local captures, and [External handoff](NATIVE_CONFIGURATION.md#external-handoff) for unverified usability, platform, remote, and screen-reader checks.
 
 ### Pi extension status and text widgets
 
@@ -417,11 +436,12 @@ Covered pre-captured regular edit/write files only; shell and uncertain effects 
 
 Global Pi uses Extension Host `~/.pi/agent` or `PI_CODING_AGENT_DIR`; Project Pi uses the launch workspace's `.pi` (first workspace folder, no multi-root selection).
 Trusted, file-backed workspace required.
-Startup provider and model use text inputs; startup thinking level uses a select; scoped model patterns use ordered multiline input, one pattern per line.
+Provider ID and Model ID use manual text inputs; startup thinking level uses a select; scoped model patterns use ordered multiline input, one pattern per line.
 Steering and follow-up modes select `one-at-a-time` or `all`; automatic compaction and retry use checkboxes.
-Provider/model entry requires neither discovery nor a running Pi process.
-Unapproved project values are labelled inactive, not active runtime settings.
-Reads/opening/switching create nothing; first explicit override save creates only the needed file and missing Pi directories; absent reset creates nothing.
+Provider/model entry uses the approved manual fallback because cached `availableModels` has no independently verified workspace/session origin.
+No cache projection, catalog fetch, model-discovery RPC, helper, or credential read is added.
+Unapproved saved Project overrides are labelled inactive, not active runtime settings; inherited Global values are not flagged inactive.
+Reads, opening, switching scopes, opening an override draft, and discarding drafts create nothing; the first explicit override save creates only the needed file and missing Pi directories; absent reset creates nothing.
 The form and native dialogs reuse guarded selected-member writes, retaining inheritance, canonical gates, editor guards and stale-content/identity checks.
 Save does not restart, approve or connect.
 Existing `settings.json` and `mcp.json` have an advanced editor with a warning and normal VS Code Save/backups; absent files need a common-control save first.

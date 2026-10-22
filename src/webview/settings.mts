@@ -1,4 +1,9 @@
-import { maxSettingsMessage, type SettingsSnapshot, serializedSize } from "../settingsModel";
+import {
+  maxSettingsMessage,
+  type SettingsRestartStatus,
+  type SettingsSnapshot,
+  serializedSize,
+} from "../settingsModel";
 import { NativeSettingsForm } from "./nativeSettings.mjs";
 
 declare function acquireVsCodeApi(): {
@@ -10,7 +15,7 @@ const api = acquireVsCodeApi();
 const recovered = api.getState();
 const saved =
   recovered && typeof recovered === "object" && serializedSize(recovered) <= maxSettingsMessage
-    ? (recovered as { native?: unknown; detailsOpen?: boolean })
+    ? (recovered as { native?: unknown; detailsOpen?: boolean; restartId?: unknown; restartStatus?: unknown })
     : undefined;
 const main = document.querySelector<HTMLElement>("main")!;
 const status = document.querySelector<HTMLElement>("#status")!;
@@ -19,20 +24,44 @@ details.open = saved?.detailsOpen === true;
 let snapshot: SettingsSnapshot | undefined;
 let focusId: string | undefined;
 let focusControlId: string | undefined;
+const restartButton = document.querySelector<HTMLButtonElement>("#native-restart-pi")!;
+const operationStatus = document.querySelector<HTMLElement>("#operation-status")!;
+const restartMessages: Readonly<Record<SettingsRestartStatus, string>> = {
+  completed: "Pi restarted. Resumed-session values and VS Code launch overrides can still take precedence.",
+  cancelled: "Restart cancelled. Saved files and drafts are unchanged.",
+  failed:
+    "Pi could not be restarted. Saved files and drafts are unchanged; runtime state is uncertain. Inspect Pi before retrying.",
+  rejected: "Restart request expired or is unavailable. Reload saved values before retrying. Drafts are retained.",
+};
+function isRestartStatus(value: unknown): value is SettingsRestartStatus {
+  return typeof value === "string" && Object.hasOwn(restartMessages, value);
+}
+let restartId =
+  typeof saved?.restartId === "string" && /^restart-[a-f0-9-]{36}$/.test(saved.restartId) ? saved.restartId : undefined;
+let restartStatus = restartId && isRestartStatus(saved?.restartStatus) ? saved.restartStatus : undefined;
+const waitingForRestart = "Waiting for Pi restart confirmation or completion…";
+operationStatus.textContent = restartStatus ? restartMessages[restartStatus] : restartId ? waitingForRestart : "";
 const nativeForm = new NativeSettingsForm((message) => api.postMessage(message), render, persist, saved?.native);
 
 function persist(): void {
-  // Ignore legacy category, target, and VS Code drafts; never persist native file snapshots or MCP data.
-  api.setState({ native: nativeForm.recovery(), detailsOpen: details.open });
+  // Recover only bounded drafts and fixed restart feedback, never file snapshots, MCP data, or action tokens.
+  api.setState({
+    native: nativeForm.recovery(),
+    detailsOpen: details.open,
+    ...(restartId ? { restartId } : {}),
+    ...(restartStatus ? { restartStatus } : {}),
+  });
   status.textContent = nativeForm.recoveryOverflowed()
     ? "Native drafts exceed the 28 KiB recovery limit. They will not be restored after hiding this page. Save or shorten them first."
-    : "Pi files save only with Save or Reset override. Running sessions are unchanged.";
+    : "";
 }
 
 function render(): void {
   main.replaceChildren();
   nativeForm.setContext(true, snapshot?.nativeFilesAvailable === true);
   nativeForm.render(main);
+  restartButton.disabled =
+    !snapshot?.nativeFilesAvailable || !snapshot.restartActionToken || (!!restartId && !restartStatus);
   persist();
   if (focusId) {
     const previous = document.getElementById(focusId);
@@ -91,14 +120,30 @@ details.querySelector("summary")?.addEventListener("click", (event) => {
   persist();
 });
 document.querySelector("#native-settings")!.addEventListener("click", () => api.postMessage({ type: "openNative" }));
+restartButton.addEventListener("click", () => {
+  if ((restartId && !restartStatus) || !snapshot?.nativeFilesAvailable || !snapshot.restartActionToken) return;
+  restartId = `restart-${crypto.randomUUID()}`;
+  restartStatus = undefined;
+  restartButton.disabled = true;
+  operationStatus.textContent = waitingForRestart;
+  persist();
+  api.postMessage({ type: "restartPi", id: restartId, actionToken: snapshot.restartActionToken });
+});
 window.addEventListener("message", (event: MessageEvent) => {
   const data = event.data;
   if (nativeForm.receive(data)) return;
   if (data?.type === "snapshot" && typeof data.nativeFilesAvailable === "boolean") {
     snapshot = data as SettingsSnapshot;
     render();
+  } else if (data?.type === "restartResult" && restartId && data.id === restartId) {
+    const outcome: unknown = data.status;
+    if (!isRestartStatus(outcome) || restartStatus === outcome) return;
+    restartStatus = outcome;
+    operationStatus.textContent = restartMessages[outcome];
+    persist();
+    restartButton.disabled = !snapshot?.nativeFilesAvailable || !snapshot.restartActionToken;
   } else if (data?.type === "result" && data.ok === false) {
-    status.textContent = data.error || "Could not open configuration. Use the Command Palette.";
+    operationStatus.textContent = "Could not open configuration. Use the Command Palette.";
   }
 });
 render();
