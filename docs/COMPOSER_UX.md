@@ -223,6 +223,7 @@ LF framing, decoded UTF-8 byte counting and CRLF handling are unchanged; larger 
 Full-response decoding and synchronous JSON parsing can still increase memory use and pause the Extension Host.
 Locally typed frame-too-large errors produce a safe allowlisted Output category and a fixed Sidebar notice, without raw frame, error or path data.
 The first fatal decoder failure stops decoding and releases retained input; the client ignores later stdout while bounded cleanup completes.
+New RPC commands and dialog replies cannot write to that failed client, including during cleanup.
 History synchronization failures preserve existing session references and files, without automatic new-session fallback or request replay.
 Bridge frames remain limited to 1 MiB and one-shot Pi output to 5 MiB; attachment and session import/export limits are unchanged.
 Conversion retains at most 100 displayable messages and 250,000 shared text/thinking characters; earlier windows replace rather than accumulate, and do not overwrite the persisted latest-window cache.
@@ -263,10 +264,16 @@ Message headings have locally generated unique IDs and accessible role/number la
 Validation on 2026-10-27 used Linux x64 under WSL2 and Node.js 26.11.1.
 The regression first failed against the 5 MiB implementation, then restored the exact 5,297,452-byte, 856-message image-bearing history twice through bundled Pi 1.3.0.
 Both restores kept session identity and file digests unchanged, left subsequent RPC usable, and made no model or network requests.
-`npm test` passed 104 files with 1,640 passing tests and three skipped tests; the documented Biome check passed with warnings and informational diagnostics.
+`npm test` passed 104 files with 1,641 passing tests and three skipped tests; the documented Biome check passed with warnings and informational diagnostics.
+Focused RPC, history and lifecycle checks passed 147 tests in 11 files.
+A further regression first reproduced new prompt and dialog-response writes during fatal cleanup, then verified that both are rejected before writing to stdin.
 A Linux native Extension Host check on VS Code 1.140.0 and isolated `npm run package` with extracted-runtime smoke also passed.
 The specific large-history flow was checked through offline RPC, not native UI.
-Windows/macOS, remote, browser fixture and live-provider checks were not run for this fix.
+Native Windows/macOS UI, remote, browser fixture and live-provider checks were not run for this fix.
+To verify the original native UI result, a Windows maintainer or the reporter can restore the original session in its configured Windows 11 environment and check that the Sidebar restores the history and remains connected.
+Linux offline RPC evidence does not establish that native UI result.
+CI separately checks the extracted runtime on Ubuntu, Windows and macOS; it does not test the original native large-history UI.
+The original implementation passed [CI run 40479584837](https://github.com/narumiruna/pi-vscode/actions/runs/40479584837); current results remain attached to [PR #130](https://github.com/narumiruna/pi-vscode/pull/130).
 The dated validation entries below retain the limits and behavior tested at that time.
 
 ## Fixed-status validation scope

@@ -179,6 +179,7 @@ The selected provider receives prompts and approved context under its own data p
 Short operation results and recovery instructions stay in the Sidebar. Choose **Show Output** on a diagnostic notice to open **Output → Pi** without taking editor focus. The shared log uses VS Code log levels and records safe technical categories, not conversation content or credentials. Use VS Code's built-in log-level controls for Debug/Trace command timing. VS Code log files can outlive the window; review them before sharing.
 
 Persistent Pi RPC accepts single lines up to 64 MiB, increased from 5 MiB; larger frames are rejected with a fixed Sidebar notice and a safe Output category.
+After a fatal transport failure, no new RPC command or dialog reply is written to that client, including during cleanup.
 Public `get_messages` still returns the full active branch without pagination; the Sidebar retains at most 100 messages and 250,000 shared text/thinking characters.
 Full-response decoding and synchronous JSON parsing can still increase memory use and pause the Extension Host.
 Bridge frames remain limited to 1 MiB and one-shot Pi output to 5 MiB; attachment and session import/export limits are unchanged.

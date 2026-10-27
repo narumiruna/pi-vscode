@@ -899,6 +899,7 @@ Key operational limits:
 - Persistent Pi RPC single lines allow 64 MiB with unchanged LF framing, decoded UTF-8 byte counting and CRLF handling.
   Larger complete lines and unterminated fragments are rejected.
   The first fatal decoder failure stops decoding and releases retained input; later stdout is ignored while bounded cleanup completes.
+  New RPC commands and dialog replies are rejected before writing to that failed client.
   Bridge frames remain limited to 1 MiB and one-shot Pi output to 5 MiB; attachment and session import/export limits are unchanged.
 - Attachments allow 8 items and 400,000 total text characters, including up to 5 images of 5 MiB each.
 - Each Git review supports up to 100 text files, 100 KB per side, 400 KB of retained text, a 200 KB diff, and a 45-second capture deadline.

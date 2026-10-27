@@ -570,6 +570,7 @@ Persistent Pi RPC single lines allow 64 MiB instead of 5 MiB.
 LF terminates frames and is excluded from the byte count; decoded UTF-8 bytes are counted before removing an optional trailing CR.
 Complete lines and unterminated fragments above 64 MiB are rejected.
 At the first fatal decoder failure, decoding stops and retained input is released; the client ignores later stdout while bounded process cleanup completes.
+New RPC commands and dialog replies are rejected before writing to a failed client's stdin, including during cleanup.
 Bridge frames remain limited to 1 MiB and one-shot Pi output to 5 MiB; attachment and session import/export limits are unchanged.
 
 ## Transcript and Status Behavior

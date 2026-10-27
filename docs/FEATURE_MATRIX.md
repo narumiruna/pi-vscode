@@ -192,6 +192,7 @@ Public `get_messages` still returns the full active branch without pagination, J
 Full-response decoding and synchronous JSON parsing can still increase memory use and pause the Extension Host.
 Locally typed frame-too-large errors produce an allowlisted Output category and a fixed Sidebar notice, without raw frame, error or path data.
 The first fatal decoder failure stops decoding and releases retained input; the client ignores later stdout while bounded cleanup completes.
+New RPC commands and dialog replies are rejected before they can write to that failed client.
 History failures preserve existing session references and files, without automatic new-session fallback or request replay.
 Bridge frames remain limited to 1 MiB and one-shot Pi output to 5 MiB; attachment and session import/export limits are unchanged.
 Omitted long-message text is labelled, not retrievable here.

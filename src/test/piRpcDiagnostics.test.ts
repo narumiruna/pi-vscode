@@ -308,6 +308,41 @@ test("RPC size failure rejects all pending commands once and ignores stdout duri
   }
 });
 
+test("fatal framing rejects reentrant commands and dialog replies before cleanup", async () => {
+  const { logger, records } = captureLogger();
+  const rpc = mockRpc(logger);
+  let laterCommand: Promise<unknown> | undefined;
+  let replyError: unknown;
+  rpc.client.onEvent((event) => {
+    if (event.type !== "protocol_error") return;
+    laterCommand = rpc.client.prompt(sentinel);
+    try {
+      rpc.client.sendExtensionUiResponse(sentinel, { cancelled: true });
+    } catch (error) {
+      replyError = error;
+    }
+  });
+  try {
+    await rpc.client.start();
+    const history = rpc.client.getMessages();
+    const failure = assert.rejects(history, /JSON line larger than 64 MiB/);
+    const before = rpc.requests.length;
+    rpc.child.emit("close");
+    rpc.child.stdout.write(Buffer.alloc(64 * 1024 * 1024 + 1, "x"));
+    assert.ok(laterCommand);
+    await assert.rejects(laterCommand, /Pi RPC is not running/);
+    await failure;
+    assert.ok(replyError instanceof Error);
+    assert.match(replyError.message, /Pi RPC is not running/);
+    assert.equal(rpc.requests.length, before, "A failed transport must not write another request");
+    assertPair(records, "get_messages", "frame-too-large");
+    assertPair(records, "prompt", "disconnect");
+    assertSafe(records);
+  } finally {
+    await rpc.cleanup();
+  }
+});
+
 test("RPC stdin errors keep error text private while recording disconnect", async () => {
   const { logger, records } = captureLogger();
   const rpc = mockRpc(logger);

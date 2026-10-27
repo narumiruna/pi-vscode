@@ -515,7 +515,7 @@ export class PiRpcClient {
     const failed = (category: ErrorCategory) =>
       this.logCommand({ ...metadata, result: "failed", category, durationMs: Date.now() - startedAt });
     const child = this.process;
-    if (!child || child.exitCode !== null || child.stdin.destroyed || !child.stdin.writable) {
+    if (this.protocolFailed || !child || child.exitCode !== null || child.stdin.destroyed || !child.stdin.writable) {
       failed("disconnect");
       return Promise.reject(new Error(`Pi RPC is not running.${formatDiagnostics(this.stderr)}`));
     }
@@ -568,7 +568,7 @@ export class PiRpcClient {
 
   private writeRecord(record: Record<string, unknown>): void {
     const child = this.process;
-    if (!child || child.exitCode !== null || child.stdin.destroyed || !child.stdin.writable) {
+    if (this.protocolFailed || !child || child.exitCode !== null || child.stdin.destroyed || !child.stdin.writable) {
       throw new Error(`Pi RPC is not running.${formatDiagnostics(this.stderr)}`);
     }
     child.stdin.write(`${JSON.stringify(record)}\n`);
