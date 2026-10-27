@@ -414,7 +414,16 @@ Client Windows/macOS, remote, and real assistive-technology checks were not reru
 ### Codex context from open files and selections
 
 Implemented with item, size, and total bounds.
-Ask About Selection shows the active conversation even on the sidebar's first load; host readiness/lifecycle regressions and the isolated native `selection` fixture cover navigation without repeating the read-only request.
+Ask About Selection, the Ask Pi code action, and Ctrl+Alt+A (Cmd+Alt+A on macOS) stage selected text as an unsent reference in the active session's composer.
+Capture happens before view focus changes the active editor.
+File and precise line/column labels keep same-line selections distinct; repeat capture of the same range replaces its snapshot.
+Users can add multiple references, remove each one, and describe the requested work before explicit Send.
+The current session, history, and composer draft are retained; no separate question input or immediate model request is used.
+Busy-session reference capture uses the existing composer queue only after explicit submission.
+Offline command regressions cover staging, limits, removal, session reuse/startup, and queue submission.
+The isolated native `selection` fixture checks first-open staging, draft/focus, keyboard capture, multiple references, removal, explicit Send, session/history retention, and busy queue acceptance; it does not simulate queued execution.
+The focused fixture passed on Linux VS Code 1.140.0 with fixture Pi only.
+Other platforms, remote hosts, and live providers were not checked for this change.
 
 ### Codex cloud task review locally
 

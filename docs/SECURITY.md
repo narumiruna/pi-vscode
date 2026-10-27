@@ -746,6 +746,16 @@ No shell quoting contract is added; `!` and `!!` drafts do not complete.
 ## Context and Test Evidence
 
 Attachment inspection shows exactly the queued snapshots, not all provider context.
+Ask About Selection uses the same bounded in-memory attachment pipeline as Attach → Current Selection.
+It captures the selected text and source range before Sidebar focus can change the active editor.
+Precise line/column labels distinguish same-line selections; recapturing the same range replaces its snapshot.
+Capture stages removable references without sending a prompt, replacing the active session, or clearing its composer draft.
+Opening the Sidebar can still start Pi through the existing startup flow.
+Attachment warnings produced before Sidebar readiness are retained in memory, limited to eight notices of 4,000 characters each.
+Readiness combines pending notices so sensitive-content and truncation warnings remain visible together; provider disposal clears them.
+Rejected captures reveal the same inline notice surface instead of a native popup.
+Only an explicit ordinary composer submission sends the references, using existing session permissions and queue checks.
+Ask About Selection no longer sends a separate read-only editor request; focused Preview/Apply workflows remain unchanged.
 Pins are bounded in-memory text, expire with session/reload, and never refresh silently.
 Redaction creates a new revision; accepted sends remove only the consumed unpinned IDs.
 Filename/secret warnings and log redaction are best-effort, not guaranteed detection.

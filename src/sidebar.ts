@@ -110,6 +110,7 @@ export function registerPiSidebar(
       webviewOptions: { retainContextWhenHidden: true },
     }),
     vscode.commands.registerCommand("pi.openChat", () => provider.showSessions()),
+    vscode.commands.registerCommand("pi.askSelection", () => provider.attachSelection()),
     vscode.commands.registerCommand("pi.switchSession", () => provider.quickSwitchSession()),
     vscode.commands.registerCommand("pi.previousSession", () => provider.cycleSession(-1)),
     vscode.commands.registerCommand("pi.nextSession", () => provider.cycleSession(1)),
@@ -128,6 +129,11 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   private webviewReady = false;
   private disposed = false;
   private pendingNavigation: "showSessionDetail" | "showSessionsLayer" | undefined;
+  private readonly pendingNotices: {
+    readonly message: string;
+    readonly level: "info" | "warning" | "error";
+    readonly outputAvailable: boolean;
+  }[] = [];
   private messages: SidebarMessage[];
   private tools: ToolActivity[] = [];
   private readonly extensionUi = new SidebarExtensionUi();
@@ -292,6 +298,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.clearToolMessages();
     this.webviewReady = false;
     this.pendingNavigation = undefined;
+    this.pendingNotices.splice(0);
     if (this.renderTimer) {
       clearTimeout(this.renderTimer);
       this.renderTimer = undefined;
@@ -311,6 +318,15 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   public async showSessions(): Promise<void> {
     await vscode.commands.executeCommand(`${viewId}.focus`);
     this.navigate("showSessionsLayer");
+  }
+
+  public async attachSelection(): Promise<void> {
+    if (this.disposed) return;
+    this.fileCompletion.cancel();
+    // Capture the editor snapshot before view focus can change the active editor.
+    this.attachments.attachSelection();
+    await vscode.commands.executeCommand(`${viewId}.focus`);
+    if (!this.disposed) this.navigate("showSessionDetail");
   }
 
   public async sendRequest(
@@ -405,6 +421,18 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           this.drafts.ready();
           this.postState();
           if (this.pendingNavigation) this.navigate(this.pendingNavigation);
+          if (this.pendingNotices.length) {
+            const notices = this.pendingNotices.splice(0);
+            this.postNotice(
+              notices.map((notice) => notice.message).join(" "),
+              notices.some((notice) => notice.level === "error")
+                ? "error"
+                : notices.some((notice) => notice.level === "warning")
+                  ? "warning"
+                  : "info",
+              notices.some((notice) => notice.outputAvailable),
+            );
+          }
           break;
         case "send":
           await this.send(message.text, message.revision);
@@ -2511,6 +2539,10 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
 
   private postNotice(message: string, level: "info" | "warning" | "error", outputAvailable = false): void {
     this.noticeRevision += 1;
+    if (!this.view || !this.webviewReady) {
+      this.pendingNotices.push({ message: message.slice(0, 4_000), level, outputAvailable });
+      if (this.pendingNotices.length > 8) this.pendingNotices.shift();
+    }
     this.postMessage({ type: "notice", message, level, outputAvailable });
   }
 

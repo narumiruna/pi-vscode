@@ -37,7 +37,6 @@ export function registerEditorActions(context: vscode.ExtensionContext, conversa
     vscode.languages.registerCodeActionsProvider("*", new PiSelectionCodeActionProvider(selectionActionKind), {
       providedCodeActionKinds: [selectionActionKind],
     }),
-    vscode.commands.registerCommand("pi.askSelection", () => askSelection(conversation)),
     vscode.commands.registerCommand("pi.modifySelection", () => inlineEdit(previews, conversation)),
     vscode.commands.registerCommand("pi.inlineEdit", () => inlineEdit(previews, conversation)),
     vscode.commands.registerCommand("pi.quickFix", (target?: unknown) => quickFix(previews, conversation, target)),
@@ -73,23 +72,6 @@ export function registerEditorActions(context: vscode.ExtensionContext, conversa
     ),
     vscode.commands.registerCommand("pi.suggestNextEdit", () => suggestNextEdit(previews, conversation)),
   );
-}
-
-async function askSelection(conversation: PiConversationController): Promise<void> {
-  const snapshot = captureSelection();
-  if (!snapshot) {
-    return;
-  }
-  const question = await vscode.window.showInputBox({
-    title: "Ask Pi About Selection",
-    prompt: "What would you like to know about this code?",
-    placeHolder: "Explain this code and point out possible issues",
-    ignoreFocusOut: true,
-  });
-  if (!question?.trim()) {
-    return;
-  }
-  await showAnswer(conversation, snapshot, question.trim());
 }
 
 async function answerPreset(conversation: PiConversationController, question: string): Promise<void> {

@@ -77,6 +77,10 @@ Marketplace installation does not require `curl` or a POSIX shell. For manual VS
 
 When new messages arrive, the panel preserves text selection in messages that remain in the current window. Tool input/output **Copy** buttons use the VS Code clipboard. Pasting text with an image keeps both. After Enter, the draft stays until Pi accepts it; **Sending this message** shows this pending state. Rejected submissions keep the text, and acceptance does not clear a newer draft or move focus from the transcript.
 
+Select editor text and choose **Pi → Ask About Selection**, the **Ask Pi** code action, or **Ctrl+Alt+A** (**Cmd+Alt+A** on macOS) to add an unsent reference above the Sidebar composer.
+Add more selections, remove individual references, and describe what to discuss or change for each file/range before sending.
+This keeps the current session and its draft; it does not open a separate question input or send immediately.
+
 Use **Pi: Switch Session** to search saved sessions in the current workspace, or **Pi: Previous Session** / **Pi: Next Session** to cycle through them.
 Default shortcuts use **Ctrl+K**, then **Ctrl+Alt+Shift+S / Left / Right**; on macOS use **Cmd+K**, then **Cmd+Alt+Shift+S / Left / Right**.
 Cycling keeps its order while sessions are updated; switching requires idle Pi without pending queues or dialogs.

@@ -382,15 +382,16 @@ export class SidebarAttachmentManager {
   public attachSelection(): void {
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.selection.isEmpty) {
-      this.options.onNotice("Select code in an editor before attaching it.", "warning");
+      this.options.onNotice("Select text in an editor before attaching it.", "warning");
       return;
     }
     const range = new vscode.Range(editor.selection.start, editor.selection.end);
+    const content = editor.document.getText(range);
     this.addText({
       uri: editor.document.uri,
-      label: `${relativeDocumentPath(editor.document)}:${range.start.line + 1}-${range.end.line + 1}`,
-      content: editor.document.getText(range),
-      metadata: contextMetadata(editor.document.getText(range), undefined, 1, {
+      label: `${relativeDocumentPath(editor.document)}:${range.start.line + 1}:${range.start.character + 1}-${range.end.line + 1}:${range.end.character + 1}`,
+      content,
+      metadata: contextMetadata(content, undefined, 1, {
         sourceVersion: editor.document.version,
         range: {
           startLine: range.start.line,
