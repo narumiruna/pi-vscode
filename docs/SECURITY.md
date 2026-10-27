@@ -17,11 +17,12 @@ These checks are not a sandbox against code that can modify the extension instal
 
 The reload restore reference is saved only after a bounded header read verifies an existing session and matching workspace.
 An unsaved assigned path clears the previous restore reference but remains available in runtime memory.
-An absent legacy restore file can be forgotten only after explicit **Start New Session** approval before Pi starts.
-This approval permits the current startup/request to continue in a fresh session with the unchanged selected runtime.
-Cancellation retains the reference; recovery never deletes or recreates existing session files.
-Trust, ownership, restore reference, launch policy, canonical workspace, runtime assets, and file absence are checked again after approval.
-An existing invalid header, missing header workspace, dangling symlink, permission error, or invalid bundled runtime does not authorize this confirmed missing-file recovery.
+An absent legacy restore file automatically clears only the restore reference and starts a fresh session with the unchanged selected runtime.
+The current startup/request continues in the new session without a confirmation dialog; a short Sidebar notice reports the recovery.
+Recovery never deletes or recreates existing session files.
+Trust, ownership, restore reference, launch policy, canonical workspace, runtime assets, and file absence are rechecked before the reference is cleared.
+Trust, ownership, launch policy, canonical workspace, runtime assets, and the cleared reference are checked again before replacement startup.
+An existing invalid header, missing header workspace, dangling symlink, permission error, or invalid bundled runtime does not authorize this missing-file recovery.
 External Pi retains its earlier automatic fresh-session fallback for other restore errors; bundled Pi does not.
 Saved executable overrides, including legacy `pi`, remain unchanged because their intent cannot be inferred.
 

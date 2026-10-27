@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type * as vscode from "vscode";
+import type { PiRpcEvent } from "../piRpcClient";
 import { installVscodeMock, MockUri } from "./vscodeMock";
 
 const mock = installVscodeMock();
@@ -32,6 +33,8 @@ async function fixture(action: (f: any) => Promise<void>) {
     },
     environmentVariableCollection: { clear() {} },
   } as unknown as vscode.ExtensionContext);
+  const events: PiRpcEvent[] = [];
+  runtime.onEvent((event) => events.push(event));
   const internal = runtime as any;
   const refresh = internal.refreshState.bind(internal);
   internal.refreshState = async () => {};
@@ -39,7 +42,7 @@ async function fixture(action: (f: any) => Promise<void>) {
   const start = vi.spyOn(PiRpcClient.prototype, "start").mockResolvedValue(undefined);
   const warning = vi.spyOn(mock.window, "showWarningMessage").mockResolvedValue(undefined);
   try {
-    await action({ runtime, internal, root, session, saved: () => saved, writes, start, warning, refresh });
+    await action({ runtime, internal, root, session, saved: () => saved, writes, start, warning, refresh, events });
   } finally {
     runtime.dispose();
     start.mockRestore();
@@ -49,66 +52,100 @@ async function fixture(action: (f: any) => Promise<void>) {
   }
 }
 
-for (const [executable, accept] of [
-  ["", false],
-  ["", true],
-  ["pi", false],
-  ["pi", true],
-] as const) {
-  test(`missing legacy restore pointer requires approval (${executable || "bundled"}, ${accept})`, async () => {
-    await fixture(async ({ internal, session, saved, writes, start, warning }: any) => {
+for (const executable of ["", "pi"] as const) {
+  test(`missing legacy restore pointer starts a new session without a dialog (${executable || "bundled"})`, async () => {
+    await fixture(async ({ internal, root, session, saved, writes, start, warning, events }: any) => {
       mock.workspace.getConfiguration = () => ({
         get: (key: string, fallback: unknown) => (key === "executablePath" ? executable : fallback),
       });
-      warning.mockImplementation(async (message: string, options: unknown, choice: string) => {
-        assert.ok(!message.includes(session), "The prompt does not disclose session paths");
-        assert.deepEqual(options, { modal: true });
-        assert.equal(start.mock.calls.length, 0, "Recovery runs before any Pi process starts");
-        assert.equal(saved(), session);
-        return accept ? choice : undefined;
-      });
-      if (accept) {
-        await internal.startClient();
-        assert.equal(saved(), undefined);
-        assert.deepEqual(writes, [undefined]);
-        assert.equal(start.mock.calls.length, 1);
-        assert.equal(internal.client.options.sessionPath, undefined);
-        assert.equal(internal.client.options.executablePath, executable || process.execPath);
-      } else {
-        await assert.rejects(internal.startClient(), { code: "ENOENT" });
-        assert.equal(saved(), session);
-        assert.deepEqual(writes, []);
-        assert.equal(start.mock.calls.length, 0);
-      }
-      assert.equal(warning.mock.calls.length, 1);
+      const retainedSession = path.join(root, "retained.jsonl");
+      const retainedContents = `${JSON.stringify({ type: "session", cwd: root })}\n`;
+      await writeFile(retainedSession, retainedContents);
+
+      await internal.startClient();
+
+      assert.equal(saved(), undefined);
+      assert.deepEqual(writes, [undefined]);
+      assert.equal(start.mock.calls.length, 1);
+      assert.equal(internal.client.options.sessionPath, undefined);
+      assert.equal(internal.client.options.executablePath, executable || process.execPath);
+      assert.equal(warning.mock.calls.length, 0);
+      const warnings = events.filter((event: PiRpcEvent) => event.type === "runtime_warning");
+      assert.equal(warnings.length, 1);
+      assert.equal(warnings[0]?.warningCode, "session-replaced");
+      assert.ok(!JSON.stringify(warnings).includes(session), "The Sidebar notice does not disclose session paths");
+      assert.equal(await readFile(retainedSession, "utf8"), retainedContents);
+      await assert.rejects(readFile(session), { code: "ENOENT" });
     });
   });
 }
 
-for (const change of ["trust", "settings", "approval", "pointer", "file", "workspace", "assets", "dispose"] as const) {
-  test(`missing-session recovery rejects a changed ${change} while approval is open`, async () => {
+test("an existing saved session is restored without replacing its file", async () => {
+  await fixture(async ({ internal, root, session, saved, writes, start, warning, events }: any) => {
+    const contents = `${JSON.stringify({ type: "session", cwd: root })}\n`;
+    await writeFile(session, contents);
+
+    await internal.startClient();
+
+    assert.equal(saved(), session);
+    assert.deepEqual(writes, []);
+    assert.equal(start.mock.calls.length, 1);
+    assert.equal(internal.client.options.sessionPath, session);
+    assert.equal(warning.mock.calls.length, 0);
+    assert.equal(
+      events.some((event: PiRpcEvent) => event.warningCode === "session-replaced"),
+      false,
+    );
+    assert.equal(await readFile(session, "utf8"), contents);
+  });
+});
+
+for (const change of [
+  "trust",
+  "settings",
+  "approval",
+  "pointer",
+  "file",
+  "workspace",
+  "assets",
+  "ownership",
+  "dispose",
+] as const) {
+  test(`missing-session recovery rejects a changed ${change} during startup`, async () => {
     await fixture(async ({ runtime, internal, root, session, writes, start, warning }: any) => {
-      warning.mockImplementation(async () => {
-        if (change === "trust") mock.workspace.isTrusted = false;
-        if (change === "settings" || change === "approval")
-          mock.workspace.getConfiguration = () => ({
-            get: (key: string, fallback: unknown) =>
-              key === (change === "settings" ? "executablePath" : "approveProjectResources")
-                ? change === "settings"
-                  ? "pi"
-                  : true
-                : fallback,
-          });
-        if (change === "pointer") internal.context.workspaceState.get = () => "another-session";
-        if (change === "file") await writeFile(session, `${JSON.stringify({ type: "session", cwd: root })}\n`);
-        if (change === "workspace") mock.workspace.workspaceFolders = [{ uri: MockUri.file(process.cwd()) }];
-        if (change === "assets") initializePiRuntime(root);
-        if (change === "dispose") runtime.dispose();
-        return "Start New Session";
-      });
-      await assert.rejects(internal.startClient());
-      assert.deepEqual(writes, []);
-      assert.equal(start.mock.calls.length, 0);
+      const prepare = internal.createAndStartClient.bind(internal);
+      const preparation = vi
+        .spyOn(internal, "createAndStartClient")
+        .mockImplementationOnce(async (...args: unknown[]) => {
+          try {
+            await prepare(...args);
+          } finally {
+            if (change === "trust") mock.workspace.isTrusted = false;
+            if (change === "settings" || change === "approval")
+              mock.workspace.getConfiguration = () => ({
+                get: (key: string, fallback: unknown) =>
+                  key === (change === "settings" ? "executablePath" : "approveProjectResources")
+                    ? change === "settings"
+                      ? "pi"
+                      : true
+                    : fallback,
+              });
+            if (change === "pointer") internal.context.workspaceState.get = () => "another-session";
+            if (change === "file") await writeFile(session, `${JSON.stringify({ type: "session", cwd: root })}\n`);
+            if (change === "workspace") mock.workspace.workspaceFolders = [{ uri: MockUri.file(process.cwd()) }];
+            if (change === "assets") initializePiRuntime(root);
+            if (change === "ownership") internal.control.persistedOwnership = "invalid";
+            if (change === "dispose") runtime.dispose();
+          }
+        });
+      try {
+        await assert.rejects(internal.startClient());
+        assert.deepEqual(writes, []);
+        assert.equal(start.mock.calls.length, 0);
+        assert.equal(warning.mock.calls.length, 0);
+      } finally {
+        preparation.mockRestore();
+      }
     });
   });
 }
@@ -138,7 +175,7 @@ for (const failure of ["missing-cwd", "foreign-cwd", "invalid-header", "missing-
   });
 }
 
-test("permission failures preserve the restore pointer without offering a new session", async () => {
+test("permission failures preserve the restore pointer without starting a new session", async () => {
   await fixture(async ({ internal, session, saved, writes, start, warning }: any) => {
     const open = vi
       .spyOn(require("node:fs/promises"), "open")
@@ -155,9 +192,8 @@ test("permission failures preserve the restore pointer without offering a new se
   });
 });
 
-test("storage failure during approved recovery prevents a replacement process", async () => {
-  await fixture(async ({ internal, session, saved, start, warning }: any) => {
-    warning.mockResolvedValue("Start New Session");
+test("storage failure during automatic recovery prevents a replacement process", async () => {
+  await fixture(async ({ internal, session, saved, start }: any) => {
     internal.context.workspaceState.update = async () => {
       throw Object.assign(new Error("storage failure"), { code: "ENOSPC" });
     };
@@ -168,9 +204,8 @@ test("storage failure during approved recovery prevents a replacement process", 
 });
 
 for (const change of ["settings", "trust", "ownership", "pointer"] as const) {
-  test(`approved recovery cannot start Pi after ${change} changes during storage cleanup`, async () => {
-    await fixture(async ({ internal, start, warning }: any) => {
-      warning.mockResolvedValue("Start New Session");
+  test(`automatic recovery cannot start Pi after ${change} changes during storage cleanup`, async () => {
+    await fixture(async ({ internal, start }: any) => {
       const update = internal.context.workspaceState.update;
       internal.context.workspaceState.update = async (key: string, value: string | undefined) => {
         await update(key, value);

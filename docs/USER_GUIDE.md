@@ -62,11 +62,11 @@ To use bundled Pi, reset the effective override in native Settings; check User, 
 
 The extension remembers a session for reload only after its saved header can be read and its workspace matches.
 Older versions could remember an assigned path before Pi wrote the session file, causing `ENOENT` after an upgrade or reload.
-If that remembered file is absent, startup offers **Start New Session** before starting Pi.
-Cancel preserves the reference.
-Confirmation clears only the restore reference and starts a fresh session with the selected runtime; any pending request continues in that new session.
+If that remembered file is absent, startup automatically clears only the restore reference and starts a fresh session with the selected runtime.
+No confirmation dialog appears; any pending request continues in that new session.
+A short notice in the Sidebar reports that a new session was started.
 Existing session files are not deleted or recreated.
-Invalid headers, a missing workspace recorded in an existing header, permission errors, and invalid bundled assets do not use this confirmed missing-file recovery path.
+Invalid headers, a missing workspace recorded in an existing header, permission errors, and invalid bundled assets do not use this missing-file recovery path.
 Bundled Pi fails without a replacement for those errors.
 External Pi retains its earlier automatic fresh-session fallback for other restore errors.
 
