@@ -1990,7 +1990,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     if (event.type === "protocol_error")
       this.logger.warning("protocol-error", this.generation, {
         operationId: this.requestLog?.operationId,
-        category: "invalid-frame",
+        category: safeErrorCategory(event.error) === "frame-too-large" ? "frame-too-large" : "invalid-frame",
       });
     if (event.type === "tool_execution_start" && this.requestLog) this.requestLog.sideEffects = true;
     if (event.type === "process_exit") {

@@ -417,14 +417,16 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       await this.syncMessagesFromPi(false, undefined, "history-load");
       await this.refreshRecentSessions(false);
       this.status = "Ready";
-    } catch {
+    } catch (error) {
       const failure = historySyncFailureState(this.runtime.currentState.connected);
       this.status = failure.status;
       this.historyRecoveryAvailable = failure.historyRecoveryAvailable;
       this.postNotice(
-        failure.historyRecoveryAvailable
-          ? "Pi connected, but conversation history could not be loaded. Use Refresh history to retry."
-          : "Pi could not connect. Use Reconnect after resolving the problem.",
+        safeErrorCategory(error) === "frame-too-large"
+          ? runtimeNoticeSummary({ type: "protocol_error", error })
+          : failure.historyRecoveryAvailable
+            ? "Pi connected, but conversation history could not be loaded. Use Refresh history to retry."
+            : "Pi could not connect. Use Reconnect after resolving the problem.",
         "error",
         true,
       );

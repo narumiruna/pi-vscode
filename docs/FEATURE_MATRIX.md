@@ -186,8 +186,14 @@ No saved configuration is added.
 
 ### Bounded conversation search/history
 
-Implementation: `conversationHistory.ts`, `conversationHistoryHtml.ts`; at most 100 messages / 250,000 shared text characters, 1,000 match ranges, unchanged 5 MiB RPC limit.
-No pagination API, JSONL reads or model calls.
+Implementation: `conversationHistory.ts`, `conversationHistoryHtml.ts`; at most 100 messages / 250,000 shared text/thinking characters and 1,000 match ranges.
+Persistent Pi RPC single lines allow 64 MiB instead of 5 MiB, with unchanged LF framing, decoded UTF-8 byte counting and CRLF handling; larger frames are rejected.
+Public `get_messages` still returns the full active branch without pagination, JSONL reads or model calls.
+Full-response decoding and synchronous JSON parsing can still increase memory use and pause the Extension Host.
+Locally typed frame-too-large errors produce an allowlisted Output category and a fixed Sidebar notice, without raw frame, error or path data.
+The first fatal decoder failure stops decoding and releases retained input; the client ignores later stdout while bounded cleanup completes.
+History failures preserve existing session references and files, without automatic new-session fallback or request replay.
+Bridge frames remain limited to 1 MiB and one-shot Pi output to 5 MiB; attachment and session import/export limits are unchanged.
 Omitted long-message text is labelled, not retrievable here.
 See [Composer behavior and validation](COMPOSER_UX.md).
 

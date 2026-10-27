@@ -1,5 +1,6 @@
 import { isSupportedImageMimeType } from "./attachmentUtils";
 import { transcriptImageAssetIdPattern } from "./imageAssets";
+import { safeErrorCategory } from "./logging";
 import type { VisibleThinkingBlock } from "./piMessages";
 
 export const maxToolActivities = 30;
@@ -21,8 +22,11 @@ export function historySyncFailureState(connected: boolean): HistorySyncFailureS
 }
 
 /** Primary notices contain only fixed text, never raw runtime diagnostics or paths. */
-export function runtimeNoticeSummary(event: { type: string; warningCode?: unknown }): string {
-  if (event.type === "protocol_error") return "Pi sent an invalid response. Show Output before taking further action.";
+export function runtimeNoticeSummary(event: { type: string; warningCode?: unknown; error?: unknown }): string {
+  if (event.type === "protocol_error")
+    return safeErrorCategory(event.error) === "frame-too-large"
+      ? "Pi response exceeded the 64 MiB limit. The connection was stopped. Show Output for details."
+      : "Pi sent an invalid response. Show Output before taking further action.";
   switch (event.warningCode) {
     case "session-replaced":
       return "The previous session could not be restored. A new session was started; check Sessions for earlier work.";

@@ -1,4 +1,5 @@
 import type * as vscode from "vscode";
+import { RpcFrameTooLargeError } from "./rpcFrame";
 
 export type LogLevel = "info" | "warn" | "error" | "debug" | "trace";
 export type OperationId = `op-${number}`;
@@ -50,6 +51,7 @@ const categories = [
   "timeout",
   "disconnect",
   "invalid-frame",
+  "frame-too-large",
   "invalid-response",
   "invocation",
   "cancelled",
@@ -151,6 +153,11 @@ export function safeErrorCode(error: unknown): string | undefined {
   }
 }
 export function safeErrorCategory(error: unknown): ErrorCategory {
+  try {
+    if (error instanceof RpcFrameTooLargeError) return "frame-too-large";
+  } catch {
+    return "unknown";
+  }
   const code = safeErrorCode(error);
   if (code === "EACCES" || code === "EPERM") return "permission";
   if (code === "ENOTSUP" || code === "EOPNOTSUPP") return "unsupported";

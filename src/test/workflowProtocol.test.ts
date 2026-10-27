@@ -92,14 +92,14 @@ test("queue state rejects malformed and oversized payloads without normalizing d
 });
 
 test("RPC framing bounds complete, partial and EOF lines before dispatch", () => {
-  const oversized = "x".repeat(5 * 1024 * 1024 + 1);
+  const oversized = "x".repeat(64 * 1024 * 1024 + 1);
   for (const input of [oversized, oversized + "\n"]) {
     const decoder = new StrictJsonLineDecoder(() => assert.fail("oversized input dispatched"));
-    assert.throws(() => decoder.push(Buffer.from(input)), /larger than 5 MiB/);
+    assert.throws(() => decoder.push(Buffer.from(input)), /larger than 64 MiB/);
   }
   const eof = new StrictJsonLineDecoder(() => assert.fail("oversized EOF dispatched"));
   (eof as any).buffer = oversized;
-  assert.throws(() => eof.end(), /larger than 5 MiB/);
+  assert.throws(() => eof.end(), /larger than 64 MiB/);
 });
 
 test("forced RPC shutdown emits settlement-breaking process exit once even when SIGTERM is ignored", async () => {

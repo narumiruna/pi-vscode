@@ -411,6 +411,13 @@ for (const failure of ["timeout", "oversized", "bad-queue"]) {
       const pid = await fixturePid(f.pidFile);
       await waitUntil(() => !alive(pid));
       assert.equal(events.filter((event) => event.type === "process_exit").length, 1);
+      if (failure === "oversized") {
+        await client.start();
+        assert.equal(client.isRunning, true, "A later start clears the failed protocol state");
+        assert.equal((await client.getState()).pid, client.processId);
+        await client.stop();
+        assert.equal(events.filter((event) => event.type === "process_exit").length, 2);
+      }
     } finally {
       await client.stop();
       await f.cleanup();

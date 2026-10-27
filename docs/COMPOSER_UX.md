@@ -218,7 +218,13 @@ Each action retains its original host guards and confirmations; no generic idle 
 ## Search and rendering limits
 
 Public Pi `get_messages` returns the full active branch, not a paginated response.
-Every navigation reacquires it while idle under the unchanged 5 MiB RPC bound.
+Every navigation reacquires it while idle under the 64 MiB persistent RPC single-line bound, increased from 5 MiB.
+LF framing, decoded UTF-8 byte counting and CRLF handling are unchanged; larger complete lines and unterminated fragments are rejected.
+Full-response decoding and synchronous JSON parsing can still increase memory use and pause the Extension Host.
+Locally typed frame-too-large errors produce a safe allowlisted Output category and a fixed Sidebar notice, without raw frame, error or path data.
+The first fatal decoder failure stops decoding and releases retained input; the client ignores later stdout while bounded cleanup completes.
+History synchronization failures preserve existing session references and files, without automatic new-session fallback or request replay.
+Bridge frames remain limited to 1 MiB and one-shot Pi output to 5 MiB; attachment and session import/export limits are unchanged.
 Conversion retains at most 100 displayable messages and 250,000 shared text/thinking characters; earlier windows replace rather than accumulate, and do not overwrite the persisted latest-window cache.
 A long message's omitted text is labelled but cannot be paged independently.
 
@@ -251,6 +257,17 @@ More… → Conversation display → Word wrap is a view-local display choice, o
 It applies to transcript code/source fallbacks only.
 Shell cards, extension widgets, editor files, source text and copy text are unchanged.
 Message headings have locally generated unique IDs and accessible role/number labels; unchanged headings retain identity and focus.
+
+## Large-history validation
+
+Validation on 2026-10-27 used Linux x64 under WSL2 and Node.js 26.11.1.
+The regression first failed against the 5 MiB implementation, then restored the exact 5,297,452-byte, 856-message image-bearing history twice through bundled Pi 1.3.0.
+Both restores kept session identity and file digests unchanged, left subsequent RPC usable, and made no model or network requests.
+`npm test` passed 104 files with 1,640 passing tests and three skipped tests; the documented Biome check passed with warnings and informational diagnostics.
+A Linux native Extension Host check on VS Code 1.140.0 and isolated `npm run package` with extracted-runtime smoke also passed.
+The specific large-history flow was checked through offline RPC, not native UI.
+Windows/macOS, remote, browser fixture and live-provider checks were not run for this fix.
+The dated validation entries below retain the limits and behavior tested at that time.
 
 ## Fixed-status validation scope
 

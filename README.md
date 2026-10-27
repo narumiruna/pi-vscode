@@ -37,6 +37,7 @@ Reset removes only the selected scope's override, so another effective override 
 If the remembered session file is missing, Pi automatically starts a new session without a confirmation dialog.
 A short Sidebar notice reports the recovery; existing session files remain unchanged.
 Unsaved session paths are no longer kept for restore after reload.
+History synchronization failures preserve existing session references and files, without automatic new-session fallback or request replay.
 
 Pi runs as a subprocess on the workspace Extension Host, including in Remote SSH, WSL, and container windows.
 Bundled Pi reuses that host's existing Pi configuration, credentials, resources, provider environment, and sessions without migration or separate user stores.
@@ -176,6 +177,11 @@ Focused edit generation uses a read-only policy. Applying proposals, importing w
 The selected provider receives prompts and approved context under its own data policy. Inspect attachments before sending; sensitive-filename warnings are best-effort. Stop or process exit does not prove that every detached descendant stopped. Inspect remaining work before repeating an uncertain command.
 
 Short operation results and recovery instructions stay in the Sidebar. Choose **Show Output** on a diagnostic notice to open **Output → Pi** without taking editor focus. The shared log uses VS Code log levels and records safe technical categories, not conversation content or credentials. Use VS Code's built-in log-level controls for Debug/Trace command timing. VS Code log files can outlive the window; review them before sharing.
+
+Persistent Pi RPC accepts single lines up to 64 MiB, increased from 5 MiB; larger frames are rejected with a fixed Sidebar notice and a safe Output category.
+Public `get_messages` still returns the full active branch without pagination; the Sidebar retains at most 100 messages and 250,000 shared text/thinking characters.
+Full-response decoding and synchronous JSON parsing can still increase memory use and pause the Extension Host.
+Bridge frames remain limited to 1 MiB and one-shot Pi output to 5 MiB; attachment and session import/export limits are unchanged.
 
 Read [Security and Privacy](docs/SECURITY.md) for trust and logging boundaries, and [operational limits](docs/USER_GUIDE.md#security-and-limits) for attachment, review, repair, and history bounds.
 

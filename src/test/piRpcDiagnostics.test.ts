@@ -278,17 +278,30 @@ test("RPC emits malformed JSON protocol events without duplicate diagnostic boun
   }
 });
 
-test("RPC fatal oversized frames log command invalid-frame outcomes only", async () => {
+test("RPC size failure rejects all pending commands once and ignores stdout during cleanup", async () => {
   const { logger, records } = captureLogger();
   const rpc = mockRpc(logger);
   try {
     await rpc.client.start();
     const prompt = rpc.client.prompt(sentinel);
+    const history = rpc.client.getMessages();
+    const failures = Promise.all([
+      assert.rejects(prompt, /JSON line larger than 64 MiB/),
+      assert.rejects(history, /JSON line larger than 64 MiB/),
+    ]);
     rpc.child.emit("close");
-    rpc.child.stdout.write(`${sentinel}${"x".repeat(5 * 1024 * 1024)}\n`);
-    await assert.rejects(prompt, /JSON line larger than 5 MiB/);
-    assertPair(records, "prompt", "invalid-frame");
+    rpc.child.stdout.write(`${sentinel}${"x".repeat(64 * 1024 * 1024)}\n`);
+    rpc.child.stdout.write(`${JSON.stringify({ type: "late_private_event", message: sentinel })}\n`);
+    rpc.child.stdout.end();
+    await failures;
+    await rpc.client.stop();
+    assertPair(records, "prompt", "frame-too-large");
+    assertPair(records, "get_messages", "frame-too-large");
     assert.equal(rpc.events.filter((event) => event.type === "protocol_error").length, 1);
+    assert.equal(
+      rpc.events.some((event) => event.type === "late_private_event"),
+      false,
+    );
     assertSafe(records);
   } finally {
     await rpc.cleanup();

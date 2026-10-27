@@ -21,13 +21,13 @@ import type { PiInvocationOptions } from "./piClient";
 import { type PiSessionTree, parseSessionTree, validId } from "./piControl";
 import { PiProcessOwner } from "./piProcess";
 import { buildPiProcessEnvironment, planPiSpawn } from "./piSpawn";
+import { maxRpcJsonLineBytes, RpcFrameTooLargeError } from "./rpcFrame";
 
 export { buildPiProcessEnvironment } from "./piSpawn";
 
 import type * as vscode from "vscode";
 
 const maxDiagnosticBytes = 1024 * 1024;
-const maxJsonLineBytes = 5 * 1024 * 1024;
 const defaultRequestTimeoutMs = 30_000;
 const maxQueuedImages = 5;
 const maxQueuedImageCharacters = Math.ceil((5 * 1024 * 1024) / 3) * 4 + 4;
@@ -92,10 +92,12 @@ export class StrictJsonLineDecoder {
   private buffer = "";
   private bufferedBytes = 0;
   private newlineIndex = -1;
+  private failed = false;
 
   public constructor(private readonly onLine: (line: string) => void) {}
 
   public push(chunk: Buffer): void {
+    if (this.failed) return;
     const decoded = this.decoder.write(chunk);
     // The retained prefix has already been scanned. Do not flatten and rescan it for every chunk.
     if (this.newlineIndex < 0) {
@@ -105,16 +107,15 @@ export class StrictJsonLineDecoder {
     this.buffer += decoded;
     this.bufferedBytes += Buffer.byteLength(decoded, "utf8");
     this.drain();
-    if (this.bufferedBytes > maxJsonLineBytes) {
-      throw new Error("Pi RPC emitted a JSON line larger than 5 MiB.");
-    }
+    this.assertLineSize(this.bufferedBytes);
   }
 
   public end(): void {
+    if (this.failed) return;
     this.buffer += this.decoder.end();
     this.bufferedBytes = Buffer.byteLength(this.buffer, "utf8");
     if (this.buffer.length > 0) {
-      if (this.bufferedBytes > maxJsonLineBytes) throw new Error("Pi RPC emitted a JSON line larger than 5 MiB.");
+      this.assertLineSize(this.bufferedBytes);
       this.onLine(stripCarriageReturn(this.buffer));
       this.buffer = "";
       this.bufferedBytes = 0;
@@ -122,11 +123,20 @@ export class StrictJsonLineDecoder {
     }
   }
 
+  private assertLineSize(bytes: number): void {
+    if (bytes <= maxRpcJsonLineBytes) return;
+    this.failed = true;
+    this.buffer = "";
+    this.bufferedBytes = 0;
+    this.newlineIndex = -1;
+    throw new RpcFrameTooLargeError();
+  }
+
   private drain(): void {
     while (this.newlineIndex >= 0) {
       const line = this.buffer.slice(0, this.newlineIndex);
       const lineBytes = Buffer.byteLength(line, "utf8");
-      if (lineBytes > maxJsonLineBytes) throw new Error("Pi RPC emitted a JSON line larger than 5 MiB.");
+      this.assertLineSize(lineBytes);
       this.buffer = this.buffer.slice(this.newlineIndex + 1);
       this.bufferedBytes -= lineBytes + 1;
       this.newlineIndex = this.buffer.indexOf("\n");
@@ -145,6 +155,7 @@ export class PiRpcClient {
   private stopPromise: Promise<void> | undefined;
   private owner: PiProcessOwner | undefined;
   private exitExpected: boolean | undefined;
+  private protocolFailed = false;
 
   public constructor(
     private readonly options: PiRpcClientOptions,
@@ -169,6 +180,7 @@ export class PiRpcClient {
     }
 
     this.stopping = false;
+    this.protocolFailed = false;
     this.exitExpected = undefined;
     this.stderr = "";
     const rpcArguments = [...(this.options.executableArgs ?? []), ...buildRpcArguments(this.options)];
@@ -186,9 +198,11 @@ export class PiRpcClient {
     const owner = new PiProcessOwner(child);
     this.owner = owner;
 
-    const lineDecoder = new StrictJsonLineDecoder((line) => this.handleLine(line));
+    const lineDecoder = new StrictJsonLineDecoder((line) => {
+      if (!this.protocolFailed) this.handleLine(line);
+    });
     child.stdout.on("data", (chunk: Buffer) => {
-      if (this.process !== child) return;
+      if (this.process !== child || this.protocolFailed) return;
       try {
         lineDecoder.push(chunk);
       } catch (error) {
@@ -196,7 +210,7 @@ export class PiRpcClient {
       }
     });
     child.stdout.on("end", () => {
-      if (this.process !== child) return;
+      if (this.process !== child || this.protocolFailed) return;
       try {
         lineDecoder.end();
       } catch (error) {
@@ -613,12 +627,18 @@ export class PiRpcClient {
   }
 
   private failProcess(error: Error, category: "invalid-frame" | "disconnect" = "invalid-frame"): void {
-    this.rejectPending(error, category);
-    this.emit({ type: "protocol_error", message: error.message });
+    if (this.protocolFailed) return;
+    this.protocolFailed = true;
+    const oversized = error instanceof RpcFrameTooLargeError;
+    this.rejectPending(error, oversized ? "frame-too-large" : category);
+    this.emit({ type: "protocol_error", message: error.message, ...(oversized ? { error } : {}) });
     if (!this.stopping) void this.stop();
   }
 
-  private rejectPending(error: Error, category: "invalid-frame" | "disconnect" = "disconnect"): void {
+  private rejectPending(
+    error: Error,
+    category: "invalid-frame" | "frame-too-large" | "disconnect" = "disconnect",
+  ): void {
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
       pending.reject(error, category);
