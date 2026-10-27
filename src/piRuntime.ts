@@ -1573,14 +1573,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       };
       if (error instanceof MissingSessionFileError) {
         await assertRecoveryCurrent(savedSession);
-        const choice = await vscode.window.showWarningMessage(
-          "The remembered Pi session file is missing. It may never have been saved or may have been removed. Start a new session? Any pending request will use the new session. Existing session files will not be changed.",
-          { modal: true },
-          "Start New Session",
-        );
-        if (choice !== "Start New Session") throw error;
-        await assertRecoveryCurrent(savedSession);
-        // A file restored while the dialog was open must not be forgotten.
+        // A file restored during startup must not be forgotten.
         await lstat(savedSession).then(
           () => {
             throw new Error("The Pi session file is available again. Reconnect to restore it.");
