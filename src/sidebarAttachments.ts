@@ -379,6 +379,25 @@ export class SidebarAttachmentManager {
     else await this.attachTerminalSelection();
   }
 
+  public attachReference(context: ChatReferenceContext, resource: vscode.Uri): string | undefined {
+    const used = this.attachments.reduce(
+      (total, item) => total + (item.label === context.label ? 0 : (item.content?.length ?? 0)),
+      0,
+    );
+    if (
+      context.content.length > this.options.maxAttachedCharacters ||
+      used + context.content.length > this.options.maxTotalContextCharacters
+    ) {
+      this.options.onNotice(
+        "The selection reference cannot fit in the attachment limits. Select less text or remove other attachments.",
+        "warning",
+      );
+      return undefined;
+    }
+    if (!this.addText({ ...context, uri: resource, metadata: contextMetadata(context.content) })) return undefined;
+    return this.attachments.find((item) => item.label === context.label)?.id;
+  }
+
   public attachSelection(): void {
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.selection.isEmpty) {

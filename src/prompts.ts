@@ -3,6 +3,8 @@ export interface SelectionContext {
   readonly languageId: string;
   readonly startLine: number;
   readonly endLine: number;
+  readonly startColumn?: number;
+  readonly endColumn?: number;
   readonly code: string;
 }
 
@@ -23,7 +25,10 @@ const replacementEnd = "<<<PI_VSCODE_REPLACEMENT_END>>>";
 
 export function buildSelectionReference(context: SelectionContext): ChatReferenceContext {
   return {
-    label: `${context.file}:${context.startLine}-${context.endLine}`,
+    label:
+      context.startColumn !== undefined && context.endColumn !== undefined
+        ? `${context.file}:${context.startLine}:${context.startColumn}-${context.endLine}:${context.endColumn}`
+        : `${context.file}:${context.startLine}-${context.endLine}`,
     content: [
       `File: ${context.file}`,
       `Language: ${context.languageId}`,

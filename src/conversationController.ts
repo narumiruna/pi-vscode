@@ -10,6 +10,13 @@ export interface ConversationRequestOptions {
   readonly validate?: () => void;
 }
 
+export interface PreparedEditorRequestOptions extends ConversationRequestOptions {
+  readonly label: string;
+  readonly resource: vscode.Uri;
+  readonly policy: "read-only";
+  readonly requiresInput?: boolean;
+}
+
 export interface EditProposalInput {
   readonly label: string;
   /** The adapter locks its captured workspace during Apply instead of the Sidebar's current directory. */
@@ -28,6 +35,14 @@ export interface PiConversationController {
     options?: ConversationRequestOptions,
   ): Promise<string>;
   addEditProposal(input: EditProposalInput): string;
+}
+
+export interface PiEditorConversationController extends PiConversationController {
+  prepareEditorRequest(
+    request: string,
+    contexts: readonly ChatReferenceContext[],
+    options: PreparedEditorRequestOptions,
+  ): Promise<void>;
 }
 
 export class ExclusiveOperationGate {
@@ -60,7 +75,7 @@ export class ConversationRequestGate extends ExclusiveOperationGate {
   }
 }
 
-export type ConversationRequestOrigin = "editor" | "composer" | "retry";
+export type ConversationRequestOrigin = "editor" | "prepared-editor" | "composer" | "retry";
 
 export interface ConversationRequestBehavior {
   readonly retryable: boolean;
@@ -69,8 +84,8 @@ export interface ConversationRequestBehavior {
 
 export function conversationRequestBehavior(origin: ConversationRequestOrigin): ConversationRequestBehavior {
   return {
-    retryable: origin !== "editor",
-    clearComposerOnAccepted: origin === "composer",
+    retryable: origin === "composer" || origin === "retry",
+    clearComposerOnAccepted: origin === "composer" || origin === "prepared-editor",
   };
 }
 

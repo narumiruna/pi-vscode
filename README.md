@@ -18,7 +18,9 @@ Choose **Attach**, inspect the captured context, and enter your question. The mo
 
 ![Pi sidebar with a sample edit proposal, Preview available, and Apply disabled until preview](resources/screenshots/review-proposal.png)
 
-Run **Pi: Modify Selection (Preview)** for a focused change. Choose **Choose Hunks** if needed, then **Preview** to open the native diff editor. **Apply** becomes available after preview; changing the hunk selection requires another preview.
+Run **Pi: Modify Selection (Preview)**, describe the change in the Sidebar composer, and choose **Send**.
+Choose **Choose Hunks** if needed, then **Preview** to open the native diff editor.
+**Apply** becomes available after preview; changing the hunk selection requires another preview.
 
 These screenshots use the current sidebar renderer with offline sample data. They do not show a live provider response or the native diff editor.
 
@@ -73,13 +75,19 @@ Marketplace installation does not require `curl` or a POSIX shell. For manual VS
 
 1. Open your project and run **Pi: Open Sessions** from the Command Palette. Choose a saved session, or send from the Sessions composer to start one.
 2. Choose **Attach** to add a selection, file, diagnostics, or image. Inspect or redact snapshots through **Attach → View attachments**. Choose your model and thinking level from the composer model control.
-3. Enter a request and send it. For a review-first change, select code and run **Pi: Modify Selection (Preview)**. Review the proposal with **Preview**, then choose **Apply**.
+3. Enter a request and send it.
+   For a review-first change, select code, run **Pi: Modify Selection (Preview)**, describe the change, and choose **Send**.
+   Review the proposal with **Preview**, then choose **Apply**.
 
 When new messages arrive, the panel preserves text selection in messages that remain in the current window. Tool input/output **Copy** buttons use the VS Code clipboard. Pasting text with an image keeps both. After Enter, the draft stays until Pi accepts it; **Sending this message** shows this pending state. Rejected submissions keep the text, and acceptance does not clear a newer draft or move focus from the transcript.
 
 Select editor text and choose **Pi → Ask About Selection**, the **Ask Pi** code action, or **Ctrl+Alt+A** (**Cmd+Alt+A** on macOS) to add an unsent reference above the Sidebar composer.
 Add more selections, remove individual references, and describe what to discuss or change for each file/range before sending.
 This keeps the current session and its draft; it does not open a separate question input or send immediately.
+The other selection-menu actions also prepare a labelled read-only action before **Send**, without replacing your text.
+**Modify Selection (Preview)** needs a description; the other presets show their default request and accept extra details.
+**Cancel** removes only the pending action, keeping references and text.
+Prepared read-only actions wait for idle Pi instead of entering the ordinary queue; Preview actions still require **Preview** before **Apply**.
 
 Use **Pi: Switch Session** to search saved sessions in the current workspace, or **Pi: Previous Session** / **Pi: Next Session** to cycle through them.
 Default shortcuts use **Ctrl+K**, then **Ctrl+Alt+Shift+S / Left / Right**; on macOS use **Cmd+K**, then **Cmd+Alt+Shift+S / Left / Right**.

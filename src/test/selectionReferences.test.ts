@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import type { Disposable, ExtensionContext } from "vscode";
-import type { PiConversationController } from "../conversationController";
+import type { Disposable, ExtensionContext, Uri } from "vscode";
+import type { PiEditorConversationController, PreparedEditorRequestOptions } from "../conversationController";
 import type { PiRuntimeManager } from "../piRuntime";
 import type { SidebarAttachmentManager } from "../sidebarAttachments";
 import type { SidebarMessage } from "../sidebarState";
@@ -15,8 +15,16 @@ const { registerPiSidebar } = require("../sidebar") as typeof import("../sidebar
 const { registerEditorActions } = require("../editorActions") as typeof import("../editorActions");
 afterAll(() => vscode.restore());
 
-interface ReferenceProvider extends PiConversationController {
+interface ReferenceProvider extends PiEditorConversationController {
   readonly attachments: SidebarAttachmentManager;
+  preparedEditorRequest?: {
+    readonly id: string;
+    readonly request: string;
+    readonly referenceIds: readonly string[];
+    readonly options: PreparedEditorRequestOptions;
+  };
+  readonly retryRequest?: unknown;
+  readonly backgroundAgents: { start(): Promise<void> };
   messages: SidebarMessage[];
   pendingNavigation?: string;
   view?: { webview: { postMessage(message: Record<string, unknown>): Promise<boolean> } };
@@ -24,8 +32,11 @@ interface ReferenceProvider extends PiConversationController {
   postMessage(message: Record<string, unknown>): void;
   refreshRecentSessions(): Promise<void>;
   handleMessage(message: unknown): Promise<void>;
-  send(text: string, revision: number): Promise<void>;
+  send(text: string, revision: number, editorRequestId?: string): Promise<void>;
   queue(kind: "steer" | "followUp", text: string, revision: number): Promise<void>;
+  sendInNewSession(text: string, revision: number): Promise<void>;
+  sendCompactCommand(text: string, revision: number): Promise<boolean>;
+  runBackground(text: string, isolated: boolean, revision: number): Promise<void>;
 }
 
 function fixture(connected = true, busy = false, source = "alpha beta gamma\n", fileName = "references.ts") {
@@ -33,6 +44,7 @@ function fixture(connected = true, busy = false, source = "alpha beta gamma\n", 
   const posted: Record<string, unknown>[] = [];
   const errors: string[] = [];
   const focusSnapshots: string[][] = [];
+  let stateChanged = () => {};
   const history: unknown[] = connected
     ? [
         { role: "user", content: "Earlier question" },
@@ -52,7 +64,10 @@ function fixture(connected = true, busy = false, source = "alpha beta gamma\n", 
       commands: [],
     },
     onEvent: () => ({ dispose() {} }),
-    onDidChangeState: () => ({ dispose() {} }),
+    onDidChangeState: (listener: () => void) => {
+      stateChanged = listener;
+      return { dispose() {} };
+    },
     ensureStarted: async () => {
       if (!runtime.currentState.connected) {
         calls.push({ kind: "start" });
@@ -64,7 +79,14 @@ function fixture(connected = true, busy = false, source = "alpha beta gamma\n", 
         };
       }
     },
-    prompt: async (message: string, _resource: unknown, _images: unknown, onAccepted?: () => void) => {
+    prompt: async (
+      message: string,
+      _resource: unknown,
+      _images: unknown,
+      onAccepted?: () => void,
+      beforeSubmit?: () => void,
+    ) => {
+      beforeSubmit?.();
       calls.push({ kind: "prompt", session: runtime.currentState.sessionId, message });
       history.push(
         { role: "user", content: message },
@@ -103,6 +125,7 @@ function fixture(connected = true, busy = false, source = "alpha beta gamma\n", 
       ]
     : [];
   let inputPrompts = 0;
+  vscode.window.showWarningMessage = async () => undefined;
   vscode.window.showInputBox = async () => {
     inputPrompts++;
     return "Unexpected immediate question";
@@ -126,6 +149,7 @@ function fixture(connected = true, busy = false, source = "alpha beta gamma\n", 
   return {
     provider,
     runtime,
+    emitState: () => stateChanged(),
     calls,
     posted,
     errors,
@@ -304,6 +328,282 @@ test("cold first-open capture retains both sensitive-content and truncation warn
   } finally {
     f.dispose();
   }
+});
+
+async function prepare(f: ReturnType<typeof fixture>, overrides: Partial<PreparedEditorRequestOptions> = {}) {
+  await f.provider.prepareEditorRequest(
+    "Explain the selected text.",
+    [{ label: "target.ts:1:1-1:6", content: "alpha" }],
+    {
+      label: "Explain Selection",
+      resource: MockUri.file(path.join(process.cwd(), "target.ts")) as unknown as Uri,
+      policy: "read-only",
+      ...overrides,
+    },
+  );
+  const prepared = f.provider.preparedEditorRequest;
+  assert.ok(prepared);
+  return prepared;
+}
+
+for (const state of ["idle", "busy", "disconnected"] as const) {
+  test(`prepared editor actions stage references without executing in the ${state} session`, async () => {
+    const f = fixture(state !== "disconnected", state === "busy");
+    try {
+      const prepared = await prepare(f);
+      assert.equal(prepared.options.policy, "read-only");
+      assert.deepEqual(f.focusSnapshots, [["alpha"]]);
+      assert.deepEqual(f.calls, []);
+      assert.equal(f.inputPrompts(), 0);
+      assert.equal(
+        f.posted.some((message) => message.type === "setInput" || message.type === "clearInput"),
+        false,
+      );
+    } finally {
+      f.dispose();
+    }
+  });
+}
+
+for (const connected of [true, false]) {
+  test(`prepared action Send is read-only, non-retryable, and uses the ${connected ? "current" : "new"} session`, async () => {
+    const f = fixture(connected);
+    try {
+      const responses: string[] = [];
+      const prepared = await prepare(f, {
+        onResponse: (response) => {
+          responses.push(response);
+        },
+      });
+      assert.equal(f.calls.length, 0);
+      assert.deepEqual(responses, []);
+      await f.provider.send("Focus on its assumptions.", 12, prepared.id);
+      assert.deepEqual(
+        f.calls.map((call) => call.kind),
+        connected ? ["prompt"] : ["start", "prompt"],
+      );
+      const prompt = f.calls.at(-1);
+      assert.ok(prompt);
+      assert.equal(prompt.session, connected ? "current-session" : "new-session");
+      assert.match(prompt.message ?? "", /PI_VSCODE_POLICY: read-only/);
+      assert.match(prompt.message ?? "", /Explain the selected text\.\n\nFocus on its assumptions\./);
+      assert.match(prompt.message ?? "", /target\.ts:1:1-1:6/);
+      assert.deepEqual(responses, ["Reference answer"]);
+      assert.equal(f.provider.preparedEditorRequest, undefined);
+      assert.equal(f.provider.attachments.values.length, 0);
+      assert.equal(f.provider.retryRequest, undefined);
+      assert.ok(f.posted.some((message) => message.type === "clearInput" && message.expectedRevision === 12));
+    } finally {
+      f.dispose();
+    }
+  });
+}
+
+test("preset actions can use their visible default while Modify requires an explicit description", async () => {
+  const f = fixture();
+  try {
+    const modify = await prepare(f, { label: "Modify Selection (Preview)", requiresInput: true });
+    await assert.rejects(f.provider.send("  ", 1, modify.id), /Describe/);
+    assert.equal(f.calls.length, 0);
+    assert.equal(f.provider.preparedEditorRequest?.id, modify.id);
+    const preset = await prepare(f);
+    await f.provider.send("", 2, preset.id);
+    assert.equal(f.calls.length, 1);
+    assert.match(f.calls[0]?.message ?? "", /Explain the selected text/);
+  } finally {
+    f.dispose();
+  }
+});
+
+test("prepared request IDs reject missing, obsolete, and cancelled sends without ordinary-request fallback", async () => {
+  const f = fixture();
+  try {
+    const first = await prepare(f);
+    await assert.rejects(f.provider.send("details", 1), /action changed/);
+    const second = await prepare(f);
+    await assert.rejects(f.provider.send("details", 1, first.id), /action changed/);
+    await f.provider.handleMessage({ type: "cancelEditorRequest", id: first.id });
+    assert.equal(f.provider.preparedEditorRequest?.id, second.id);
+    const ids = f.provider.attachments.values.map((item) => item.id);
+    await f.provider.handleMessage({ type: "cancelEditorRequest", id: second.id });
+    assert.equal(f.provider.preparedEditorRequest, undefined);
+    assert.deepEqual(
+      f.provider.attachments.values.map((item) => item.id),
+      ids,
+    );
+    await assert.rejects(f.provider.send("details", 1, second.id), /action changed/);
+    assert.deepEqual(f.calls, []);
+    assert.equal(
+      f.posted.some((message) => message.type === "clearInput" || message.type === "setInput"),
+      false,
+    );
+  } finally {
+    f.dispose();
+  }
+});
+
+for (const change of ["remove", "replace", "session"] as const) {
+  test(`a changed ${change} invalidates the prepared action and rejects its late Send`, async () => {
+    const f = fixture();
+    try {
+      const prepared = await prepare(f);
+      if (change === "remove") f.provider.attachments.remove(prepared.referenceIds[0]);
+      if (change === "replace") await prepare(f);
+      if (change === "session") {
+        f.runtime.currentState.sessionId = "different-session";
+        f.emitState();
+      }
+      await assert.rejects(f.provider.send("details", 1, prepared.id), /action changed/);
+      assert.deepEqual(f.calls, []);
+    } finally {
+      f.dispose();
+    }
+  });
+}
+
+test("stale source validation and reference changes during startup prevent dispatch and retain unaccepted input", async () => {
+  for (const change of ["source", "reference"] as const) {
+    const f = fixture();
+    try {
+      const prepared = await prepare(f, {
+        validate: () => {
+          if (change === "source") throw new Error("The selected document changed.");
+        },
+      });
+      if (change === "reference") {
+        f.runtime.ensureStarted = async () => {
+          f.provider.attachments.remove(prepared.referenceIds[0]);
+        };
+      }
+      await assert.rejects(f.provider.send("details", 1, prepared.id), /changed/);
+      assert.equal(f.calls.length, 0);
+      assert.equal(
+        f.posted.some((message) => message.type === "clearInput"),
+        false,
+      );
+    } finally {
+      f.dispose();
+    }
+  }
+});
+
+test("prepared read-only actions cannot use queue, new-session, background, shell, or slash routes", async () => {
+  const f = fixture(true, true);
+  try {
+    const prepared = await prepare(f);
+    await assert.rejects(f.provider.queue("steer", "details", 1), /read-only editor action/);
+    await assert.rejects(f.provider.sendInNewSession("details", 1), /Cancel the prepared/);
+    await assert.rejects(f.provider.runBackground("details", false, 1), /Cancel the prepared/);
+    await assert.rejects(f.provider.send("!touch file", 1, prepared.id), /plain description/);
+    await assert.rejects(f.provider.send("/compact", 1, prepared.id), /plain description/);
+    await assert.rejects(f.provider.send("details", 1, prepared.id), /already working/);
+    assert.deepEqual(f.calls, []);
+    assert.equal(f.provider.preparedEditorRequest?.id, prepared.id);
+  } finally {
+    f.dispose();
+  }
+});
+
+for (const route of ["send", "sendInNewSession"] as const) {
+  test(`an editor action staged during ${route} preparation cannot become an ordinary request`, async () => {
+    const f = fixture();
+    try {
+      f.provider.sendCompactCommand = async () => {
+        await prepare(f);
+        return false;
+      };
+      await assert.rejects(f.provider[route]("ordinary draft", 1), /action changed/);
+      assert.deepEqual(f.calls, []);
+      assert.ok(f.provider.preparedEditorRequest);
+      assert.equal(f.provider.attachments.values.length, 1);
+      assert.equal(
+        f.posted.some((message) => message.type === "clearInput"),
+        false,
+      );
+    } finally {
+      f.dispose();
+    }
+  });
+}
+
+for (const isolated of [false, true]) {
+  test(`background confirmation cannot consume an action staged while approval is pending (${isolated})`, async () => {
+    const f = fixture();
+    try {
+      let starts = 0;
+      f.provider.backgroundAgents.start = async () => {
+        starts++;
+      };
+      vscode.window.showWarningMessage = async () => {
+        await prepare(f);
+        return isolated ? "Start Worktree Agent" : "Start Background Agent";
+      };
+      await assert.rejects(f.provider.runBackground("ordinary draft", isolated, 1), /Cancel the prepared/);
+      assert.equal(starts, 0);
+      assert.deepEqual(f.calls, []);
+      assert.ok(f.provider.preparedEditorRequest);
+      assert.equal(f.provider.attachments.values.length, 1);
+      assert.equal(
+        f.posted.some((message) => message.type === "clearInput"),
+        false,
+      );
+    } finally {
+      f.dispose();
+    }
+  });
+}
+
+for (const limit of ["selection", "aggregate"] as const) {
+  test(`prepared editor actions reject incomplete required references at the ${limit} limit`, async () => {
+    const f = fixture();
+    try {
+      const resource = MockUri.file(path.join(process.cwd(), "target.ts")) as unknown as Uri;
+      if (limit === "aggregate") {
+        for (let index = 0; index < 2; index++)
+          assert.ok(
+            f.provider.attachments.attachReference({ label: `kept-${index}`, content: "x".repeat(200_000) }, resource),
+          );
+      }
+      const ids = f.provider.attachments.values.map((item) => item.id);
+      await f.provider.prepareEditorRequest(
+        "Modify the complete selected text.",
+        [
+          {
+            label: "target.ts:1:1-1:6",
+            content: limit === "selection" ? "x".repeat(200_001) : "alpha",
+          },
+        ],
+        { label: "Fix Selection (Preview)", resource, policy: "read-only" },
+      );
+      assert.equal(f.provider.preparedEditorRequest, undefined);
+      assert.deepEqual(
+        f.provider.attachments.values.map((item) => item.id),
+        ids,
+      );
+      assert.ok(f.posted.some((message) => message.type === "notice" && /cannot fit/.test(String(message.message))));
+      assert.equal(
+        f.posted.some((message) => message.type === "clearInput" || message.type === "setInput"),
+        false,
+      );
+      assert.deepEqual(f.calls, []);
+    } finally {
+      f.dispose();
+    }
+  });
+}
+
+test("prepared editor messages validate bounded IDs and cannot carry intent through new-session submission", () => {
+  const { isWebviewMessage } = require("../sidebarHelpers") as typeof import("../sidebarHelpers");
+  const id = "6d193123-53bc-4ab4-8b5e-69fa6451f082";
+  assert.equal(isWebviewMessage({ type: "send", text: "details", revision: 1, editorRequestId: id }, 1024), true);
+  assert.equal(isWebviewMessage({ type: "send", text: "details", revision: 1, editorRequestId: "bad" }, 1024), false);
+  assert.equal(isWebviewMessage({ type: "send", text: "details", revision: 1, editorRequestId: 1 }, 1024), false);
+  assert.equal(isWebviewMessage({ type: "cancelEditorRequest", id }, 1024), true);
+  assert.equal(isWebviewMessage({ type: "cancelEditorRequest", id: "x".repeat(1000) }, 1024), false);
+  assert.equal(
+    isWebviewMessage({ type: "sendNewSession", text: "details", revision: 1, editorRequestId: id }, 1024),
+    false,
+  );
 });
 
 test("Ask Pi keeps its menu command and adds a selection-only shortcut", () => {

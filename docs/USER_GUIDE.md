@@ -317,7 +317,25 @@ Existing attachment limits and **Attach → View attachments** inspection, redac
 Only **Send** submits the message and remaining references through the ordinary session workflow.
 While Pi is working, references can still be staged; explicit submission uses the existing steering/follow-up queue when available.
 Opening the Sidebar can start Pi through its existing startup flow; no model request is sent by reference capture.
-Normal composer permissions apply to the submitted request; focused Preview/Apply actions remain separate.
+Normal composer permissions apply to an ordinary Ask About Selection submission.
+
+The other selection-menu actions prepare a labelled read-only action above the composer:
+- **Modify Selection (Preview):** enter the desired change before Send.
+- **Explain Selection** and **Review Selection:** inspect the displayed default request and optionally add details.
+- **Fix Selection (Preview)**, **Document Selection (Preview)**, and **Generate Tests (Preview):** inspect the displayed preset and optionally add details before generating a proposal.
+
+Selecting these actions adds their captured reference without a question popup or immediate request.
+The action description identifies its selected range; preview generation names that range as the replacement target and treats other references as supporting context.
+The displayed preset and your message are combined only on explicit Send; the action never replaces or inserts composer text.
+One prepared action can be active at a time; selecting another action replaces its intent while leaving other references available.
+**Cancel** removes only the action, not references or text, and returns the composer to ordinary permissions.
+Changing or removing the target reference, or switching sessions, invalidates the action.
+A changed or closed preview target must be captured again before generation.
+The complete action reference must fit within attachment limits; select less text or remove other attachments if it cannot fit.
+These read-only actions wait for idle Pi and cannot use the ordinary queue, shell/slash commands, background submission, or Sessions-level new-session submission.
+After Send, preview actions generate under the read-only policy and still require **Preview** before **Apply**.
+A newer draft or reference is not cleared by an older accepted submission.
+The separate **Pi: Inline Edit (Preview)**, diagnostic Quick Fix, and next-edit workflows retain their existing entry behavior.
 
 Automatic inline completions are disabled by default.
 Enable `pi.inlineCompletions.enabled` to request them after a typing pause.

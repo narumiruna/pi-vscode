@@ -419,10 +419,16 @@ Capture happens before view focus changes the active editor.
 File and precise line/column labels keep same-line selections distinct; repeat capture of the same range replaces its snapshot.
 Users can add multiple references, remove each one, and describe the requested work before explicit Send.
 The current session, history, and composer draft are retained; no separate question input or immediate model request is used.
-Busy-session reference capture uses the existing composer queue only after explicit submission.
-Offline command regressions cover staging, limits, removal, session reuse/startup, and queue submission.
-The isolated native `selection` fixture checks first-open staging, draft/focus, keyboard capture, multiple references, removal, explicit Send, session/history retention, and busy queue acceptance; it does not simulate queued execution.
-The focused fixture passed on Linux VS Code 1.140.0 with fixture Pi only.
+Busy-session ordinary Ask reference capture uses the existing composer queue only after explicit submission.
+Modify, Explain, Fix, Review, Document, and Generate Tests prepare a labelled read-only action with a visible default description and Cancel.
+Modify requires a user description; other presets combine their fixed request with optional composer details on Send.
+The host binds these actions to opaque IDs, required references, source validation, and the current session.
+Cancellation keeps references and text; changed references/session identity invalidate the action, and stale IDs never fall back to ordinary requests.
+Prepared read-only actions cannot queue, run shell/slash commands, start background work, or submit through the Sessions new-session route.
+Preview actions keep read-only generation and existing native Preview/Apply checks; no editor action writes files at preparation.
+Offline command/host/browser regressions cover all menu entries, source changes, ID/reference/session invalidation, cancellation, retry policy, busy submission guards, asynchronous preparation/approval races, and rejection of incomplete required references.
+The isolated native `selection` fixture checks first-open staging, draft/focus, keyboard capture, multiple references, removal, every menu preset, explicit read-only Preview/Apply/Undo, session/history retention, busy policy guards, and ordinary queue acceptance; it does not simulate queued execution.
+The focused fixture passed on Linux VS Code 1.140.0 with fixture Pi only, and the rich-content browser suite passed.
 Other platforms, remote hosts, and live providers were not checked for this change.
 
 ### Codex cloud task review locally

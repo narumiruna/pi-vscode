@@ -14,7 +14,8 @@ import {
   conversationRequestBehavior,
   type EditProposalInput,
   ExclusiveOperationGate,
-  type PiConversationController,
+  type PiEditorConversationController,
+  type PreparedEditorRequestOptions,
   shouldTrackConversationChanges,
 } from "./conversationController";
 import {
@@ -96,7 +97,7 @@ export function registerPiSidebar(
   context: vscode.ExtensionContext,
   runtime: PiRuntimeManager,
   logger: Logger = nullLogger,
-): PiConversationController {
+): PiEditorConversationController {
   const backgroundAgents = new BackgroundAgentManager(context);
   const changeTracker = new WorkspaceChangeTracker();
   const provider = new PiChatViewProvider(context, runtime, changeTracker, backgroundAgents, logger);
@@ -122,7 +123,7 @@ export function registerPiSidebar(
   return provider;
 }
 
-class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable, PiConversationController {
+class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable, PiEditorConversationController {
   private readonly disposables: vscode.Disposable[] = [];
   private readonly markdownRenderer = new MarkdownRenderer();
   private view: vscode.WebviewView | undefined;
@@ -148,6 +149,15 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   private readonly attachments: SidebarAttachmentManager;
   private readonly fileCompletion: SidebarFileCompletion;
   private readonly drafts: SessionDraftController;
+  private preparedEditorRequest:
+    | {
+        readonly id: string;
+        readonly request: string;
+        readonly referenceIds: readonly string[];
+        readonly options: PreparedEditorRequestOptions;
+        session: { sessionId?: string; sessionFile?: string };
+      }
+    | undefined;
   private readonly requestGate = new ConversationRequestGate();
   private readonly backgroundSubmissionGate = new ExclusiveOperationGate(
     "A background or worktree agent is already starting. Wait for it to finish starting before submitting another one.",
@@ -204,7 +214,12 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       maxAttachedCharacters,
       maxTotalContextCharacters,
       imageAssets: this.imageAssets,
-      onChange: () => this.postState(),
+      onChange: () => {
+        const prepared = this.preparedEditorRequest;
+        if (prepared && !prepared.referenceIds.every((id) => this.attachments.values.some((item) => item.id === id)))
+          this.preparedEditorRequest = undefined;
+        this.postState();
+      },
       onNotice: (message, level) => this.postNotice(message, level),
     });
     this.fileCompletion = new SidebarFileCompletion({
@@ -238,6 +253,16 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       runtime.onEvent((event) => this.handleRuntimeEvent(event)),
       runtime.onDidChangeState(() => {
         this.drafts.refresh();
+        const prepared = this.preparedEditorRequest;
+        if (prepared) {
+          const state = this.runtime.currentState;
+          if (runtimeSessionIdentityChanged(prepared.session, state)) this.preparedEditorRequest = undefined;
+          else
+            prepared.session = {
+              sessionId: state.sessionId ?? prepared.session.sessionId,
+              sessionFile: state.sessionFile ?? prepared.session.sessionFile,
+            };
+        }
         const identity = JSON.stringify([runtime.currentState.sessionFile, runtime.currentState.sessionId]);
         if (identity !== this.streamSessionIdentity) {
           if (!this.cyclingSession) this.sessionCycle = [];
@@ -299,6 +324,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.webviewReady = false;
     this.pendingNavigation = undefined;
     this.pendingNotices.splice(0);
+    this.preparedEditorRequest = undefined;
     if (this.renderTimer) {
       clearTimeout(this.renderTimer);
       this.renderTimer = undefined;
@@ -325,6 +351,34 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.fileCompletion.cancel();
     // Capture the editor snapshot before view focus can change the active editor.
     this.attachments.attachSelection();
+    await vscode.commands.executeCommand(`${viewId}.focus`);
+    if (!this.disposed) this.navigate("showSessionDetail");
+  }
+
+  public async prepareEditorRequest(
+    request: string,
+    contexts: readonly ChatReferenceContext[],
+    options: PreparedEditorRequestOptions,
+  ): Promise<void> {
+    if (this.disposed) return;
+    if (options.policy !== "read-only" || !contexts.length)
+      throw new Error("Editor actions require a read-only request and a selection reference.");
+    this.fileCompletion.cancel();
+    this.preparedEditorRequest = undefined;
+    const ids = contexts.map((context) => this.attachments.attachReference(context, options.resource));
+    if (ids.every((id): id is string => typeof id === "string")) {
+      this.preparedEditorRequest = {
+        id: randomUUID(),
+        request,
+        referenceIds: ids,
+        options: { ...options },
+        session: {
+          sessionId: this.runtime.currentState.sessionId,
+          sessionFile: this.runtime.currentState.sessionFile,
+        },
+      };
+    }
+    this.postState();
     await vscode.commands.executeCommand(`${viewId}.focus`);
     if (!this.disposed) this.navigate("showSessionDetail");
   }
@@ -435,7 +489,13 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           }
           break;
         case "send":
-          await this.send(message.text, message.revision);
+          await this.send(message.text, message.revision, message.editorRequestId);
+          break;
+        case "cancelEditorRequest":
+          if (message.id !== this.preparedEditorRequest?.id)
+            throw new Error("The prepared editor action changed. Review the current action.");
+          this.preparedEditorRequest = undefined;
+          this.postState();
           break;
         case "sendNewSession":
           await this.sendInNewSession(message.text, message.revision);
@@ -1019,6 +1079,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async queue(kind: "steer" | "followUp", rawText: string, revision: number): Promise<void> {
+    if (this.preparedEditorRequest)
+      throw new Error("Wait for Pi to finish before sending this read-only editor action.");
     const input = parseComposerInput(rawText);
     if (input.kind === "shell") throw new Error("Direct shell cannot be queued. Wait for an idle session.");
     const submission = this.attachments.captureSubmission();
@@ -1061,9 +1123,11 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async sendInNewSession(rawText: string, revision: number): Promise<void> {
+    if (this.preparedEditorRequest) throw new Error("Cancel the prepared editor action before starting a new session.");
     const input = parseComposerInput(rawText);
     if (input.kind === "shell") throw new Error("Open a session before running direct shell from its idle composer.");
     if (await this.sendCompactCommand(rawText, revision)) return;
+    if (this.preparedEditorRequest) throw new Error("The prepared editor action changed. Review the current action.");
     const submission = this.attachments.captureSubmission();
     const text = resolveSidebarSubmissionText(input.text, submission);
     if (text.startsWith("/") && (submission.textContexts.length || submission.images.length)) {
@@ -1132,13 +1196,24 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     return true;
   }
 
-  private async send(rawText: string, revision: number): Promise<void> {
+  private assertEditorRequestIdentity(editorRequestId?: string): void {
+    if (editorRequestId !== this.preparedEditorRequest?.id)
+      throw new Error("The prepared editor action changed. Review the current action before sending.");
+  }
+
+  private async send(rawText: string, revision: number, editorRequestId?: string): Promise<void> {
+    this.assertEditorRequestIdentity(editorRequestId);
+    if (this.preparedEditorRequest) {
+      await this.sendPreparedEditorRequest(rawText, revision, this.preparedEditorRequest);
+      return;
+    }
     const input = parseComposerInput(rawText);
     if (input.kind === "shell") {
       await this.sendShell(input.command, input.excludeFromContext, rawText, revision);
       return;
     }
     if (await this.sendCompactCommand(rawText, revision)) return;
+    this.assertEditorRequestIdentity(editorRequestId);
     const submission = this.attachments.captureSubmission();
     const text = resolveSidebarSubmissionText(input.text, submission);
     if (!text) {
@@ -1164,6 +1239,47 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         this.postMessage({ type: "clearInput", expectedText: rawText, expectedRevision: revision });
       },
       undefined,
+      submission.transcriptAttachments,
+    );
+  }
+
+  private async sendPreparedEditorRequest(
+    rawText: string,
+    revision: number,
+    prepared: NonNullable<PiChatViewProvider["preparedEditorRequest"]>,
+  ): Promise<void> {
+    const details = rawText.trim();
+    if (prepared.options.requiresInput && !details) throw new Error("Describe the requested changes before sending.");
+    if (/^[!/]/.test(details)) throw new Error("Use a plain description for the prepared editor action.");
+    const submission = this.attachments.captureSubmission();
+    const validate = () => {
+      if (
+        this.preparedEditorRequest !== prepared ||
+        !prepared.referenceIds.every((id) => this.attachments.values.some((item) => item.id === id)) ||
+        runtimeSessionIdentityChanged(prepared.session, this.runtime.currentState)
+      )
+        throw new Error("The prepared editor action or its selection reference changed. Run the action again.");
+      prepared.options.validate?.();
+    };
+    validate();
+    if (submission.images.length && !modelSupportsImages(this.runtime.currentState.model))
+      throw new Error("The current model does not support images. Remove the images or change the model.");
+    const text = [prepared.request.trim(), details].filter(Boolean).join("\n\n");
+    await this.runRequest(
+      text,
+      submission.textContexts,
+      submission.images,
+      prepared.options.resource,
+      prepared.options.instructions,
+      "read-only",
+      "prepared-editor",
+      prepared.options.onResponse,
+      () => {
+        if (this.preparedEditorRequest === prepared) this.preparedEditorRequest = undefined;
+        submission.consumeAccepted();
+        this.postMessage({ type: "clearInput", expectedText: rawText, expectedRevision: revision });
+      },
+      validate,
       submission.transcriptAttachments,
     );
   }
@@ -1471,6 +1587,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async runBackground(rawText: string, isolated: boolean, composerRevision: number): Promise<void> {
+    if (this.preparedEditorRequest)
+      throw new Error("Cancel the prepared editor action before starting background work.");
     const input = parseComposerInput(rawText);
     if (input.kind === "shell") throw new Error("Direct shell is available only in the idle session composer.");
     const text = input.text.trim();
@@ -1494,6 +1612,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       if (!confirmation) {
         return;
       }
+      if (this.preparedEditorRequest)
+        throw new Error("Cancel the prepared editor action before starting background work.");
       const submittedAttachmentIds = this.attachments.values.map((attachment) => attachment.id);
       const contexts = this.attachments.textContexts;
       const images = this.attachments.images;
@@ -1619,6 +1739,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.tools = [];
     this.changes = [];
     this.proposals.clear();
+    this.preparedEditorRequest = undefined;
     this.retryRequest = undefined;
     this.historyRecoveryAvailable = false;
     this.trackCurrentRequestChanges = false;
@@ -2459,6 +2580,19 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       backgroundTasks: this.backgroundAgents.states,
       status: this.status,
       attachments: attachmentSummaries,
+      editorRequest: this.preparedEditorRequest
+        ? {
+            id: this.preparedEditorRequest.id,
+            label: this.preparedEditorRequest.options.label,
+            description: [
+              this.preparedEditorRequest.request || "Describe the requested changes before sending.",
+              ...this.attachments.values
+                .filter((item) => this.preparedEditorRequest?.referenceIds.includes(item.id))
+                .map((item) => `Selection: ${item.label}`),
+            ].join("\n"),
+            requiresInput: this.preparedEditorRequest.options.requiresInput === true,
+          }
+        : undefined,
       attachmentEstimate: {
         characters: estimate.characters,
         bytes: estimate.bytes,
