@@ -273,7 +273,8 @@ Native Windows/macOS UI, remote, browser fixture and live-provider checks were n
 To verify the original native UI result, a Windows maintainer or the reporter can restore the original session in its configured Windows 11 environment and check that the Sidebar restores the history and remains connected.
 Linux offline RPC evidence does not establish that native UI result.
 CI separately checks the extracted runtime on Ubuntu, Windows and macOS; it does not test the original native large-history UI.
-The original implementation passed [CI run 40479584837](https://github.com/narumiruna/pi-vscode/actions/runs/40479584837); current results remain attached to [PR #130](https://github.com/narumiruna/pi-vscode/pull/130).
+The complete implementation at `edd8969` passed [CI run 40482013165](https://github.com/narumiruna/pi-vscode/actions/runs/40482013165), including compile/test and extracted-runtime checks on Ubuntu, Windows and macOS.
+Current results remain attached to [PR #130](https://github.com/narumiruna/pi-vscode/pull/130).
 The dated validation entries below retain the limits and behavior tested at that time.
 
 ## Fixed-status validation scope
