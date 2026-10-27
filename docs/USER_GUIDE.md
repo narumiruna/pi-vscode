@@ -69,6 +69,7 @@ Existing session files are not deleted or recreated.
 Invalid headers, a missing workspace recorded in an existing header, permission errors, and invalid bundled assets do not use this missing-file recovery path.
 Bundled Pi fails without a replacement for those errors.
 External Pi retains its earlier automatic fresh-session fallback for other restore errors.
+History synchronization failures do not use either fallback; existing session references and files are preserved, without automatic replacement-session creation or request replay.
 
 Bundled Pi starts as a separate process through the workspace Extension Host's `process.execPath` and a small packaged bootstrap.
 The bootstrap starts the absolute pinned npm entry `dist/bundle/cli.js`, not a command found on PATH.
@@ -215,9 +216,11 @@ An uncertain authoritative runtime refresh disconnects safely rather than presen
   Loading, earlier-window position and truncation remain visible when relevant, even with search closed.
   Absent or unavailable history alone adds no header strip, including in an empty conversation.
   Actual failures keep the composer status, notices, diagnostics and guarded recovery controls.
-  Each window contains at most 100 messages and 250,000 text characters.
+  Each window contains at most 100 messages and 250,000 shared text/thinking characters.
   Omitted portions of long messages are labelled and cannot be browsed.
-  History responses above the existing 5 MiB RPC limit remain unavailable; this is not whole-session search.
+  Persistent Pi RPC single lines now allow 64 MiB instead of 5 MiB; larger history responses remain unavailable.
+  Public `get_messages` still returns the full active branch without pagination; this is not whole-session search.
+  Full-response decoding and synchronous JSON parsing can still increase memory use and pause the Extension Host.
 - The input's accessible description and **Submission help** distinguish `@` snapshot attachment from Tab path-only insertion.
   Message headings support assistive-technology navigation.
   Earlier Orca evidence applies to the previous layout; screen-reader behavior for this relocation requires a separate check.
@@ -235,6 +238,7 @@ Deletion confirmations and Pi-requested dialogs are unchanged.
 The shared log records safe lifecycle, request, deletion/recovery, RPC, history/storage and inline-completion outcomes.
 It uses fixed categories and host-generated operation IDs/client generations, not conversation content, session names/paths or credentials.
 Unknown errors remain `unknown`; raw errors, stdout/stderr and invalid frames are excluded, including at Debug/Trace.
+Locally typed frame-too-large errors use a safe allowlisted Output category and a fixed Sidebar notice, without raw frame, error or path data.
 Use VS Code's built-in log-level controls for additional safe timing records.
 Logs are not a full process transcript and do not establish that detached work stopped.
 Follow uncertainty instructions before repeating commands.
@@ -517,7 +521,7 @@ A separately confirmed restart uses the current launch policy, preserves the per
 Reload clears transient extension UI and pinned context.
 It does not change VS Code themes or sidebar keybindings.
 
-The tree permits 2,000 entries and 100 levels within the existing 5 MiB RPC frame and 30-second command deadline.
+The tree permits 2,000 entries and 100 levels within the 64 MiB persistent RPC frame and unchanged 30-second command deadline.
 It rejects malformed relationships instead of silently dropping branches.
 Selected user text is limited to 50,000 characters; images are not restored into the composer.
 A fork or navigation draft is inserted only after success and never overwrites a newer draft.
@@ -892,6 +896,11 @@ Transcript state stores image metadata, but not Base64 image payloads.
 
 Key operational limits:
 
+- Persistent Pi RPC single lines allow 64 MiB with unchanged LF framing, decoded UTF-8 byte counting and CRLF handling.
+  Larger complete lines and unterminated fragments are rejected.
+  The first fatal decoder failure stops decoding and releases retained input; later stdout is ignored while bounded cleanup completes.
+  New RPC commands and dialog replies are rejected before writing to that failed client.
+  Bridge frames remain limited to 1 MiB and one-shot Pi output to 5 MiB; attachment and session import/export limits are unchanged.
 - Attachments allow 8 items and 400,000 total text characters, including up to 5 images of 5 MiB each.
 - Each Git review supports up to 100 text files, 100 KB per side, 400 KB of retained text, a 200 KB diff, and a 45-second capture deadline.
   Unsupported files remain explicitly not reviewed.

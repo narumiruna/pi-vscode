@@ -24,6 +24,7 @@ Trust, ownership, restore reference, launch policy, canonical workspace, runtime
 Trust, ownership, launch policy, canonical workspace, runtime assets, and the cleared reference are checked again before replacement startup.
 An existing invalid header, missing header workspace, dangling symlink, permission error, or invalid bundled runtime does not authorize this missing-file recovery.
 External Pi retains its earlier automatic fresh-session fallback for other restore errors; bundled Pi does not.
+History synchronization failures do not authorize either restore fallback.
 Saved executable overrides, including legacy `pi`, remain unchanged because their intent cannot be inferred.
 
 Desktop Electron receives `ELECTRON_RUN_AS_NODE=1` only to enter Node mode.
@@ -238,7 +239,7 @@ Reload retains the launch-time executable/options and project-approval decision.
 A changed launch decision requires a separate explicit restart confirmation.
 Restart directly opens the captured persistent session; it does not fall back to a fresh session.
 A restart failure can leave Pi disconnected and does not restore old configuration bytes.
-Tree retrieval retains at most 2,000 entries / 100 levels and uses the existing 5 MiB framing and command deadlines.
+Tree retrieval retains at most 2,000 entries / 100 levels and uses 64 MiB persistent RPC framing and unchanged command deadlines.
 Draft text is limited to 50,000 characters; image payloads are not retained in tree items.
 Navigation does not undo filesystem, Git, shell, service, or external effects.
 Unsummarized navigation alone is not durable across restart in the checked Pi version.
@@ -535,6 +536,7 @@ Cleanup uncertainty, delivery uncertainty and instructions not to repeat complet
 Records use typed allowlisted metadata: fixed operation/result/category names, validated filesystem codes, exit codes/signals, bounded counts/durations, flags, host-generated operation IDs and client generations.
 Activation adds extension/VS Code versions, platform and local/remote host category, not remote names.
 Unknown errors use `unknown`; error messages, causes and stacks are not copied.
+Only locally typed frame-too-large errors map to the allowlisted `frame-too-large` Output category and a fixed Sidebar notice, without raw frame, error or path data.
 Prompts, responses, thinking, code, tool/shell/terminal/queue text, attachments/images, session paths/titles, credentials, auth redirects, MCP transport fields and annotation origins/tokens are excluded at all levels.
 Stdout, stderr and malformed frames are never copied to Output.
 Existing private diagnostic buffers keep their existing bounds and access boundaries.
@@ -564,6 +566,12 @@ Pi history image extraction starts only after selecting the retained 100-message
 Cache eviction, browser decode rejection, or missing/invalid Pi history produces a labeled unavailable placeholder instead of repeated corrupt delivery, unbounded recovery, or unsafe rendering.
 The Extension Host keeps a bounded 1,000-ID rejection set so browser-rejected content is not re-admitted on later history refreshes.
 RPC JSON lines, bridge requests and responses, editor selections, diagnostics, tool output, persisted messages, completion context, change snapshots, and background-task output are bounded.
+Persistent Pi RPC single lines allow 64 MiB instead of 5 MiB.
+LF terminates frames and is excluded from the byte count; decoded UTF-8 bytes are counted before removing an optional trailing CR.
+Complete lines and unterminated fragments above 64 MiB are rejected.
+At the first fatal decoder failure, decoding stops and retained input is released; the client ignores later stdout while bounded process cleanup completes.
+New RPC commands and dialog replies are rejected before writing to a failed client's stdin, including during cleanup.
+Bridge frames remain limited to 1 MiB and one-shot Pi output to 5 MiB; attachment and session import/export limits are unchanged.
 
 ## Transcript and Status Behavior
 
@@ -852,7 +860,9 @@ Storage failures are reported and can leave older persisted bytes; do not rely o
 
 Conversation history navigation uses only public `get_messages` while the existing idle/session ownership checks permit it.
 Each request is generation/session/client-bound; new work, resource/branch transitions and process replacement invalidate stale results.
-Each request obtains a full active-branch response under the unchanged 5 MiB frame bound, then retains a replacement window of at most 100 messages and 250,000 shared content/thinking characters.
+Each request obtains a full active-branch response under the 64 MiB persistent RPC frame bound, then retains a replacement window of at most 100 messages and 250,000 shared content/thinking characters.
+Public `get_messages` has no pagination; full-response decoding and synchronous JSON parsing can still increase memory use and pause the Extension Host.
+History synchronization failures preserve existing session references and files, without automatic new-session fallback or request replay.
 Earlier windows do not replace the persisted latest cache.
 Omitted long-message portions are labelled and not independently retrievable.
 No raw session-file read, private pagination API or model prompt is used for browsing.

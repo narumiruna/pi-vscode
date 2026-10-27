@@ -3,7 +3,7 @@ import { StrictJsonLineDecoder } from "../piRpcClient";
 import { maxBridgeLineBytes, VscodeBridgeLineDecoder } from "../vscodeBridgeProtocol";
 
 for (const { name, Decoder, limit } of [
-  { name: "RPC", Decoder: StrictJsonLineDecoder, limit: 5 * 1024 * 1024 },
+  { name: "RPC", Decoder: StrictJsonLineDecoder, limit: 64 * 1024 * 1024 },
   { name: "bridge", Decoder: VscodeBridgeLineDecoder, limit: maxBridgeLineBytes },
 ]) {
   test(`${name} framing preserves split Unicode, CRLF, empty lines, and incomplete UTF-8 at EOF`, () => {
@@ -29,12 +29,12 @@ for (const { name, Decoder, limit } of [
     for (const suffix of ["\r\n", "\r"]) {
       const oversized = new Decoder(() => assert.fail("oversized line dispatched"));
       oversized.push(bytes);
-      assert.throws(() => oversized.push(Buffer.from(suffix)), /exceeded 1 MiB|larger than 5 MiB/);
+      assert.throws(() => oversized.push(Buffer.from(suffix)), /exceeded 1 MiB|larger than 64 MiB/);
     }
     const incomplete = new Decoder(() => assert.fail("oversized EOF dispatched"));
     incomplete.push(Buffer.from("x".repeat(limit - 1)));
     incomplete.push(Buffer.from([0xe2]));
-    assert.throws(() => incomplete.end(), /exceeded 1 MiB|larger than 5 MiB/);
+    assert.throws(() => incomplete.end(), /exceeded 1 MiB|larger than 64 MiB/);
   });
 
   test(`${name} framing permits a chunk larger than the limit when each line fits`, () => {
@@ -81,7 +81,7 @@ for (const { name, Decoder, limit } of [
       decoder.push(Buffer.from("xx"));
     });
     decoder.push(Buffer.from([0xe2]));
-    assert.throws(() => decoder.end(), /exceeded 1 MiB|larger than 5 MiB/);
+    assert.throws(() => decoder.end(), /exceeded 1 MiB|larger than 64 MiB/);
     assert.equal(delivered, 2);
   });
 

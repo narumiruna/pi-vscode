@@ -97,7 +97,7 @@ else if (args.includes('--mode')) {
   require('node:readline').createInterface({input: process.stdin}).on('line', line => {
     const q = JSON.parse(line);
     if (args.includes('timeout') || q.message === 'wait-for-exit') return;
-    if (q.type === 'prompt' && q.message === 'oversized') { process.stdout.write('x'.repeat(6 * 1024 * 1024)); return; }
+    if (q.type === 'prompt' && q.message === 'oversized') { process.stdout.write('x'.repeat(64 * 1024 * 1024 + 1)); return; }
     if (q.type === 'prompt' && q.message === 'bad-queue') { console.log(JSON.stringify({type:'queue_update',steering:null})); return; }
     console.log(JSON.stringify({type:'response',id:q.id,command:q.type,success:true,data:{pid:process.pid,args,script:__filename}}));
   });

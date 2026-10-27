@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { PiLogger, safeErrorCategory, safeErrorCode } from "../logging";
+import { RpcFrameTooLargeError } from "../rpcFrame";
 import { installVscodeMock } from "./vscodeMock";
 
 const vscode = installVscodeMock();
@@ -137,6 +138,35 @@ test("unknown failures stay unknown and error adapters never read error prose", 
     }),
     "unknown",
   );
+});
+
+test("only locally typed RPC size errors receive the frame-too-large category", () => {
+  const { channel, logger } = fixture();
+  const error = new RpcFrameTooLargeError();
+  Object.defineProperty(error, "message", {
+    get() {
+      throw new Error("private frame text must not be read");
+    },
+  });
+  assert.equal(safeErrorCategory(error), "frame-too-large");
+  logger.record("error", "rpc-command", { command: "get_messages", category: safeErrorCategory(error) });
+  assert.match(channel.records[0].message, /"category":"frame-too-large"/);
+  assert.doesNotMatch(channel.records[0].message, /private|frame text/);
+  for (const untrusted of [
+    { name: "RpcFrameTooLargeError", code: "frame-too-large", message: "larger than 64 MiB" },
+    JSON.parse(JSON.stringify(error)),
+    new Error("Pi RPC emitted a JSON line larger than 64 MiB."),
+    new Proxy(
+      {},
+      {
+        getPrototypeOf: () => {
+          throw new Error("private proxy");
+        },
+      },
+    ),
+  ]) {
+    assert.equal(safeErrorCategory(untrusted), "unknown");
+  }
 });
 
 test("warnings are bounded by known code and generation, with suppressed totals at next interval/end", () => {

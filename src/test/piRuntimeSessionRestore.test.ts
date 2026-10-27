@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type * as vscode from "vscode";
 import type { PiRpcEvent } from "../piRpcClient";
+import { RpcFrameTooLargeError } from "../rpcFrame";
 import { installVscodeMock, MockUri } from "./vscodeMock";
 
 const mock = installVscodeMock();
@@ -25,7 +26,7 @@ async function fixture(action: (f: any) => Promise<void>) {
   const runtime = new PiRuntimeManager({
     extensionUri: MockUri.file(process.cwd()),
     workspaceState: {
-      get: () => saved,
+      get: (key: string) => (key === "pi.rpc.sessionPath.v1" ? saved : undefined),
       update: async (_key: string, value: string | undefined) => {
         writes.push(value);
         saved = value;
@@ -97,6 +98,37 @@ test("an existing saved session is restored without replacing its file", async (
       false,
     );
     assert.equal(await readFile(session, "utf8"), contents);
+  });
+});
+
+test("history size failures preserve the existing session and restore reference without replay", async () => {
+  await fixture(async ({ runtime, internal, root, session, saved, writes, start, warning, events }: any) => {
+    const contents = `${JSON.stringify({ type: "session", cwd: root })}\n`;
+    await writeFile(session, contents);
+    const error = new RpcFrameTooLargeError();
+    const history = vi.spyOn(PiRpcClient.prototype, "getMessages").mockRejectedValue(error);
+    const running = vi.spyOn(PiRpcClient.prototype, "isRunning", "get").mockReturnValue(true);
+    const prompt = vi.spyOn(PiRpcClient.prototype, "prompt").mockRejectedValue(new Error("unexpected replay"));
+    try {
+      await internal.startClient();
+      for (let attempt = 0; attempt < 2; attempt++) await assert.rejects(runtime.getMessages(), error);
+      assert.equal(history.mock.calls.length, 2);
+      assert.equal(start.mock.calls.length, 1, "History failure must not start a replacement process");
+      assert.equal(prompt.mock.calls.length, 0);
+      assert.equal(internal.client.options.sessionPath, session);
+      assert.equal(saved(), session);
+      assert.deepEqual(writes, []);
+      assert.equal(warning.mock.calls.length, 0);
+      assert.equal(
+        events.some((event: PiRpcEvent) => event.warningCode === "session-replaced"),
+        false,
+      );
+      assert.equal(await readFile(session, "utf8"), contents);
+    } finally {
+      history.mockRestore();
+      running.mockRestore();
+      prompt.mockRestore();
+    }
   });
 });
 

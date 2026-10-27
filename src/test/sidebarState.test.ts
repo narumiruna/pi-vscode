@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { RpcFrameTooLargeError } from "../rpcFrame";
 import { extensionUiLimits, SidebarExtensionUi } from "../sidebarExtensionUi";
 import {
   historySyncFailureState,
@@ -155,6 +156,17 @@ test("runtime notices use bounded known causes and never interpolate diagnostics
     assert.doesNotMatch(summary, /safe to|can continue|retry now/i);
     if (code === "cleanup-unverified") assert.doesNotMatch(summary, /stopped responding/);
   }
+});
+
+test("RPC size notices use local error identity without runtime error prose", () => {
+  const error = new RpcFrameTooLargeError();
+  error.message = "/private/session.jsonl SECRET";
+  const summary = runtimeNoticeSummary({ type: "protocol_error", error });
+  assert.match(summary, /64 MiB limit.*connection was stopped.*Show Output/);
+  assert.doesNotMatch(summary, /private|SECRET|retry|resend/);
+  assert.ok(summary.length < 160);
+  const untrusted = { name: "RpcFrameTooLargeError", message: error.message, code: "frame-too-large" };
+  assert.match(runtimeNoticeSummary({ type: "protocol_error", error: untrusted }), /invalid response/);
 });
 
 const messages: SidebarMessage[] = [

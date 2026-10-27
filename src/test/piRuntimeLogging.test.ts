@@ -115,6 +115,18 @@ test("runtime warnings are logged without a Sidebar and suppression never remove
   });
 });
 
+test("local RPC size failures log frame-too-large without frame data", async () => {
+  const { RpcFrameTooLargeError } = require("../rpcFrame") as typeof import("../rpcFrame");
+  await fixture(async ({ client, records }: any) => {
+    const error = new RpcFrameTooLargeError();
+    error.message = secret;
+    client.emit({ type: "protocol_error", message: secret, line: secret, error });
+    const record = records.find((r: any) => r.event === "runtime-warning");
+    assert.equal(record.metadata.warningCode, "protocol-error");
+    assert.equal(record.metadata.category, "frame-too-large");
+  });
+});
+
 test("protocol errors log only an invalid-frame category, never malformed input or errors", async () => {
   await fixture(async ({ client, records }: any) => {
     client.emit({ type: "protocol_error", message: secret, line: secret, error: failure(), stderr: secret });

@@ -97,6 +97,30 @@ test("runtime notices never retain raw details or duplicate logs and Show Output
   }
 });
 
+test("oversized history logs frame-too-large and keeps raw diagnostics out of notices", async () => {
+  const f = fixture();
+  const { RpcFrameTooLargeError } = require("../rpcFrame") as typeof import("../rpcFrame");
+  try {
+    const error = new RpcFrameTooLargeError();
+    error.message = sentinel;
+    f.runtime.getMessages = async () => {
+      f.provider.handleRuntimeEvent({ type: "protocol_error", message: sentinel, error });
+      throw error;
+    };
+    await f.provider.initializeRuntime();
+    assert.equal(f.records.at(-1)?.event, "history-load");
+    assert.equal(f.records.at(-1)?.metadata?.category, "frame-too-large");
+    const notices = f.posted.filter((message) => message.type === "notice");
+    assert.match(String(notices.at(-1)?.message), /64 MiB limit.*Show Output/);
+    assert.doesNotMatch(JSON.stringify(f.records), new RegExp(sentinel));
+    assert.doesNotMatch(JSON.stringify(f.posted), new RegExp(sentinel));
+    assert.deepEqual(f.shows, []);
+    assert.deepEqual(f.modals, []);
+  } finally {
+    f.dispose();
+  }
+});
+
 test("history load, refresh, compaction and cache failures project only safe metadata", async () => {
   const f = fixture();
   try {
