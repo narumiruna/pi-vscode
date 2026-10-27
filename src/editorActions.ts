@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { PiConversationController } from "./conversationController";
+import type { PiConversationController, PiEditorConversationController } from "./conversationController";
 import {
   buildDiagnosticFixInstruction,
   filterFixableDiagnostics,
@@ -14,6 +14,13 @@ import {
 import { buildSelectionReference, extractReplacement, type SelectionContext } from "./prompts";
 
 const maxWholeDocumentEditCharacters = 200_000;
+const editInstructions = [
+  "Rewrite only the selected code according to the user's request.",
+  "The replacement must fit in the same location and preserve surrounding behavior unless requested otherwise.",
+  "Do not modify files and do not explain the result.",
+  "Return exactly <<<PI_VSCODE_REPLACEMENT_START>>>, a newline, the replacement text, another newline, and <<<PI_VSCODE_REPLACEMENT_END>>>.",
+  "Do not use Markdown code fences.",
+].join(" ");
 
 interface SelectionSnapshot {
   readonly document: vscode.TextDocument;
@@ -27,7 +34,10 @@ interface DiagnosticCommandTarget {
   readonly diagnostic: vscode.Diagnostic;
 }
 
-export function registerEditorActions(context: vscode.ExtensionContext, conversation: PiConversationController): void {
+export function registerEditorActions(
+  context: vscode.ExtensionContext,
+  conversation: PiEditorConversationController,
+): void {
   const previews = registerEditPreviewProvider(context);
   const selectionActionKind = vscode.CodeActionKind.RefactorRewrite.append("pi");
   context.subscriptions.push(
@@ -37,16 +47,16 @@ export function registerEditorActions(context: vscode.ExtensionContext, conversa
     vscode.languages.registerCodeActionsProvider("*", new PiSelectionCodeActionProvider(selectionActionKind), {
       providedCodeActionKinds: [selectionActionKind],
     }),
-    vscode.commands.registerCommand("pi.askSelection", () => askSelection(conversation)),
-    vscode.commands.registerCommand("pi.modifySelection", () => inlineEdit(previews, conversation)),
+    vscode.commands.registerCommand("pi.modifySelection", () => modifySelection(previews, conversation)),
     vscode.commands.registerCommand("pi.inlineEdit", () => inlineEdit(previews, conversation)),
     vscode.commands.registerCommand("pi.quickFix", (target?: unknown) => quickFix(previews, conversation, target)),
     vscode.commands.registerCommand("pi.explainSelection", () =>
-      answerPreset(conversation, "Explain this code, including its behavior and assumptions."),
+      answerPreset(conversation, "Explain Selection", "Explain this code, including its behavior and assumptions."),
     ),
     vscode.commands.registerCommand("pi.reviewSelection", () =>
       answerPreset(
         conversation,
+        "Review Selection",
         "Review this code for correctness, security, maintainability, performance, and missing tests. Prioritize actionable findings.",
       ),
     ),
@@ -54,6 +64,7 @@ export function registerEditorActions(context: vscode.ExtensionContext, conversa
       previewPreset(
         previews,
         conversation,
+        "Fix Selection (Preview)",
         "Fix bugs and diagnostics in this code while preserving intended behavior.",
       ),
     ),
@@ -61,6 +72,7 @@ export function registerEditorActions(context: vscode.ExtensionContext, conversa
       previewPreset(
         previews,
         conversation,
+        "Document Selection (Preview)",
         "Add or improve idiomatic documentation for this code without changing its behavior.",
       ),
     ),
@@ -68,6 +80,7 @@ export function registerEditorActions(context: vscode.ExtensionContext, conversa
       previewPreset(
         previews,
         conversation,
+        "Generate Tests (Preview)",
         "Keep the selected code and append comprehensive idiomatic tests that cover normal behavior and important edge cases.",
       ),
     ),
@@ -75,37 +88,18 @@ export function registerEditorActions(context: vscode.ExtensionContext, conversa
   );
 }
 
-async function askSelection(conversation: PiConversationController): Promise<void> {
+async function answerPreset(
+  conversation: PiEditorConversationController,
+  label: string,
+  question: string,
+): Promise<void> {
   const snapshot = captureSelection();
   if (!snapshot) {
     return;
   }
-  const question = await vscode.window.showInputBox({
-    title: "Ask Pi About Selection",
-    prompt: "What would you like to know about this code?",
-    placeHolder: "Explain this code and point out possible issues",
-    ignoreFocusOut: true,
-  });
-  if (!question?.trim()) {
-    return;
-  }
-  await showAnswer(conversation, snapshot, question.trim());
-}
-
-async function answerPreset(conversation: PiConversationController, question: string): Promise<void> {
-  const snapshot = captureSelection();
-  if (snapshot) {
-    await showAnswer(conversation, snapshot, question);
-  }
-}
-
-async function showAnswer(
-  conversation: PiConversationController,
-  snapshot: SelectionSnapshot,
-  question: string,
-): Promise<void> {
   try {
-    await conversation.sendRequest(question, [buildSelectionReference(snapshot.context)], {
+    await conversation.prepareEditorRequest(question, [buildSelectionReference(snapshot.context)], {
+      label,
       instructions:
         "Answer the user's question about the selected code. Be concrete and concise. Use Markdown when useful. Do not modify files.",
       resource: snapshot.document.uri,
@@ -113,6 +107,16 @@ async function showAnswer(
     });
   } catch (error) {
     await reportError(error);
+  }
+}
+
+async function modifySelection(
+  previews: EditPreviewProvider,
+  conversation: PiEditorConversationController,
+): Promise<void> {
+  const snapshot = captureEditTarget();
+  if (snapshot) {
+    await preparePreviewEdit(previews, conversation, snapshot, "Modify Selection (Preview)", "", true);
   }
 }
 
@@ -227,12 +231,46 @@ async function suggestNextEdit(previews: EditPreviewProvider, conversation: PiCo
 
 async function previewPreset(
   previews: EditPreviewProvider,
-  conversation: PiConversationController,
+  conversation: PiEditorConversationController,
+  label: string,
   instruction: string,
 ): Promise<void> {
   const snapshot = captureSelection();
   if (snapshot) {
-    await previewEdit(previews, conversation, snapshot, instruction);
+    await preparePreviewEdit(previews, conversation, snapshot, label, instruction);
+  }
+}
+
+async function preparePreviewEdit(
+  previews: EditPreviewProvider,
+  conversation: PiEditorConversationController,
+  snapshot: SelectionSnapshot,
+  label: string,
+  instruction: string,
+  requiresInput = false,
+): Promise<void> {
+  const validate = () => {
+    if (snapshot.document.isClosed || snapshot.document.version !== snapshot.version) {
+      throw new Error("The document changed or closed. Run the selection action again before sending.");
+    }
+  };
+  try {
+    if (!(await isDocumentWritable(snapshot.document))) {
+      throw new Error("Pi edits are unavailable for read-only documents.");
+    }
+    validate();
+    const reference = buildSelectionReference(snapshot.context);
+    await conversation.prepareEditorRequest(instruction, [reference], {
+      label,
+      requiresInput,
+      instructions: `${editInstructions} Replacement target reference: ${JSON.stringify(reference.label)}. Treat other references as context, not replacement targets.`,
+      resource: snapshot.document.uri,
+      policy: "read-only",
+      validate,
+      onResponse: (response) => createEditProposal(previews, conversation, snapshot, response),
+    });
+  } catch (error) {
+    await reportError(error);
   }
 }
 
@@ -248,13 +286,7 @@ async function previewEdit(
     }
     let responseError: unknown;
     await conversation.sendRequest(instruction, [buildSelectionReference(snapshot.context)], {
-      instructions: [
-        "Rewrite only the selected code according to the user's request.",
-        "The replacement must fit in the same location and preserve surrounding behavior unless requested otherwise.",
-        "Do not modify files and do not explain the result.",
-        "Return exactly <<<PI_VSCODE_REPLACEMENT_START>>>, a newline, the replacement text, another newline, and <<<PI_VSCODE_REPLACEMENT_END>>>.",
-        "Do not use Markdown code fences.",
-      ].join(" "),
+      instructions: editInstructions,
       resource: snapshot.document.uri,
       policy: "read-only",
       onResponse: (response) => {
@@ -320,6 +352,8 @@ function selectionSnapshot(document: vscode.TextDocument, range: vscode.Range): 
       languageId: document.languageId,
       startLine: range.start.line + 1,
       endLine: range.end.line + 1,
+      startColumn: range.start.character + 1,
+      endColumn: range.end.character + 1,
       code: document.getText(range),
     },
   };

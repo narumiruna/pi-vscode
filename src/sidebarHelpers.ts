@@ -61,7 +61,13 @@ export type WebviewMessage =
     }
   | { readonly type: "historyWindow"; readonly direction: "earlier" | "latest"; readonly generation: number }
   | { readonly type: "switchRecentSession"; readonly id: string }
-  | { readonly type: "send" | "sendNewSession"; readonly text: string; readonly revision: number }
+  | {
+      readonly type: "send" | "sendNewSession";
+      readonly text: string;
+      readonly revision: number;
+      readonly editorRequestId?: string;
+    }
+  | { readonly type: "cancelEditorRequest"; readonly id: string }
   | {
       readonly type: "queueInstruction";
       readonly text: string;
@@ -104,8 +110,16 @@ export function isWebviewMessage(value: unknown, maxImageBytes: number): value i
   if (value.type.startsWith("draft")) return isSessionDraftMessage(value);
   if (value.type === "historyWindow")
     return ["earlier", "latest"].includes(String(value.direction)) && isComposerRevision(value.generation);
-  if (value.type === "send" || value.type === "sendNewSession")
-    return typeof value.text === "string" && isComposerRevision(value.revision);
+  if (value.type === "sendNewSession")
+    return typeof value.text === "string" && isComposerRevision(value.revision) && value.editorRequestId === undefined;
+  if (value.type === "send")
+    return (
+      typeof value.text === "string" &&
+      isComposerRevision(value.revision) &&
+      (value.editorRequestId === undefined ||
+        (typeof value.editorRequestId === "string" && /^[a-f0-9-]{36}$/.test(value.editorRequestId)))
+    );
+  if (value.type === "cancelEditorRequest") return typeof value.id === "string" && /^[a-f0-9-]{36}$/.test(value.id);
   if (value.type === "switchRecentSession") return typeof value.id === "string" && /^[a-f0-9]{24}$/.test(value.id);
   if (value.type === "queueInstruction")
     return (

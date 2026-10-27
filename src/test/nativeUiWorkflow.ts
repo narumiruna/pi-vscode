@@ -336,7 +336,9 @@ export async function run(): Promise<void> {
             break;
           case "selection": {
             const editor = await vscode.window.showTextDocument(source);
-            editor.selection = new vscode.Selection(0, 0, 0, source.lineAt(0).text.length);
+            const range = request.range ?? [0, 0, 0, source.lineAt(0).text.length];
+            assert.ok(Array.isArray(range) && range.length === 4 && range.every(Number.isInteger));
+            editor.selection = new vscode.Selection(range[0], range[1], range[2], range[3]);
             result = source.getText(editor.selection);
             break;
           }

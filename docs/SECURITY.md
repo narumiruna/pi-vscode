@@ -746,6 +746,27 @@ No shell quoting contract is added; `!` and `!!` drafts do not complete.
 ## Context and Test Evidence
 
 Attachment inspection shows exactly the queued snapshots, not all provider context.
+Ask About Selection uses the same bounded in-memory attachment pipeline as Attach → Current Selection.
+It captures the selected text and source range before Sidebar focus can change the active editor.
+Precise line/column labels distinguish same-line selections; recapturing the same range replaces its snapshot.
+Capture stages removable references without sending a prompt, replacing the active session, or clearing its composer draft.
+Opening the Sidebar can still start Pi through the existing startup flow.
+Attachment warnings produced before Sidebar readiness are retained in memory, limited to eight notices of 4,000 characters each.
+Readiness combines pending notices so sensitive-content and truncation warnings remain visible together; provider disposal clears them.
+Rejected captures reveal the same inline notice surface instead of a native popup.
+Only an explicit ordinary composer submission sends the references, using existing session permissions and queue checks.
+Ask About Selection alone prepares ordinary composer references, not a separate read-only editor request.
+The other selection-menu entries prepare one host-owned read-only request with its exact reference IDs, session identity, source validation, and response callback.
+The browser receives only an opaque request ID, host-owned label/description with selection labels, and whether user input is required.
+Preview instructions identify the exact captured replacement reference; other references are context, not replacement targets.
+Explicit Send must match the current ID; missing, cancelled, replaced, or stale IDs cannot fall back to ordinary dispatch.
+Target-reference changes and session transitions invalidate pending intent; preview source versions are checked before generation.
+Required action references must fit completely within item and aggregate attachment limits; truncated source cannot authorize a full-range proposal.
+Ordinary/new-session submission rechecks pending action authority after asynchronous preparation, and background/worktree submission rechecks after approval before capturing references.
+Cancellation retains references and text but removes the prepared read-only intent, so a later ordinary Send uses ordinary composer permissions.
+Prepared actions cannot enter ordinary queues, direct shell, slash commands, background submission, or the Sessions new-session route.
+Accepted sends consume only their captured unpinned references and composer revision; editor callbacks cannot be retried automatically.
+Preview actions retain the read-only policy and all existing Preview/Apply, stale-content, writable-document, and canonical-operation checks.
 Pins are bounded in-memory text, expire with session/reload, and never refresh silently.
 Redaction creates a new revision; accepted sends remove only the consumed unpinned IDs.
 Filename/secret warnings and log redaction are best-effort, not guaranteed detection.

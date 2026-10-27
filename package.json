@@ -505,6 +505,12 @@
         "when": "editorTextFocus && isWorkspaceTrusted && pi.extensionEditorActive"
       },
       {
+        "command": "pi.askSelection",
+        "key": "ctrl+alt+a",
+        "mac": "cmd+alt+a",
+        "when": "editorTextFocus && editorHasSelection"
+      },
+      {
         "command": "pi.quickFix",
         "key": "ctrl+i",
         "mac": "cmd+i",

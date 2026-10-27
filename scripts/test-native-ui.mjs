@@ -102,7 +102,8 @@ try {
   const fixtureSource = await readFile(path.join(repository, "scripts/fixtures/native-pi.cjs"), "utf8");
   await writeFile(executableFixture, fixtureSource.replace('import("../../src/test/fixtures/isolated-pi-fixture.mjs")', `import(${JSON.stringify(fixtureModule)})`));
   await chmod(executableFixture, 0o700);
-  await seedTransferSession(directory, workspace);
+  // The focused selection lane starts empty instead of loading unrelated transfer history.
+  if (!selectionOnly) await seedTransferSession(directory, workspace);
   if (!selectionOnly && !annotationsOnly && !outputDiagnosticsOnly && !settingsOnly) {
     await seedSessionSwitch(directory, workspace);
   }
@@ -312,44 +313,232 @@ try {
     // No pi.openChat, view focus, or webview message may prepare this first-open command.
     for (const candidate of page.frames()) assert.equal(await candidate.locator("#add-context").count(), 0);
     await assert.rejects(readFile(path.join(directory, "pids.jsonl")), { code: "ENOENT" });
-    const selected = await invoke("selection");
-    const question = "Why does the selected greet function return 1?";
-    const complete = await invoke("command", { command: "pi.askSelection" }, false);
-    const input = page.locator(".quick-input-widget input[type=text]");
-    await input.waitFor({ state: "visible" });
-    assert.match(await page.locator(".quick-input-widget").innerText(), /Ask Pi About Selection/);
-    await input.fill(question);
-    await input.press("Enter");
-    await complete();
+    const optional = (name) => readFile(path.join(directory, name), "utf8").catch((error) => {
+      if (error.code === "ENOENT") return "";
+      throw error;
+    });
+    const records = async (name) => (await optional(name)).trim().split("\n").filter(Boolean).map(JSON.parse);
+    const stage = async (range, shortcut = false) => {
+      const selected = await invoke("selection", range ? { range } : {});
+      if (shortcut) await page.keyboard.press("Control+Alt+a");
+      else await invoke("command", { command: "pi.askSelection" });
+      return selected;
+    };
+    const first = await stage([0, 16, 0, 21]);
+    assert.equal(first, "greet");
     const pi = await frame();
-    await until(
-      async () => (await pi.locator("#messages .assistant").innerText()).includes("Native fixture explanation."),
-      "selection fixture answer",
-    );
-    assert.equal(
-      await pi.locator("#app").evaluate((element) => element.classList.contains("sessions-layer")),
-      false,
-      "First-open Ask must show the session detail, not Sessions",
-    );
-    assert.equal(await pi.locator("#messages").isVisible(), true);
-    const turn = pi.locator("#messages .user").filter({ hasText: question });
-    assert.equal(await turn.count(), 1);
-    assert.equal(
-      await turn.isVisible(),
-      true,
-      "The submitted selection question must be visible without opening a session",
-    );
-    assert.equal(await pi.locator("#messages .assistant").isVisible(), true);
-    const prompts = (await readFile(path.join(directory, "prompts.jsonl"), "utf8"))
-      .trim().split("\n").map(JSON.parse);
-    assert.equal(prompts.length, 1);
+    const input = pi.locator("#input");
+    const labels = () => pi.locator("#attachments .attachment-label").allTextContents();
+    const assertStaged = async (expected, draft) => {
+      await until(async () => JSON.stringify(await labels()) === JSON.stringify(expected), "selection references staged");
+      assert.equal(await pi.locator("#attachments [data-remove-attachment]").count(), expected.length);
+      assert.equal(
+        await pi.locator("#app").evaluate((element) => element.classList.contains("sessions-layer")),
+        false,
+        "Ask must show the current session detail, not Sessions",
+      );
+      assert.equal(await pi.locator("#messages").isVisible(), true);
+      assert.equal(await input.inputValue(), draft, "Ask must preserve the unsent session draft");
+      await until(async () => input.evaluate((element) => document.activeElement === element), "Ask focuses composer");
+      assert.equal(await page.locator(".quick-input-widget").isVisible(), false, "Ask must not show a question InputBox");
+    };
+    const firstLabel = "source.ts:1:17-1:22";
+    const removedLabel = "source.ts:1:27-1:35";
+    const thirdLabel = "source.ts:1:1-1:7";
+    await assertStaged([firstLabel], "");
+    assert.equal(await optional("prompts.jsonl"), "", "First-open Ask must stage without requesting a model");
+    assert.equal(await pi.locator("#messages .user, #messages .assistant").count(), 0);
+
+    const question = "Explain these two code ranges.";
+    await input.fill(question);
+    const removed = await stage([0, 26, 0, 34]);
+    assert.equal(removed, "return 1");
+    await assertStaged([firstLabel, removedLabel], question);
+    const third = await stage([0, 0, 0, 6], true);
+    assert.equal(third, "export");
+    await assertStaged([firstLabel, removedLabel, thirdLabel], question);
+    assert.equal(await optional("prompts.jsonl"), "", "Repeated Ask must not send the draft or any reference");
+    await pi.getByRole("button", { name: `Remove ${removedLabel}`, exact: true }).click();
+    await until(async () => JSON.stringify(await labels()) === JSON.stringify([firstLabel, thirdLabel]),
+      "only the selected same-line reference removed");
+    assert.equal(await input.inputValue(), question);
+    assert.equal(await optional("prompts.jsonl"), "", "Removing one reference must not send");
+
+    // Only the ordinary composer Send submits the retained snapshots and typed draft.
+    await pi.locator("#send").click();
+    await until(async () => (await records("prompts.jsonl")).length === 1, "explicit selection Send recorded");
+    await until(async () => !(await pi.locator("#cancel").isVisible()) && await input.isEnabled(),
+      "selection Send settled");
+    await until(async () => (await pi.locator("#messages .assistant").innerText()).includes("Native fixture explanation."),
+      "selection fixture answer");
+    const prompts = await records("prompts.jsonl");
     assert.ok(prompts[0].message.includes(question));
-    assert.ok(prompts[0].message.includes(selected), "The actual editor selection must reach fixture Pi");
-    assert.match(prompts[0].message, /read.only/i);
+    for (const [label, selected] of [[firstLabel, first], [thirdLabel, third]]) {
+      assert.ok(prompts[0].message.includes(`<<<PI_VSCODE_CONTEXT_START: ${label}>>>\n${selected}\n`),
+        "Send must use the captured selection, not the editor selection left after focusing Pi");
+    }
+    assert.ok(!prompts[0].message.includes(removedLabel), "The removed reference must not reach fixture Pi");
+    assert.ok(!prompts[0].message.includes(removed), "The removed snapshot must not reach fixture Pi");
+    assert.doesNotMatch(prompts[0].message, /<<<PI_VSCODE_POLICY: read-only>>>/);
+    assert.equal(await pi.locator("#messages .user").filter({ hasText: question }).count(), 1);
+    assert.equal(await pi.locator("#messages .user").filter({ hasText: question }).isVisible(), true);
+    await until(async () => (await labels()).length === 0 && await input.inputValue() === "",
+      "accepted Send consumes references and draft");
+    // Every selection-menu preset prepares an action without replacing the user's draft or calling Pi.
+    const menuDraft = "Keep this unsent selection note.";
+    const menuSession = await pi.locator("#session").inputValue();
+    await input.fill(menuDraft);
+    for (const [command, label] of [
+      ["pi.modifySelection", "Modify Selection (Preview)"],
+      ["pi.explainSelection", "Explain Selection"],
+      ["pi.fixSelection", "Fix Selection (Preview)"],
+      ["pi.reviewSelection", "Review Selection"],
+      ["pi.documentSelection", "Document Selection (Preview)"],
+      ["pi.generateTests", "Generate Tests (Preview)"],
+    ]) {
+      await invoke("selection");
+      await invoke("command", { command });
+      await until(async () => (await pi.locator("#editor-request-label").textContent()) === label,
+        `staged ${label}`);
+      assert.equal(await pi.locator("#editor-request").isVisible(), true);
+      assert.ok((await pi.locator("#editor-request-description").textContent()).length > 0);
+      assert.equal(await input.inputValue(), menuDraft);
+      assert.equal(await page.locator(".quick-input-widget").isVisible(), false);
+      assert.equal((await records("prompts.jsonl")).length, 1);
+      assert.equal(await pi.locator("#session").inputValue(), menuSession);
+      assert.deepEqual((await invoke("state")).texts, [source, "export const other = 4;\n"]);
+      if (command === "pi.modifySelection") {
+        await input.fill(" ");
+        assert.equal(await pi.locator("#send").isEnabled(), false);
+        await input.fill(menuDraft);
+      }
+      await pi.locator("#cancel-editor-request").click();
+      await until(async () => !(await pi.locator("#editor-request").isVisible()), "prepared action cancelled");
+      assert.equal(await input.inputValue(), menuDraft);
+      assert.equal(await pi.locator("#attachments [data-remove-attachment]").count(), 1);
+      await pi.locator("#attachments [data-remove-attachment]").click();
+      await until(async () => (await labels()).length === 0, "cancelled action reference removed independently");
+    }
+
+    // Explicit Send still uses read-only generation and requires native Preview before Apply.
+    await input.fill("Change return 1 to return 2.");
+    await invoke("selection");
+    await invoke("command", { command: "pi.modifySelection" });
+    await until(async () => (await pi.locator("#editor-request-label").textContent()) === "Modify Selection (Preview)",
+      "Modify staged for explicit submission");
+    const replacement = source.split("\n")[0].replace("return 1", "return 2");
+    await respond(`<<<PI_VSCODE_REPLACEMENT_START>>>\n${replacement}\n<<<PI_VSCODE_REPLACEMENT_END>>>`);
+    await pi.locator("#send").click();
+    const selectionCard = pi.locator(".proposal").filter({ hasText: "source.ts:1-1" });
+    await selectionCard.waitFor();
+    await until(async () => selectionCard.getByRole("button", { name: "Preview", exact: true }).isEnabled(),
+      "selection proposal generation settled");
+    const previewPrompt = (await records("prompts.jsonl"))[1].message;
+    assert.match(previewPrompt, /<<<PI_VSCODE_POLICY: read-only>>>/);
+    assert.ok(previewPrompt.includes("Change return 1 to return 2."));
+    assert.equal(await selectionCard.getByRole("button", { name: "Apply", exact: true }).isEnabled(), false);
+    assert.deepEqual((await invoke("state")).texts, [source, "export const other = 4;\n"]);
+    await selectionCard.getByRole("button", { name: "Preview", exact: true }).click();
+    await until(async () => selectionCard.getByRole("button", { name: "Apply", exact: true }).isEnabled(),
+      "selection Preview enables Apply");
+    await selectionCard.getByRole("button", { name: "Apply", exact: true }).click();
+    await until(async () => (await selectionCard.innerText()).includes("Applied"), "selection Apply completed");
+    assert.deepEqual((await invoke("state")).texts, [source.replace("return 1", "return 2"), "export const other = 4;\n"]);
+    await invoke("selection");
+    await invoke("command", { command: "undo" });
+    assert.deepEqual((await invoke("state")).texts, [source, "export const other = 4;\n"]);
+    assert.equal(await pi.locator("#session").inputValue(), menuSession);
+    await until(async () => (await labels()).length === 0 && await input.inputValue() === "",
+      "prepared Send consumed only accepted references and draft");
+    const sessionId = await pi.locator("#session").inputValue();
+    assert.equal(sessionId, "native-ui-session");
+    const savedHistory = await readFile(path.join(directory, "session.jsonl"), "utf8");
+    const visibleHistory = await pi.locator("#messages .user, #messages .assistant").allTextContents();
+    const pids = await readFile(path.join(directory, "pids.jsonl"), "utf8");
+    const sent = await optional("prompts.jsonl");
+
+    // Return from Sessions with an empty composer; cross-surface kept text retains its existing safety checks.
+    const followUp = "Explain this captured selection in the same conversation.";
+    await invoke("command", { command: "pi.openChat" });
+    await until(async () => pi.locator("#app").evaluate((element) => element.classList.contains("sessions-layer")),
+      "Sessions opened before another Ask");
+    const wholeLine = await stage();
+    assert.equal(wholeLine, source.split("\n")[0]);
+    const wholeLineLabel = `source.ts:1:1-1:${wholeLine.length + 1}`;
+    await assertStaged([wholeLineLabel], "");
+    await input.fill(followUp);
+    assert.equal(await pi.locator("#session").inputValue(), sessionId);
+    assert.deepEqual(await pi.locator("#messages .user, #messages .assistant").allTextContents(), visibleHistory);
+    assert.equal(await readFile(path.join(directory, "session.jsonl"), "utf8"), savedHistory);
+    assert.equal(await readFile(path.join(directory, "pids.jsonl"), "utf8"), pids, "Ask must keep the current Pi process");
+    assert.equal(await optional("prompts.jsonl"), sent, "Ask in an existing session must not submit");
+
+    await respond("Native fixture follow-up.");
+    await writeFile(path.join(directory, "interface-hold"), "hold");
+    await pi.locator("#send").click();
+    await until(async () => (await records("prompts.jsonl")).length === 3 &&
+      (await pi.locator("#runtime").getAttribute("data-connection")) === "busy", "held ordinary selection Send");
+    const followUpPrompt = (await records("prompts.jsonl"))[2].message;
+    assert.ok(followUpPrompt.includes(followUp));
+    assert.ok(followUpPrompt.includes(wholeLine));
+    assert.doesNotMatch(followUpPrompt, /<<<PI_VSCODE_POLICY: read-only>>>/);
+    assert.equal(await pi.locator("#session").inputValue(), sessionId);
+    assert.equal(await pi.locator("#messages .user").filter({ hasText: question }).isVisible(), true);
+    assert.equal(await pi.locator("#messages .assistant").filter({ hasText: "Native fixture explanation." }).isVisible(), true);
+    const persisted = await records("session.jsonl");
+    assert.equal(persisted[0].id, sessionId);
+    assert.equal(persisted.filter((entry) => entry.message?.role === "user").length, 3);
+    assert.ok(persisted.some((entry) => entry.message?.content?.some((part) => part.text === prompts[0].message)),
+      "A later composer Send must retain the original session history");
+
+    // Busy read-only presets can be staged, but cannot use the ordinary composer queue.
+    await until(async () => (await labels()).length === 0 && await input.inputValue() === "",
+      "held Send accepted draft");
+    await input.fill("Keep this read-only note while Pi works.");
+    await invoke("selection");
+    await invoke("command", { command: "pi.explainSelection" });
+    await until(async () => (await pi.locator("#editor-request-label").textContent()) === "Explain Selection",
+      "busy Explain staged");
+    assert.equal(await input.inputValue(), "Keep this read-only note while Pi works.");
+    assert.equal(await pi.locator("#after-this").isVisible(), false);
+    assert.equal(await pi.locator("#send").isVisible(), false);
+    await input.press("Enter");
+    assert.equal((await records("prompts.jsonl")).length, 3);
+    assert.equal(await optional("queued.jsonl"), "");
+    await pi.locator("#cancel-editor-request").click();
+    await until(async () => !(await pi.locator("#editor-request").isVisible()), "busy preset cancelled");
+    await pi.locator("#attachments [data-remove-attachment]").click();
+    await until(async () => (await labels()).length === 0, "busy preset reference removed");
+    assert.equal(await input.inputValue(), "Keep this read-only note while Pi works.");
+
+    // Busy Ask only stages; the normal Send action then queues a steering instruction.
+    const queuedDraft = "Use this second-line reference next.";
+    await input.fill(queuedDraft);
+    const queuedSelection = await stage([1, 0, 1, 8]);
+    await assertStaged(["source.ts:2:1-2:9"], queuedDraft);
+    assert.equal((await records("prompts.jsonl")).length, 3);
+    assert.equal(await optional("queued.jsonl"), "", "Busy Ask must not queue before Send");
+    await pi.locator("#send").click();
+    await until(async () => (await records("queued.jsonl")).length === 1, "selection composer Send queued");
+    const queued = (await records("queued.jsonl"))[0];
+    assert.equal(queued.type, "steer");
+    assert.ok(queued.message.includes(queuedDraft));
+    assert.ok(queued.message.includes(queuedSelection));
+    assert.doesNotMatch(queued.message, /<<<PI_VSCODE_POLICY: read-only>>>/);
+    await until(async () => (await labels()).length === 0 && await input.inputValue() === "",
+      "accepted queue Send consumes references and draft");
+    await until(async () => (await pi.locator(".pending-queue-item").count()) === 1, "normal pending queue row");
+    await rm(path.join(directory, "interface-hold"));
+    await until(async () => !(await pi.locator("#cancel").isVisible()), "held fixture response settled");
+    assert.equal((await records("prompts.jsonl")).length, 3, "Only explicit idle Sends request the fixture model");
+    assert.equal(await pi.locator("#session").inputValue(), sessionId);
+    assert.equal(await readFile(path.join(directory, "pids.jsonl"), "utf8"), pids);
     assert.deepEqual((await invoke("state")).texts, [source, "export const other = 4;\n"]);
     console.log(
-      "PI_NATIVE_SELECTION first-open pi.askSelection, native question input, visible session detail/question/answer " +
-      "and unchanged source passed; fixture Pi only",
+      "PI_NATIVE_SELECTION first-open unsent staging, no InputBox, composer focus/draft, keyboard, distinct same-line references, " +
+      "individual removal, all menu presets, explicit read-only Preview/Apply/Undo, current session/history, busy policy guards " +
+      "and ordinary queue acceptance passed; " +
+      "fixture Pi only; queued execution is not simulated",
     );
   } else {
   // Start a session detail pane, then capture all five provider-backed attachment types.

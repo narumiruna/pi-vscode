@@ -302,10 +302,40 @@ The Pi button in the editor title opens Sessions and uses separate light and dar
 | Fix a diagnostic or open inline edit | **Ctrl/Cmd+I** |
 | Request an inline completion | **Alt+]** |
 | Suggest the next edit | **Ctrl+Alt+N** / **Cmd+Alt+N** on macOS |
-| Ask about or modify a selection | Editor lightbulb → **Rewrite**, or editor context menu → **Pi** |
+| Add a selection reference | **Ctrl+Alt+A** / **Cmd+Alt+A** on macOS; editor lightbulb → **Rewrite → Ask Pi**; or editor context menu → **Pi → Ask About Selection** |
+| Modify a selection with Preview/Apply | Editor lightbulb → **Rewrite → Modify with Pi**, or editor context menu → **Pi** |
 
-**Ask About Selection** opens the active conversation and shows your question and Pi's response, including when the sidebar opens for the first time.
-It does not create a replacement session.
+**Ask About Selection** captures the selected text as an unsent reference above the active session's composer, including on the Sidebar's first load.
+It focuses the composer without a separate question input, immediate submission, draft clearing, or replacement session.
+Existing draft-context checks still apply to text kept after a view or session transition.
+Repeat with other selections to add references, then describe what to discuss or change for each file/range in your message.
+Each reference has its own remove button; removing one does not remove the others.
+Labels show the file and one-based line/column range, with an exclusive end coordinate, so different selections on the same line remain separate.
+Capturing the same range again replaces that range's snapshot.
+Existing attachment limits and **Attach → View attachments** inspection, redaction, refresh, and pin controls apply.
+
+Only **Send** submits the message and remaining references through the ordinary session workflow.
+While Pi is working, references can still be staged; explicit submission uses the existing steering/follow-up queue when available.
+Opening the Sidebar can start Pi through its existing startup flow; no model request is sent by reference capture.
+Normal composer permissions apply to an ordinary Ask About Selection submission.
+
+The other selection-menu actions prepare a labelled read-only action above the composer:
+- **Modify Selection (Preview):** enter the desired change before Send.
+- **Explain Selection** and **Review Selection:** inspect the displayed default request and optionally add details.
+- **Fix Selection (Preview)**, **Document Selection (Preview)**, and **Generate Tests (Preview):** inspect the displayed preset and optionally add details before generating a proposal.
+
+Selecting these actions adds their captured reference without a question popup or immediate request.
+The action description identifies its selected range; preview generation names that range as the replacement target and treats other references as supporting context.
+The displayed preset and your message are combined only on explicit Send; the action never replaces or inserts composer text.
+One prepared action can be active at a time; selecting another action replaces its intent while leaving other references available.
+**Cancel** removes only the action, not references or text, and returns the composer to ordinary permissions.
+Changing or removing the target reference, or switching sessions, invalidates the action.
+A changed or closed preview target must be captured again before generation.
+The complete action reference must fit within attachment limits; select less text or remove other attachments if it cannot fit.
+These read-only actions wait for idle Pi and cannot use the ordinary queue, shell/slash commands, background submission, or Sessions-level new-session submission.
+After Send, preview actions generate under the read-only policy and still require **Preview** before **Apply**.
+A newer draft or reference is not cleared by an older accepted submission.
+The separate **Pi: Inline Edit (Preview)**, diagnostic Quick Fix, and next-edit workflows retain their existing entry behavior.
 
 Automatic inline completions are disabled by default.
 Enable `pi.inlineCompletions.enabled` to request them after a typing pause.

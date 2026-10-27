@@ -379,18 +379,38 @@ export class SidebarAttachmentManager {
     else await this.attachTerminalSelection();
   }
 
+  public attachReference(context: ChatReferenceContext, resource: vscode.Uri): string | undefined {
+    const used = this.attachments.reduce(
+      (total, item) => total + (item.label === context.label ? 0 : (item.content?.length ?? 0)),
+      0,
+    );
+    if (
+      context.content.length > this.options.maxAttachedCharacters ||
+      used + context.content.length > this.options.maxTotalContextCharacters
+    ) {
+      this.options.onNotice(
+        "The selection reference cannot fit in the attachment limits. Select less text or remove other attachments.",
+        "warning",
+      );
+      return undefined;
+    }
+    if (!this.addText({ ...context, uri: resource, metadata: contextMetadata(context.content) })) return undefined;
+    return this.attachments.find((item) => item.label === context.label)?.id;
+  }
+
   public attachSelection(): void {
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.selection.isEmpty) {
-      this.options.onNotice("Select code in an editor before attaching it.", "warning");
+      this.options.onNotice("Select text in an editor before attaching it.", "warning");
       return;
     }
     const range = new vscode.Range(editor.selection.start, editor.selection.end);
+    const content = editor.document.getText(range);
     this.addText({
       uri: editor.document.uri,
-      label: `${relativeDocumentPath(editor.document)}:${range.start.line + 1}-${range.end.line + 1}`,
-      content: editor.document.getText(range),
-      metadata: contextMetadata(editor.document.getText(range), undefined, 1, {
+      label: `${relativeDocumentPath(editor.document)}:${range.start.line + 1}:${range.start.character + 1}-${range.end.line + 1}:${range.end.character + 1}`,
+      content,
+      metadata: contextMetadata(content, undefined, 1, {
         sourceVersion: editor.document.version,
         range: {
           startLine: range.start.line,

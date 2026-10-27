@@ -212,6 +212,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .change-actions { margin-top: 0; }
     .section-heading { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin: 4px 0 8px; color: var(--vscode-descriptionForeground); font-size: .85em; font-weight: 500; }
     #source-control { min-height: 24px; font-size: inherit; }
+    #editor-request { display: flex; min-width: 0; gap: 8px; padding: 9px 10px; border-bottom: 1px solid var(--pi-border); }
+    #editor-request-summary { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+    #editor-request-label { font-size: .9em; font-weight: 600; }
+    #editor-request-description { margin: 3px 0 0; color: var(--vscode-descriptionForeground); font-size: .82em; white-space: pre-wrap; }
+    #cancel-editor-request { flex: 0 0 auto; align-self: flex-start; }
     #attachments { display: flex; min-height: 0; align-items: flex-start; gap: 7px; flex-wrap: wrap; max-height: min(132px, 20vh); overflow-y: auto; padding: 9px 10px 1px; }
     .attachment-chip { display: inline-flex; max-width: 100%; align-items: center; gap: 4px; padding: 3px 4px 3px 7px; border-radius: 5px; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); font-size: .82em; }
     .attachment-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -331,6 +336,10 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       <div id="file-completions" role="listbox" aria-label="Workspace files" hidden></div>
       <div id="runtime"><span id="runtime-dot" class="status-dot" aria-hidden="true" hidden></span><span id="status" role="status" aria-live="polite" aria-atomic="true"></span><button id="retry" class="secondary" type="button" hidden>Retry</button><button id="refresh-history" class="secondary" type="button" hidden>Refresh history</button><button id="reconnect" class="secondary" type="button" hidden>Reconnect</button></div>
       <div class="composer-box">
+        <div id="editor-request" role="group" aria-labelledby="editor-request-label" aria-describedby="editor-request-description" hidden>
+          <div id="editor-request-summary"><span id="editor-request-label"></span><p id="editor-request-description"></p></div>
+          <button id="cancel-editor-request" class="secondary" type="button" aria-label="Cancel prepared editor action">Cancel</button>
+        </div>
         <div id="attachments" aria-label="Attachments for the next message" hidden></div>
         <div id="attachment-estimate" class="proposal-meta"></div>
         <div id="pending-queue" role="list" aria-label="Pending Pi messages" hidden></div>
@@ -418,6 +427,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let imageSupported = true;
     let attachedItems = false;
     let attachedImages = false;
+    let editorRequest;
     let pendingImageReads = 0;
     let submissionPending = false;
     let backgroundSubmissionPending = false;
@@ -535,6 +545,15 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       if (typeof requestAnimationFrame === 'function') requestAnimationFrame(scroll);
     }
 
+    function editorRequestBlocker() {
+      if (!editorRequest) return '';
+      if (busy) return 'Wait for Pi to finish before sending this prepared editor action. It cannot be queued.';
+      if (sessionsLayerVisible) return 'This prepared editor action belongs to the current session. Return to that session or cancel the action before starting a new session.';
+      if (/^[!/]/.test(input.value.trimStart())) return 'Shell and slash commands cannot be used with a prepared editor action. Enter a request or cancel the action.';
+      if (editorRequest.requiresInput && !input.value.trim()) return 'Enter instructions for this prepared editor action before sending.';
+      return '';
+    }
+
     function submit(kind = 'steer') {
       if (composerDraft?.blocked()) {
         showNotice('The draft context changed. Wait for the transition, or verify the session and clear the kept text before sending.', 'warning');
@@ -543,6 +562,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       if (fileCompletion?.busy) return;
       fileCompletion?.cancel();
       const text = input.value.trim();
+      const editorBlocker = editorRequestBlocker();
+      if (editorBlocker) {
+        showNotice(editorBlocker, 'warning', false, true);
+        return;
+      }
       if ((!text && !attachedItems) || !connected || submissionPending || backgroundSubmissionPending || recoveredDraftPending) return;
       if (pendingImageReads > 0 || (attachedImages && !imageSupported)) return;
       if (sessionsLayerVisible && busy) {
@@ -567,7 +591,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         submissionPending = true;
         updateSendState();
         if (sessionsLayerVisible) composerDraft?.sendHandoff();
-        vscode.postMessage({ type: sessionsLayerVisible ? 'sendNewSession' : 'send', text: input.value, revision: composerRevision });
+        vscode.postMessage({ type: sessionsLayerVisible ? 'sendNewSession' : 'send', text: input.value, revision: composerRevision, ...(editorRequest ? { editorRequestId: editorRequest.id } : {}) });
       }
       clearNotice();
     }
@@ -1254,7 +1278,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     function renderSlashCommands() {
       const query = /^\\/([^\\s]*)$/.exec(input.value);
       const caret = input.selectionStart;
-      if (!query || !slashFocused || slashDismissed || input.disabled || submissionPending || !connected || busy
+      if (!query || !slashFocused || slashDismissed || input.disabled || submissionPending || !connected || busy || editorRequest
           || (typeof caret === 'number' && (caret !== input.value.length || input.selectionEnd !== caret))) {
         closeSlashCommands();
         return;
@@ -1288,7 +1312,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
 
     function completeSlashCommand(index) {
       const command = slashMatches[index];
-      if (!command) return;
+      if (!command || editorRequest) return;
       setComposerInput('/' + command.name + ' ');
       closeSlashCommands();
     }
@@ -1395,6 +1419,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       composerDraft?.select('session');
       sessionsLayerVisible = false;
       updateSessionLayer();
+      updateSendState();
       input.focus();
     }
 
@@ -1402,6 +1427,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       composerDraft?.select('sessions');
       sessionsLayerVisible = true;
       updateSessionLayer();
+      updateSendState();
       if (sessionsExpanded) sessionSearchInput.focus();
       else {
         const recentButtons = sessionButtons.slice(0, Math.min(3, recentSessions.length));
@@ -1488,7 +1514,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       input.disabled = Boolean(recoveredDraftPending);
       $('add-context').disabled = Boolean(recoveredDraftPending);
       for (const button of emptyActionButtons) button.disabled = interactionLocked;
-      const canQueue = busy && queueable && !sessionsLayerVisible;
+      const editorBlocker = editorRequestBlocker();
+      const canQueue = busy && queueable && !sessionsLayerVisible && !editorRequest;
       const shellInput = input.value.startsWith('!');
       const shellBlocked = shellInput && (attachedItems > 0 || canQueue || sessionsLayerVisible);
       const queueBlocked = canQueue && (input.value.trimStart().startsWith('/') || shellInput || pendingQueueCount >= 10);
@@ -1496,7 +1523,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       sendButton.classList.toggle('queue-action', canQueue);
       sendButton.setAttribute('aria-label', canQueue ? 'Next: send after the current tool finishes' : 'Send message');
       $('after-this').hidden = !canQueue;
-      sendButton.disabled = Boolean(composerDraft?.blocked()) || Boolean(fileCompletion?.busy) || (busy && !canQueue) || queueBlocked || shellBlocked || submissionPending || backgroundSubmissionPending || imageLoading || Boolean(recoveredDraftPending) || sessionStartBlocked || !connected || (!input.value.trim() && !attachedItems) || imageBlocked;
+      sendButton.disabled = Boolean(editorBlocker) || Boolean(composerDraft?.blocked()) || Boolean(fileCompletion?.busy) || (busy && !canQueue) || queueBlocked || shellBlocked || submissionPending || backgroundSubmissionPending || imageLoading || Boolean(recoveredDraftPending) || sessionStartBlocked || !connected || (!input.value.trim() && !attachedItems) || imageBlocked;
       $('after-this').disabled = sendButton.disabled;
       $('after-this').title = 'Send when Pi finishes responding (' + followUpShortcutLabel + ')';
       const settingsReason = !connected ? 'Reconnect to change settings.' : interactionLocked ? 'Settings are locked during active work.' : '';
@@ -1511,6 +1538,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         : submissionPending ? 'Sending this message. Wait for Pi to accept it.'
         : backgroundSubmissionPending ? 'Starting a background agent. Wait for startup to finish.'
         : imageLoading ? 'Loading pasted images. Wait for loading to finish.'
+        : editorBlocker ? editorBlocker
         : sessionStartBlocked ? 'Pi is working. Wait or use Stop before starting a new session.'
         : busy && !canQueue ? 'This request cannot accept queued messages. Wait or use Stop.'
         : shellBlocked ? 'Direct shell needs an idle session without attachments. Wait, open a session, or remove attachments.'
@@ -1535,7 +1563,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
             ? 'Wait for Pi to finish before starting a new session'
             : imageBlocked
               ? 'Choose a model that supports images, or remove them'
-              : queueable && !sessionsLayerVisible
+              : queueable && !sessionsLayerVisible && !editorRequest
                 ? 'Next: after the current tool · After this: after the response · Enter / ' + followUpShortcutLabel + ' · Shift+Enter for a new line'
                 : busy
                   ? 'Wait for Pi to finish before sending'
@@ -1593,6 +1621,12 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     }
 
     function render(state) {
+      editorRequest = state.editorRequest;
+      const editorSummary = $('editor-request');
+      if (!editorRequest && document.activeElement === $('cancel-editor-request')) input.focus({ preventScroll: true });
+      editorSummary.hidden = !editorRequest;
+      $('editor-request-label').textContent = editorRequest?.label || '';
+      $('editor-request-description').textContent = editorRequest?.description || '';
       fileCompletionSupport = state.fileCompletionSupport || { available: false, reason: 'File completion is unavailable in this workspace.' };
       updateFileDiscoveryHint();
       renderExtensionUi(state.extensionUi);
@@ -1845,6 +1879,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     sendButton.addEventListener('click', () => submit());
     $('after-this').addEventListener('click', () => submit('followUp'));
     cancelButton.addEventListener('click', () => vscode.postMessage({ type: 'cancel' }));
+    $('cancel-editor-request').addEventListener('click', () => {
+      if (editorRequest) vscode.postMessage({ type: 'cancelEditorRequest', id: editorRequest.id });
+    });
     $('reconnect').addEventListener('click', () => vscode.postMessage({ type: 'reconnect' }));
     $('retry').addEventListener('click', () => vscode.postMessage({ type: 'retry' }));
     $('refresh-history').addEventListener('click', () => vscode.postMessage({ type: 'refreshHistory' }));

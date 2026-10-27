@@ -42,6 +42,10 @@ test("request origins preserve retry drafts and clear only newly accepted compos
     retryable: false,
     clearComposerOnAccepted: false,
   });
+  assert.deepEqual(conversationRequestBehavior("prepared-editor"), {
+    retryable: false,
+    clearComposerOnAccepted: true,
+  });
 });
 
 test("assistant capture follows request events across compaction without history indices", () => {

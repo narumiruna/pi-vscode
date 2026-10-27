@@ -61,6 +61,243 @@ test("composer blockers clear when ready and empty text is neutral, not a failur
   assert.ok(html.indexOf('id="composer-status"') < html.indexOf('id="composer-help"'));
 });
 
+test("prepared editor actions display inert summaries above references without changing or sending the draft", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "showSessionDetail" });
+  sidebar.receive({ type: "setInput", text: "Keep my existing draft" });
+  sidebar.run("input.selectionStart = 5; input.selectionEnd = 10");
+  const before = sidebar.posted.length;
+  const editorRequest = {
+    id: "action-one",
+    label: "Explain selection <script>unsafe()</script>",
+    description: "<img src=x> [run](command:run)\nCaptured selection",
+    requiresInput: false,
+  };
+  for (const action of [editorRequest, { ...editorRequest, description: "Updated description" }, editorRequest]) {
+    sidebar.receive({
+      type: "state",
+      runtime: { connected: true },
+      editorRequest: action,
+      attachments: [{ id: "reference", label: "file.ts:1:1-2:1", image: false }],
+    });
+    assert.equal(sidebar.element("editor-request").hidden, false);
+    assert.equal(sidebar.element("editor-request-label").textContent, action.label);
+    assert.equal(sidebar.element("editor-request-description").textContent, action.description);
+    assert.equal(sidebar.element("editor-request-label").innerHTML, "");
+    assert.equal(sidebar.element("editor-request-description").innerHTML, "");
+    assert.equal(sidebar.element("attachments").hidden, false);
+    assert.equal(sidebar.element("input").value, "Keep my existing draft");
+    assert.equal(sidebar.run("composerRevision"), 1);
+    assert.equal(sidebar.run("input.selectionStart"), 5);
+    assert.equal(sidebar.run("input.selectionEnd"), 10);
+  }
+  assert.equal(sidebar.posted.length, before, "state updates never submit or insert action text");
+  const html = getSidebarHtml(1000, 1024);
+  assert.ok(html.indexOf('id="editor-request"') < html.indexOf('id="attachments"'));
+  assert.match(
+    html,
+    /id="editor-request" role="group" aria-labelledby="editor-request-label" aria-describedby="editor-request-description" hidden/,
+  );
+  assert.match(html, /id="cancel-editor-request"[^>]*type="button"[^>]*aria-label="Cancel prepared editor action"/);
+  assert.match(html, /#editor-request \{[^}]*var\(--pi-border\)/);
+  assert.match(html, /#editor-request-description \{[^}]*var\(--vscode-descriptionForeground\)/);
+});
+
+test("prepared editor action Cancel posts only the current ID and waits for host state", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "setInput", text: "Unsent instructions" });
+  const cancel = sidebar.element("cancel-editor-request");
+  for (const id of ["first-action", "replacement-action"]) {
+    sidebar.receive({
+      type: "state",
+      runtime: { connected: true },
+      editorRequest: { id, label: "Explain", description: "Read-only action", requiresInput: false },
+    });
+    const before = sidebar.posted.length;
+    cancel.listeners.get("click")!();
+    assert.equal(sidebar.posted.length, before + 1);
+    assert.deepEqual({ ...sidebar.posted.at(-1) }, { type: "cancelEditorRequest", id });
+    assert.equal(sidebar.element("editor-request").hidden, false, "host owns cancellation");
+    assert.equal(sidebar.element("input").value, "Unsent instructions");
+  }
+  cancel.focus();
+  sidebar.receive({ type: "state", runtime: { connected: true } });
+  assert.equal(sidebar.element("editor-request").hidden, true);
+  assert.equal(sidebar.element("editor-request-label").textContent, "");
+  assert.equal(sidebar.element("editor-request-description").textContent, "");
+  assert.equal(sidebar.run("document.activeElement === input"), true);
+  const before = sidebar.posted.length;
+  cancel.listeners.get("click")!();
+  assert.equal(sidebar.posted.length, before, "a cleared action cannot be cancelled again");
+});
+
+test("prepared editor actions send their ID only after explicit Send or Enter, including attachment-only presets", () => {
+  for (const text of ["Additional instructions", ""]) {
+    for (const trigger of ["click", "Enter"]) {
+      const sidebar = createSidebarScriptHarness();
+      sidebar.receive({ type: "showSessionDetail" });
+      sidebar.receive({ type: "setInput", text });
+      const before = sidebar.posted.length;
+      sidebar.receive({
+        type: "state",
+        runtime: { connected: true },
+        attachments: [{ id: "reference", label: "file.ts", image: false }],
+        editorRequest: { id: "explain-action", label: "Explain", description: "Read-only", requiresInput: false },
+      });
+      assert.equal(sidebar.posted.length, before);
+      assert.equal(sidebar.element("send").disabled, false);
+      if (trigger === "click") sidebar.element("send").listeners.get("click")!();
+      else sidebar.element("input").listeners.get("keydown")!({ key: "Enter", preventDefault() {} });
+      assert.equal(sidebar.posted.length, before + 1);
+      assert.deepEqual(
+        { ...sidebar.posted.at(-1) },
+        { type: "send", text, revision: 1, editorRequestId: "explain-action" },
+      );
+      assert.equal(sidebar.element("input").value, text, "acceptance still owns draft clearing");
+      sidebar.element("send").listeners.get("click")!();
+      assert.equal(sidebar.posted.length, before + 1, "pending acceptance blocks duplicate submission");
+    }
+  }
+});
+
+test("prepared modify actions require non-whitespace instructions even with references", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "showSessionDetail" });
+  const state = {
+    type: "state",
+    runtime: { connected: true },
+    attachments: [{ id: "reference", label: "file.ts", image: false }],
+    editorRequest: { id: "modify-action", label: "Modify", description: "Preview changes", requiresInput: true },
+  };
+  sidebar.receive(state);
+  for (const text of ["", " \n\t "]) {
+    sidebar.receive({ type: "setInput", text });
+    assert.equal(sidebar.element("send").disabled, true);
+    assert.match(sidebar.element("status").textContent, /Enter instructions/);
+    const before = sidebar.posted.length;
+    sidebar.element("send").listeners.get("click")!();
+    sidebar.element("input").listeners.get("keydown")!({ key: "Enter", preventDefault() {} });
+    assert.equal(sidebar.posted.length, before);
+    assert.equal(sidebar.element("input").value, text);
+  }
+  sidebar.receive({ type: "setInput", text: "Rename the local variable" });
+  assert.equal(sidebar.element("send").disabled, false);
+  sidebar.element("send").listeners.get("click")!();
+  assert.equal(sidebar.posted.at(-1).editorRequestId, "modify-action");
+});
+
+test("busy prepared actions block all queue paths but preserve editing and Stop, then restore ordinary sends", () => {
+  for (const platform of ["Linux x86_64", "Win32"]) {
+    const sidebar = createSidebarScriptHarness(platform);
+    sidebar.receive({ type: "showSessionDetail" });
+    sidebar.receive({ type: "setInput", text: "My draft" });
+    const state = {
+      type: "state",
+      runtime: { connected: true, busy: true, queueable: true, cancellable: true },
+      editorRequest: { id: "read-only-action", label: "Explain", description: "Read-only", requiresInput: false },
+    };
+    sidebar.receive(state);
+    assert.match(sidebar.element("status").textContent, /Wait for Pi to finish.*cannot be queued/);
+    assert.equal(sidebar.element("send").hidden, true);
+    assert.equal(sidebar.element("send").disabled, true);
+    assert.equal(sidebar.element("send").classList.contains("queue-action"), false);
+    assert.equal(sidebar.element("after-this").hidden, true);
+    assert.equal(sidebar.element("after-this").disabled, true);
+    assert.equal(sidebar.element("input").disabled, false);
+    assert.equal(sidebar.element("cancel").hidden, false);
+    assert.doesNotMatch(sidebar.element("composer-hint").textContent, /Next:|After this:/);
+    const input = sidebar.element("input");
+    input.value = "A newer draft";
+    input.listeners.get("input")!();
+    const before = sidebar.posted.length;
+    sidebar.element("send").listeners.get("click")!();
+    sidebar.element("after-this").listeners.get("click")!();
+    const keydown = input.listeners.get("keydown")!;
+    keydown({ key: "Enter", preventDefault() {} });
+    keydown({ key: "Enter", altKey: true, preventDefault() {} });
+    keydown({ key: "q", ctrlKey: true, preventDefault() {} });
+    assert.equal(sidebar.posted.length, before);
+    assert.equal(input.value, "A newer draft");
+    sidebar.element("cancel").listeners.get("click")!();
+    assert.deepEqual({ ...sidebar.posted.at(-1) }, { type: "cancel" });
+    sidebar.receive({ ...state, runtime: { connected: true, busy: false, queueable: false, cancellable: false } });
+    assert.equal(sidebar.element("send").disabled, false, "idle prepared action can send explicitly");
+    assert.equal(sidebar.element("send").hidden, false);
+    sidebar.receive({ ...state, editorRequest: undefined });
+    assert.equal(sidebar.element("editor-request").hidden, true);
+    assert.equal(input.value, "A newer draft");
+    assert.equal(sidebar.element("send").hidden, false);
+    assert.equal(sidebar.element("send").disabled, false);
+    assert.equal(sidebar.element("after-this").hidden, false);
+    sidebar.element("send").listeners.get("click")!();
+    assert.deepEqual(
+      { ...sidebar.posted.at(-1) },
+      { type: "queueInstruction", kind: "steer", text: "A newer draft", revision: 2 },
+    );
+    sidebar.receive({ type: "sendRejected" });
+    sidebar.receive({ type: "state", runtime: { connected: true } });
+    sidebar.element("send").listeners.get("click")!();
+    assert.deepEqual({ ...sidebar.posted.at(-1) }, { type: "send", text: "A newer draft", revision: 2 });
+  }
+});
+
+test("prepared editor actions block shell and slash syntax without completing or dispatching commands", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "showSessionDetail" });
+  sidebar.receive({
+    type: "state",
+    runtime: { connected: true },
+    editorRequest: { id: "explain-action", label: "Explain", description: "Read-only", requiresInput: false },
+  });
+  const input = sidebar.element("input");
+  for (const text of ["!pwd", "!!pwd", "  !pwd", "/compact", " /reload"]) {
+    input.value = text;
+    input.listeners.get("input")!();
+    assert.equal(sidebar.element("slash-commands").hidden, true);
+    assert.equal(sidebar.element("send").disabled, true);
+    assert.match(sidebar.element("status").textContent, /Shell and slash commands cannot be used/);
+    const before = sidebar.posted.length;
+    input.listeners.get("keydown")!({ key: "Enter", preventDefault() {} });
+    sidebar.element("send").listeners.get("click")!();
+    assert.equal(sidebar.posted.length, before);
+    assert.equal(input.value, text);
+  }
+  sidebar.receive({ type: "state", runtime: { connected: true } });
+  input.value = "/com";
+  input.listeners.get("input")!();
+  assert.equal(sidebar.element("slash-commands").hidden, false, "cleared actions restore ordinary completion");
+});
+
+test("prepared editor actions cannot submit a new session from the Sessions layer", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "setInput", text: "Keep this draft" });
+  const state = {
+    type: "state",
+    runtime: { connected: true },
+    editorRequest: { id: "current-action", label: "Explain", description: "Current session", requiresInput: false },
+  };
+  sidebar.receive(state);
+  assert.equal(sidebar.element("send").disabled, true);
+  assert.match(sidebar.element("status").textContent, /belongs to the current session.*Return/);
+  let before = sidebar.posted.length;
+  sidebar.element("send").listeners.get("click")!();
+  assert.equal(sidebar.posted.length, before);
+  sidebar.receive({ type: "showSessionDetail" });
+  assert.equal(sidebar.element("send").disabled, false);
+  sidebar.receive({ type: "showSessionsLayer" });
+  assert.equal(sidebar.element("send").disabled, true, "navigation refreshes the blocker immediately");
+  before = sidebar.posted.length;
+  sidebar.element("input").listeners.get("keydown")!({ key: "Enter", preventDefault() {} });
+  assert.equal(sidebar.posted.length, before);
+  assert.equal(sidebar.element("input").value, "Keep this draft");
+  sidebar.receive({ type: "showSessionDetail" });
+  sidebar.element("send").listeners.get("click")!();
+  assert.deepEqual(
+    { ...sidebar.posted.at(-1) },
+    { type: "send", text: "Keep this draft", revision: 1, editorRequestId: "current-action" },
+  );
+});
+
 test("Conversation details opens only on request and Close or Escape returns focus to More", () => {
   const sidebar = createSidebarScriptHarness();
   const dialog = sidebar.element("conversation-details");
