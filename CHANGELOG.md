@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.3
+
+### Patch Changes
+
+- e2d893f: Start a new session automatically when a remembered session file is missing.
+  Keep recovery feedback in the Sidebar instead of a confirmation dialog, without changing existing session files.
+- 4bc355d: Stage editor selections as removable message references through Ask Pi or Ctrl+Alt+A (Cmd+Alt+A on macOS).
+  Keep the current session and draft, support multiple precise selection ranges, and send only after explicit composer submission.
+  Prepare the other selection-menu presets in the same composer with explicit Send/Cancel while preserving read-only generation, source/session checks, and Preview/Apply.
+
 ## 0.9.2
 
 ### Patch Changes
