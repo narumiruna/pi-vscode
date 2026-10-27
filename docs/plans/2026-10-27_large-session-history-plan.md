@@ -34,7 +34,7 @@ History loads after startup, so widening missing-session recovery does not fix t
 - [x] Recheck the clean working tree, verify the matching repository, create `narumi/fix/large-session-history`, and install locked dependencies with `npm ci`.
 - [x] Add regression tests for the reproduced response, subsequent RPC usability, exact 64 MiB boundaries, fragmented input, UTF-8, CRLF, EOF, terminal input handling, size-only diagnostics, and retained restore references.
   Before production changes, focused checks reported 8 failures and 27 passes in 4 files, including rejection of the exact reported-size response and continued failed-decoder input handling.
-  After implementation, the expanded focused suite passed 145 tests in 11 files; final verification below will include subsequent test additions.
+  After implementation, the expanded focused suite passed 145 tests in 11 files; the final full-suite evidence below includes subsequent test additions.
 - [x] Raise only the persistent RPC frame cap to 64 MiB and stop accepting decoder input after the first fatal size failure.
   Keep cleanup bounded and release retained oversized input.
 - [x] Carry a locally generated size-error classification into allowlisted Output records and a fixed Sidebar notice.
@@ -45,7 +45,9 @@ History loads after startup, so widening missing-session recovery does not fix t
   Repeat an offline actual bundled-Pi restore, verify all 856 messages, subsequent RPC usability, and unchanged session identity/file bytes across reconnect.
   The full suite passed 104 files with 1,640 passing tests and 3 skipped tests; Biome passed without errors.
   Linux native VS Code 1.140.0 and isolated packaging/extracted-runtime smoke also passed.
-- [ ] Review the final diff, commit only intended paths with the Husky check enabled, push the fix branch, and open a pull request.
+- [x] Review the final diff, commit only intended paths with the Husky check enabled, push the fix branch, and open a pull request.
+  Commit `cb7f179` passed the enabled Husky `npm test` check and was pushed to the fix branch.
+  [Pull request #130](https://github.com/narumiruna/pi-vscode/pull/130) is open against `main`.
 
 ## Completion checklist
 
@@ -58,7 +60,8 @@ History loads after startup, so widening missing-session recovery does not fix t
 - [x] Required unit/build and formatting checks pass.
 - [x] Documentation and the changeset match implemented limits.
 - [x] The final diff contains no unrelated changes, generated assets, or binary files.
-- [ ] The requested pull request is open and its URL is reported.
+- [x] The requested pull request is open and its URL is reported.
+  https://github.com/narumiruna/pi-vscode/pull/130
 
 ## Verification evidence
 
@@ -79,6 +82,8 @@ History loads after startup, so widening missing-session recovery does not fix t
   Dependency versions and the lockfile are unchanged.
 - Read-only review found no actionable defects.
   Final diff review confirmed intended source, regression, documentation, plan, and changeset paths only.
+- GitHub CI was still running when the pull request opened; no CI result is claimed by the local evidence.
+  The issue remains open with no label or status changes.
 
 ## What looks good
 
@@ -101,5 +106,5 @@ This implementation must not claim that platform-specific result from local Linu
 
 ## Verdict
 
-**Incomplete:** The approved implementation and required local verification are complete.
-Final commit, branch push, and the requested pull request remain.
+**Resolved:** The approved implementation criteria and required local verification pass, and pull request #130 is open for review.
+The retained platform handoff and GitHub CI are not represented as completed checks.
