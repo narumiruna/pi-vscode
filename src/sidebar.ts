@@ -73,6 +73,7 @@ import {
   type ToolActivity,
   type TranscriptAttachment,
 } from "./sidebarState";
+import { discoverSlashCommands, parseSidebarSlashCommand } from "./slashCommands";
 import { WorkflowDocuments } from "./workflowUi";
 
 const viewId = "pi.chatView";
@@ -941,9 +942,10 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     else if (selected.action === "worktree") await this.runBackground(composerText, true, composerRevision);
   }
 
-  private assertSettingsIdle(): void {
+  private assertSettingsIdle(requireConnection = true): void {
     if (this.disposed) throw new Error("Pi session changed while choosing an action. Open the picker again.");
-    if (!this.runtime.currentState.connected) throw new Error("Reconnect to Pi before changing the session.");
+    if (requireConnection && !this.runtime.currentState.connected)
+      throw new Error("Reconnect to Pi before changing the session.");
     const state = this.runtime.currentState;
     if (
       this.isForegroundRequestActive() ||
@@ -1128,7 +1130,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     if (this.preparedEditorRequest) throw new Error("Cancel the prepared editor action before starting a new session.");
     const input = parseComposerInput(rawText);
     if (input.kind === "shell") throw new Error("Open a session before running direct shell from its idle composer.");
-    if (await this.sendCompactCommand(rawText, revision)) return;
+    if (await this.sendSlashCommand(rawText, revision)) return;
     if (this.preparedEditorRequest) throw new Error("The prepared editor action changed. Review the current action.");
     const submission = this.attachments.captureSubmission();
     const text = resolveSidebarSubmissionText(input.text, submission);
@@ -1181,20 +1183,69 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     }
   }
 
-  private async sendCompactCommand(rawText: string, revision: number): Promise<boolean> {
-    if (/^\/reload\s*$/.test(rawText.trim())) {
-      if (await this.reloadResources())
-        this.postMessage({ type: "clearInput", expectedText: rawText, expectedRevision: revision });
-      return true;
-    }
-    if (/^\/vscode-pi-/.test(rawText.trim())) throw new Error("Internal Pi controls must use their host action.");
-    const match = /^\/compact(?:\s+([\s\S]*))?$/.exec(rawText.trim());
-    if (!match) return false;
+  private async sendSlashCommand(rawText: string, revision: number): Promise<boolean> {
+    if (/^\/vscode-pi-/i.test(rawText.trim())) throw new Error("Internal Pi controls must use their host action.");
+    const command = parseSidebarSlashCommand(rawText);
+    if (!command) return false;
+    if (command.arguments && command.name !== "compact")
+      throw new Error(`/${command.name} does not accept arguments. Run it without arguments to open its controls.`);
     if (this.attachments.summaries.length) throw new Error("Remove attachments before running a slash command.");
-    if (this.isForegroundRequestActive()) throw new Error("Wait for Pi before running a slash command.");
-    await this.compact(match[1]?.trim(), () => {
+    this.assertSettingsIdle(false);
+    this.assertEditorRequestIdentity();
+    const view = this.view;
+    const cwd = this.runtime.currentCwd;
+    if (!["settings", "extension-settings", "session"].includes(command.name)) {
+      if (!this.runtime.currentState.connected) await this.runtime.ensureStarted();
+      if (this.view !== view || this.runtime.currentCwd !== cwd)
+        throw new Error("Pi changed while preparing the command. Run the command again.");
+      this.assertSettingsIdle();
+    }
+    this.assertEditorRequestIdentity();
+    const accepted = () => {
       this.postMessage({ type: "clearInput", expectedText: rawText, expectedRevision: revision });
-    });
+    };
+    switch (command.name) {
+      case "new":
+        await this.newSession();
+        this.navigate("showSessionDetail");
+        break;
+      case "model":
+        await this.pickModel();
+        break;
+      case "thinking":
+        await this.pickThinkingLevel();
+        break;
+      case "settings":
+        await vscode.commands.executeCommand("pi.openPiConfiguration");
+        break;
+      case "extension-settings":
+        await vscode.commands.executeCommand("pi.openSettings");
+        break;
+      case "session":
+        this.postMessage({ type: "showConversationDetails" });
+        break;
+      case "skills":
+      case "commands":
+        await this.pickPiCommand(command.name === "skills", rawText, revision);
+        this.postMessage({ type: "sendRejected" });
+        return true;
+      case "resume":
+        await this.quickSwitchSession();
+        break;
+      case "reconnect":
+        await this.reconnect();
+        break;
+      case "compact":
+        await this.compact(command.arguments || undefined, accepted);
+        return true;
+      case "reload":
+        if (!(await this.reloadResources())) {
+          this.postMessage({ type: "sendRejected" });
+          return true;
+        }
+        break;
+    }
+    accepted();
     return true;
   }
 
@@ -1214,7 +1265,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       await this.sendShell(input.command, input.excludeFromContext, rawText, revision);
       return;
     }
-    if (await this.sendCompactCommand(rawText, revision)) return;
+    if (await this.sendSlashCommand(rawText, revision)) return;
     this.assertEditorRequestIdentity(editorRequestId);
     const submission = this.attachments.captureSubmission();
     const text = resolveSidebarSubmissionText(input.text, submission);
@@ -2072,19 +2123,15 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     });
   }
 
-  private async pickPiCommand(): Promise<void> {
-    const commands = this.runtime.currentState.commands
-      .filter((command) => typeof command.name === "string" && !command.name.startsWith("vscode-pi-"))
-      .map((command) => ({
-        name: typeof command.name === "string" ? command.name : undefined,
-        description: typeof command.description === "string" ? command.description : undefined,
-        source: typeof command.source === "string" ? command.source : undefined,
-      }))
-      .filter((command): command is { name: string; description: string | undefined; source: string | undefined } =>
-        Boolean(command.name),
-      );
+  private async pickPiCommand(skillsOnly = false, expectedText?: string, expectedRevision?: number): Promise<void> {
+    const commands = discoverSlashCommands(this.runtime.currentState.commands, skillsOnly);
     if (commands.length === 0) {
-      this.postNotice("Pi did not discover any extension commands, prompt templates, or skills.", "info");
+      this.postNotice(
+        skillsOnly
+          ? "Pi did not discover any skills. Check Pi skill configuration and project-resource approval, then run /reload."
+          : "Pi did not discover any extension commands, prompt templates, or skills. Check Pi resources, then run /reload.",
+        "info",
+      );
       return;
     }
     const items = commands.map((command) => ({
@@ -2095,13 +2142,20 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     }));
     const selected = await this.chooseCurrent(() =>
       vscode.window.showQuickPick(items, {
-        title: "Pi Commands, Prompts, and Skills",
+        title: skillsOnly ? "Pi Skills" : "Pi Commands, Prompts, and Skills",
+        placeHolder: skillsOnly
+          ? "Search loaded skills by name or description"
+          : "Search loaded commands and resources",
         matchOnDescription: true,
         matchOnDetail: true,
       }),
     );
     if (selected && items.includes(selected)) {
-      this.postMessage({ type: "setInput", text: `/${selected.command} ` });
+      this.postMessage({
+        type: "setInput",
+        text: `/${selected.command} `,
+        ...(expectedRevision !== undefined ? { expectedText, expectedRevision } : {}),
+      });
     }
   }
 
@@ -2692,7 +2746,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
 
   private postMessage(message: Record<string, unknown>): void {
     if (
-      message.type === "clearInput" &&
+      (message.type === "clearInput" || message.type === "setInput") &&
       typeof message.expectedRevision === "number" &&
       typeof message.expectedText === "string"
     ) {

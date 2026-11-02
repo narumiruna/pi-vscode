@@ -57,9 +57,9 @@ export function composerDraftHtml(): string {
         flush(); if (!binding) return;
         moving = true; renderDraft();
       };
-      const sendHandoff = () => {
+      const sendHandoff = (bindingChanges = 1) => {
         handoff();
-        if (binding) pendingSend = { binding, revision: composerRevision, text: input.value, awaitingSessionScope: true };
+        if (binding) pendingSend = { binding, revision: composerRevision, text: input.value, awaitingSessionScope: true, bindingChanges };
       };
       const select = scope => {
         if (scope === lastScope) return;
@@ -80,13 +80,20 @@ export function composerDraftHtml(): string {
         }
         return !value || value === binding;
       };
+      const acceptReplacement = (value, revision, text) => {
+        if (composerRevision !== revision || input.value !== text) return false;
+        const acceptedOrigin = pendingSend && value === pendingSend.binding && revision === pendingSend.revision && text === pendingSend.text;
+        if (!matches(value, revision, text)) return false;
+        if (acceptedOrigin) { ownershipBlocked = false; moving = false; observed = -1; }
+        return true;
+      };
       const receive = message => {
         if (message.type === 'draftState') {
           if (typeof message.binding !== 'string') return;
           const changedBinding = binding && binding !== message.binding;
           if (changedBinding && pendingSend) {
-            if (pendingSend.destination) pendingSend = undefined;
-            else pendingSend.destination = message.binding;
+            if (!pendingSend.bindingChanges) pendingSend = undefined;
+            else pendingSend.bindingChanges -= 1;
           }
           if (timer) clearTimeout(timer); timer = undefined;
           if (changedBinding && message.reset !== false) {
@@ -126,7 +133,7 @@ export function composerDraftHtml(): string {
       input.addEventListener('keydown', flush, true);
       window.addEventListener('pagehide', flush);
       renderDraft();
-      return { changed, flush, receive, select, handoff, sendHandoff, matches, blocked: () => moving || ownershipBlocked };
+      return { changed, flush, receive, select, handoff, sendHandoff, matches, acceptReplacement, blocked: () => moving || ownershipBlocked };
     })();
   `;
 }

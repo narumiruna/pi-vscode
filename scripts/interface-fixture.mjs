@@ -73,6 +73,66 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
       { name, colors: themes[name] },
     );
   await theme("vscode-dark");
+  // Local suggestions are process-free and usable before the first Pi connection.
+  const composer = page.locator("#input");
+  const slashMenu = page.locator("#slash-commands");
+  const beforeSlash = await page.evaluate(() => window.posted.length);
+  await composer.fill("/");
+  assert.equal(await slashMenu.isVisible(), true);
+  const localCommands = await slashMenu.locator(".slash-name").allTextContents();
+  for (const name of ["/new", "/model", "/settings", "/skills", "/commands", "/thinking", "/resume"])
+    assert.ok(localCommands.includes(name), name);
+  assert.equal(await page.evaluate(() => window.posted.length), beforeSlash, "suggestions do not start Pi");
+  await composer.fill("/settings");
+  await composer.press("Tab");
+  assert.equal(await composer.inputValue(), "/settings ");
+  assert.equal(await page.locator("#send").isEnabled(), true);
+  await composer.press("Enter");
+  const offlineCommand = await page.evaluate(() => window.posted.at(-1));
+  assert.equal(offlineCommand.type, "sendNewSession");
+  assert.equal(offlineCommand.text, "/settings ");
+  assert.equal(await composer.inputValue(), "/settings ", "pending commands keep their draft");
+  await post({ type: "clearInput", expectedText: offlineCommand.text, expectedRevision: offlineCommand.revision });
+  await post({
+    type: "state",
+    runtime: {
+      connected: true,
+      commands: [
+        { name: "skill:review", source: "skill", description: "Review code safely" },
+        { name: "template", source: "prompt", description: "Prompt template" },
+        { name: "vscode-pi-control", source: "extension" },
+        { name: "settings", source: "extension", description: "Shadowed settings" },
+      ],
+    },
+  });
+  await composer.fill("/skill:");
+  assert.equal(await slashMenu.locator(".slash-name").innerText(), "/skill:review");
+  assert.equal(await slashMenu.locator(".slash-source").innerText(), "Skill");
+  const beforeSkill = await page.evaluate(() => window.posted.length);
+  await composer.press("Enter");
+  assert.equal(await composer.inputValue(), "/skill:review ");
+  assert.equal(await page.evaluate(() => window.posted.length), beforeSkill, "completing a skill does not run it");
+  for (const width of [240, 400]) {
+    await page.setViewportSize({ width, height: 600 });
+    await composer.fill("/");
+    assert.equal(await slashMenu.evaluate((menu) => menu.scrollWidth <= menu.clientWidth), true);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  }
+  await page.setViewportSize({ width: 600, height: 800 });
+  await composer.fill("/skills ");
+  await composer.press("Enter");
+  const skillPicker = await page.evaluate(() => window.posted.at(-1));
+  assert.equal(skillPicker.text, "/skills ");
+  await composer.fill("Keep my newer draft");
+  await post({
+    type: "setInput", text: "/skill:review ", expectedText: skillPicker.text, expectedRevision: skillPicker.revision,
+  });
+  await post({ type: "sendRejected" });
+  assert.equal(await composer.inputValue(), "Keep my newer draft");
+  assert.match(await page.locator("#notice").innerText(), /draft changed/);
+  await post({ type: "notice", level: "info", message: "Command picker closed." });
+  await page.locator("#notice").getByRole("button", { name: "Dismiss" }).click();
+  await composer.fill("");
   const images = await page.evaluate(() =>
     [
       [160, 320],
@@ -782,6 +842,7 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
     layoutCases,
     imageCases: descriptors.length,
     phases: 8,
+    slashCommands: "disconnected suggestions and settings dispatch, skill labels/completion, narrow menus, stale picker drafts",
     themes: Object.keys(themes),
     keyboard: "preview/focus restoration, More/details Close/Escape, submission help, session ID copy, queue Tab order",
     quietIdle: "empty reserved status line; no Ready text, visible empty-draft hint, or separate thinking selector",

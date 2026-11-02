@@ -6,6 +6,7 @@ import {
   conversationHistoryScript,
   conversationHistoryStyles,
 } from "./conversationHistoryHtml";
+import { sidebarSlashCommands } from "./slashCommands";
 
 // Static, theme-colored icons need no font, resource URI, or broader CSP.
 const iconPaths = {
@@ -242,8 +243,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     #slash-commands { position: absolute; bottom: calc(100% - 6px); left: 0; right: 0; z-index: 10; max-height: min(260px, 40vh); overflow-y: auto; padding: 4px; border: 1px solid var(--vscode-editorSuggestWidget-border, var(--pi-border)); border-radius: 8px; color: var(--vscode-editorSuggestWidget-foreground, var(--vscode-foreground)); background: var(--vscode-editorSuggestWidget-background, var(--vscode-editor-background)); box-shadow: 0 4px 16px var(--vscode-widget-shadow); }
     #slash-commands button { display: flex; width: 100%; justify-content: flex-start; gap: 12px; border: 0; padding: 6px 8px; text-align: left; color: inherit; background: transparent; }
     #slash-commands button[aria-selected="true"] { color: var(--vscode-editorSuggestWidget-selectedForeground, var(--vscode-list-activeSelectionForeground)); background: var(--vscode-editorSuggestWidget-selectedBackground, var(--vscode-list-activeSelectionBackground)); }
-    .slash-name { flex: 0 0 auto; font-family: var(--vscode-editor-font-family); }
-    .slash-description { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .75; }
+    .slash-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--vscode-editor-font-family); }
+    .slash-description { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .75; }
+    .slash-source { flex: 0 0 auto; font-size: .9em; opacity: .75; }
     /* Reserve short/zoomed view space for the session header and necessary notices. */
     .composer-box { position: relative; display: flex; flex: 0 0 auto; flex-direction: column; min-height: 0; max-height: max(200px, min(60vh, calc(100vh - 210px))); overflow: hidden; background: var(--pi-composer-background); border: 1px solid var(--vscode-input-border, var(--pi-border)); border-radius: 14px; box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, .2)); }
     .composer-box:focus-within { border-color: var(--vscode-focusBorder); box-shadow: 0 6px 20px var(--vscode-widget-shadow, rgba(0, 0, 0, .24)); }
@@ -367,7 +369,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
   </main>
   <dialog id="conversation-details" aria-labelledby="conversation-details-title">
     <div class="details-header"><h2 id="conversation-details-title">Conversation details</h2><button id="conversation-details-close" class="secondary" type="button">Close</button></div>
-    <details id="composer-help"><summary>Submission help</summary><div id="composer-hint">Enter to send · Shift+Enter for a new line</div><p>Idle session only: !command includes model context; !!command excludes model context, not history. Remove attachments. Pi and installed extensions control execution permissions. Prefix ! with a backslash to send literal text.</p></details>
+    <details id="composer-help"><summary>Submission help</summary><div id="composer-hint">Enter to send · Shift+Enter for a new line</div><p>Type / for Sidebar shortcuts, Pi commands, prompt templates, and skills. Use /skills to search loaded skills. Up/Down selects; Enter or Tab completes; Enter again runs.</p><p>Idle session only: !command includes model context; !!command excludes model context, not history. Remove attachments. Pi and installed extensions control execution permissions. Prefix ! with a backslash to send literal text.</p></details>
     <p id="file-discovery-hint">Checking workspace file completion.</p>
     <details id="session-details" hidden><summary>Session details</summary><div class="session-details-content"><label for="session">Session ID (select to copy)</label><input id="session" readonly></div></details>
     <section aria-label="Context usage"><h2 class="section-heading">Context usage</h2><p id="usage">Context usage is unavailable.</p></section>
@@ -395,7 +397,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     const attachmentsElement = $('attachments');
     const input = $('input');
     const slashMenu = $('slash-commands');
-    let slashCommands = [];
+    const sidebarSlashCommands = ${JSON.stringify(sidebarSlashCommands)};
+    let slashCommands = sidebarSlashCommands;
     let slashMatches = [];
     let slashIndex = 0;
     let slashDismissed = false;
@@ -554,6 +557,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       return '';
     }
 
+    function isSidebarSlashCommand() {
+      const name = /^\\/([^\\s]+)/.exec(input.value.trim())?.[1];
+      return sidebarSlashCommands.some(command => command.name === name);
+    }
+
     function submit(kind = 'steer') {
       if (composerDraft?.blocked()) {
         showNotice('The draft context changed. Wait for the transition, or verify the session and clear the kept text before sending.', 'warning');
@@ -567,7 +575,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         showNotice(editorBlocker, 'warning', false, true);
         return;
       }
-      if ((!text && !attachedItems) || !connected || submissionPending || backgroundSubmissionPending || recoveredDraftPending) return;
+      if ((!text && !attachedItems) || (!connected && !isSidebarSlashCommand()) || submissionPending || backgroundSubmissionPending || recoveredDraftPending) return;
+      if (!busy && text.startsWith('/') && attachedItems) {
+        showNotice('Remove attachments before running a slash command.', 'warning', false, true);
+        return;
+      }
       if (pendingImageReads > 0 || (attachedImages && !imageSupported)) return;
       if (sessionsLayerVisible && busy) {
         showNotice('Wait for Pi to finish before starting a new session.', 'warning', false, true);
@@ -590,7 +602,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       } else {
         submissionPending = true;
         updateSendState();
-        if (sessionsLayerVisible) composerDraft?.sendHandoff();
+        const coldSessionCommand = !connected && /^\\/(?:new|resume)\\s*$/.test(text);
+        if (sessionsLayerVisible || isSidebarSlashCommand()) composerDraft?.sendHandoff(coldSessionCommand ? 2 : 1);
         vscode.postMessage({ type: sessionsLayerVisible ? 'sendNewSession' : 'send', text: input.value, revision: composerRevision, ...(editorRequest ? { editorRequestId: editorRequest.id } : {}) });
       }
       clearNotice();
@@ -1278,7 +1291,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     function renderSlashCommands() {
       const query = /^\\/([^\\s]*)$/.exec(input.value);
       const caret = input.selectionStart;
-      if (!query || !slashFocused || slashDismissed || input.disabled || submissionPending || !connected || busy || editorRequest
+      if (!query || !slashFocused || slashDismissed || input.disabled || submissionPending || backgroundSubmissionPending || recoveredDraftPending || composerDraft?.blocked() || busy || editorRequest
           || (typeof caret === 'number' && (caret !== input.value.length || input.selectionEnd !== caret))) {
         closeSlashCommands();
         return;
@@ -1300,7 +1313,10 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         const description = document.createElement('span');
         description.className = 'slash-description';
         description.textContent = command.description || '';
-        row.append(name, description);
+        const source = document.createElement('span');
+        source.className = 'slash-source';
+        source.textContent = command.source === 'sidebar' ? 'Sidebar' : command.source === 'skill' ? 'Skill' : command.source === 'prompt' ? 'Prompt' : command.source === 'extension' ? 'Extension' : '';
+        row.append(name, description, source);
         row.addEventListener('mousedown', event => event.preventDefault());
         row.addEventListener('click', () => completeSlashCommand(index));
         slashMenu.appendChild(row);
@@ -1516,6 +1532,9 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       for (const button of emptyActionButtons) button.disabled = interactionLocked;
       const editorBlocker = editorRequestBlocker();
       const canQueue = busy && queueable && !sessionsLayerVisible && !editorRequest;
+      const sidebarCommand = isSidebarSlashCommand();
+      const slashBlocked = !busy && input.value.trimStart().startsWith('/') && attachedItems > 0;
+      const connectionBlocked = !connected && !sidebarCommand;
       const shellInput = input.value.startsWith('!');
       const shellBlocked = shellInput && (attachedItems > 0 || canQueue || sessionsLayerVisible);
       const queueBlocked = canQueue && (input.value.trimStart().startsWith('/') || shellInput || pendingQueueCount >= 10);
@@ -1523,7 +1542,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       sendButton.classList.toggle('queue-action', canQueue);
       sendButton.setAttribute('aria-label', canQueue ? 'Next: send after the current tool finishes' : 'Send message');
       $('after-this').hidden = !canQueue;
-      sendButton.disabled = Boolean(editorBlocker) || Boolean(composerDraft?.blocked()) || Boolean(fileCompletion?.busy) || (busy && !canQueue) || queueBlocked || shellBlocked || submissionPending || backgroundSubmissionPending || imageLoading || Boolean(recoveredDraftPending) || sessionStartBlocked || !connected || (!input.value.trim() && !attachedItems) || imageBlocked;
+      sendButton.disabled = Boolean(editorBlocker) || Boolean(composerDraft?.blocked()) || Boolean(fileCompletion?.busy) || (busy && !canQueue) || queueBlocked || shellBlocked || slashBlocked || submissionPending || backgroundSubmissionPending || imageLoading || Boolean(recoveredDraftPending) || sessionStartBlocked || connectionBlocked || (!input.value.trim() && !attachedItems) || imageBlocked;
       $('after-this').disabled = sendButton.disabled;
       $('after-this').title = 'Send when Pi finishes responding (' + followUpShortcutLabel + ')';
       const settingsReason = !connected ? 'Reconnect to change settings.' : interactionLocked ? 'Settings are locked during active work.' : '';
@@ -1531,7 +1550,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('model-picker').setAttribute('aria-describedby', 'settings-description');
       $('model-picker').title = modelTitle + (settingsReason ? ' · ' + settingsReason : '');
       // Submission priority controls eligibility descriptions, not runtime problem severity.
-      const blocker = !connected ? 'Pi is disconnected. Use Reconnect before sending.'
+      const blocker = connectionBlocked ? 'Pi is disconnected. Use Reconnect before sending.'
         : composerDraft?.blocked() ? 'Draft context changed. Wait for the transition, or verify the session and clear the kept text.'
         : fileCompletion?.busy ? 'Capturing a file attachment. Wait for capture to finish.'
         : recoveredDraftPending ? 'Restoring draft attachments. Wait for restoration to finish.'
@@ -1541,6 +1560,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         : editorBlocker ? editorBlocker
         : sessionStartBlocked ? 'Pi is working. Wait or use Stop before starting a new session.'
         : busy && !canQueue ? 'This request cannot accept queued messages. Wait or use Stop.'
+        : slashBlocked ? 'Remove attachments before running a slash command.'
         : shellBlocked ? 'Direct shell needs an idle session without attachments. Wait, open a session, or remove attachments.'
         : queueBlocked ? input.value.trimStart().startsWith('/')
           ? 'Slash commands cannot be queued. Wait for Pi to finish.'
@@ -1630,11 +1650,10 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       fileCompletionSupport = state.fileCompletionSupport || { available: false, reason: 'File completion is unavailable in this workspace.' };
       updateFileDiscoveryHint();
       renderExtensionUi(state.extensionUi);
-      const catalog = [{ name: 'compact', description: 'Manually compact the session context' }, { name: 'reload', description: 'Reload approved Pi resources without a model request' }, ...(state.runtime.commands || []).filter((command) => typeof command.name === 'string' && command.name !== 'reload' && !command.name.startsWith('vscode-pi-'))];
+      const catalog = [...sidebarSlashCommands, ...(state.runtime.connected && Array.isArray(state.runtime.commands) ? state.runtime.commands : [])];
       const names = new Set();
       slashCommands = catalog.filter(command => {
-        if (!command || typeof command.name !== 'string' || !/^[^\\s/]+$/.test(command.name) || names.has(command.name)) return false;
-        if (command.name === 'vscode-pi-read-only-ready') return false;
+        if (!command || typeof command.name !== 'string' || command.name.length > 200 || !/^[^\\s/]+$/.test(command.name) || /^vscode-pi-/i.test(command.name) || names.has(command.name)) return false;
         names.add(command.name);
         return true;
       });
@@ -1810,7 +1829,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       }
       composerDraft.receive(message);
       fileCompletion.receive(message);
-      if (['setInput', 'clearInput', 'appendDraft', 'commitRecoveredDraft', 'showSessionDetail', 'showSessionsLayer'].includes(message.type)) fileCompletion.cancel();
+      if (['clearInput', 'appendDraft', 'commitRecoveredDraft', 'showSessionDetail', 'showSessionsLayer'].includes(message.type)) fileCompletion.cancel();
       if (message.type === 'state') render(message);
       else if (message.type === 'showSessionDetail') showSessionDetail();
       else if (message.type === 'showSessionsLayer') showSessionsLayer();
@@ -1852,7 +1871,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         } else { showNotice('Your draft changed or is full. Browse the session tree again to recover the selected message.', 'warning'); }
       }
       else if (message.type === 'setInput') {
-        setComposerInput(message.text);
+        const unchanged = message.expectedRevision === undefined
+          ? composerDraft.matches(message.draftBinding, message.expectedRevision, message.expectedText)
+          : composerDraft.acceptReplacement(message.draftBinding, message.expectedRevision, message.expectedText);
+        if (unchanged) setComposerInput(message.text);
+        else showNotice('Your draft changed. Run the command picker again to insert a command or skill.', 'warning');
       }
       else if (message.type === 'clearInput') {
         submissionPending = false;

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createContext, Script } from "node:vm";
 import { imageAssetId } from "../imageAssets";
 import { getSidebarHtml } from "../sidebarHtml";
+import { sidebarSlashCommands } from "../slashCommands";
 import { installVscodeMock } from "./vscodeMock";
 
 test("composer blockers use the primary status and preserve non-live descriptions and button titles", () => {
@@ -873,7 +874,7 @@ test("sidebar places model and thinking controls before submission and exposes r
   assert.match(html, /let backgroundSubmissionPending = false/);
   assert.match(
     html,
-    /\(!text && !attachedItems\) \|\| !connected \|\| submissionPending \|\| backgroundSubmissionPending/,
+    /\(!text && !attachedItems\) \|\| \(!connected && !isSidebarSlashCommand\(\)\) \|\| submissionPending \|\| backgroundSubmissionPending/,
   );
   assert.match(html, /backgroundSubmissionPending = Boolean\(state\.backgroundSubmissionPending\)/);
   assert.match(
@@ -1040,7 +1041,7 @@ test("slash suggestions filter command names by substring and complete without s
       busy: false,
       commands: [
         { name: "codex-compact", description: "Compact with Codex" },
-        { name: "skill:review", description: "Review code" },
+        { name: "skill:review", description: "Review code", source: "skill" },
         { name: "compact", description: "Duplicate" },
         { name: "<unsafe>", description: "<img src=x>" },
       ],
@@ -1052,12 +1053,14 @@ test("slash suggestions filter command names by substring and complete without s
   };
   type("/");
   assert.equal(menu.hidden, false);
-  assert.equal(menu.children.length, 5, "the catalog deduplicates names and includes the local reload alias");
-  assert.equal(menu.children[4]?.children[1]?.textContent, "<img src=x>", "descriptions are text, not HTML");
+  assert.equal(menu.children.length, sidebarSlashCommands.length + 3, "the catalog deduplicates local command names");
+  assert.equal(menu.children.at(-1)?.children[1]?.textContent, "<img src=x>", "descriptions are text, not HTML");
+  assert.equal(menu.children[0]?.children[2]?.textContent, "Sidebar");
+  assert.equal(menu.children.at(-2)?.children[2]?.textContent, "Skill");
   type("/COM");
   assert.deepEqual(
     menu.children.map((row) => row.children[0]?.textContent),
-    ["/compact", "/codex-compact"],
+    ["/commands", "/compact", "/codex-compact"],
   );
   const key = (key: string, extra = {}) => {
     let prevented = false;
@@ -1071,7 +1074,8 @@ test("slash suggestions filter command names by substring and complete without s
     return prevented;
   };
   assert.equal(key("ArrowDown"), true);
-  assert.equal((menu.children[1] as any)["aria-selected"], "true");
+  assert.equal(key("ArrowDown"), true);
+  assert.equal((menu.children[2] as any)["aria-selected"], "true");
   const count = sidebar.posted.length;
   assert.equal(key("Enter"), true);
   assert.equal(input.value, "/codex-compact ");
@@ -1085,6 +1089,188 @@ test("slash suggestions filter command names by substring and complete without s
   menu.children[0]!.listeners.get("click")!();
   assert.equal(input.value, "/skill:review ");
   assert.equal(menu.hidden, true);
+});
+
+test("slash suggestions are available before connection and exclude stale runtime resources", () => {
+  const sidebar = createSidebarScriptHarness();
+  const input = sidebar.element("input");
+  const menu = sidebar.element("slash-commands");
+  const posted = sidebar.posted.length;
+  input.value = "/";
+  input.listeners.get("input")!();
+  assert.equal(menu.hidden, false);
+  assert.deepEqual(
+    menu.children.map((row) => row.children[0]?.textContent),
+    sidebarSlashCommands.map((command) => `/${command.name}`),
+  );
+  sidebar.receive({
+    type: "state",
+    runtime: { connected: false, commands: [{ name: "skill:stale", source: "skill" }] },
+  });
+  assert.equal(menu.children.length, sidebarSlashCommands.length);
+  assert.equal(sidebar.posted.length, posted, "typing slash does not start Pi or send a request");
+  input.value = "/skills";
+  input.listeners.get("input")!();
+  assert.equal(menu.children[0]?.children[0]?.textContent, "/skills");
+  assert.equal(input["aria-expanded"], "true");
+});
+
+test("only local slash actions can be submitted while disconnected", () => {
+  for (const text of ["/settings ", "/skills ", "/new ", "/model ", "ordinary prompt", "/skill:unknown "]) {
+    const sidebar = createSidebarScriptHarness();
+    sidebar.receive({ type: "showSessionDetail" });
+    const input = sidebar.element("input");
+    input.value = text;
+    input.listeners.get("input")!();
+    const local = !text.startsWith("ordinary") && !text.startsWith("/skill:");
+    assert.equal(sidebar.element("send").disabled, !local, text);
+    sidebar.element("send").listeners.get("click")!();
+    const submission = sidebar.posted.find((message) => message.type === "send");
+    assert.equal(Boolean(submission), local, text);
+    if (local) {
+      assert.equal(submission.text, text);
+      assert.equal(input.value, text, "the command draft remains until acceptance");
+      assert.equal(sidebar.element("send").disabled, true, "pending commands cannot be dispatched twice");
+    }
+  }
+});
+
+test("slash actions reject attachments and hide suggestions during other draft work", () => {
+  const sidebar = createSidebarScriptHarness();
+  const input = sidebar.element("input");
+  sidebar.receive({
+    type: "state",
+    runtime: { connected: true },
+    attachments: [{ id: "a", label: "Keep", content: "a" }],
+  });
+  input.value = "/settings ";
+  input.listeners.get("input")!();
+  assert.equal(sidebar.element("send").disabled, true);
+  assert.match(sidebar.element("status").textContent, /Remove attachments/);
+  const posted = sidebar.posted.length;
+  sidebar.element("send").listeners.get("click")!();
+  assert.equal(sidebar.posted.length, posted);
+  for (const flags of [
+    "backgroundSubmissionPending = true",
+    "submissionPending = true",
+    "recoveredDraftPending = { id: 'recover' }",
+    "composerDraft = { changed() {}, blocked: () => true }",
+  ]) {
+    const locked = createSidebarScriptHarness();
+    locked.run(`input.value = '/'; slashFocused = true; ${flags}; renderSlashCommands()`);
+    assert.equal(locked.element("slash-commands").hidden, true, flags);
+  }
+});
+
+test("skill picker insertion checks both the submitted text and composer revision", () => {
+  for (const changed of [false, true]) {
+    const sidebar = createSidebarScriptHarness();
+    const input = sidebar.element("input");
+    input.value = "/skills ";
+    input.listeners.get("input")!();
+    const revision = sidebar.run("composerRevision");
+    sidebar.element("send").listeners.get("click")!();
+    if (changed) {
+      input.value = "Keep my newer draft";
+      input.listeners.get("input")!();
+    }
+    sidebar.receive({
+      type: "setInput",
+      text: "/skill:review ",
+      expectedText: "/skills ",
+      expectedRevision: revision,
+    });
+    sidebar.receive({ type: "sendRejected" });
+    assert.equal(input.value, changed ? "Keep my newer draft" : "/skill:review ");
+    if (changed) assert.match(sidebar.element("notice").textContent, /draft changed/);
+    assert.equal(sidebar.posted.filter((message) => message.type === "sendNewSession").length, 1);
+  }
+  const sidebar = createSidebarScriptHarness();
+  sidebar.run("input.value = '/skills '; composerRevision = 5");
+  sidebar.receive({ type: "setInput", text: "/skill:review ", expectedText: "/skills ", expectedRevision: 4 });
+  assert.equal(sidebar.element("input").value, "/skills ", "retyping the same text does not accept an older result");
+  sidebar.receive({ type: "draftState", binding: "current", enabled: false, writable: true, available: false });
+  sidebar.receive({
+    type: "setInput",
+    text: "/skill:review ",
+    expectedText: "/skills ",
+    expectedRevision: 5,
+    draftBinding: "stale",
+  });
+  assert.equal(sidebar.element("input").value, "/skills ", "a stale draft binding cannot authorize insertion");
+});
+
+test("/new keeps accepted-command clearing bound to its original session draft", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "showSessionDetail" });
+  sidebar.receive({ type: "state", runtime: { connected: true, sessionId: "old" } });
+  sidebar.receive({ type: "draftState", binding: "old", enabled: true, writable: true, available: false });
+  const input = sidebar.element("input");
+  input.value = "/new ";
+  input.listeners.get("input")!();
+  const revision = sidebar.run("composerRevision");
+  sidebar.element("send").listeners.get("click")!();
+  sidebar.receive({ type: "draftState", binding: "new", enabled: true, writable: true, available: false });
+  sidebar.receive({ type: "clearInput", draftBinding: "old", expectedText: "/new ", expectedRevision: revision });
+  assert.equal(input.value, "");
+  assert.equal(sidebar.run("composerDraft.blocked()"), false);
+});
+
+for (const command of ["new", "resume"]) {
+  for (const transitions of [2, 3]) {
+    test(`cold /${command} accepts only its two expected draft-binding changes, observed ${transitions}`, () => {
+      const sidebar = createSidebarScriptHarness();
+      sidebar.receive({ type: "showSessionDetail" });
+      sidebar.receive({ type: "draftState", binding: "unsaved", enabled: true, writable: false, available: false });
+      const input = sidebar.element("input");
+      input.value = `/${command} `;
+      input.listeners.get("input")!();
+      const revision = sidebar.run("composerRevision");
+      sidebar.element("send").listeners.get("click")!();
+      for (let index = 0; index < transitions; index++)
+        sidebar.receive({
+          type: "draftState",
+          binding: `session-${index}`,
+          enabled: true,
+          writable: true,
+          available: false,
+        });
+      sidebar.receive({
+        type: "clearInput",
+        draftBinding: "unsaved",
+        expectedText: `/${command} `,
+        expectedRevision: revision,
+      });
+      assert.equal(input.value, transitions === 2 ? "" : `/${command} `);
+      assert.equal(sidebar.run("composerDraft.blocked()"), transitions !== 2);
+    });
+  }
+}
+
+test("a cold skill picker completes the authorized draft handoff without sending the skill", () => {
+  const sidebar = createSidebarScriptHarness();
+  sidebar.receive({ type: "showSessionDetail" });
+  sidebar.receive({ type: "draftState", binding: "unsaved", enabled: true, writable: false, available: false });
+  const input = sidebar.element("input");
+  input.value = "/skills ";
+  input.listeners.get("input")!();
+  const revision = sidebar.run("composerRevision");
+  sidebar.element("send").listeners.get("click")!();
+  sidebar.receive({ type: "state", runtime: { connected: true, sessionId: "started" } });
+  sidebar.receive({ type: "draftState", binding: "started", enabled: true, writable: true, available: false });
+  assert.equal(sidebar.run("composerDraft.blocked()"), true);
+  sidebar.receive({
+    type: "setInput",
+    text: "/skill:review ",
+    expectedText: "/skills ",
+    expectedRevision: revision,
+    draftBinding: "unsaved",
+  });
+  sidebar.receive({ type: "sendRejected" });
+  assert.equal(input.value, "/skill:review ");
+  assert.equal(sidebar.run("composerDraft.blocked()"), false);
+  assert.equal(sidebar.element("send").disabled, false);
+  assert.equal(sidebar.posted.filter((message) => message.type === "send").length, 1);
 });
 
 test("slash suggestions dismiss safely and preserve ordinary editor keys", () => {

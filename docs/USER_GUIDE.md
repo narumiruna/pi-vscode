@@ -467,13 +467,31 @@ Prompt markers now use `PI_VSCODE_*`; old markers remain plain transcript text.
   Remove attachments; commands cannot be queued or run from the Sessions-level composer.
   Prefix a leading `!` with a backslash (`\!text`) to send literal prompt text.
   Requires Pi 1.3.0 compatibility verified through read-only sentinel version metadata; other versions leave this feature unavailable without an execution probe.
-- **Slash commands:** Type `/` in the composer to list Pi extension commands, prompt templates, skills, and `/compact`.
+- **Slash commands:** Type `/` in either Sidebar composer to list Sidebar shortcuts.
+  The shortcuts appear before Pi connects, without starting a process.
+  After connection, the list also includes Pi extension commands, prompt templates, and skills, with resource-type labels.
   Type `/com` to find command names that contain `com`.
   Use Up/Down to select, Enter or Tab to complete, then Enter to run.
   Click to complete or press Escape to close.
-  `/compact` accepts optional instructions and acts on the current session.
-  Remove attachments before running commands.
-  TUI-only commands are not listed.
+  - `/new` starts a new session; `/resume` searches saved sessions in the current workspace.
+  - `/model` and `/thinking` open the existing native pickers.
+  - `/settings` opens Pi Configuration; `/extension-settings` opens native VS Code extension settings.
+    `/session` opens Conversation details.
+    These three shortcuts do not start Pi.
+  - `/skills` searches loaded skills; `/commands` searches loaded extension commands, prompt templates, and skills.
+    Running either command connects to Pi if needed, under the existing trust and project-resource approval rules.
+    Selecting a resource inserts its exact command, such as `/skill:review `, without sending it.
+    Cancellation keeps the command draft; a late result cannot replace a newer draft.
+    Type `/skill:` after connection to filter skill suggestions directly.
+  - `/reconnect` connects to Pi and refreshes conversation history.
+    Use `/reload` to refresh approved Pi resources and the command catalog without a model prompt.
+  - `/compact` accepts optional instructions and compacts the current session through Pi.
+    The other Sidebar shortcuts do not accept inline arguments; use their controls instead.
+
+  Remove attachments and wait for idle Pi before running commands.
+  Commands cannot enter the in-flight queue or run from a prepared editor action.
+  Sidebar shortcut names take precedence over duplicate Pi extension command names.
+  Other TUI-only commands are not listed.
 - **In-flight instructions:** While an ordinary request is running, choose **Next** (Enter) to submit after the current tool finishes, or **After this** to submit after the response finishes.
   The alternate shortcut is Alt+Enter on macOS and Linux, or Ctrl+Q on Windows (including remote WSL sessions).
   **Submission help** explains the actions; **Stop** stays separate.
