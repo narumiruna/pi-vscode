@@ -284,6 +284,52 @@ async function assertDraftOwnership(browser, getSidebarHtml) {
     await f.close();
   }
 
+  for (const command of ["/new ", "/resume "]) {
+    for (const enabled of [false, true]) {
+      const f = await open(a, enabled);
+      await f.post({ type: "showSessionDetail" });
+      await f.state(a);
+      await f.post({ type: "state", runtime: { connected: false, busy: false }, messages: [], attachments: [] });
+      await f.input.fill(command);
+      await f.page.locator("#send").click();
+      const sent = (await f.messages("send")).at(-1);
+      assert.ok(sent, "cold local commands can run from an unsaved Session composer");
+      await f.state(b);
+      await f.state(c);
+      await f.post({
+        type: "state", runtime: { connected: true, busy: false, sessionId: "destination" }, messages: [], attachments: [],
+      });
+      await f.post({ type: "clearInput", draftBinding: a, expectedRevision: sent.revision, expectedText: sent.text });
+      assert.equal(await f.input.inputValue(), "", `${command}: startup and target transitions keep accepted clearing`);
+      await f.input.fill("next request");
+      assert.equal(await f.page.locator("#send").isDisabled(), false);
+      await f.close();
+    }
+  }
+
+  for (const enabled of [false, true]) {
+    const f = await open(a, enabled);
+    await f.post({ type: "showSessionDetail" });
+    await f.state(a);
+    await f.post({ type: "state", runtime: { connected: false, busy: false }, messages: [], attachments: [] });
+    await f.input.fill("/skills ");
+    await f.page.locator("#send").click();
+    const sent = (await f.messages("send")).at(-1);
+    await f.state(b);
+    await f.post({
+      type: "state", runtime: { connected: true, busy: false, sessionId: "started" }, messages: [], attachments: [],
+    });
+    await f.post({
+      type: "setInput", text: "/skill:review ", draftBinding: a,
+      expectedRevision: sent.revision, expectedText: sent.text,
+    });
+    await f.post({ type: "sendRejected" });
+    assert.equal(await f.input.inputValue(), "/skill:review ");
+    assert.equal(await f.page.locator("#send").isDisabled(), false, "accepted skill insertion releases the exact handoff");
+    assert.equal((await f.messages("send")).length, 1, "insertion does not send the skill");
+    await f.close();
+  }
+
   // Local commands accept without creating a session or publishing another draft binding.
   for (const command of ["/compact", "/reload"]) {
     for (const enabled of [false, true]) {
@@ -411,5 +457,7 @@ async function assertDraftOwnership(browser, getSidebarHtml) {
     staleLocalCommandAcknowledgements: 3,
     delayedHandoffRetention: 5,
     replacementMoreAcknowledgement: true,
+    coldSessionCommandHandoffs: 4,
+    coldSkillPickerHandoffs: 2,
   };
 }

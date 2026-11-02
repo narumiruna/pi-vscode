@@ -34,6 +34,8 @@ function fixture(enabled = false) {
     blocked: () => run("composerDraft.blocked()"),
     matches: (binding = "origin", revision = 1, text = "/reload") =>
       run(`composerDraft.matches(${JSON.stringify(binding)}, ${revision}, ${JSON.stringify(text)})`),
+    replace: (binding = "origin", revision = 1, text = "/reload") =>
+      run(`composerDraft.acceptReplacement(${JSON.stringify(binding)}, ${revision}, ${JSON.stringify(text)})`),
   };
 }
 
@@ -99,6 +101,43 @@ test("old send acceptance cannot release a replacement binding's ownership block
   f.state("destination");
   assert.equal(f.matches(), true, "the existing new-session origin exception still matches");
   assert.equal(f.blocked(), true, "kept text still needs its current-revision clear");
+});
+
+for (const enabled of [false, true]) {
+  test(`accepted skill replacement releases the cold-start ownership block with recovery ${enabled}`, () => {
+    const f = fixture(enabled);
+    f.run("composerDraft.sendHandoff()");
+    f.state("started-session");
+    assert.equal(f.blocked(), true);
+    assert.equal(f.replace(), true);
+    f.run("input.value = '/skill:review '; composerRevision += 1; composerDraft.changed(); tick()");
+    assert.equal(f.blocked(), false);
+    if (enabled)
+      assert.equal(
+        f.run("posted.some(message => message.binding === 'started-session' && message.text === '/skill:review ')"),
+        true,
+      );
+  });
+}
+
+for (const changes of [1, 2, 3]) {
+  test(`cold session handoffs accept at most two binding changes, observed ${changes}`, () => {
+    const f = fixture();
+    f.run("composerDraft.sendHandoff(2)");
+    for (let index = 0; index < changes; index++) f.state(`session-${index}`);
+    assert.equal(f.matches(), changes <= 2);
+    assert.equal(f.blocked(), true, "acceptance alone does not clear unchanged command text");
+  });
+}
+
+test("a newer draft cannot become an accepted replacement after a cold transition", () => {
+  const f = fixture(true);
+  f.run("composerDraft.sendHandoff()");
+  f.state("started-session");
+  f.run("input.value = 'newer draft'; composerRevision += 1; composerDraft.changed()");
+  assert.equal(f.replace(), false);
+  assert.equal(f.blocked(), true);
+  assert.equal(f.run("input.value"), "newer draft");
 });
 
 test("later scope and binding transitions invalidate the pending origin exception", () => {

@@ -35,7 +35,7 @@ interface ReferenceProvider extends PiEditorConversationController {
   send(text: string, revision: number, editorRequestId?: string): Promise<void>;
   queue(kind: "steer" | "followUp", text: string, revision: number): Promise<void>;
   sendInNewSession(text: string, revision: number): Promise<void>;
-  sendCompactCommand(text: string, revision: number): Promise<boolean>;
+  sendSlashCommand(text: string, revision: number): Promise<boolean>;
   runBackground(text: string, isolated: boolean, revision: number): Promise<void>;
 }
 
@@ -508,7 +508,7 @@ for (const route of ["send", "sendInNewSession"] as const) {
   test(`an editor action staged during ${route} preparation cannot become an ordinary request`, async () => {
     const f = fixture();
     try {
-      f.provider.sendCompactCommand = async () => {
+      f.provider.sendSlashCommand = async () => {
         await prepare(f);
         return false;
       };

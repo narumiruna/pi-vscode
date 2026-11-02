@@ -751,6 +751,35 @@ Captured text reaches Pi only through an explicit ordinary submission.
 These checks are not filesystem-wide atomicity against external processes.
 No shell quoting contract is added; `!` and `!!` drafts do not complete.
 
+## Sidebar Slash Commands
+
+The host owns a fixed catalog of Sidebar shortcuts and their action routes.
+Typing `/` and completing a suggestion do not start Pi or submit a request.
+Disconnected suggestions contain only local shortcuts, not a retained runtime catalog.
+`/settings`, `/extension-settings`, and `/session` open existing configuration or read-only details without starting Pi.
+Other local commands connect only after explicit submission through the existing runtime startup path.
+Trust, canonical workspace, launch policy, foreground ownership, and project-resource approval remain unchanged.
+
+`/skills` uses only public `get_commands` entries with `source: "skill"`.
+`/commands` uses the same catalog for extension commands, prompt templates, and skills.
+Neither action scans skill files independently or changes approval, settings, or permissions.
+The exact Pi command name is preserved, including the `skill:` prefix.
+Discovery and native pickers do not submit a model prompt; `/compact` retains its existing Pi compaction behavior.
+Local shortcut names take precedence over duplicate runtime command names.
+Invalid local arguments fail instead of falling through to a model prompt.
+The case-insensitive `vscode-pi-*` namespace stays reserved for verified host controls.
+
+Local shortcuts reject attachments, active foreground/background startup work, queued instructions, pending extension dialogs, and prepared editor actions.
+Cold preparation rechecks disposal, view, working directory, idle state, and prepared-action identity before dispatch.
+Native picker acceptance retains session/client/view lifecycle checks.
+Resource insertion checks the submitted text, composer revision, and draft binding; it never sends the inserted command.
+A successful insertion releases only the exact accepted command's draft handoff, including after startup assigns a session.
+Cold `/new` and `/resume` allow at most two draft-binding changes for startup and the target session.
+A third binding change, a later navigation handoff, or rejection invalidates that pending origin exception.
+Other submissions keep the one-binding-change limit.
+Cancellation or a rejected result releases pending submission without clearing a newer draft.
+Names, descriptions, and fixed resource-type labels enter the menu through DOM text properties, not HTML.
+
 ## Context and Test Evidence
 
 Attachment inspection shows exactly the queued snapshots, not all provider context.

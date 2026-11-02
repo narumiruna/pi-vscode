@@ -36,6 +36,7 @@ Persistent Pi session files and exact legacy global bridge cleanup paths are unc
 | Text draft recovery | More → Conversation details recovery controls, explicit retention consent, bounded workspace-scoped text storage, session-bound retained-text notice, manual Restore/Discard and Disable/discard-all | [Storage and recovery evidence](#text-draft-recovery). |
 | Discoverable file context and accessible messages | Capability-aware snapshot/path instructions in Submission help and the input's accessible description; stable, labelled message headings | [Context and accessibility limits](#discoverable-file-context-and-accessible-messages). |
 | Quick session switching | Searchable native Quick Pick plus previous/next commands and guarded default chords; bounded same-workspace discovery, stable cycle order, authoritative transition checks | `sidebar.ts`, `piRuntime.ts`, `sessionNavigation.test.ts`, `sessionSwitchRuntime.test.ts`; native keyboard and picker fixtures run without a live model. |
+| Sidebar slash commands | Disconnected local suggestions; session, model, thinking and settings shortcuts; explicit command/skill discovery with typed resource labels and revision-bound insertion | [Slash command behavior and checks](#sidebar-slash-commands). |
 | Grouped native session actions | One searchable native Quick Pick with five groups, including Conversation display → Word wrap / Conversation details; existing mutation routes retain host checks | `sidebar.ts`, `sessionActions.test.ts`; separators, description filtering, stale/lifecycle rejection and cancellation retain original host guards and command IDs. |
 | Transcript code wrapping | More… → Conversation display → Word wrap shows On/Off, off by default and local to the view | [Display-only behavior](#transcript-code-wrapping). |
 | Bounded conversation search/history | Header Find text / Earlier history / Latest history icons; search-only scope and unloaded-history note, no passive unavailable strip, conditional loading/position/truncation feedback and safe literal highlighting | [History bounds](#bounded-conversation-searchhistory). |
@@ -76,7 +77,7 @@ Persistent Pi session files and exact legacy global bridge cleanup paths are unc
 | Copilot Plan-to-implementation handoff | Plan and build welcome actions create ordinary prompt drafts in the same Pi-default session | No special mode transition or runtime restart is required. |
 | Copilot change review and revert | Chronological tool calls, changed-file cards, request history, Source Control, diff, open, and stale/dirty-safe revert | [Tool history and recovery limits](#copilot-change-review-and-revert). |
 | Copilot custom instructions | Pi global/project AGENTS.md and Pi system/settings resources | Implemented through normal Pi resource discovery and explicit project trust. |
-| Copilot skills and custom agents | Pi skills, prompt templates, extension commands, contributed tools, and background agents | Implemented and discoverable through **Commands and Skills**; tool discovery is not restricted by a fixed allowlist. |
+| Copilot skills and custom agents | Pi skills, prompt templates, extension commands, contributed tools, and background agents | Implemented and discoverable through `/skills`, `/commands`, `/skill:` suggestions, and **Commands and Skills**; tool discovery is not restricted by a fixed allowlist. |
 | Native Pi settings | Eight inline common-setting controls at Global Pi/Project Pi scope, with existing native management available through the Command Palette | [Native settings contract](#native-pi-settings). |
 | Native runtime settings | Explicit idle foreground steering mode, follow-up mode, auto-compaction and auto-retry setters | [Runtime settings limits](#native-runtime-settings). |
 | Native MCP management | Safe configured list with inline enabled/exposure save/reset, native transport/creation controls, separate explicit CLI diagnostic, advanced editor and controlled-terminal auth | [MCP evidence and limits](#native-mcp-management). |
@@ -197,6 +198,23 @@ History failures preserve existing session references and files, without automat
 Bridge frames remain limited to 1 MiB and one-shot Pi output to 5 MiB; attachment and session import/export limits are unchanged.
 Omitted long-message text is labelled, not retrievable here.
 See [Composer behavior and validation](COMPOSER_UX.md).
+
+### Sidebar slash commands
+
+Typing `/` in either Sidebar composer shows local commands before Pi connects and does not start Pi.
+The fixed shortcuts are `/new`, `/model`, `/thinking`, `/settings`, `/extension-settings`, `/skills`, `/commands`, `/resume`, `/session`, `/reconnect`, `/compact`, and `/reload`.
+Settings and Conversation details shortcuts remain process-free.
+Runtime controls connect only on explicit submission and retain their existing host guards.
+`/skills` filters Pi's public `get_commands` by `source: "skill"`; `/commands` includes all discovered resource types.
+There is no independent filesystem scan or project-resource approval change.
+Resource selection inserts a revision- and draft-bound command without sending it.
+The connected menu labels Sidebar, Skill, Prompt, and Extension entries and hides reserved internal controls.
+Local names take precedence over duplicate Pi commands.
+Only `/compact` accepts inline arguments; existing native controls handle other values.
+Attachments, active work, pending queues/dialogs, and prepared editor actions block local commands.
+
+Evidence: `slashCommands.ts`, `slashCommands.test.ts`, `sidebarHtml.test.ts`, `composerDraftHtml.test.ts`, and the offline Chromium fixtures cover routing, cold suggestions, skill filtering, cancellation, stale pickers, bounded cold-start handoffs, draft preservation, and narrow menus.
+Native Extension Host, remote, other-platform, and live-provider slash command checks remain unverified.
 
 ### Temporary passage annotations
 
