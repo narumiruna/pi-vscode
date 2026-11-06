@@ -85,14 +85,14 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     .sessions-actions { display: flex; flex: 0 0 auto; gap: 2px; margin-left: auto; }
     .sessions-actions button { min-width: 0; white-space: nowrap; }
     #back-to-sessions .icon { width: 15px; height: 15px; }
-    #session-list-content { min-height: 0; overflow: hidden; }
+    #session-list-content { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
     .session-list { display: grid; min-width: 0; gap: 1px; }
     button.session-row { width: 100%; min-width: 0; min-height: 28px; justify-content: flex-start; gap: 8px; padding: 3px 7px; border: 0; border-radius: 6px; color: var(--vscode-foreground); text-align: left; }
     button.session-row.current { background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-hoverBackground)); color: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground)); }
     .session-row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .session-row-time { flex: 0 0 auto; color: var(--vscode-descriptionForeground); font-size: .82em; font-variant-numeric: tabular-nums; }
     button.session-row.current .session-row-time { color: inherit; opacity: .72; }
-    #view-all-sessions { min-height: 24px; margin-top: 2px; padding: 1px 7px; color: var(--vscode-descriptionForeground); font-size: .82em; }
+    #view-all-sessions { flex-shrink: 0; align-self: flex-start; min-height: 24px; margin-top: 2px; padding: 1px 7px; color: var(--vscode-descriptionForeground); font-size: .82em; }
     #sessions-browser { display: grid; min-height: 0; height: 100%; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 8px; padding-top: 4px; }
     .session-search { display: flex; min-width: 0; align-items: center; gap: 7px; padding: 0 9px; border: 1px solid var(--vscode-input-border, transparent); border-radius: 7px; color: var(--vscode-input-placeholderForeground); background: var(--vscode-input-background); }
     .session-search .icon { width: 14px; height: 14px; }
@@ -100,7 +100,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     #session-search-input::placeholder { color: var(--vscode-input-placeholderForeground); }
     .session-search:focus-within { border-color: var(--vscode-focusBorder); outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
     .session-filter { padding: 2px 7px; color: var(--vscode-descriptionForeground); font-size: .85em; font-weight: 500; }
-    #all-session-list { min-height: 0; overflow-y: auto; align-content: start; scrollbar-width: thin; }
+    #recent-session-list, #all-session-list { min-height: 0; overflow-y: auto; align-content: start; scrollbar-width: thin; }
     #no-sessions { margin: 12px 7px; color: var(--vscode-descriptionForeground); font-size: .85em; }
     #app.sessions-layer #sessions { display: grid; min-height: 0; grid-template-rows: auto minmax(0, 1fr); border-bottom: 0; }
     #app.sessions-layer .sessions-title { color: var(--vscode-foreground); font-size: 1em; }
@@ -1408,7 +1408,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
         ? recentSessions.filter(session => session.title.toLocaleLowerCase().includes(query))
         : recentSessions;
       sessionButtons = [];
-      recentSessionList.replaceChildren(...recentSessions.slice(0, 3).map(createSessionRow));
+      recentSessionList.replaceChildren(...recentSessions.map(createSessionRow));
       allSessionList.replaceChildren(...filtered.map(createSessionRow));
       $('no-sessions').hidden = filtered.length > 0;
       $('view-all-sessions').textContent = 'View all (' + recentSessions.length + ')';
@@ -1446,7 +1446,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       updateSendState();
       if (sessionsExpanded) sessionSearchInput.focus();
       else {
-        const recentButtons = sessionButtons.slice(0, Math.min(3, recentSessions.length));
+        const recentButtons = Array.from(recentSessionList.children);
         const currentId = recentSessions.find(session => session.current)?.id;
         const currentButton = recentButtons.find(button => button.dataset.sessionId === currentId);
         const target = [currentButton, ...recentButtons, $('view-all-sessions'), $('new-session'), cancelButton, $('reconnect'), input]

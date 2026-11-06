@@ -2047,7 +2047,7 @@ test("Sessions is a separate layer that opens a detail view and returns with Bac
   assert.equal(sidebar.element("app").classList.contains("sessions-layer"), true);
   assert.equal(sidebar.element("session-list-content").hidden, false);
   assert.equal(sidebar.element("session-header-title").textContent, "Sessions");
-  assert.equal(sidebar.element("recent-session-list").children.length, 3);
+  assert.equal(sidebar.element("recent-session-list").children.length, 4);
   assert.equal(sidebar.element("view-all-sessions").textContent, "View all (4)");
   assert.equal(sidebar.element("input").placeholder, "Start a new session…");
   sidebar.receive({ type: "state", status: "Working…", runtime: { busy: true, connected: true }, sessions });
@@ -2136,6 +2136,34 @@ test("Sessions is a separate layer that opens a detail view and returns with Bac
 
   sidebar.receive({ type: "sessionSwitchRejected" });
   assert.equal(sidebar.element("all-session-list").children[0]?.disabled, false);
+});
+
+test("recent Sessions can switch directly to entries beyond the former three-row limit", () => {
+  const sidebar = createSidebarScriptHarness();
+  const sessions = Array.from({ length: 100 }, (_, index) => ({
+    id: index.toString(16).padStart(24, "0"),
+    title: `Session ${index}`,
+    updatedAt: Date.now() - index * 60_000,
+    current: index === 0,
+  }));
+  sidebar.receive({ type: "state", runtime: { connected: true }, sessions });
+  const recent = sidebar.element("recent-session-list");
+  assert.deepEqual(
+    recent.children.map((row) => row.dataset.sessionId),
+    sessions.map((session) => session.id),
+  );
+  const last = recent.children[99]!;
+  recent.listeners.get("click")!({ target: last });
+  assert.deepEqual({ ...sidebar.posted.at(-1) }, { type: "switchRecentSession", id: sessions[99]?.id });
+  assert.ok(
+    recent.children.every((row) => row.disabled),
+    "switching locks all recent rows",
+  );
+  sidebar.receive({ type: "sessionSwitchRejected" });
+  assert.ok(
+    recent.children.every((row) => !row.disabled),
+    "a rejected switch unlocks all recent rows",
+  );
 });
 
 test("hidden session updates refresh the detail header and rebuild current rows and locks on Back", () => {
@@ -2298,7 +2326,7 @@ test("hidden streaming state retains session list nodes without reconstructing r
     list: sidebar.element(id),
     rows: sidebar.element(id).children.map((row) => ({ row, children: [...row.children] })),
   }));
-  assert.equal(retained[0]?.rows.length, 3);
+  assert.equal(retained[0]?.rows.length, 100);
   assert.equal(retained[1]?.rows.length, 100);
   for (let tick = 1; tick <= 3; tick += 1) {
     state(tick);
@@ -2315,7 +2343,7 @@ test("hidden streaming state retains session list nodes without reconstructing r
   }
 });
 
-test("returning to collapsed Sessions focuses only a visible fallback", () => {
+test("returning to recent Sessions focuses the current row beyond the former three-row limit", () => {
   const sidebar = createSidebarScriptHarness();
   const ids = ["a", "b", "c", "d"].map((character) => character.repeat(24));
   const sessions = ids.map((id, index) => ({
@@ -2335,9 +2363,9 @@ test("returning to collapsed Sessions focuses only a visible fallback", () => {
   sidebar.receive({ type: "showSessionsLayer" });
 
   assert.equal(
-    sidebar.element("recent-session-list").children[0]?.focusCount,
+    sidebar.element("recent-session-list").children[3]?.focusCount,
     1,
-    "the first visible row is the fallback",
+    "the current row is available in the scrollable recent list",
   );
   assert.equal(
     sidebar.element("all-session-list").children[3]?.focusCount,

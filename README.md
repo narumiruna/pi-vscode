@@ -97,6 +97,9 @@ The other selection-menu actions also prepare a labelled read-only action before
 **Cancel** removes only the pending action, keeping references and text.
 Prepared read-only actions wait for idle Pi instead of entering the ordinary queue; Preview actions still require **Preview** before **Apply**.
 
+The Sessions list fills the available space above the composer and scrolls when needed, rather than showing only three entries.
+Choose **View all** to search the discovered sessions in this workspace.
+
 Use **Pi: Switch Session** to search saved sessions in the current workspace, or **Pi: Previous Session** / **Pi: Next Session** to cycle through them.
 Default shortcuts use **Ctrl+K**, then **Ctrl+Alt+Shift+S / Left / Right**; on macOS use **Cmd+K**, then **Cmd+Alt+Shift+S / Left / Right**.
 Cycling keeps its order while sessions are updated; switching requires idle Pi without pending queues or dialogs.
