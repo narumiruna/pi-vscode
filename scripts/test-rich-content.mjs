@@ -6,6 +6,7 @@ import { build } from "esbuild";
 import { chromium } from "playwright-core";
 import { assertExtensionUi } from "./extension-ui-fixture.mjs";
 import { assertInterface } from "./interface-fixture.mjs";
+import { assertSessionsLayout } from "./sessions-layout-fixture.mjs";
 import { assertDiscoveryWrapBrowser } from "./discovery-wrap-fixture.mjs";
 import { assertHistoryBrowser } from "./history-fixture.mjs";
 import { assertComposerDraftRecovery } from "./draft-fixture.mjs";
@@ -47,6 +48,7 @@ try {
     "PI_INTERFACE_BROWSER_EVIDENCE",
     JSON.stringify(await assertInterface(browser, getSidebarHtml, renderSafeMarkdown)),
   );
+  console.log("PI_SESSIONS_LAYOUT_BROWSER_EVIDENCE", JSON.stringify(await assertSessionsLayout(browser, getSidebarHtml)));
   console.log("PI_DISCOVERY_WRAP_BROWSER_EVIDENCE", JSON.stringify(await assertDiscoveryWrapBrowser(browser, getSidebarHtml, renderSafeMarkdown)));
   console.log("PI_HISTORY_BROWSER_EVIDENCE", JSON.stringify(await assertHistoryBrowser(browser)));
   console.log("PI_DRAFT_BROWSER_EVIDENCE", JSON.stringify(await assertComposerDraftRecovery(browser, getSidebarHtml)));
