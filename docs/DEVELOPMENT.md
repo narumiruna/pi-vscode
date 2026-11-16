@@ -52,6 +52,10 @@ Rerun `npm run compile` after renderer or style changes when using `npm run watc
 Run compile-based commands sequentially.
 Their shared generated assets can conflict when multiple builds run at the same time.
 
+The `package.json` override restricts `@vscode/vsce` to patched `minimatch` 11.0.8 or newer within major version 11.
+It avoids the vulnerable 10.x dependency without changing the bundled Pi dependency tree.
+Remove the override when `@vscode/vsce` requires a patched version directly.
+
 ### Listing screenshots
 
 After compilation, capture the README images with the installed Playwright Chromium:
