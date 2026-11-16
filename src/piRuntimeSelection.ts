@@ -1,7 +1,7 @@
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 
-export const bundledPiVersion = "1.3.0";
+export const bundledPiVersion = "1.5.2";
 const packageName = "@earendil-works/pi-coding-agent";
 
 /** Runtime fields only. Feature arguments, credentials and isolation belong to the caller. */

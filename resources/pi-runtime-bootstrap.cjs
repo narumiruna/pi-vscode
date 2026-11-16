@@ -16,7 +16,7 @@ async function start() {
   if (
     process.argv[2] !== cli ||
     metadata.name !== "@earendil-works/pi-coding-agent" ||
-    metadata.version !== "1.3.0" ||
+    metadata.version !== "1.5.2" ||
     metadata.bin?.pi !== "dist/bundle/cli.js" ||
     version[0] < 22 ||
     (version[0] === 22 && version[1] < 19)
