@@ -150,6 +150,7 @@ test("foreground queue ownership, settlement grouping, clear-before-abort and un
   let queued = { steering: [] as string[], followUp: [] as string[] };
   const client: any = {
     isRunning: true,
+    onEvent: () => ({ dispose() {} }),
     prompt: async () => {
       calls.push("prompt");
     },
@@ -785,6 +786,7 @@ test("process exit recovers only the undelivered queue suffix with its attachmen
     environmentVariableCollection: { clear() {} },
   } as any);
   const internal = runtime as any;
+  internal.client = { isRunning: true, onEvent: () => ({ dispose() {} }), stop: async () => {} };
   let deliveredRestores = 0;
   let remainingRestores = 0;
   internal.trackedQueue.steering.push(

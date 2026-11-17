@@ -14,6 +14,7 @@ import {
 import { EditorAnnotations } from "./editorAnnotations";
 import { type ExtensionDialogRequest, ExtensionDialogRequests } from "./extensionDialogRequests";
 import { type Logger, nullLogger, type OperationId, safeErrorCategory, safeErrorCode } from "./logging";
+import { markWorkspaceCleanupUnverified } from "./operationLocks";
 import {
   PiRpcClient,
   type PiRpcClientOptions,
@@ -200,8 +201,10 @@ export class PiRuntimeManager implements vscode.Disposable {
   private client: PiRpcClient | undefined;
   private nextClientGeneration = 0;
   private readonly clientGenerations = new WeakMap<PiRpcClient, number>();
+  private readonly clientRoots = new WeakMap<PiRpcClient, string>();
   private readonly unverifiedCleanupClients = new WeakSet<PiRpcClient>();
   private readonly clientStops = new WeakMap<PiRpcClient, Promise<void>>();
+  private readonly inFlightClientStops = new Set<Promise<void>>();
   private requestLog: RuntimeRequestLog | undefined;
   private disposed = false;
   private shutdownPromise: Promise<void> | undefined;
@@ -323,6 +326,12 @@ export class PiRuntimeManager implements vscode.Disposable {
     if (event.warningCode === "cleanup-unverified" && this.client && generation === this.generation)
       this.unverifiedCleanupClients.add(this.client);
     this.logger.warning(event.warningCode, generation, { operationId });
+  }
+
+  private markClientCleanupUnverified(client: PiRpcClient): void {
+    this.unverifiedCleanupClients.add(client);
+    const root = this.clientRoots.get(client);
+    if (root) markWorkspaceCleanupUnverified(root);
   }
 
   private emitWarning(event: PiRpcEvent, generation = this.generation, operationId?: OperationId): void {
@@ -607,7 +616,7 @@ export class PiRuntimeManager implements vscode.Disposable {
         return await settled.promise;
       } catch (error) {
         this.promptActive = false;
-        await (this.shutdownPromise ?? this.stopClient());
+        await (this.shutdownPromise ?? (this.client === client ? this.stopClient() : this.stopDetachedClient(client)));
         this.updateState({ busy: false });
         throw error;
       } finally {
@@ -769,11 +778,15 @@ export class PiRuntimeManager implements vscode.Disposable {
             if (this.client === client) await this.stopClient();
             else await this.stopDetachedClient(client);
           } catch (cleanupError) {
-            this.emitWarning({
-              type: "runtime_warning",
-              warningCode: "cleanup-unverified",
-              message: `Shell cleanup failed after an uncertain execution. ${formatError(cleanupError)}`,
-            });
+            this.markClientCleanupUnverified(client);
+            this.emitWarning(
+              {
+                type: "runtime_warning",
+                warningCode: "cleanup-unverified",
+                message: `Shell cleanup failed after an uncertain execution. ${formatError(cleanupError)}`,
+              },
+              this.clientGenerations.get(client),
+            );
           } finally {
             if (!this.client) this.updateState({ connected: false, busy: false, queueable: false });
           }
@@ -839,19 +852,28 @@ export class PiRuntimeManager implements vscode.Disposable {
       try {
         await withDeadline(shell.client.abortBash(), shellAbortDeadlineMs, "Shell abort was not acknowledged.");
         await withDeadline(shell.execution!, shellAbortDeadlineMs, "Shell did not settle after abort.");
-        this.emitWarning({
-          type: "runtime_warning",
-          warningCode: "cleanup-unverified",
-          message:
-            "The shell acknowledged cancellation and returned a final result. Escaped descendants may remain; Windows descendant cleanup is unverified. Inspect processes and effects before conflicting work.",
-        });
+        this.markClientCleanupUnverified(shell.client);
+        this.emitWarning(
+          {
+            type: "runtime_warning",
+            warningCode: "cleanup-unverified",
+            message:
+              "The shell acknowledged cancellation and returned a final result. Escaped descendants may remain; Windows descendant cleanup is unverified. Inspect processes and effects before conflicting work.",
+          },
+          this.clientGenerations.get(shell.client),
+        );
       } catch (error) {
-        await shell.client.stop();
-        this.emitWarning({
-          type: "runtime_warning",
-          warningCode: "cleanup-unverified",
-          message: `Direct shell disconnected without verified settlement. Escaped or Windows descendants may remain. ${formatError(error)}`,
-        });
+        this.markClientCleanupUnverified(shell.client);
+        if (this.client === shell.client) await this.stopClient();
+        else await this.stopDetachedClient(shell.client);
+        this.emitWarning(
+          {
+            type: "runtime_warning",
+            warningCode: "cleanup-unverified",
+            message: `Direct shell disconnected without verified settlement. Escaped or Windows descendants may remain. ${formatError(error)}`,
+          },
+          this.clientGenerations.get(shell.client),
+        );
         throw error;
       }
     })();
@@ -1591,7 +1613,12 @@ export class PiRuntimeManager implements vscode.Disposable {
   private async finishShutdown(): Promise<void> {
     try {
       await this.startPromise?.catch(() => {});
-      await this.stopClient();
+      const results = await Promise.allSettled([this.stopClient(), ...this.inFlightClientStops]);
+      while (this.inFlightClientStops.size) {
+        results.push(...(await Promise.allSettled([...this.inFlightClientStops])));
+      }
+      const failure = results.find((result) => result.status === "rejected");
+      if (failure?.status === "rejected") throw failure.reason;
     } finally {
       this.control.dispose();
       if (!this.options.editorSession) this.context.environmentVariableCollection.clear();
@@ -1780,6 +1807,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       },
     });
     this.clientGenerations.set(client, generation);
+    this.clientRoots.set(client, options.cwd);
     this.invalidateExtensionDialogs();
     this.clientSubscription?.dispose();
     const subscription = client.onEvent((event) => {
@@ -2037,6 +2065,50 @@ export class PiRuntimeManager implements vscode.Disposable {
     this.pendingInstruction = undefined;
   }
 
+  private recoverInterruptedQueue(client: PiRpcClient | undefined): void {
+    if (!client || this.client !== client) return;
+    const queue = this.state.queue ?? { steering: [], followUp: [] };
+    const records: TrackedQueueInstruction[] = [...this.awaitingQueueStarts];
+    const pending = this.pendingInstruction;
+    for (const kind of ["steering", "followUp"] as const) {
+      const tracked = this.trackedQueue[kind];
+      const remote = queue[kind];
+      let delivered = -1;
+      if (remote.length > 0) {
+        const texts = tracked.map((record) => record.message);
+        for (let offset = 0; offset <= texts.length; offset += 1) {
+          if (arraysEqual(texts.slice(offset), remote)) {
+            delivered = offset;
+            break;
+          }
+        }
+      }
+      if (delivered >= 0) {
+        records.push(...tracked.slice(delivered));
+        continue;
+      }
+      for (let index = 0; index < remote.length; index += 1) {
+        const text = remote[index]!;
+        const record = tracked[index];
+        records.push(record?.message === text ? record : this.textOnlyQueueRecord(kind, text));
+      }
+      for (const record of tracked) {
+        if (record.id !== pending?.record.id && !records.some((candidate) => candidate.id === record.id))
+          records.push(record);
+      }
+    }
+    if (
+      pending &&
+      !pending.delivered &&
+      (!pending.observed || !queue[pending.record.kind].includes(pending.record.message)) &&
+      !records.some((record) => record.id === pending.record.id)
+    )
+      records.push(pending.record);
+    this.resetQueueTracking();
+    this.recoverQueue(records, true);
+    this.updateState({ queue: { steering: [], followUp: [] }, pendingQueue: emptyPendingQueue() });
+  }
+
   private hasQueueInstruction(id: string): boolean {
     return [...this.trackedQueue.steering, ...this.trackedQueue.followUp, ...this.awaitingQueueStarts].some(
       (record) => record.id === id,
@@ -2075,7 +2147,10 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   private handleEvent(event: PiRpcEvent): void {
-    if (event.type === "runtime_warning") this.logWarning(event);
+    if (event.type === "runtime_warning") {
+      if (event.warningCode === "cleanup-unverified" && this.client) this.markClientCleanupUnverified(this.client);
+      this.logWarning(event);
+    }
     if (event.type === "protocol_error")
       this.logger.warning("protocol-error", this.generation, {
         operationId: this.requestLog?.operationId,
@@ -2197,51 +2272,10 @@ export class PiRuntimeManager implements vscode.Disposable {
       });
     } else if (event.type === "process_exit") {
       this.promptActive = false;
+      this.recoverInterruptedQueue(this.client);
       this.clientSubscription?.dispose();
       this.clientSubscription = undefined;
       this.client = undefined;
-      const queue = this.state.queue ?? { steering: [], followUp: [] };
-      const records: TrackedQueueInstruction[] = [...this.awaitingQueueStarts];
-      const pending = this.pendingInstruction;
-      for (const kind of ["steering", "followUp"] as const) {
-        const tracked = this.trackedQueue[kind];
-        const remote = queue[kind];
-        let delivered = -1;
-        if (remote.length > 0) {
-          const texts = tracked.map((record) => record.message);
-          for (let offset = 0; offset <= texts.length; offset += 1) {
-            if (arraysEqual(texts.slice(offset), remote)) {
-              delivered = offset;
-              break;
-            }
-          }
-        }
-        if (delivered >= 0) {
-          records.push(...tracked.slice(delivered));
-          continue;
-        }
-        for (let index = 0; index < remote.length; index += 1) {
-          const text = remote[index]!;
-          const record = tracked[index];
-          records.push(record?.message === text ? record : this.textOnlyQueueRecord(kind, text));
-        }
-        for (const record of tracked) {
-          if (record.id !== pending?.record.id && !records.some((candidate) => candidate.id === record.id))
-            records.push(record);
-        }
-      }
-      if (
-        pending &&
-        !pending.delivered &&
-        (!pending.observed || !queue[pending.record.kind].includes(pending.record.message)) &&
-        !records.some((record) => record.id === pending.record.id)
-      )
-        records.push(pending.record);
-      this.trackedQueue.steering.splice(0);
-      this.trackedQueue.followUp.splice(0);
-      this.awaitingQueueStarts.splice(0);
-      this.recoverQueue(records, true);
-      this.pendingInstruction = undefined;
       this.updateState({
         connected: false,
         busy: false,
@@ -2319,8 +2353,13 @@ export class PiRuntimeManager implements vscode.Disposable {
     const existing = this.clientStops.get(client);
     if (existing) return existing;
     this.options.sessionWriters?.retire(client);
-    const stopping = Promise.resolve().then(() => this.finishDetachedStop(client, operationId));
+    const stopping = this.finishDetachedStop(client, operationId);
     this.clientStops.set(client, stopping);
+    this.inFlightClientStops.add(stopping);
+    void stopping.then(
+      () => this.inFlightClientStops.delete(stopping),
+      () => this.inFlightClientStops.delete(stopping),
+    );
     return stopping;
   }
 
@@ -2333,13 +2372,15 @@ export class PiRuntimeManager implements vscode.Disposable {
     const subscription = client.onEvent((event) => {
       if (event.type === "runtime_warning" && event.warningCode === "cleanup-unverified") {
         cleanupVerified = false;
-        this.unverifiedCleanupClients.add(client);
+        this.markClientCleanupUnverified(client);
         this.emitWarning(event, generation, operationId);
       } else if (event.type === "process_exit") {
         this.logProcessExit(event, generation, operationId);
       }
     });
     try {
+      // Register the stop before calling the transport, which can emit synchronous events.
+      await Promise.resolve();
       await client.stop();
       this.logger.record("info", "stop", {
         operationId,
@@ -2356,7 +2397,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     } catch (error) {
       const reportWarning = cleanupVerified;
       cleanupVerified = false;
-      this.unverifiedCleanupClients.add(client);
+      this.markClientCleanupUnverified(client);
       this.logger.record("error", "stop", {
         operationId,
         generation,
@@ -2388,12 +2429,12 @@ export class PiRuntimeManager implements vscode.Disposable {
     this.invalidateExtensionDialogs();
     this.resetExtensionUi();
     const client = this.client;
+    this.recoverInterruptedQueue(client);
     this.clientSubscription?.dispose();
     this.clientSubscription = undefined;
     this.client = undefined;
     this.annotationLaunch = undefined;
-    await this.stopDetachedClient(client, operationId);
-    this.resetQueueTracking();
+    const stopping = this.stopDetachedClient(client, operationId);
     this.updateState({
       connected: false,
       busy: false,
@@ -2401,6 +2442,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       queue: { steering: [], followUp: [] },
       pendingQueue: emptyPendingQueue(),
     });
+    await stopping;
   }
 }
 

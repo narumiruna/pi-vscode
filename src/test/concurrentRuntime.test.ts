@@ -15,6 +15,7 @@ import { installVscodeMock, MockUri } from "./vscodeMock";
 const mock = installVscodeMock();
 const { PiRuntimeManager } = require("../piRuntime") as typeof import("../piRuntime");
 const { PiRpcClient } = require("../piRpcClient") as typeof import("../piRpcClient");
+const operationLocks = require("../operationLocks") as typeof import("../operationLocks");
 afterAll(() => mock.restore());
 
 const restoreKey = "pi.rpc.sessionPath.v1";
@@ -26,10 +27,12 @@ const cleanupWarning: PiRpcEvent = {
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
-  const promise = new Promise<T>((finish) => {
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((finish, fail) => {
     resolve = finish;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 function clientInternals(client: RpcClient | undefined) {
@@ -49,17 +52,19 @@ interface Transport {
 interface RuntimeInternals {
   client: RpcClient | undefined;
   control: PiRuntimeControl;
+  bridge: { dispose: () => void; start: () => Promise<NodeJS.ProcessEnv> };
   annotations: EditorAnnotations;
   annotationLaunch: { credential: string } | undefined;
   annotationScope: string;
   annotationRequest: (method: string, params: Record<string, unknown>, cancelled: () => boolean) => Promise<unknown>;
   bridgeEnvironment: () => Promise<NodeJS.ProcessEnv>;
   createAndStartClient: (file: string) => Promise<void>;
-  createSettledWaiter: () => { promise: Promise<string | undefined>; dispose: () => void };
+  createSettledWaiter: (timeoutMs?: number) => { promise: Promise<string | undefined>; dispose: () => void };
+  emitWarning: (event: PiRpcEvent, generation?: number) => void;
   refreshState: (catalogs: boolean) => Promise<void>;
   stopClient: () => Promise<void>;
   stopDetachedClient: (client: RpcClient) => Promise<void>;
-  rememberSession: (file: string) => Promise<void>;
+  rememberSession: (file: string | undefined) => Promise<void>;
 }
 
 interface RuntimeHandle {
@@ -664,6 +669,363 @@ test("shutdown settles the accepted request waiter and awaits bounded stop befor
       await Promise.allSettled([shutdown, pendingPrompt]);
       vi.useRealTimers();
     }
+  });
+});
+
+for (const outcome of ["clean", "warning", "error"] as const) {
+  test(`shutdown waits for an earlier detached stop before disposal (${outcome})`, async () => {
+    await fixture(async (f) => {
+      const file = await f.session("editor");
+      const editor = await f.launch(file);
+      const client = editor.internal.client as RpcClient;
+      const stopStarted = deferred();
+      const finishStop = deferred();
+      const controlDisposed = vi.spyOn(editor.internal.control, "dispose");
+      const bridgeDisposed = vi.spyOn(editor.internal.bridge, "dispose");
+      const annotationsDisposed = vi.spyOn(editor.internal.annotations, "dispose");
+      vi.spyOn(client, "stop").mockImplementation(async () => {
+        stopStarted.resolve();
+        await finishStop.promise;
+        if (outcome === "warning") clientInternals(client).emit(cleanupWarning);
+        if (outcome === "error") throw new Error("Earlier stop failed.");
+        f.transport(client).running = false;
+        clientInternals(client).emit({ type: "process_exit", expected: true });
+      });
+      const stopping = editor.internal.stopClient();
+      const stopResult = Promise.allSettled([stopping]);
+      await stopStarted.promise;
+      assert.equal(editor.internal.client, undefined);
+      const shutdown = editor.runtime.shutdown();
+      const shutdownResult = Promise.allSettled([shutdown]);
+      let closed = false;
+      void shutdownResult.then(() => {
+        closed = true;
+      });
+      try {
+        assert.equal(editor.internal.annotationLaunch, undefined, "Annotation authority is revoked synchronously");
+        assert.equal(bridgeDisposed.mock.calls.length, 1, "Bridge access is revoked synchronously");
+        assert.equal(annotationsDisposed.mock.calls.length, 1);
+        await assert.rejects(editor.internal.bridge.start(), /disposed/);
+        await Promise.resolve();
+        assert.equal(closed, false);
+        assert.equal(controlDisposed.mock.calls.length, 0);
+        await assert.rejects(f.writers.reserve({}, file), SessionInUseError);
+      } finally {
+        finishStop.resolve();
+      }
+      const [stopStatus] = await stopResult;
+      const [shutdownStatus] = await shutdownResult;
+      assert.equal(stopStatus?.status, outcome === "error" ? "rejected" : "fulfilled");
+      assert.equal(shutdownStatus?.status, outcome === "error" ? "rejected" : "fulfilled");
+      assert.equal(controlDisposed.mock.calls.length, 1);
+      assert.equal(clientInternals(client).listeners.size, 0);
+      assert.equal(vi.mocked(client.stop).mock.calls.length, 1);
+      const warnings = editor.events.filter((event) => event.warningCode === "cleanup-unverified");
+      assert.equal(warnings.length, outcome === "clean" ? 0 : 1, "Late warnings must precede emitter disposal");
+      if (outcome === "clean") assert.equal(await f.writers.reserve({}, file), file);
+      else await assert.rejects(f.writers.reserve({}, file), SessionInUseError);
+    });
+  });
+}
+
+for (const failure of ["timeout", "prompt-rejection", "process-exit"] as const) {
+  for (const pendingObserved of [false, true]) {
+    test(`queued snapshots survive ${failure} with a ${pendingObserved ? "reported" : "unreported"} pending record`, async () => {
+      await fixture(async (f) => {
+        const editor = await f.launch(await f.session("editor"));
+        const client = editor.internal.client as RpcClient;
+        const submitted = deferred();
+        const acknowledgement = deferred<string | undefined>();
+        const pendingAck = deferred();
+        const stopStarted = deferred();
+        const finishStop = deferred();
+        const restored: string[] = [];
+        const emit = clientInternals(client).emit.bind(client);
+        let queue = { steering: [] as string[], followUp: [] as string[] };
+        vi.spyOn(client, "steer").mockImplementation(async (text) => {
+          queue = { ...queue, steering: [...queue.steering, text] };
+          emit({ type: "queue_update", ...queue });
+        });
+        vi.spyOn(client, "followUp").mockImplementation(async (text) => {
+          if (pendingObserved) {
+            queue = { ...queue, followUp: [...queue.followUp, text] };
+            emit({ type: "queue_update", ...queue });
+          }
+          await pendingAck.promise;
+        });
+        vi.spyOn(client, "prompt").mockImplementation(async () => {
+          submitted.resolve();
+          return failure === "prompt-rejection" ? acknowledgement.promise : undefined;
+        });
+        const createWaiter = editor.internal.createSettledWaiter.bind(editor.internal);
+        vi.spyOn(editor.internal, "createSettledWaiter").mockImplementation(() => createWaiter(100));
+        vi.useFakeTimers();
+        const request = editor.runtime.prompt("ordinary request", undefined, undefined, undefined, undefined, true);
+        const rejectedRequest = assert.rejects(request, /Timed out|Prompt acknowledgement failed|exited/);
+        try {
+          await submitted.promise;
+          for (const text of ["delivered", "awaiting", "queued"]) {
+            await editor.runtime.queueInstruction("steer", text, {
+              recoveryText: `${text} draft`,
+              hasAttachments: true,
+              recoveryBytes: 10,
+              restoreAttachments: () => restored.push(text),
+            });
+          }
+          queue = { ...queue, steering: ["queued"] };
+          emit({ type: "queue_update", ...queue });
+          emit({ type: "message_start", message: { role: "user", content: "delivered" } });
+          const pending = editor.runtime.queueInstruction("followUp", "pending", {
+            recoveryText: "pending attachment draft",
+            hasAttachments: true,
+            recoveryBytes: 10,
+            restoreAttachments: () => restored.push("pending"),
+          });
+          const rejectedPending = assert.rejects(pending, /uncertain/);
+          vi.spyOn(client, "stop").mockImplementation(async () => {
+            stopStarted.resolve();
+            await finishStop.promise;
+            f.transport(client).running = false;
+            emit({ type: "process_exit", expected: true });
+          });
+          if (failure === "timeout") await vi.advanceTimersByTimeAsync(100);
+          else if (failure === "prompt-rejection") acknowledgement.reject(new Error("Prompt acknowledgement failed."));
+          else {
+            f.transport(client).running = false;
+            emit({ type: "process_exit", expected: false });
+          }
+          await stopStarted.promise;
+          const recovered = editor.runtime.currentState.recoveredDrafts;
+          assert.deepEqual(
+            recovered?.map(({ text, uncertain, hasAttachments }) => ({ text, uncertain, hasAttachments })),
+            ["awaiting draft", "queued draft", "pending attachment draft"].map((text) => ({
+              text,
+              uncertain: true,
+              hasAttachments: true,
+            })),
+          );
+          assert.equal(editor.internal.client, undefined);
+          emit({ type: "process_exit", expected: true });
+          emit({ type: "queue_update", steering: ["late old queue"], followUp: [] });
+          await editor.internal.stopClient();
+          assert.deepEqual(editor.runtime.currentState.recoveredDrafts, recovered, "Recovery is idempotent");
+          for (const draft of recovered ?? []) {
+            editor.runtime.restoreRecoveredDraftAttachments(draft.id);
+            editor.runtime.restoreRecoveredDraftAttachments(draft.id);
+          }
+          assert.deepEqual(restored, ["awaiting", "queued", "pending"]);
+          assert.equal(vi.mocked(client.prompt).mock.calls.length, 1, "Recovery must not replay the prompt");
+          assert.equal(vi.mocked(client.steer).mock.calls.length, 3, "Recovery must not replay queued instructions");
+          finishStop.resolve();
+          await rejectedRequest;
+          pendingAck.reject(new Error("Queue acknowledgement failed after exit."));
+          await rejectedPending;
+          assert.deepEqual(
+            editor.runtime.currentState.recoveredDrafts?.map((draft) => draft.text),
+            recovered?.map((draft) => draft.text),
+          );
+        } finally {
+          finishStop.resolve();
+          pendingAck.resolve();
+          acknowledgement.resolve(undefined);
+          await vi.advanceTimersByTimeAsync(100);
+          await Promise.allSettled([request]);
+          vi.useRealTimers();
+        }
+      });
+    });
+  }
+}
+
+for (const phase of ["idle", "active", "startup", "detached-warning", "detached-error"] as const) {
+  test(`cleanup uncertainty marks the captured canonical launch root (${phase})`, async () => {
+    await fixture(async (f) => {
+      const mark = vi.spyOn(operationLocks, "markWorkspaceCleanupUnverified");
+      const editor = f.create();
+      const otherCwd = path.join(f.root, "changed-workspace");
+      const currentCwd = vi.spyOn(editor.runtime, "currentCwd", "get").mockReturnValue(f.root);
+      if (phase === "startup") {
+        const start = f.start.getMockImplementation();
+        assert.ok(start);
+        f.start.mockImplementationOnce(async function (this: RpcClient) {
+          await start.call(this);
+          currentCwd.mockReturnValue(otherCwd);
+          throw new Error("Startup failed after launch.");
+        });
+        f.stop.mockRejectedValueOnce(new Error("Startup cleanup failed."));
+        await assert.rejects(editor.runtime.ensureStarted(), /Startup cleanup failed/);
+      } else {
+        await editor.runtime.ensureStarted();
+        const client = editor.internal.client as RpcClient;
+        const accepted = deferred();
+        let request: Promise<unknown> | undefined;
+        if (phase === "active") {
+          request = assert.rejects(
+            editor.runtime.prompt("active request", undefined, undefined, () => accepted.resolve()),
+            /exited/,
+          );
+          await accepted.promise;
+        }
+        currentCwd.mockReturnValue(otherCwd);
+        if (phase.startsWith("detached")) {
+          vi.spyOn(client, "stop").mockImplementation(async () => {
+            if (phase === "detached-error") throw new Error("Detached cleanup failed.");
+            clientInternals(client).emit(cleanupWarning);
+          });
+          const stopping = editor.internal.stopClient();
+          if (phase === "detached-error") await assert.rejects(stopping, /Detached cleanup failed/);
+          else await stopping;
+        } else {
+          clientInternals(client).emit(cleanupWarning);
+          assert.deepEqual(mark.mock.calls, [[f.root]], "Mark before the request lease can settle");
+          f.transport(client).running = false;
+          clientInternals(client).emit({ type: "process_exit", expected: false });
+          await request;
+        }
+      }
+      assert.ok(mark.mock.calls.length > 0);
+      assert.ok(mark.mock.calls.every(([root]) => root === f.root));
+      assert.throws(() => acquireOperation(f.root, "Apply"), /cleanup is unverified/);
+      const releaseOther = acquireOperation(otherCwd, "unrelated workspace operation");
+      releaseOther();
+    });
+  });
+}
+
+test("a detached cleanup warning marks only its original root after another workspace starts", async () => {
+  await fixture(async (f) => {
+    const mark = vi.spyOn(operationLocks, "markWorkspaceCleanupUnverified");
+    const editor = await f.launch(await f.session("original"));
+    const original = editor.internal.client as RpcClient;
+    const stopStarted = deferred();
+    const finishStop = deferred();
+    vi.spyOn(original, "stop").mockImplementation(async () => {
+      stopStarted.resolve();
+      await finishStop.promise;
+      clientInternals(original).emit(cleanupWarning);
+    });
+    const stopping = editor.internal.stopClient();
+    await stopStarted.promise;
+    const otherRoot = await mkdtemp(path.join(f.root, "other-workspace-"));
+    vi.spyOn(editor.runtime, "currentCwd", "get").mockReturnValue(otherRoot);
+    await editor.internal.rememberSession(undefined);
+    try {
+      await editor.runtime.ensureStarted();
+      const replacement = editor.internal.client;
+      assert.notEqual(replacement, original);
+      assert.equal(clientInternals(replacement).options.cwd, otherRoot);
+      finishStop.resolve();
+      await stopping;
+      assert.deepEqual(mark.mock.calls, [[f.root]]);
+      assert.equal(editor.internal.client, replacement);
+      assert.equal(editor.runtime.currentState.connected, true, "Old stop completion must not reset its replacement");
+      assert.throws(() => acquireOperation(f.root, "Apply"), /cleanup is unverified/);
+      const release = acquireOperation(otherRoot, "Apply in the replacement workspace");
+      release();
+    } finally {
+      finishStop.resolve();
+      await stopping;
+    }
+  });
+});
+
+test("saved session storage is not used as the workspace cleanup root", async () => {
+  await fixture(async (f) => {
+    const storage = await realpath(await mkdtemp(path.join(tmpdir(), "pi-separate-session-storage-")));
+    try {
+      const file = path.join(storage, "session.jsonl");
+      await writeFile(file, `${JSON.stringify({ type: "session", id: "stored", cwd: f.root })}\n`);
+      const editor = await f.launch(file);
+      const client = editor.internal.client as RpcClient;
+      clientInternals(client).emit(cleanupWarning);
+      assert.throws(() => acquireOperation(f.root, "Apply"), /cleanup is unverified/);
+      const release = acquireOperation(storage, "unrelated session storage operation");
+      release();
+    } finally {
+      await rm(storage, { recursive: true, force: true });
+    }
+  });
+});
+
+test("clean cleanup and stale generic warnings do not infer a workspace cleanup root", async () => {
+  await fixture(async (f) => {
+    const mark = vi.spyOn(operationLocks, "markWorkspaceCleanupUnverified");
+    const file = await f.session("editor");
+    const editor = await f.launch(file);
+    const generation = editor.runtime.clientGeneration;
+    await editor.internal.stopClient();
+    assert.deepEqual(mark.mock.calls, []);
+    await editor.runtime.ensureStarted();
+    editor.internal.emitWarning(cleanupWarning, generation);
+    assert.deepEqual(mark.mock.calls, []);
+    const release = acquireOperation(f.root, "Apply after clean cleanup");
+    release();
+    const unboundClient = new PiRpcClient({ executablePath: process.execPath, cwd: f.root });
+    vi.spyOn(unboundClient, "stop").mockImplementation(async () => clientInternals(unboundClient).emit(cleanupWarning));
+    await editor.internal.stopDetachedClient(unboundClient);
+    assert.deepEqual(mark.mock.calls, [], "Do not infer a launch root from the session path or current workspace");
+  });
+});
+
+test("shutdown drains every detached and current stop after one stop rejects", async () => {
+  await fixture(async (f) => {
+    const files = await Promise.all([f.session("first"), f.session("second"), f.session("third")]);
+    const editor = await f.launch(files[0]);
+    const clients: RpcClient[] = [];
+    const releases = [deferred(), deferred(), deferred()] as const;
+    const started = [deferred(), deferred(), deferred()] as const;
+    const stops: Promise<void>[] = [];
+    for (const [index, file] of files.entries()) {
+      const release = releases[index];
+      const start = started[index];
+      assert.ok(release && start);
+      if (index) await editor.internal.createAndStartClient(file);
+      const client = editor.internal.client as RpcClient;
+      clients.push(client);
+      vi.spyOn(client, "stop").mockImplementation(async () => {
+        start.resolve();
+        await release.promise;
+        if (!index) throw new Error("First detached stop failed.");
+        if (index === 1) clientInternals(client).emit(cleanupWarning);
+        f.transport(client).running = false;
+        clientInternals(client).emit({ type: "process_exit", expected: true });
+      });
+      if (index < files.length - 1) stops.push(editor.internal.stopClient());
+    }
+    const stopsResult = Promise.allSettled(stops);
+    const controlDisposed = vi.spyOn(editor.internal.control, "dispose");
+    const shutdown = editor.runtime.shutdown();
+    const shutdownResult = Promise.allSettled([shutdown]);
+    let closed = false;
+    void shutdownResult.then(() => {
+      closed = true;
+    });
+    try {
+      await Promise.all(started.map((signal) => signal.promise));
+      releases[0].resolve();
+      // Wait for the rejection without waiting for the other stop.
+      const firstStop = stops[0];
+      assert.ok(firstStop);
+      await assert.rejects(firstStop, /First detached stop failed/);
+      await Promise.resolve();
+      assert.equal(closed, false, "A failed stop must not dispose subscriptions for remaining stops");
+      assert.equal(controlDisposed.mock.calls.length, 0);
+      for (const file of files) await assert.rejects(f.writers.reserve({}, file), SessionInUseError);
+      releases[2].resolve();
+      await Promise.resolve();
+      assert.equal(closed, false, "The still-pending earlier stop must remain part of shutdown");
+    } finally {
+      for (const release of releases) release.resolve();
+    }
+    await stopsResult;
+    const [result] = await shutdownResult;
+    assert.equal(result?.status, "rejected");
+    assert.equal(controlDisposed.mock.calls.length, 1);
+    assert.equal(editor.events.filter((event) => event.warningCode === "cleanup-unverified").length, 2);
+    for (const client of clients) assert.equal(clientInternals(client).listeners.size, 0);
+    await assert.rejects(f.writers.reserve({}, files[0]), SessionInUseError);
+    await assert.rejects(f.writers.reserve({}, files[1]), SessionInUseError);
+    assert.equal(await f.writers.reserve({}, files[2]), files[2]);
   });
 });
 

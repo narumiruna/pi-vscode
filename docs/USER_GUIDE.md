@@ -154,6 +154,8 @@ Native Chat history is separate from the Pi sidebar session.
 Run **Pi: New Concurrent Session** (`pi.newConcurrentSession`) from the Command Palette, or choose **+** in the Pi view title.
 This opens an independent session in a native editor `WebviewPanel`, not another sidebar or background-task card.
 A trusted, file-backed workspace is required.
+A workspace-root symlink or junction keeps its opened URI while filesystem checks use its canonical root.
+Reconnect keeps the panel's workspace even when an editor in another workspace is active.
 
 1. Review the modal warning that sessions can change the same workspace files and are not isolated.
    Choose **Open Session** to continue, or cancel without opening a panel.
@@ -172,8 +174,11 @@ Editor panels do not automatically restore or restart after a window reload; no 
 Their transcript caches and remembered session paths stay in memory and do not overwrite the sidebar's persisted state.
 After a panel closes and writer cleanup is verified, use the sidebar's **Pi: Switch Session** or **More… → Resume Session** to resume its saved Pi session.
 The in-window canonical session-file registry rejects duplicate RPC starts or switches while another runtime owns the file.
-A normal close frees its session slot after bounded stop completes.
+A normal close frees its session slot only after every pending stop completes.
 Uncertain cleanup keeps the file claim and session slot blocked until window reload, including after the panel closes.
+An unverified RPC cleanup warning also blocks exclusive workspace actions, such as Apply, import, direct shell, and checkpoint restore, until window reload.
+Ordinary shared requests can still run, but their file changes do not have verified checkpoint attribution.
+On Windows, the standard descendant-cleanup warning also keeps this exclusive-workflow block.
 Quarantined closed sessions still count toward the eight-session limit.
 Inspect and stop residual processes before reloading the window; no request is retried automatically.
 Other windows and external Pi processes are not locked by this registry.

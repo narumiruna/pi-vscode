@@ -835,7 +835,7 @@ export class PiChatViewProvider
     this.status = "Connecting to Pi…";
     this.postState();
     try {
-      await this.runtime.ensureStarted(vscode.window.activeTextEditor?.document.uri);
+      await this.runtime.ensureStarted(this.surface?.resource ?? vscode.window.activeTextEditor?.document.uri);
       await this.syncMessagesFromPi();
       await this.refreshRecentSessions(false);
       this.historyRecoveryAvailable = false;

@@ -46,22 +46,37 @@ export class ConcurrentSessions implements vscode.Disposable {
     const release = this.creation.acquire();
     try {
       this.assertAvailable();
-      const root = await realpath(this.primaryRuntime.currentCwd);
-      this.assertAvailable();
-      const resource = vscode.Uri.file(root);
-      requireTrustedFile(resource);
+      const cwd = this.primaryRuntime.currentCwd;
+      const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(cwd));
+      if (folder?.uri.scheme !== "file") throw new Error("A file-backed workspace is required.");
+      // Keep the opened URI for scoped settings; canonical paths are only for safety checks and locks.
+      const resource = folder.uri;
+      const folderIdentity = resource.toString();
+      const assertBinding = () => {
+        this.assertAvailable();
+        requireTrustedFile(resource);
+        if (
+          this.primaryRuntime.currentCwd !== cwd ||
+          vscode.workspace.getWorkspaceFolder(vscode.Uri.file(cwd))?.uri.toString() !== folderIdentity ||
+          vscode.workspace.getWorkspaceFolder(resource)?.uri.toString() !== folderIdentity
+        )
+          throw new Error("Pi workspace changed.");
+      };
+      const root = await realpath(cwd);
+      assertBinding();
+      if ((await realpath(resource.fsPath)) !== root) throw new Error("Pi workspace changed.");
+      assertBinding();
       const choice = await vscode.window.showWarningMessage(
         "Open an independent Pi session in an editor tab? Sessions can run at the same time and change the same workspace files. They are not isolated. Closing a tab stops only that session; saved Pi history remains. Editor actions and terminal handoff stay in the sidebar.",
         { modal: true },
         "Open Session",
       );
       if (choice !== "Open Session") return;
-      this.assertAvailable();
-      requireTrustedFile(resource);
-      if (root !== (await realpath(this.primaryRuntime.currentCwd))) throw new Error("Pi workspace changed.");
-      this.assertAvailable();
-      const folder = vscode.workspace.getWorkspaceFolder(resource);
-      if (!folder || folder.uri.scheme !== "file") throw new Error("A file-backed workspace is required.");
+      assertBinding();
+      if ((await realpath(cwd)) !== root) throw new Error("Pi workspace changed.");
+      assertBinding();
+      if ((await realpath(resource.fsPath)) !== root) throw new Error("Pi workspace changed.");
+      assertBinding();
       this.primary.changeTracker.enableConcurrentSafety(root);
       const runtime = new PiRuntimeManager(this.context, this.logger, {
         editorSession: true,

@@ -118,9 +118,12 @@ Run **Pi: New Concurrent Session** (`pi.newConcurrentSession`) or choose **+** i
 Confirm the shared-file warning before opening each session.
 Up to eight additional editor sessions can run alongside the sidebar.
 Each has its own Pi RPC process, transcript, composer draft, attachments, queue, model/thinking controls, and Stop.
+Panels keep the opened workspace URI, including a workspace-root alias, and reconnect to that workspace rather than the active editor's workspace.
 Hiding a panel or switching tabs keeps its work running.
 Closing it stops only its runtime and retains saved Pi session files.
-A normal close frees its slot after bounded cleanup; unverified cleanup keeps the slot and session-file claim blocked until window reload.
+A normal close frees its slot after all bounded cleanup completes; unverified cleanup keeps the slot and session-file claim blocked until window reload.
+Unverified RPC cleanup also blocks exclusive workspace actions, including Apply and checkpoint restore, until window reload.
+Ordinary concurrent requests remain available, but their checkpoint attribution is unverified.
 Inspect and stop residual processes before reloading; requests are not retried automatically.
 
 Sessions share workspace files and existing Pi credentials, configuration, and storage; they are not isolated or sandboxed.

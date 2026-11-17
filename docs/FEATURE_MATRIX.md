@@ -140,10 +140,13 @@ See [Bundled runtime validation](BUNDLED_RUNTIME_VALIDATION.md) for discovery ev
 
 **Pi: New Concurrent Session** (`pi.newConcurrentSession`) and the Pi view-title **+** open independent native `WebviewPanel` sessions.
 Each opening requires a trusted, file-backed workspace and confirmation that concurrent sessions share files without isolation.
+The opened workspace URI is retained for folder lookup, scoped settings, and reconnect; a separate verified canonical root owns filesystem checks and operation locks.
 At most eight additional panels can run alongside the sidebar.
 Each panel owns its RPC process, transcript, composer draft, attachments, queue, model/thinking controls, and Stop.
 Hiding a panel or switching tabs does not stop work; closing it shuts down only its runtime and retains saved Pi session files.
-A normal close frees its slot after bounded stop; cleanup-unverified closes retain their slot and writer claim until window reload.
+A normal close frees its slot after every pending bounded stop settles; cleanup-unverified closes retain their slot and writer claim until window reload.
+An unverified RPC cleanup result also leaves a canonical-root reservation that blocks exclusive workspace operations until reload, including when no request lease remains.
+Ordinary shared agents can continue, but active and later requests receive unverified checkpoint attribution for that root.
 The eight-session bound includes quarantined closed sessions.
 Inspect and stop residual processes before reloading; no request is retried automatically.
 
@@ -174,7 +177,10 @@ The concurrency fixture verifies initial detail mode, hidden Sessions navigation
 The documented `biome check src resources` check passed with warnings and no errors.
 A one-off macOS VS Code 1.146.0 native screenshot check used a disposable development profile and deterministic RPC fixture, without extension installation or model calls.
 It verified native session-opening confirmation, two split editor panels with distinct session IDs and active requests, separate drafts, and Stop in one panel while the other kept working.
-This focused check is not a complete native UI suite.
+Post-review host regressions cover opened workspace aliases, multi-root reconnect, accepted queue recovery, already-detached stop completion, late capacity warnings, and exclusive exclusion after unverified cleanup.
+A post-review macOS VS Code 1.146.0 check opened the workspace through a directory symlink and verified two native panels, distinct session IDs, concurrent requests, and independent Stop with the same offline fixture.
+These focused checks are not a complete native UI suite.
+The alias fixture selects a junction on Windows; this local run tested a macOS symlink only.
 Remote, other platforms, reload, and live-provider behavior remain unverified for this change.
 
 ### Fixed primary composer status

@@ -61,9 +61,13 @@ POSIX clients own a detached process group; Windows clients own the direct runti
 Windows descendant cleanup is not verified, including after a confirmed root exit, and RPC termination reports an explicit warning.
 Foreground session deletion and failed startup cleanup keep a warning-only subscription until stop settles.
 The subscription is released on success and failure; late state events from the detached client are not forwarded to the replacement session.
+Runtime shutdown waits for every pending detached stop before it disposes event emitters, so late cleanup warnings still reach the session-capacity owner.
 Cancellation and other one-shot failures include cleanup uncertainty in their error details.
 Open inherited pipes and failed termination reach a bounded cleanup-unverified outcome rather than hanging.
-Runtime settlement releases waiters and operation locks on disconnect; it does not establish that escaped or Windows descendant work stopped.
+Runtime settlement releases waiters and active request leases on disconnect; it does not establish that escaped or Windows descendant work stopped.
+An unverified RPC cleanup result leaves a canonical-root unverified-agent reservation that blocks later exclusive operations until window reload.
+Ordinary shared agent requests remain allowed, with unverified checkpoint attribution.
+The reservation does not prove process termination or isolate external writers.
 Queue drafts remain uncertain and checkpoint recovery remains conservative.
 Verify remaining work before another operation that can conflict.
 Prompts, source code, terminal text, and image payloads are written to Pi over stdin rather than process arguments.
@@ -102,9 +106,16 @@ Verified destination state commits the current reservation; uncertain switches r
 A source-state refresh cannot release a reserved switch destination.
 Stopping retires the RPC owner before asynchronous cleanup, so late path validation cannot restore its claims.
 Session deletion holds a separate reservation through the filesystem deletion after the old writer stops.
-A normal panel close releases its session slot after bounded stop completes.
+A normal panel close releases its session slot only after all pending bounded stops settle.
+The opened workspace-folder URI is separate from the canonical launch root and remains the panel's resource on reconnect.
+Changed folder or alias bindings fail before a new panel can start.
 Unverified cleanup quarantines both the writer's reservations and its session slot until window reload, including after panel closure.
 The eight-session bound includes these quarantined closed sessions.
+RPC cleanup uncertainty also retains exclusive workspace exclusion by the originating client's canonical launch root, not a later current workspace or the session-file directory.
+This exclusion survives lease release and panel disposal, including idle and failed-startup cleanup.
+Active and later ordinary agents are marked overlapped, and historical checkpoint attribution is invalidated.
+Exclusive operations stay blocked until reload; ordinary agents retain shared admission.
+The Windows descendant-cleanup warning also retains this exclusive-workflow block.
 Inspect and stop residual processes before reloading the window; no request is retried automatically.
 This registry does not lock other windows or external Pi processes and is not a universal upstream cross-process session lock.
 It does not prove that detached descendants stopped.
@@ -903,6 +914,8 @@ Acceptance consumes only the captured unpinned attachment IDs, leaving attachmen
 
 Queue removal is not delivery evidence.
 A removed record remains privately staged until Pi emits the corresponding `message_start` with `role: "user"`; only then does the extension retire recovery ownership and add its memory-only presentation snapshot to the transcript.
+Prompt failure recovers undelivered queue records and attachment handles before listener detachment can discard their ledger.
+An already delivered record is not recovered or replayed.
 Stable IDs and FIFO matching keep identical text distinct.
 The final `get_messages` synchronization remains authoritative and is seeded with live attachment descriptors so validated image labels survive replacement without duplicate messages.
 Missing user starts at settlement or process exit recover the instruction as uncertain instead of displaying it as delivered.

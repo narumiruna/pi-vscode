@@ -14,10 +14,17 @@ interface OperationObserver {
 }
 const operations = new Map<string, { readonly kind: "exclusive"; readonly label: string } | AgentOperations>();
 const observers = new Map<string, Set<OperationObserver>>();
+// Only Extension Host reload clears these reservations; lease and observer cleanup cannot release them.
+const cleanupUnverifiedRoots = new Set<string>();
 
 /** Keys are caller-canonical working directories; this gate does not cover other windows or external writers. */
 export function acquireOperation(root: string, label: string, owner?: object): () => void {
   const key = path.resolve(root);
+  if (cleanupUnverifiedRoots.has(key)) {
+    throw new Error(
+      `Workspace process cleanup is unverified. Inspect and stop residual processes, then reload the window before ${label}.`,
+    );
+  }
   const existing = operations.get(key);
   if (existing) throw new Error(`Wait for ${operationLabel(existing)} before ${label}.`);
   const operation = { kind: "exclusive", label } as const;
@@ -47,14 +54,7 @@ export function acquireAgentOperation(root: string, label: string, onOverlap: ()
     operation.leases.delete(lease);
     if (!operation.leases.size && operations.get(key) === operation) operations.delete(key);
   };
-  const callbacks: (() => void)[] = [];
-  if (operation.leases.size > 1) {
-    for (const active of operation.leases) {
-      if (active.overlapped) continue;
-      active.overlapped = true;
-      callbacks.push(active.onOverlap);
-    }
-  }
+  const callbacks = operation.leases.size > 1 || cleanupUnverifiedRoots.has(key) ? overlapCallbacks(operation) : [];
   try {
     notifyAdmission(key, owner, callbacks);
   } catch (error) {
@@ -64,7 +64,21 @@ export function acquireAgentOperation(root: string, label: string, onOverlap: ()
   return release;
 }
 
-/** Observe successful local admissions; owner identifies the caller without granting operation authority. */
+/** Reserve a caller-canonical root until Extension Host reload without blocking ordinary shared agents. */
+export function markWorkspaceCleanupUnverified(root: string): void {
+  const key = path.resolve(root);
+  if (cleanupUnverifiedRoots.has(key)) return;
+  cleanupUnverifiedRoots.add(key);
+  const operation = operations.get(key);
+  const callbacks = operation?.kind === "agents" ? overlapCallbacks(operation) : [];
+  try {
+    notifyAdmission(key, undefined, callbacks);
+  } catch {
+    // All callbacks were attempted; notification failures must not interrupt process cleanup or release protection.
+  }
+}
+
+/** Observe local admissions and unverified cleanup; owner identifies the caller without granting authority. */
 export function observeOperations(root: string, listener: (owner?: object) => void): { dispose(): void } {
   const key = path.resolve(root);
   const registrations = observers.get(key) ?? new Set<OperationObserver>();
@@ -80,7 +94,18 @@ export function observeOperations(root: string, listener: (owner?: object) => vo
 }
 
 export function hasOperation(root: string): boolean {
-  return operations.has(path.resolve(root));
+  const key = path.resolve(root);
+  return cleanupUnverifiedRoots.has(key) || operations.has(key);
+}
+
+function overlapCallbacks(operation: AgentOperations): (() => void)[] {
+  const callbacks: (() => void)[] = [];
+  for (const lease of operation.leases) {
+    if (lease.overlapped) continue;
+    lease.overlapped = true;
+    callbacks.push(lease.onOverlap);
+  }
+  return callbacks;
 }
 
 function operationLabel(operation: NonNullable<ReturnType<typeof operations.get>>): string {
