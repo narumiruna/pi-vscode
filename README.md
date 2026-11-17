@@ -121,7 +121,11 @@ Start work in A, return to **Sessions**, and select live B, open a saved B, or c
 **View all**, **Pi: Switch Session**, **Previous/Next Session**, **New Session**, and **Resume Session** use the same Sidebar selection.
 Each conversation retains its transcript, draft, attachments, queue, model/thinking selection, and **Stop**.
 Cancelled or rejected selection leaves session rows usable; selecting an editor-owned session can reveal its panel without locking Sidebar navigation.
-Selecting a retained conversation resends its referenced image payloads from the bounded host cache so the shared renderer can recover after eviction.
+Selecting a retained conversation or recreating its renderer resends referenced image payloads from the bounded host cache.
+Native session navigation can initialize Primary when the Sidebar has not opened yet.
+Local `/new` and `/resume` can navigate during work without entering the model queue; attachment and prepared-action guards still apply.
+If an actual runtime replacement changes the session behind a nonempty draft, verify the session and clear the kept text before sending.
+That context block stays with its entry across selection and renderer recreation.
 Native input and approval dialogs identify their source conversation; changing the displayed conversation does not answer or transfer them.
 
 Sessions rows show **Idle**, **Running**, **Waiting for input**, **Completed**, **Failed**, or **Stopped**.

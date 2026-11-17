@@ -33,6 +33,8 @@ interface Entry {
   disposeView?: vscode.EventEmitter<void>;
   state?: Record<string, unknown>;
   composer: { text: string; revision: number };
+  contextBlocked: boolean;
+  lastSessionFile: string | undefined;
   readonly pendingComposerUpdates: Record<string, unknown>[];
   readonly notices: Record<string, unknown>[];
   followingLatest: boolean;
@@ -94,6 +96,8 @@ export class SidebarSessions implements vscode.Disposable {
       subscriptions: [],
       release,
       composer: { text: "", revision: 0 },
+      contextBlocked: false,
+      lastSessionFile: runtime.currentState.sessionFile,
       pendingComposerUpdates: [],
       notices: [],
       followingLatest: true,
@@ -106,6 +110,7 @@ export class SidebarSessions implements vscode.Disposable {
     this.entries.set(entry.id, entry);
     entry.subscriptions.push(
       runtime.onDidChangeState(() => {
+        this.reconcileComposerContext(entry);
         entry.activity.updateRuntime({
           busy: runtime.currentState.busy,
           pendingDialogs: runtime.hasPendingExtensionDialogs,
@@ -196,6 +201,8 @@ export class SidebarSessions implements vscode.Disposable {
 
   private fromController(entry: Entry, message: unknown): boolean {
     if (!isRecord(message) || this.disposed) return false;
+    // Draft identity updates can arrive before the controller publishes its runtime state.
+    this.reconcileComposerContext(entry);
     if (message.type === "state") {
       entry.state = message;
       this.publishList();
@@ -204,10 +211,12 @@ export class SidebarSessions implements vscode.Disposable {
     }
     if (
       message.type === "clearInput" &&
+      !entry.contextBlocked &&
       message.expectedRevision === entry.composer.revision &&
       message.expectedText === entry.composer.text
     ) {
       entry.composer = { text: "", revision: entry.composer.revision + 1 };
+      entry.contextBlocked = false;
     }
     if (entry !== this.displayed || !this.ready || !this.view) {
       if (message.type === "notice") {
@@ -257,13 +266,22 @@ export class SidebarSessions implements vscode.Disposable {
       void this.view.webview.postMessage({ ...message, sidebar: this.binding(entry) });
   }
 
+  private reconcileComposerContext(entry: Entry): void {
+    const file = entry.runtime.currentState.sessionFile;
+    // Keep the last actual file through disconnect; first startup/promotion is not replacement.
+    if (!file || file === entry.lastSessionFile) return;
+    if (entry.lastSessionFile && entry.composer.text) entry.contextBlocked = true;
+    entry.lastSessionFile = file;
+  }
+
   private binding(entry: Entry) {
+    this.reconcileComposerContext(entry);
     return {
       entryId: entry.id,
       bindingGeneration: this.generation,
       view: entry === this.launcher ? "sessions" : "session",
       resultRevision: entry.activity.resultRevision,
-      composer: { ...entry.composer },
+      composer: { ...entry.composer, contextBlocked: entry.contextBlocked },
       primary: entry === this.primary,
       canClose: entry !== this.primary && entry !== this.launcher,
       canStart: !entry.attempted || entry === this.launcher,
@@ -321,21 +339,20 @@ export class SidebarSessions implements vscode.Disposable {
   private async receive(input: unknown): Promise<void> {
     if (!isRecord(input) || this.disposed || !this.view) return;
     if (input.type === "ready") {
-      if (this.ready) {
-        this.publish();
-        return;
-      }
+      const initialize = !this.ready;
       this.ready = true;
-      this.publish();
+      // Synthetic controller readiness can run before the renderer can receive image payloads.
+      this.displayed.controller.refreshView(true);
       this.displayed.controller.refreshSidebarDraft();
       this.flushPending(this.displayed);
-      if (!this.primary.runtime.currentState.connected && !this.primary.runtime.currentState.busy)
+      if (initialize && !this.primary.runtime.currentState.connected && !this.primary.runtime.currentState.busy)
         void this.connect(this.primary);
       return;
     }
     const entry = this.displayed;
     if (input.entryId !== entry.id || input.bindingGeneration !== this.generation) return;
     const { entryId: _entryId, bindingGeneration: _generation, ...message } = input;
+    this.reconcileComposerContext(entry);
     if (message.type === "sidebarViewState") {
       if (
         typeof message.text !== "string" ||
@@ -346,9 +363,12 @@ export class SidebarSessions implements vscode.Disposable {
         typeof message.detailVisible !== "boolean"
       )
         return;
+      const wasBlocked = entry.contextBlocked;
       entry.composer = { text: message.text, revision: message.revision as number };
+      if (!message.text) entry.contextBlocked = false;
       entry.followingLatest = message.followingLatest;
       entry.detailVisible = message.detailVisible;
+      if (wasBlocked && !entry.contextBlocked) this.publish();
       return;
     }
     if (message.type === "acknowledgeResult") {
@@ -398,6 +418,18 @@ export class SidebarSessions implements vscode.Disposable {
     }
     if (message.type === "closeSidebarSession") {
       await this.close(entry);
+      return;
+    }
+    if (
+      entry.contextBlocked &&
+      ["send", "sendNewSession", "queueInstruction", "runBackground"].includes(String(message.type))
+    ) {
+      this.fromController(entry, { type: "sendRejected" });
+      this.fromController(entry, {
+        type: "notice",
+        level: "warning",
+        message: "Text was kept after the session changed. Verify the session, then clear the composer before sending.",
+      });
       return;
     }
     if (message.type === "sendNewSession") {
@@ -471,6 +503,16 @@ export class SidebarSessions implements vscode.Disposable {
 
   public navigateFromComposer(command: "new" | "resume"): Promise<boolean> {
     return command === "new" ? this.create() : this.resume();
+  }
+
+  public assertComposerContext(controller: PiChatViewProvider): void {
+    const entry = this.find(controller);
+    if (!entry) return;
+    this.reconcileComposerContext(entry);
+    if (entry.contextBlocked)
+      throw new Error(
+        "Text was kept after the session changed. Verify the session, then clear the composer before sending.",
+      );
   }
 
   public revealConversation(controller: PiChatViewProvider): void {
@@ -691,12 +733,28 @@ export class SidebarSessions implements vscode.Disposable {
     return true;
   }
 
+  private async prepareNativeNavigation(): Promise<void> {
+    const workspace = await this.workspace();
+    if (!this.selected.runtime.currentState.sessionFile && !this.primary.runtime.currentState.sessionFile) {
+      // Startup retains trust, terminal ownership, launch-policy, and session-writer admission checks.
+      await this.primary.runtime.ensureStarted(workspace.uri);
+      // Load history before renderer readiness observes an already-connected Primary.
+      await this.connect(this.primary);
+    }
+    if (!this.selected.runtime.currentState.sessionFile && !this.primary.runtime.currentState.sessionFile)
+      throw new Error("Pi has no current session location. Reconnect before switching sessions.");
+    if (!this.view) await vscode.commands.executeCommand("pi.chatView.focus");
+    const current = await this.workspace();
+    if (current.uri.toString() !== workspace.uri.toString() || current.root !== workspace.root)
+      throw new Error("Pi workspace changed.");
+  }
+
   public async quickSwitch(): Promise<void> {
     if (this.picking || this.navigating) throw new Error("A session navigation action is already pending.");
     this.picking = true;
     let destination: string | undefined;
     try {
-      await this.workspace();
+      await this.prepareNativeNavigation();
       await this.refresh();
       const text = (value: string) =>
         value
@@ -724,7 +782,7 @@ export class SidebarSessions implements vscode.Disposable {
 
   public async cycleSession(direction: -1 | 1): Promise<void> {
     if (this.picking || this.navigating) throw new Error("A session navigation action is already pending.");
-    await this.workspace();
+    await this.prepareNativeNavigation();
     await this.refresh();
     const rows = this.rows();
     const members = new Set(rows.map((row) => row.id));

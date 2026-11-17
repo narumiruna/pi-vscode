@@ -566,6 +566,7 @@ export function getSidebarHtml(
       if (sidebar) {
         sessionsLayerVisible = sidebar.view === 'sessions';
         sidebarRendering = true;
+        composerDraft?.setContextBlocked(sidebar.composer.contextBlocked === true);
       }
     }
 
@@ -680,6 +681,10 @@ export function getSidebarHtml(
       return sidebarSlashCommands.some(command => command.name === name);
     }
 
+    function isSidebarNavigationCommand() {
+      return Boolean(sidebar) && /^\\/(?:new|resume)\\s*$/.test(input.value.trim());
+    }
+
     function submit(kind = 'steer') {
       if (composerDraft?.blocked()) {
         showNotice('The draft context changed. Wait for the transition, or verify the session and clear the kept text before sending.', 'warning');
@@ -688,13 +693,14 @@ export function getSidebarHtml(
       if (fileCompletion?.busy) return;
       fileCompletion?.cancel();
       const text = input.value.trim();
+      const navigationCommand = isSidebarNavigationCommand();
       const editorBlocker = editorRequestBlocker();
       if (editorBlocker) {
         showNotice(editorBlocker, 'warning', false, true);
         return;
       }
       if ((!text && !attachedItems) || (!connected && !isSidebarSlashCommand() && !sidebar?.canStart) || submissionPending || backgroundSubmissionPending || recoveredDraftPending) return;
-      if (!busy && text.startsWith('/') && attachedItems) {
+      if ((!busy || navigationCommand) && text.startsWith('/') && attachedItems) {
         showNotice('Remove attachments before running a slash command.', 'warning', false, true);
         return;
       }
@@ -705,7 +711,7 @@ export function getSidebarHtml(
       }
       // Return button submissions to the composer before host state can hide the action.
       if (document.activeElement === sendButton || document.activeElement === $('after-this')) input.focus({ preventScroll: true });
-      if (busy) {
+      if (busy && !navigationCommand) {
         if (input.value.trimStart().startsWith('/') || pendingQueueCount >= 10) {
           showNotice(input.value.trimStart().startsWith('/') ? 'Slash commands cannot be queued. Wait for Pi to finish.' : 'The queue is full. Wait for a pending message to start.', 'warning', false, true);
           return;
@@ -1715,18 +1721,19 @@ export function getSidebarHtml(
       $('add-context').disabled = Boolean(recoveredDraftPending);
       for (const button of emptyActionButtons) button.disabled = interactionLocked;
       const editorBlocker = editorRequestBlocker();
-      const canQueue = busy && queueable && !sessionsLayerVisible && !editorRequest;
+      const navigationCommand = isSidebarNavigationCommand();
+      const canQueue = busy && queueable && !sessionsLayerVisible && !editorRequest && !navigationCommand;
       const sidebarCommand = isSidebarSlashCommand();
-      const slashBlocked = !busy && input.value.trimStart().startsWith('/') && attachedItems > 0;
+      const slashBlocked = (!busy || navigationCommand) && input.value.trimStart().startsWith('/') && attachedItems > 0;
       const connectionBlocked = !connected && !sidebarCommand && !sidebar?.canStart;
       const shellInput = input.value.startsWith('!');
       const shellBlocked = shellInput && (attachedItems > 0 || canQueue || sessionsLayerVisible);
       const queueBlocked = canQueue && (input.value.trimStart().startsWith('/') || shellInput || pendingQueueCount >= 10);
-      sendButton.hidden = busy && !canQueue;
+      sendButton.hidden = busy && !canQueue && !navigationCommand;
       sendButton.classList.toggle('queue-action', canQueue);
       sendButton.setAttribute('aria-label', canQueue ? 'Next: send after the current tool finishes' : 'Send message');
       $('after-this').hidden = !canQueue;
-      sendButton.disabled = Boolean(editorBlocker) || Boolean(composerDraft?.blocked()) || Boolean(fileCompletion?.busy) || (busy && !canQueue) || queueBlocked || shellBlocked || slashBlocked || submissionPending || backgroundSubmissionPending || imageLoading || Boolean(recoveredDraftPending) || sessionStartBlocked || connectionBlocked || (!input.value.trim() && !attachedItems) || imageBlocked;
+      sendButton.disabled = Boolean(editorBlocker) || Boolean(composerDraft?.blocked()) || Boolean(fileCompletion?.busy) || (busy && !canQueue && !navigationCommand) || queueBlocked || shellBlocked || slashBlocked || submissionPending || backgroundSubmissionPending || imageLoading || Boolean(recoveredDraftPending) || sessionStartBlocked || connectionBlocked || (!input.value.trim() && !attachedItems) || imageBlocked;
       $('after-this').disabled = sendButton.disabled;
       $('after-this').title = 'Send when Pi finishes responding (' + followUpShortcutLabel + ')';
       const settingsReason = !connected && !sidebar?.canStart ? 'Reconnect to change settings.' : interactionLocked ? 'Settings are locked during active work.' : '';
@@ -1743,7 +1750,7 @@ export function getSidebarHtml(
         : imageLoading ? 'Loading pasted images. Wait for loading to finish.'
         : editorBlocker ? editorBlocker
         : sessionStartBlocked ? 'Pi is working. Wait or use Stop before starting a new session.'
-        : busy && !canQueue ? 'This request cannot accept queued messages. Wait or use Stop.'
+        : busy && !canQueue && !navigationCommand ? 'This request cannot accept queued messages. Wait or use Stop.'
         : slashBlocked ? 'Remove attachments before running a slash command.'
         : shellBlocked ? 'Direct shell needs an idle session without attachments. Wait, open a session, or remove attachments.'
         : queueBlocked ? input.value.trimStart().startsWith('/')
@@ -1767,7 +1774,9 @@ export function getSidebarHtml(
             ? 'Wait for Pi to finish before starting a new session'
             : imageBlocked
               ? 'Choose a model that supports images, or remove them'
-              : queueable && !sessionsLayerVisible && !editorRequest
+              : navigationCommand
+                ? 'Select or create a Sidebar session without stopping this work.'
+                : queueable && !sessionsLayerVisible && !editorRequest
                 ? 'Next: after the current tool · After this: after the response · Enter / ' + followUpShortcutLabel + ' · Shift+Enter for a new line'
                 : busy
                   ? 'Wait for Pi to finish before sending'
@@ -2036,7 +2045,10 @@ export function getSidebarHtml(
     composerDraft = {
       ...legacyComposerDraft,
       receive(message) {
-        legacyComposerDraft.receive(sidebar && message.type === 'draftState' ? { ...message, reset: false } : message);
+        // Only the host can distinguish registry selection/first startup from a real replacement.
+        legacyComposerDraft.receive(sidebar && message.type === 'draftState'
+          ? { ...message, reset: message.sidebar?.composer?.contextBlocked === true && message.reset }
+          : message);
       },
       select(scope) {
         if (sidebar) { legacyComposerDraft.flush(); vscode.postMessage({ type: 'draftSelect', scope }); }
@@ -2058,6 +2070,8 @@ export function getSidebarHtml(
             || (message.sidebar.bindingGeneration === sidebar.bindingGeneration && message.sidebar.entryId !== sidebar.entryId))) return;
         bindSidebar(message.sidebar);
       } else if (sidebar && (!message.sidebar || !sameSidebarEnvelope(message.sidebar))) return;
+      if (sidebar && typeof message.sidebar?.composer?.contextBlocked === 'boolean')
+        composerDraft?.setContextBlocked(message.sidebar.composer.contextBlocked);
       if (message.type === 'sidebarSessions') {
         recentSessions = Array.isArray(message.sessions) ? message.sessions : [];
         updateSessionLayer();
@@ -2119,6 +2133,11 @@ export function getSidebarHtml(
       }
       else if (message.type === 'clearInput') {
         submissionPending = false;
+        if (sidebar && composerDraft?.blocked()) {
+          sidebarPendingSubmission = undefined;
+          updateSendState();
+          return;
+        }
         // Startup/promotion can assign a new draft owner after this exact submission was accepted.
         // Bridge only its captured entry/text/revision; other controls keep legacy binding checks.
         const acceptedSidebarOrigin = sidebar && sidebarPendingSubmission?.entryId === sidebar.entryId

@@ -23,6 +23,9 @@ The Sessions composer has a separate binding and transfers only its accepted cap
 Renderer actions include an opaque entry ID and view-binding generation; stale new actions are rejected, never retargeted.
 Accepted asynchronous work keeps its captured owner, so A's late acceptance cannot clear B's input or overwrite B's transcript.
 Cold startup and launcher promotion can change recovery bindings; their accepted clear requires the captured entry, text, and revision as well as unchanged current input.
+Actual runtime session-file replacements retain the stale-context warning and submission block for nonempty text.
+The host keeps that block per entry through selection and renderer recreation; verify the session and clear the kept text before sending.
+A late acceptance cannot clear a blocked draft, and another entry does not inherit the block.
 Native input and approval dialogs identify their source conversation; selection does not answer, transfer, or cancel them.
 Stopping or closing a runtime invalidates only its own handles.
 

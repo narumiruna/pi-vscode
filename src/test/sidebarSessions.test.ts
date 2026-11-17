@@ -31,7 +31,7 @@ function deferred<T>() {
 
 const nextTurn = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-async function fixture(action: (f: any) => Promise<void>): Promise<void> {
+async function fixture(action: (f: any) => Promise<void>, options: { resolveView?: boolean } = {}): Promise<void> {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "pi-sidebar-sessions-")));
   const folder = { uri: MockUri.file(root) };
   mock.workspace.workspaceFolders = [folder];
@@ -235,10 +235,13 @@ async function fixture(action: (f: any) => Promise<void>): Promise<void> {
     clients.get(entry.runtime).complete(text);
     await vi.waitFor(() => assert.equal(row(entry)?.activity, "completed"));
   };
-  try {
+  const resolveView = async () => {
     primary.resolveWebviewView(view as any);
     view.receive({ type: "ready" });
     await vi.waitFor(() => assert.equal((primary as any).historyAvailable, true));
+  };
+  try {
+    if (options.resolveView !== false) await resolveView();
     await action({
       root,
       state,
@@ -255,6 +258,7 @@ async function fixture(action: (f: any) => Promise<void>): Promise<void> {
       entries,
       displayed,
       view,
+      resolveView,
       latest,
       binding,
       dispatch,
@@ -1125,3 +1129,278 @@ test("selection changes without a newer scan preserve the saved index on stale r
     }
   });
 });
+
+test.each([
+  { owner: "primary", readiness: "reconstructed" },
+  { owner: "primary", readiness: "repeated" },
+  { owner: "auxiliary", readiness: "reconstructed" },
+  { owner: "auxiliary", readiness: "repeated" },
+])("R6 $readiness renderer readiness restores only the selected $owner images", async ({ owner, readiness }) => {
+  await fixture(async (f) => {
+    await vi.waitFor(() => assert.equal(f.primary.status, "Ready"));
+    const b = await f.open();
+    const selected = owner === "primary" ? f.a : b;
+    const inactive = owner === "primary" ? b : f.a;
+    await f.manager.select(selected.id);
+    f.compose("retained selected draft", 7);
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6MZkAAAAASUVORK5CYII=",
+      "base64",
+    );
+    const retainImages = (entry: any, offset: number) => {
+      const data = (suffix: number) => Buffer.concat([png, Buffer.from([suffix])]).toString("base64");
+      const transcript = entry.controller.imageAssets.store("image/png", data(offset));
+      assert.ok(transcript);
+      entry.controller.messages = [
+        {
+          id: `${entry.id}-ready-image`,
+          role: "user",
+          content: "Retained transcript image",
+          attachments: [
+            {
+              type: "image",
+              assetId: transcript.id,
+              label: "transcript.png",
+              mimeType: transcript.mimeType,
+              width: transcript.width,
+              height: transcript.height,
+              availability: "available",
+            },
+          ],
+        },
+      ];
+      entry.controller.attachments.attachPastedImage({
+        type: "pasteImage",
+        mimeType: "image/png",
+        data: data(offset + 1),
+        fileName: "composer.png",
+      });
+      entry.controller.refreshView();
+      const composer = entry.controller.attachments.summaries[0];
+      assert.ok(composer?.assetId);
+      return [transcript.id, composer.assetId].sort();
+    };
+    const expected = retainImages(selected, 10);
+    const excluded = retainImages(inactive, 20);
+    await vi.waitFor(() => {
+      assert.equal(selected.controller.renderTimer, undefined);
+      assert.equal(inactive.controller.renderTimer, undefined);
+    });
+    await nextTurn();
+    const starts = f.starts.length;
+    const primaryConnect = vi.spyOn(f.primary, "connectSidebarSession");
+    const selectedRefresh = vi.spyOn(selected.controller, "refreshView");
+    const inactiveRefresh = vi.spyOn(inactive.controller, "refreshView");
+    try {
+      f.view.webview.messages.length = 0;
+      if (readiness === "reconstructed") {
+        f.primary.resolveWebviewView(f.view);
+        await nextTurn();
+        assert.ok(!f.view.webview.messages.some((message: any) => message.type === "imageAsset"));
+      }
+      const mark = f.view.webview.messages.length;
+      f.view.receive({ type: "ready" });
+      await vi.waitFor(() => {
+        const images = f.view.webview.messages.slice(mark).filter((message: any) => message.type === "imageAsset");
+        assert.deepEqual(
+          images.map((image: any) => image.id).sort(),
+          expected,
+          `${readiness} readiness must restore transcript and composer payloads`,
+        );
+        assert.ok(images.every((image: any) => image.sidebar.entryId === selected.id));
+        assert.ok(images.every((image: any) => !excluded.includes(image.id)));
+      });
+      assert.deepEqual(selectedRefresh.mock.calls, [[true]]);
+      assert.equal(inactiveRefresh.mock.calls.length, 0);
+      assert.equal(f.latest().sidebar.entryId, selected.id);
+      assert.equal(f.latest().sidebar.composer.text, "retained selected draft");
+      assert.equal(f.latest().sidebar.composer.revision, 7);
+      assert.deepEqual(
+        [f.latest().messages[0].attachments[0].assetId, f.latest().attachments[0].assetId].sort(),
+        expected,
+      );
+      selected.controller.refreshView();
+      await nextTurn();
+      assert.equal(
+        f.view.webview.messages.slice(mark).filter((message: any) => message.type === "imageAsset").length,
+        2,
+        "ordinary state updates must not repeat image payloads",
+      );
+      assert.equal(primaryConnect.mock.calls.length, 0, "readiness must not reconnect an already-connected Primary");
+      assert.equal(f.starts.length, starts);
+    } finally {
+      primaryConnect.mockRestore();
+      selectedRefresh.mockRestore();
+      inactiveRefresh.mockRestore();
+    }
+  });
+});
+
+test.each(["pi.switchSession", "pi.previousSession", "pi.nextSession"])(
+  "R8 cold native %s discovers saved sessions before the first Sidebar resolution",
+  async (command) => {
+    await fixture(
+      async (f) => {
+        const saved = path.join(f.root, "cold-saved.jsonl");
+        const original = `${[
+          { type: "session", id: "cold-saved", cwd: f.root },
+          { type: "session_info", name: "Cold saved conversation" },
+          { type: "message", message: { role: "assistant", content: [{ type: "text", text: "cold saved answer" }] } },
+        ]
+          .map((record) => JSON.stringify(record))
+          .join("\n")}\n`;
+        await writeFile(saved, original);
+        assert.equal(f.runtime.currentState.sessionFile, undefined);
+        assert.equal(f.starts.length, 0);
+        assert.equal((f.manager as any).view, undefined);
+        const focus = vi.spyOn(mock.commands, "executeCommand");
+        const picker = vi.fn(async (choices: any[]) => {
+          const choice = choices.find((item) => item.label === "Cold saved conversation");
+          assert.ok(choice, "cold discovery must offer the saved session in the native picker");
+          return choice;
+        });
+        mock.window.showQuickPick = picker;
+        try {
+          await mock.registrations.get(command)();
+          const selected = f.displayed();
+          assert.notEqual(selected, f.a);
+          assert.equal(selected.runtime.currentState.sessionFile, saved);
+          assert.equal(f.starts.length, 2, "only Primary and the selected saved owner may start");
+          assert.equal(f.starts.filter((start: any) => start.runtime === f.runtime).length, 1);
+          assert.deepEqual(f.starts.find((start: any) => start.runtime === selected.runtime).initial, {
+            file: saved,
+            sessionId: "cold-saved",
+          });
+          assert.ok(focus.mock.calls.some(([id]) => id === "pi.chatView.focus"));
+          assert.equal(picker.mock.calls.length, command === "pi.switchSession" ? 1 : 0);
+          assert.equal(f.clients.get(f.runtime).prompts.length, 0);
+          assert.equal(f.clients.get(selected.runtime).prompts.length, 0);
+          await f.resolveView();
+          assert.equal(f.latest().sidebar.entryId, selected.id);
+          assert.ok(f.latest().messages.some((message: any) => message.content === "cold saved answer"));
+          await f.manager.select(f.a.id);
+          await f.manager.select(selected.id);
+          assert.equal(f.starts.length, 2, "resolution and reselection must reuse the two established owners");
+          assert.equal(await readFile(saved, "utf8"), original);
+        } finally {
+          focus.mockRestore();
+        }
+      },
+      { resolveView: false },
+    );
+  },
+);
+
+test("R8 cold native selection starts Primary without starting another retained cold entry", async () => {
+  await fixture(
+    async (f) => {
+      await f.manager.create();
+      const cold = f.displayed();
+      assert.notEqual(cold, f.a);
+      mock.window.showQuickPick = async (choices: any[]) => choices.find((item) => item.id === f.a.id);
+      await mock.registrations.get("pi.switchSession")();
+      assert.equal(f.displayed(), f.a);
+      assert.equal(f.starts.length, 1);
+      assert.equal(f.starts[0].runtime, f.runtime);
+      assert.equal(f.starts[0].resource.fsPath, f.root, "cold startup must use the validated workspace resource");
+      assert.equal(f.clients.has(cold.runtime), false);
+      await f.resolveView();
+      assert.equal(f.latest().sidebar.entryId, f.a.id);
+      assert.equal(f.starts.length, 1, "first renderer readiness must not restart the connected Primary");
+      assert.equal(f.clients.has(cold.runtime), false);
+    },
+    { resolveView: false },
+  );
+});
+
+test.each(["pi.switchSession", "pi.previousSession", "pi.nextSession"])(
+  "R8 cold native %s rejects untrusted workspace before startup or discovery",
+  async (command) => {
+    await fixture(
+      async (f) => {
+        mock.workspace.isTrusted = false;
+        const picker = vi.fn();
+        mock.window.showQuickPick = picker;
+        const scan = vi.spyOn(require("../sessionHistory"), "listRecentPiSessions");
+        try {
+          await assert.rejects(mock.registrations.get(command)(), /trust/i);
+          assert.equal(f.starts.length, 0);
+          assert.equal(f.entries().length, 1);
+          assert.equal(f.displayed(), f.a);
+          assert.equal(picker.mock.calls.length, 0);
+          assert.equal(scan.mock.calls.length, 0);
+        } finally {
+          scan.mockRestore();
+          mock.workspace.isTrusted = true;
+        }
+      },
+      { resolveView: false },
+    );
+  },
+);
+
+test.each(["terminal ownership", "writer admission"])(
+  "R8 cold native startup rejection from %s cannot authorize discovery or selection",
+  async (reason) => {
+    await fixture(
+      async (f) => {
+        const startup = vi.spyOn(f.runtime, "ensureStarted").mockRejectedValueOnce(new Error(reason));
+        const picker = vi.fn();
+        mock.window.showQuickPick = picker;
+        const scan = vi.spyOn(require("../sessionHistory"), "listRecentPiSessions");
+        try {
+          await assert.rejects(mock.registrations.get("pi.switchSession")(), new RegExp(reason));
+          assert.equal(startup.mock.calls.length, 1);
+          assert.equal(f.starts.length, 0);
+          assert.equal(f.entries().length, 1);
+          assert.equal(picker.mock.calls.length, 0);
+          assert.equal(scan.mock.calls.length, 0);
+        } finally {
+          startup.mockRestore();
+          scan.mockRestore();
+        }
+      },
+      { resolveView: false },
+    );
+  },
+);
+
+test.each(["/new", "/resume"])(
+  "R7 busy ordinary %s submission navigates without queueing or aborting A",
+  async (command) => {
+    await fixture(async (f) => {
+      const saved = path.join(f.root, "busy-resume.jsonl");
+      await writeFile(saved, `${JSON.stringify({ type: "session", id: "busy-resume", cwd: f.root })}\n`);
+      mock.window.showOpenDialog = async () => [MockUri.file(saved)];
+      await f.send(f.a, "keep A running during slash navigation");
+      const client = f.clients.get(f.runtime);
+      const originalPrompts = client.prompts.slice();
+      assert.equal(originalPrompts.length, 1);
+      f.compose(command, 2);
+      f.dispatch({ type: "send", text: command, revision: 2 });
+      await vi.waitFor(() => assert.notEqual(f.displayed(), f.a));
+      const selected = f.displayed();
+      if (command === "/resume") {
+        await vi.waitFor(() => assert.equal(selected.runtime.currentState.sessionFile, saved));
+        assert.equal(f.starts.length, 2);
+      } else {
+        assert.equal(
+          f.clients.has(selected.runtime),
+          false,
+          "a fresh conversation must remain cold before its first Send",
+        );
+        assert.equal(f.starts.length, 1);
+      }
+      assert.equal(client.active, true);
+      assert.equal(client.aborts, 0);
+      assert.equal(client.stops, 0);
+      assert.deepEqual(client.prompts, originalPrompts);
+      const state = f.runtime.currentState;
+      for (const queue of [state.queue, state.pendingQueue]) {
+        assert.equal(queue?.steering.length ?? 0, 0);
+        assert.equal(queue?.followUp.length ?? 0, 0);
+      }
+      await f.complete(f.a, "A completed after independent slash navigation");
+    });
+  },
+);

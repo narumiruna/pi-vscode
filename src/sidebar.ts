@@ -1816,6 +1816,7 @@ export class PiChatViewProvider
   }
 
   private async runBackground(rawText: string, isolated: boolean, composerRevision: number): Promise<void> {
+    this.sidebarSessions?.assertComposerContext(this);
     if (this.preparedEditorRequest)
       throw new Error("Cancel the prepared editor action before starting background work.");
     const input = parseComposerInput(rawText);
@@ -1841,6 +1842,7 @@ export class PiChatViewProvider
       if (!confirmation) {
         return;
       }
+      this.sidebarSessions?.assertComposerContext(this);
       if (this.preparedEditorRequest)
         throw new Error("Cancel the prepared editor action before starting background work.");
       const submittedAttachmentIds = this.attachments.values.map((attachment) => attachment.id);

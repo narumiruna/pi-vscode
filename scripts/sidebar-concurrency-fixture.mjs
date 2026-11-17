@@ -68,7 +68,7 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
         bindingGeneration: generation,
         view: sessionsView ? "sessions" : "session",
         resultRevision,
-        composer: entries.get(id),
+        composer: { ...entries.get(id), contextBlocked: Boolean(options.contextBlocked) },
         primary: id === a,
         canClose: id === b,
         canStart: Boolean(options.canStart),
@@ -85,7 +85,8 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
       history: { available: true, mode: options.mode || "latest", loading: Boolean(options.historyLoading), canNavigate: true, generation: 1 },
       sessions: rows,
       imageSupported: true,
-      attachments: [],
+      editorRequest: options.editorRequest,
+      attachments: options.attachments || [],
       messages: options.messages ?? (sessionsView ? [] : messages(id)),
     };
     await post(page, snapshot);
@@ -118,12 +119,36 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
     assert.equal(await page.locator("#close-sidebar-session").isVisible(), false);
     await page.locator("#input").fill("A unsent draft 日本語");
     const aOrigin = envelope();
+    for (const command of ["/new", "/resume"]) {
+      await page.locator("#input").fill(command);
+      assert.equal(await page.locator("#send").isEnabled(), true, "local navigation remains available during work");
+      const sends = (await posted(page, "send")).length;
+      const queues = (await posted(page, "queueInstruction")).length;
+      await page.locator("#input").press("Enter");
+      assert.equal((await posted(page, "send")).length, sends + 1);
+      assert.equal((await posted(page, "send")).at(-1).text, command);
+      assert.equal((await posted(page, "queueInstruction")).length, queues, "navigation must never enter a model queue");
+      await post(page, { type: "sendRejected", sidebar: envelope() });
+    }
+    for (const guarded of [
+      { editorRequest: { id: "prepared", label: "Prepared action", description: "Keep this action", requiresInput: false } },
+      { attachments: [{ id: "reference", label: "Keep reference", image: false }] },
+    ]) {
+      await state(a, { busy: true, ...guarded });
+      await page.locator("#input").fill("/new");
+      const sends = (await posted(page, "send")).length;
+      assert.equal(await page.locator("#send").isDisabled(), true, "navigation keeps prepared-action and attachment guards");
+      await page.locator("#input").press("Enter");
+      assert.equal((await posted(page, "send")).length, sends);
+    }
     await state(a, { busy: true });
+    const beforeAEdit = (await posted(page, "sidebarViewState")).at(-1).revision;
+    await page.locator("#input").fill("A unsent draft 日本語");
     assert.equal(await page.locator("#input").inputValue(), "A unsent draft 日本語");
     assert.equal(await page.locator("#input").evaluate((node) => node === document.activeElement), true);
     const aView = (await posted(page, "sidebarViewState")).at(-1);
     assert.equal(aView.text, "A unsent draft 日本語");
-    assert.equal(aView.revision, 6);
+    assert.equal(aView.revision, beforeAEdit + 1);
 
     const scroller = page.locator("#conversation");
     await scroller.hover();
@@ -339,6 +364,30 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
     await post(page, { ...aImage, sidebar: envelope() });
     await page.waitForFunction(() => document.querySelector("#messages img")?.naturalWidth === 1);
 
+    // An actual same-entry session replacement retains the stale-context block.
+    const replaced = "ffffffffffffffffffffffff";
+    entries.set(replaced, { text: "Draft for the original runtime session", revision: 9 });
+    await state(replaced, { view: "session" });
+    const oldDraftBinding = "66666666-6666-4666-8666-666666666666";
+    await post(page, { type: "draftState", binding: oldDraftBinding, enabled: false, writable: true, available: false, reset: true, sidebar: { ...envelope(), composer: { contextBlocked: false } } });
+    assert.equal(await page.locator("#send").isEnabled(), true);
+    await post(page, { type: "draftState", binding: "77777777-7777-4777-8777-777777777777", enabled: false, writable: true, available: false, reset: true, sidebar: { ...envelope(), composer: { contextBlocked: true } } });
+    assert.equal(await page.locator("#send").isDisabled(), true, "a real runtime replacement must block the old draft");
+    assert.match(await page.locator("#notice").textContent(), /session changed|Draft context changed/i);
+    const sendsBeforeReplacement = (await posted(page, "send")).length;
+    await page.locator("#input").press("Enter");
+    assert.equal((await posted(page, "send")).length, sendsBeforeReplacement);
+    await post(page, { type: "clearInput", draftBinding: oldDraftBinding, expectedText: "Draft for the original runtime session", expectedRevision: 9, sidebar: { ...envelope(), composer: { contextBlocked: true } } });
+    assert.equal(await page.locator("#input").inputValue(), "Draft for the original runtime session");
+    await state(a);
+    assert.equal(await page.locator("#send").isEnabled(), true, "A must not inherit another entry's context block");
+    await state(replaced, { view: "session", contextBlocked: true });
+    assert.equal(await page.locator("#send").isDisabled(), true, "the owner keeps its guard across Sidebar bindings");
+    await page.locator("#input").fill("");
+    await state(replaced, { view: "session", contextBlocked: false });
+    await page.locator("#input").fill("New draft for the verified current session");
+    assert.equal(await page.locator("#send").isEnabled(), true);
+
     const all = await page.evaluate(() => window.sidebarPosted);
     for (let index = 1; index < all.length; index += 1) {
       const message = all[index];
@@ -356,7 +405,7 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
     assert.deepEqual(external, []);
     return {
       documents: 1,
-      switchedEntries: 5,
+      switchedEntries: 6,
       activityLabels: activities.length,
       independentStops: 2,
       originBoundDelayedImage: true,
@@ -365,6 +414,8 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
       unchangedNavigationReleased: true,
       imageEvictionRecovered: true,
       loadingHistoryAcknowledgedAfterRender: true,
+      busyNavigationShortcuts: true,
+      runtimeReplacementDraftGuard: true,
       visibilityAndLatestAcknowledgement: true,
       cspViolations: 0,
       pageErrors: 0,

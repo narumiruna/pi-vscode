@@ -163,6 +163,8 @@ Selecting live B changes only the display; it does not send RPC `switch_session`
 A late response or send acknowledgement from A cannot replace B's transcript or clear B's draft.
 Selecting a saved file already owned by an editor runtime reveals that panel rather than opening a second writer.
 Closing or hiding the Sidebar view does not close its retained sessions.
+If import or a branch action replaces the actual runtime session behind a nonempty draft, the text stays blocked until you verify the session and clear it.
+This guard stays with its conversation across selection and renderer recreation; ordinary selection and first startup do not create a false block.
 
 | Sessions status | Meaning in this window |
 | --- | --- |

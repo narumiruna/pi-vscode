@@ -98,6 +98,12 @@ A saved file already owned by an editor runtime reveals that panel rather than a
 Renderer actions carry an opaque entry ID and view-binding generation.
 The host rejects newly received stale envelopes before asynchronous work; accepted work keeps its captured controller, client generation, request identity, and workspace checks.
 Send, Stop, queues, drafts, attachments, model/thinking pickers, history, and proposal callbacks cannot be retargeted to a later selection.
+An actual runtime session-file replacement with nonempty composer text sets a host-owned per-entry context block.
+First file assignment in a new entry is not a replacement.
+The block survives disconnects, selection, and renderer recreation; the renderer restores the legacy draft warning and Send guard from this metadata.
+Only a valid empty composer report clears a blocked draft; a late acceptance cannot erase it.
+Direct Send, queue, and background submissions reject blocked text.
+Background launch through More also rechecks this context before and after approval.
 Across cold startup or launcher promotion, a recovery-binding change cannot discard a newer draft: acceptance must match the captured entry/text/revision and current input exactly.
 Inactive runtimes consume their own events; list updates expose bounded metadata rather than inactive transcript/image payloads on each token.
 Native input and approval UI identifies its source conversation.

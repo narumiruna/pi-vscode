@@ -11,3 +11,5 @@ Keep Primary-only global integrations, single-writer checks, exclusive mutation 
 Keep auxiliary activity, unread state, transcripts, and restore references memory-only without automatic restoration or queue replay after reload.
 Keep session rows usable after cancelled or rejected navigation, and resend retained image payloads when a conversation is selected.
 Keep the latest selected-session scan and acknowledge results only after history loading and final shell publication.
+Restore images after renderer readiness, initialize cold native session discovery, and route busy /new and /resume locally without queueing.
+Preserve the host-owned stale draft-context guard for actual runtime session replacements, including view recreation and background submission.

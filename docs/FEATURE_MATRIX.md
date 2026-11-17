@@ -191,9 +191,9 @@ Optional composer recovery uses the same consent-gated `SessionDraftStore` and u
 
 Implementation: `sidebarSessions.ts`, `sessionActivity.ts`, `interactiveSessionSlots.ts`, `sidebar.ts`, `sidebarHtml.ts`, `piRuntime.ts`, and the existing writer, gate, checkpoint, dialog, and draft controllers.
 Validation on 2026-11-17 used Node.js 26.8.2 and network-disabled `bwrap` copies with isolated stores/profiles, not a live provider.
-The ownership suite passed 31 tests after the 2026-11-18 review fixes, including cancelled submissions, promoted draft ownership, transactional construction, uncertain cleanup, unchanged-binding navigation, and shared image eviction.
+The ownership suite passed 46 tests after the 2026-11-18 review fixes, including cancelled submissions, promoted draft ownership, transactional construction, uncertain cleanup, unchanged-binding navigation, and shared image eviction.
 Twelve direct-shell lifecycle regressions verify owned settlement and unread results without weakening exclusive admission.
-The single-document Sidebar browser fixture verified five entry bindings, six activity labels, independent Stop, delayed image origins, drafts/reading position, stable focus, and guarded acknowledgements with zero CSP, page, console, or unexpected-network errors.
+The single-document Sidebar browser fixture verified six entry bindings, six activity labels, independent Stop, delayed image origins, drafts/reading position, stable focus, and guarded acknowledgements with zero CSP, page, console, or unexpected-network errors.
 
 | Initial full-workflow gate | Result on 2026-11-17 |
 | --- | --- |
@@ -215,9 +215,16 @@ This repairs shared-renderer image eviction without increasing image limits or m
 Saved-session refreshes accept only the newest scan for the current discovery owner; older or superseded scans cannot replace its index.
 The renderer waits for history loading to finish before sending or deduplicating a result acknowledgement.
 Shell completion publishes its final controller state before the new result revision, so a preparation snapshot cannot mark the result read.
-The review-fix run passed all 114 unit files with 1,951 tests and three existing skips, the documented Biome check with no errors, and the full rich-content browser suite.
+Actual renderer readiness, including repeated readiness, replays only the selected controller's referenced images without reconnecting an already-connected Primary.
+Cold native Switch/Previous/Next initializes a validated Primary location before discovery and preserves trust, terminal-ownership, and writer admission checks.
+Busy `/new` and `/resume` use the local navigation path, not a model queue, with attachment and prepared-action guards intact.
+A real runtime session replacement keeps nonempty text blocked in host-owned per-entry state until a valid empty composer report.
+The block survives view changes and renderer recreation, cannot be cleared by late acceptance, and also guards background launch before and after approval.
+First file assignment in a new entry remains valid for cold startup and launcher promotion.
+Ten dedicated composer-context tests cover these rules.
+The review-fix run passed all 115 unit files with 1,976 tests and three existing skips, the documented Biome check with no errors, and full rich-content, thinking-picker, and settings browser suites.
 New browser checks verify row unlocking after an unchanged-binding reply, image recovery after B evicts A's payload at the 100-image limit, and same-revision acknowledgement after loading finishes, with zero CSP, page, console, or unexpected-network errors.
-The native, thinking-picker, and settings checks above are retained initial-PR evidence; they were not rerun for these review fixes.
+The native checks above are retained initial-PR evidence; they were not rerun for these review fixes.
 The fixtures also retain native settings, read-only review, Preview/Apply/Undo, queue, terminal ownership across reload, and explicit text-only draft recovery checks.
 Native fixture corrections wait for file-watcher/editor updates and current pickers; they do not retry writes or change production guards.
 The configured/imported session store is used when seeding cold B.
