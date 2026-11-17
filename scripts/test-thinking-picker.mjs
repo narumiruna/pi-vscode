@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { chromium } from "playwright-core";
+import { browserPlatformArgs } from "./test-browser-platform.mjs";
 
 const require = createRequire(import.meta.url);
 const { getSidebarHtml } = require("../out/sidebarHtml.js");
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true, args: browserPlatformArgs() });
 try {
   const page = await browser.newPage();
   const errors = [];

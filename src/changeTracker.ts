@@ -58,6 +58,10 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
     | undefined;
   private latest: RequestCheckpoint | undefined;
 
+  public get hasProtectedRecovery(): boolean {
+    return this.history.values.some((record) => record.restoreFailed);
+  }
+
   /** Enable conservative history invalidation when multiple local sessions can use this workspace. */
   public enableConcurrentSafety(cwd: string): void {
     const root = realpathSync(cwd);

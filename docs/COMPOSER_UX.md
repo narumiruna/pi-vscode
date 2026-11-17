@@ -3,12 +3,60 @@
 ## Compatibility and boundaries
 
 These controls use the existing workspace Extension Host and sidebar webview.
-VS Code 1.140.0 is the minimum supported version.
+VS Code 1.146.0 is the minimum supported version, with matching pinned declarations; bundled Pi is 1.5.2.
 No public command ID, Pi process argument, permission policy, Preview/Apply rule, session-file format, CSP, or dependency changes are required.
 
 Host validation remains authoritative.
 Visible status, local search and native picker groups do not grant permission to execute a request.
 Validation uses disposable profiles and deterministic Pi responses, without live model calls, authentication or uploads.
+
+## Sidebar conversation ownership
+
+One Sidebar webview presents retained per-runtime controllers, not one mutable runtime destination.
+Sessions rows, View all, native Switch Session, Previous/Next, New Session, Resume Session, and applicable `/new`/`/resume` shortcuts can select live, cold saved, or fresh conversations during another ordinary request.
+Live selection is display-only; it does not call RPC `switch_session`, abort work, clear queues, or invalidate origin-bound input requests.
+Cold saved or new conversation admission uses a separate runtime and explicit **Open Session** shared-file confirmation.
+Actual session/resource mutations keep their exclusive canonical-workspace and originating-session idle gates.
+
+Each controller owns its transcript/history, stream, composer text, attachments, queues, model/thinking state, Stop, proposals, checkpoints, notices, and subscriptions.
+The Sessions composer has a separate binding and transfers only its accepted captured text and attachments to the new entry.
+Renderer actions include an opaque entry ID and view-binding generation; stale new actions are rejected, never retargeted.
+Accepted asynchronous work keeps its captured owner, so A's late acceptance cannot clear B's input or overwrite B's transcript.
+Cold startup and launcher promotion can change recovery bindings; their accepted clear requires the captured entry, text, and revision as well as unchanged current input.
+Native input and approval dialogs identify their source conversation; selection does not answer, transfer, or cancel them.
+Stopping or closing a runtime invalidates only its own handles.
+
+Sessions rows show text for host-owned **Idle**, **Running**, **Waiting for input**, **Completed**, **Failed**, or **Stopped**, separately from current selection and cleanup/connection warnings.
+Waiting for input means live input/approval is pending, not an empty idle composer.
+Running includes request/tools, retries, compaction, queue draining, and settlement.
+Completed means successful owned settlement, not verified answer or edit quality; explicit cancellation settles as Stopped.
+Row identity remains stable so metadata updates do not replace focused rows or reorder an active cycle.
+Status is not color-only, and meaningful transitions use the existing coalesced live region rather than per-token announcements.
+
+Unread uses host-memory result revisions, not token counts or selection.
+A settled retained result or actionable failure diagnostic advances once per request.
+Acknowledge only the exact revision rendered in selected visible detail while following a loaded latest history window.
+Sessions, hidden views, earlier-history windows, and paused following do not acknowledge it.
+An older or cross-session acknowledgement cannot clear a newer result.
+Transcript New output/Jump to latest remains a separate indicator.
+
+**Primary** labels the stable window-service owner, not the displayed conversation.
+Ordinary controls and naming target their originating controller.
+Terminal handoff/recovery, restart, annotations, editor actions, review/repair, settings/authentication, transfer/sharing, and public broadcast remain Primary-owned; auxiliary routes use editor-runtime restrictions.
+Global commands do not silently retarget when selection or focus changes.
+The **primary status area** below means the composer's main status surface, not the Primary runtime's status when another conversation is selected.
+
+One fixed pool permits one Primary plus eight additional runtimes total across Sidebar and editor surfaces, including retained idle and quarantined entries.
+Auxiliary **Close Session** confirms before stopping work and discarding unsent memory-only state, without deleting saved Pi history.
+Cancelled close changes nothing; protected failed-restore data cannot be discarded to free a slot.
+Unverified cleanup retains writer/capacity reservations and originating-root exclusive-workflow exclusion until reload.
+Hiding the Sidebar leaves work running.
+No worktree isolation, durable activity/unread history, automatic auxiliary restoration, or queue replay across reload is provided.
+Auxiliary transcripts/restore references remain memory-only, without new persistent transcript keys.
+Optional draft recovery retains its existing consent and shared aggregate limits.
+
+Offline unit, browser, and VS Code 1.146.0 native checks passed; see [current validation and limits](FEATURE_MATRIX.md#concurrent-sidebar-sessions) and [manual/native scenarios](DEVELOPMENT.md#sidebar-concurrency-validation).
+Dated evidence below is historical and does not validate the new concurrent Sidebar routes.
 
 ## Primary status
 
@@ -47,7 +95,8 @@ Theme tokens, visible focus, plain-text rendering, CSP, and sanitization remain 
 
 ## Submission blocker order
 
-The first applicable row supplies disabled-button titles and the accessible submission description.
+The first applicable row supplies disabled-button titles and the accessible submission description for the originating composer.
+Another retained conversation's work does not block Sidebar display selection or new-entry admission.
 Non-neutral blockers enter primary-status priority 2, below problems and above progress; empty input supplies only the accessible description and tooltip.
 
 | Priority | Condition | User action |
@@ -59,7 +108,7 @@ Non-neutral blockers enter primary-status priority 2, below problems and above p
 | 5 | Message acceptance pending | Wait for Pi to accept the message. |
 | 6 | Background startup pending | Wait for startup to finish. |
 | 7 | Pasted image loading | Wait for loading to finish. |
-| 8 | New-session submission while Pi is working | Wait or use Stop. |
+| 8 | In-place new-session submission in a non-registry surface while its runtime works | Wait or use Stop; Sidebar registry creation uses separate admission. |
 | 9 | Locked/non-queueable active request | Wait or use Stop. |
 | 10 | Direct shell with attachments, a queue, or the Sessions composer | Use an idle session without attachments. |
 | 11 | Queued slash command or full ten-message queue | Wait for settlement or a queued message to start. |
@@ -96,7 +145,8 @@ History notices, retained-draft controls, Pi extension status in Conversation de
 | Only runtime/tool status changes | Do not mark new transcript output. |
 | Activate Jump to latest | Return to the bottom and follow output, then return focus to the composer, without changing the draft or making a request. |
 | Browse earlier history | Pause following; explicit latest navigation restores the current tail before following. |
-| Session changes | Reset the output indicator and navigation state. |
+| Sidebar display selection | Restore that entry's reading/following state; do not acknowledge unread by selection alone. |
+| Actual runtime session replacement | Reset that controller's output indicator and navigation state. |
 | Word wrap or asynchronous layout | Preserve manual reading; do not force smooth scrolling. |
 
 ## Text draft ownership and storage
@@ -128,7 +178,7 @@ Scope transitions hide an old notice until the new binding is known.
 | Transition | Ownership and recovery rule |
 | --- | --- |
 | Initial/recreated view | Separate Sessions ownership and a fresh random view binding; see [Ownership details](#ownership-details). |
-| Sessions/detail navigation | Bounded flush and cross-context protection; see [Ownership details](#ownership-details). |
+| Sidebar selection or Sessions/detail navigation | Retain the originating entry's memory draft and separate Sessions binding; bounded flush and stale-origin checks remain. |
 | Pi assigns or saves a session | Session-file path hashing, independent of temporary ID or saved header; see [Ownership details](#ownership-details). |
 | Session switch/import/fork/clone | Resulting-session binding without silent text reassignment; see [Ownership details](#ownership-details). |
 | Accepted send/queue/background startup | Clear only the captured originating binding, revision and text, including More-menu background/worktree launches. |
@@ -145,8 +195,9 @@ Scope transitions hide an old notice until the new binding is known.
 
 - Initial/recreated views start with separate Sessions ownership and a fresh random view binding.
   Do not insert retained text automatically.
-- Sessions/detail navigation flushes bounded old-context text.
-  Preserve unsent input and block cross-context sending until explicit clearing; do not assume a flush reached disk.
+- Sidebar selection retains each entry's unsent text and attachments in memory and keeps the Sessions composer separate.
+  Flush bounded old-context text for optional recovery; do not assume that a flush reached disk.
+  Preserve existing uncertain-context blocking for actual rebinding instead of silently assigning kept text to another session.
 - When Pi assigns or saves a session, hash the assigned session-file path, not its temporary ID.
   A saved header does not change that path's owner.
 - Session switch/import/fork/clone rebinds to the resulting session.
@@ -164,7 +215,8 @@ Existing actions remain; Word wrap and Conversation details are local conversati
 Model/Thinking mutations require an idle connected runtime and a current picker origin.
 Read-only details remain available when disconnected.
 Recent Sessions is not equivalent to choosing an arbitrary JSONL file.
-Return Pi from Terminal remains available for held ownership recovery.
+Return Pi from Terminal remains available in Primary for held ownership recovery.
+The table below lists Primary's full action set; auxiliary Sidebar and editor sessions omit privileged routes described under [Sidebar conversation ownership](#sidebar-conversation-ownership).
 
 | Group | Available actions |
 | --- | --- |
@@ -180,7 +232,7 @@ Word wrap sends one fixed display message to the originating view without submit
 
 | Action | Existing handler / alternate entry | Required state or approval |
 | --- | --- | --- |
-| Resume | `resumeSession()`; recent Sessions is a bounded alternative only | No foreground request; validated same-workspace session file. |
+| Resume | `resumeSession()`; recent Sessions is a bounded alternative only | Registry selection may run during another ordinary request; cold saved admission validates workspace, capacity, writer, and shared-file confirmation. |
 | Rename | `nameSession()`; More only | Native name input; cancel performs no rename. |
 | Compact | `compact()`; `/compact` | Idle owned session; existing runtime checks. |
 | Tree/Fork/Clone | `browseSessionTree()`; palette | Trusted idle matching session; revision-safe branch draft. |
@@ -212,13 +264,14 @@ Word wrap sends one fixed display message to the originating view without submit
 Labels and descriptions are searchable.
 VS Code can hide separator labels while filtering.
 Separators and unknown selections never dispatch.
-Session/client lifecycle changes invalidate an open picker.
+Session/client lifecycle changes and stale view bindings invalidate an open picker.
 Each action retains its original host guards and confirmations; no generic idle gate blocks terminal recovery.
 
 ## Search and rendering limits
 
 Public Pi `get_messages` returns the full active branch, not a paginated response.
-Every navigation reacquires it while idle under the 64 MiB persistent RPC single-line bound, increased from 5 MiB.
+Each history-window navigation reacquires it while that runtime is idle under the 64 MiB persistent RPC single-line bound, increased from 5 MiB.
+Display selection between retained controllers does not require another runtime to become idle.
 LF framing, decoded UTF-8 byte counting and CRLF handling are unchanged; larger complete lines and unterminated fragments are rejected.
 Full-response decoding and synchronous JSON parsing can still increase memory use and pause the Extension Host.
 Locally typed frame-too-large errors produce a safe allowlisted Output category and a fixed Sidebar notice, without raw frame, error or path data.

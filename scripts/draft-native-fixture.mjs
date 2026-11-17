@@ -30,11 +30,11 @@ async function retainedDesktopDrafts(directory) {
 
 /** Check successful local commands that do not create a new session or draft binding. */
 export async function assertNativeDraftLocalCommands({ pi, page, until, directory }) {
-  if (!((await pi.locator("#app").getAttribute("class")) || "").split(" ").includes("sessions-layer")) {
-    await pi.locator("#back-to-sessions").click();
+  if (((await pi.locator("#app").getAttribute("class")) || "").split(" ").includes("sessions-layer")) {
+    await pi.locator("#recent-session-list .current").click();
   }
   const input = pi.locator("#input");
-  // Settle the earlier detail/layer transition before testing an idle, same-binding command.
+  // Local runtime controls belong to the retained detail, not the independent Sessions launcher.
   await page.waitForTimeout(250);
   await input.fill("");
   await pi.locator('#composer-status[data-state="empty"]').waitFor({ state: "attached" });
@@ -60,12 +60,12 @@ export async function assertNativeDraftLocalCommands({ pi, page, until, director
     await assertComposerStatusContract(pi);
     assert.equal(await pi.locator("#composer-status").getAttribute("data-state"), "ready");
     assert.equal(await pi.locator("#session").inputValue(), session, "local commands do not create another session");
-    assert.ok(((await pi.locator("#app").getAttribute("class")) || "").split(" ").includes("sessions-layer"));
+    assert.ok(!((await pi.locator("#app").getAttribute("class")) || "").split(" ").includes("sessions-layer"));
     await input.fill("");
   }
   assert.equal(await prompts(), before, "fixture local commands never invoke a model");
   console.log(
-    "PI_NATIVE_DRAFT_LOCAL_COMMANDS Sessions /reload and /compact release accepted handoffs with retention off; same session and no prompts",
+    "PI_NATIVE_DRAFT_LOCAL_COMMANDS detail /reload and /compact release accepted handoffs with retention off; same session and no prompts",
   );
 }
 

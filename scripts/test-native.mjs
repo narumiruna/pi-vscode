@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { downloadAndUnzipVSCode } from "@vscode/test-electron";
+import { browserPlatformArgs } from "./test-browser-platform.mjs";
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const version = process.argv[2] ?? "1.140.0";
@@ -53,6 +54,7 @@ try {
   const evidence = path.join(directory, "evidence.json");
   const args = [
     workspace,
+    ...browserPlatformArgs(),
     "--no-sandbox",
     "--disable-gpu",
     "--disable-updates",

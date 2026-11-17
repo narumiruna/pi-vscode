@@ -3,7 +3,7 @@
 Use the [overview](../README.md) for requirements, Marketplace installation, and first use.
 This guide contains detailed controls, compatibility boundaries, and operational limits.
 
-[Installation alternatives](#installation-alternatives) · [Runtime selection](#runtime-selection-and-recovery) · [Concurrent sessions](#concurrent-editor-sessions) · [Conversation controls](#conversation-controls) · [Workflows](#focused-workflows) · [Settings](#settings) · [Security](#security-and-limits) · [Extension bridge](#extension-bridge)
+[Installation alternatives](#installation-alternatives) · [Runtime selection](#runtime-selection-and-recovery) · [Concurrent sessions](#concurrent-sidebar-sessions) · [Conversation controls](#conversation-controls) · [Workflows](#focused-workflows) · [Settings](#settings) · [Security](#security-and-limits) · [Extension bridge](#extension-bridge)
 
 ## Installation alternatives
 
@@ -149,6 +149,80 @@ Check remaining work before starting conflicting operations.
 Use `@pi` in VS Code's native Chat view when you prefer the native participant workflow.
 Native Chat history is separate from the Pi sidebar session.
 
+### Concurrent Sidebar sessions
+
+The Sidebar displays one conversation at a time over retained independent runtimes.
+Start a request in A, choose **Back to Sessions**, then select live B, open an unloaded saved B, or create a new C without stopping A.
+Use Sessions rows, **View all**, **Pi: Switch Session**, **Previous/Next Session**, **New Session**, or **Resume Session** to select a conversation.
+Local `/new` and `/resume` use this navigation without replacing the running conversation; remove attachments and cancel prepared editor actions first.
+Sending from the Sessions-level composer starts a separate conversation with that composer's captured text and attachments.
+It does not submit them to the previously selected conversation.
+
+Each conversation retains its transcript/history window, stream, composer draft, attachments, queues, model/thinking selection, and **Stop**.
+Selecting live B changes only the display; it does not send RPC `switch_session` to A, stop A, clear its queue, or transfer its input dialogs.
+A late response or send acknowledgement from A cannot replace B's transcript or clear B's draft.
+Selecting a saved file already owned by an editor runtime reveals that panel rather than opening a second writer.
+Closing or hiding the Sidebar view does not close its retained sessions.
+
+| Sessions status | Meaning in this window |
+| --- | --- |
+| Idle | No owned request outcome is known; saved history does not imply success. |
+| Running | Accepted startup/submission, request, tools, retry, compaction, queue draining, or settlement remains active. |
+| Waiting for input | A live input, selection, editor, or approval request needs a response from this conversation. |
+| Completed | The request settled successfully, including queue reconciliation; its answer and file changes are not certified. |
+| Failed | Startup/request failed or an unexpected disconnect prevented settlement. |
+| Stopped | Explicit cancellation settled. |
+
+Connection, delivery, and cleanup warnings remain separate from these activity labels.
+Native input and approval dialogs identify their source conversation, including when another conversation is displayed.
+Changing selection does not answer, cancel, or retarget a dialog.
+**Stop** or close invalidates only the originating runtime's input handles.
+
+**Unread result** means a settled result or actionable failure diagnostic has not been read in visible conversation detail.
+The host tracks result revisions in memory, not token counts.
+Selecting a row alone does not mark it read.
+Acknowledgement requires the exact result revision to be rendered while the Sidebar is visible, conversation detail is open, and you follow the latest output.
+Sessions view, hidden views, earlier history, and paused following leave it unread.
+An older acknowledgement cannot clear a newer result or another conversation's marker.
+Transcript **New output** and **Jump to latest** remain separate reading controls.
+
+#### Capacity, closing, and reload
+
+There is one fixed pool: **one Primary runtime plus at most eight additional runtimes across Sidebar conversations and editor panels together**.
+Retained idle sessions and cleanup-quarantined sessions count toward the additional eight.
+At capacity, opening is rejected without evicting work or changing the selected conversation.
+Each additional Sidebar opening requires the shared-file warning's explicit **Open Session** confirmation.
+There is no automatic worktree creation or file isolation.
+Concurrent tools can change the same files; review Source Control and any checkpoint warnings.
+
+Choose **Close Session** in an auxiliary Sidebar conversation to release its slot after verified cleanup.
+Confirm **Close Session** to stop its work and discard unsent memory-only text and attachments; cancel to leave it unchanged.
+Saved Pi history is not deleted.
+Protected failed-restore recovery data must be retained before close is allowed.
+Unverified cleanup retains the slot, writer claim, and originating canonical-root exclusion for exclusive workflows until reload.
+Inspect and stop residual processes before reloading; no request is retried automatically.
+The Primary service owner cannot be closed through this action.
+
+Activity, unread state, auxiliary transcripts, and auxiliary restore references remain memory-only.
+Window reload does not restore auxiliary runtimes, restart their requests, or replay their queues.
+Saved Pi history remains available for explicit resume.
+Only Primary keeps the existing Sidebar restore/cache behavior; there are no additional persistent transcript keys.
+Optional [text draft recovery](#text-draft-recovery) uses the existing consent-gated shared store and aggregate limits, not a new allowance per conversation.
+
+#### Primary-only integrations
+
+**Primary** identifies the stable window-service owner, not whichever conversation is selected or running.
+Ordinary Send, queue, Stop, attachments, naming, history, and model/thinking controls target their originating conversation under existing host checks.
+Terminal environment publication and handoff/recovery, confirmed restart, annotations, editor actions, review/repair/debug, settings/authentication, transfer/sharing, and public bridge broadcast remain Primary-owned.
+Auxiliary Sidebar conversations use the same privileged-route restrictions as editor runtimes; their **More…** omits Primary-only actions and the host rejects privileged runtime requests.
+Selecting an auxiliary conversation or focusing an editor panel does not silently redirect global integrations.
+Select **Primary** before using its conversation-bound global workflows.
+Ordinary requests may overlap, but actual session/resource mutations, direct shell, Apply, import, and checkpoint restore retain exclusive canonical-workspace gates.
+Display selection does not authorize any of those operations.
+
+See [Security and Privacy](SECURITY.md#concurrent-sidebar-sessions) for origin and writer checks.
+Offline unit, browser, and VS Code 1.146.0 native checks passed; see [current validation and limits](FEATURE_MATRIX.md#concurrent-sidebar-sessions).
+
 ### Concurrent editor sessions
 
 Run **Pi: New Concurrent Session** (`pi.newConcurrentSession`) from the Command Palette, or choose **+** in the Pi view title.
@@ -167,13 +241,13 @@ Restore the original workspace binding, or open a new panel for the intended wor
    Close the panel to stop only its runtime, without deleting saved Pi session files.
    Closing a tab does not prove that every detached process stopped; inspect any cleanup warning before conflicting work.
 
-You can open up to eight additional editor sessions alongside the sidebar.
+Editor panels and auxiliary Sidebar conversations share the same eight additional runtime slots alongside Primary.
 Each has its own RPC process, transcript, composer draft, attachments, queue, and model/thinking selection.
 Pi credentials, configuration, resources, and session storage remain shared on the Extension Host.
 These sessions do not provide a sandbox, separate files, or a separate credential store.
 
 Editor panels do not automatically restore or restart after a window reload; no panel serializer is registered.
-Their transcript caches and remembered session paths stay in memory and do not overwrite the sidebar's persisted state.
+Their transcript caches and remembered session paths stay in memory and do not overwrite Primary's persisted state.
 After a panel closes and writer cleanup is verified, use the sidebar's **Pi: Switch Session** or **More… → Resume Session** to resume its saved Pi session.
 The in-window canonical session-file registry rejects duplicate RPC starts or switches while another runtime owns the file.
 A normal close frees its session slot only after every pending stop completes.
@@ -181,13 +255,14 @@ Uncertain cleanup keeps the file claim and session slot blocked until window rel
 An unverified RPC cleanup warning also blocks exclusive workspace actions, such as Apply, import, direct shell, and checkpoint restore, until window reload.
 Ordinary shared requests can still run, but their file changes do not have verified checkpoint attribution.
 On Windows, the standard descendant-cleanup warning also keeps this exclusive-workflow block.
-Quarantined closed sessions still count toward the eight-session limit.
+Quarantined closed sessions still count toward the shared eight-additional-runtime limit.
 Inspect and stop residual processes before reloading the window; no request is retried automatically.
 Other windows and external Pi processes are not locked by this registry.
 
-Existing global session commands, editor actions, review, and repair workflows still target the sidebar, even when an editor panel has focus.
-Panel **More…** omits sidebar-only export/import/share, provider authentication, review/repair/debug, compatibility, terminal handoff/recovery, and restart routes.
-Terminal handoff, restart recovery, and temporary passage annotations remain sidebar-only; the runtime host rejects these requests from editor sessions.
+Sidebar navigation commands select conversations through the registry even when an editor panel has focus.
+Other existing global integrations, including editor actions, review, and repair, still target **Primary**.
+Panel **More…** omits Primary-only export/import/share, provider authentication, review/repair/debug, compatibility, terminal handoff/recovery, and restart routes.
+Terminal handoff, restart recovery, and temporary passage annotations remain Primary-only; the runtime host rejects these requests from editor and auxiliary Sidebar sessions.
 Per-panel native model and thinking controls remain available.
 
 Ordinary interactive requests can overlap through shared workspace agent leases.
@@ -196,15 +271,17 @@ An active background task retains its existing exclusive gate there, rather than
 Overlapping requests and later operations from another owner can make checkpoints non-restorable, even if file contents still match.
 Failed-restore recovery snapshots are not discarded by that invalidation.
 See [text draft recovery](#text-draft-recovery) for the shared optional retention store and [Security and Privacy](SECURITY.md#concurrent-editor-sessions) for ownership limits.
-See [concurrent-session validation](FEATURE_MATRIX.md#concurrent-interactive-editor-sessions) for offline host and browser checks, the focused macOS native check, and the remaining native, remote, platform, reload, and live-provider gaps.
+See [earlier editor-session validation](FEATURE_MATRIX.md#concurrent-interactive-editor-sessions) for retained offline and focused macOS evidence.
+Those results do not establish final Sidebar-concurrency or shared-pool verification; native, remote, platform, reload, and live-provider limits remain separate.
 
 ### Switch sessions
 
-Run **Pi: Switch Session** (`pi.switchSession`) to open a native searchable Quick Pick for the sidebar session.
+Run **Pi: Switch Session** (`pi.switchSession`) to open a native searchable Quick Pick for Sidebar conversations.
 Editor-panel focus does not retarget this command.
-Search matches titles and session IDs; **Current** identifies the active saved session.
-Press Enter to resume the selected session, or Escape to cancel without changing the conversation or composer.
-Selecting the active session is a no-op.
+Search matches titles and session IDs; **Current** identifies selection and **Primary** identifies the stable service owner.
+Activity and unread text describe owned current-window state.
+Press Enter to select a live conversation or open a saved one; Escape leaves the conversation and composer unchanged.
+Selecting the current live entry reuses it without starting another process.
 
 | Action | Windows/Linux | macOS |
 | --- | --- | --- |
@@ -216,25 +293,27 @@ The previous/next command IDs are `pi.previousSession` and `pi.nextSession`.
 Change these shortcuts in VS Code **Keyboard Shortcuts** if needed.
 The defaults do not run in terminal input or while another Quick Pick is open.
 
-Discovery uses the active session directory on the workspace Extension Host, keeps at most 100 saved sessions with matching canonical workspace, and shares a 64 MiB metadata-read budget.
+Discovery uses the selected saved session's directory, or Primary's directory, on the workspace Extension Host.
+It keeps at most 100 saved sessions with matching canonical workspace and shares a 64 MiB metadata-read budget.
+The list merges and deduplicates retained live entries, including unsaved conversations and live work outside that saved subset.
 It is not a complete search across all Pi stores.
-The first navigation can start or restore Pi through the normal trusted startup path; it does not send a model request.
+Opening an unloaded saved session uses a separate validated runtime; navigation itself does not send a model request.
 Use **More… → Resume Session** to select a saved file outside this discovered list.
 A session from another workspace or worktree must be opened in its matching VS Code window.
 
-Next moves forward through a newest-first snapshot; Previous moves backward, and both wrap around.
+Next moves forward through a stable snapshot of live entries followed by discovered saved entries; Previous moves backward, and both wrap around.
 Updates to session modification times do not reorder an active cycle.
-Search selection, other session transitions, changed membership, resource controls, and client/workspace changes rebuild the cycle.
-An unsaved current session is not a resumable destination; Next starts at the first saved entry and Previous at the last.
-An empty list does not switch; a list containing only the active session is a no-op.
+Changed membership rebuilds the cycle; retained unsaved live entries remain selectable.
+An empty list does not switch, and a single current entry does not create another runtime.
 
-Switching requires an idle trusted file-backed workspace, sidebar ownership, and no pending queues or extension dialogs.
-Repeated navigation while a picker or switch is pending is rejected rather than queued.
-Existing draft binding and recovery checks remain in effect; switching does not automatically restore or send a draft.
-Attachments, edit proposals, checkpoints, and retry state clear through the successful conversation transition.
-Extension-provided status and widget text reset before dispatch so fresh destination updates cannot mix with outgoing UI.
-If switching succeeds but history refresh fails, use **Refresh history** or reconnect as directed; do not repeat the switch to recover history.
-An uncertain authoritative runtime refresh disconnects safely rather than presenting the old session as usable.
+Display selection remains available while another conversation has an ordinary request, queue, or input dialog.
+New or unloaded saved entries require trusted, file-backed, matching-workspace startup, shared capacity, writer checks, and **Open Session** confirmation.
+An in-progress admission is not queued again; stale picker results are rejected.
+Per-conversation drafts, attachments, proposals, checkpoints, retry state, and extension UI stay with their controller instead of being cleared by display selection.
+Optional retained text is never automatically restored or sent.
+Actual RPC session replacement and resource/branch mutations still require idle ownership and exclusive workspace admission.
+If history refresh fails, use **Refresh history** or reconnect as directed; do not repeat navigation to replay work.
+An uncertain authoritative runtime refresh disconnects only its originating runtime safely.
 
 ### Conversation controls
 
@@ -277,7 +356,7 @@ An uncertain authoritative runtime refresh disconnects safely rather than presen
   Message headings support assistive-technology navigation.
   Earlier Orca evidence applies to the previous layout; screen-reader behavior for this relocation requires a separate check.
 - The sidebar's **More…** has one searchable native picker with **Session management**, **Conversation display**, **Review and repair**, **Background work**, and **Pi configuration** groups.
-  Editor sessions omit the sidebar-only routes listed under [Concurrent editor sessions](#concurrent-editor-sessions).
+  Auxiliary Sidebar and editor sessions omit the Primary-only routes listed under [Primary-only integrations](#primary-only-integrations).
   **Extension Settings** and **Pi Configuration** are not duplicated here.
 
 #### Operation diagnostics
@@ -305,7 +384,7 @@ See [Operational logging](SECURITY.md#operational-logging) for the metadata and 
 Open **More… → Conversation details → Text draft recovery → Enable recovery** to review and accept draft retention before saving any composer text.
 This is for non-secret text only.
 The extension uses workspace-scoped VS Code `workspaceState`, without Settings Sync: at most 50,000 characters per draft, 20 drafts, and 250,000 total characters.
-Sidebar and editor-session composers share one `SessionDraftStore`; these aggregate limits are not separate allowances per panel.
+Primary, auxiliary Sidebar, and editor-session composers share one `SessionDraftStore`; these aggregate limits are not separate allowances per conversation.
 Consent applies to this shared store, and **Disable and discard all** in any view disables retention for all subscribed views.
 Disabling also invalidates pending consent and stale draft updates from those views.
 A late send acknowledgement cannot remove a newer retained draft written by another view, even when the text is identical.
@@ -344,7 +423,9 @@ On cleanup, choose **Don't Save** to discard the text; cancelling that close lea
 
 Only one multiline editor request can be active across the sidebar and all editor sessions at a time.
 One shared controller keeps each dialog reply bound to its originating runtime and session.
-Closing one editor session cancels only that runtime's dialog requests.
+Dialogs identify their source conversation, even when another Sidebar conversation is selected.
+Display selection does not answer or cancel them.
+Stopping or closing one auxiliary Sidebar or editor session invalidates only that runtime's dialog requests.
 Prefill and returned text are limited to 100,000 characters.
 Text uses VS Code's document line endings; mixed line endings can be normalized.
 Timeouts close the owned UI locally, while Pi supplies its own timeout default.
@@ -368,8 +449,8 @@ The Pi button in the editor title opens Sessions and uses separate light and dar
 | Add a selection reference | **Ctrl+Alt+A** / **Cmd+Alt+A** on macOS; editor lightbulb → **Rewrite → Ask Pi**; or editor context menu → **Pi → Ask About Selection** |
 | Modify a selection with Preview/Apply | Editor lightbulb → **Rewrite → Modify with Pi**, or editor context menu → **Pi** |
 
-**Ask About Selection** captures the selected text as an unsent reference above the sidebar session's composer, including on the Sidebar's first load.
-Focusing a concurrent editor session does not redirect this or other existing editor actions.
+**Ask About Selection** captures the selected text as an unsent reference above the **Primary** Sidebar session's composer, including on the Sidebar's first load.
+Selecting an auxiliary Sidebar conversation or focusing an editor panel does not redirect this or other existing editor actions.
 It focuses the composer without a separate question input, immediate submission, draft clearing, or replacement session.
 Existing draft-context checks still apply to text kept after a view or session transition.
 Repeat with other selections to add references, then describe what to discuss or change for each file/range in your message.
@@ -406,7 +487,7 @@ Enable `pi.inlineCompletions.enabled` to request them after a typing pause.
 
 ### Temporary passage annotations
 
-The foreground sidebar agent can use `vscode_annotate` in already-open code or text documents.
+Only the **Primary** Sidebar agent can use `vscode_annotate` in already-open code or text documents.
 Whole-line highlights and hovers remain available.
 Read-only native comments contain explanations below each range, grouped at its end line, with **Pi** as author and **Pi annotation** as label.
 They start collapsed by default.
@@ -434,8 +515,8 @@ Editing a document or closing its last text/diff tab removes its annotations.
 Saving without text changes keeps them.
 Session or branch changes, resource reload, client replacement, disconnect, terminal handoff and window reload remove all annotations.
 Hiding the sidebar does not remove them.
-Annotations require a trusted, matching file-backed workspace and the foreground sidebar runtime.
-Concurrent editor sessions, terminal sessions, and background agents cannot authorize them with their ordinary bridge credentials.
+Annotations require a trusted, matching file-backed workspace and the Primary Sidebar runtime.
+Auxiliary Sidebar sessions, concurrent editor sessions, terminal sessions, and background agents cannot authorize them with their ordinary bridge credentials.
 
 Limits: 20 annotations per call, 200 lines and 10,000 expected-text characters per annotation, 1,000 explanation characters, and 100 retained annotations across 20 documents.
 The temporary editor UI is not persisted; ordinary Pi tool arguments and history have their normal retention.
@@ -549,7 +630,8 @@ Prompt markers now use `PI_VSCODE_*`; old markers remain plain transcript text.
   - `/compact` accepts optional instructions and compacts the current session through Pi.
     The other Sidebar shortcuts do not accept inline arguments; use their controls instead.
 
-  Remove attachments and wait for idle Pi before running commands.
+  Remove attachments before running local commands.
+  Registry-routed `/new` and `/resume` can select another conversation while an ordinary request runs; other commands retain the originating session's idle and mutation gates.
   Commands cannot enter the in-flight queue or run from a prepared editor action.
   Sidebar shortcut names take precedence over duplicate Pi extension command names.
   Other TUI-only commands are not listed.
@@ -615,7 +697,7 @@ Pi and installed extensions own permissions.
 Without a permission policy, commands can run with no confirmation.
 
 **Extension UI Compatibility** explains the terminal boundary.
-**Open in Terminal** is an explicit ownership handoff, not a second writer: it stops foreground RPC, passes the same packaged bridge/read-only policy and project-resource approval flags, and holds the canonical operation lock.
+**Open in Terminal** is a Primary-only explicit ownership handoff, not a second writer: it stops Primary's RPC, passes the same packaged bridge/read-only policy and project-resource approval flags, and holds the canonical operation lock.
 If stop cleanup is unverified, another inspection confirmation is required before launch.
 Cancellation or a terminal launch failure can leave ownership held; use **Return Pi from Terminal / Recover Ownership** after checking remaining processes.
 Closing a terminal is not proof that tools or descendants stopped.
@@ -1023,9 +1105,9 @@ flowchart LR
 ```
 
 The bridge provides `vscode_context`, `vscode_code_context`, `vscode_open_file`, and `vscode_notify` for sidebar sessions, concurrent editor sessions, and sidebar **Open in Terminal** handoffs.
-Each editor runtime uses a private authenticated bridge.
-Only the sidebar publishes and clears bridge variables for future integrated terminals; opening or closing an editor panel does not change that terminal environment.
-The additional `vscode_annotate` tool is restricted to the foreground sidebar session and requires separate private authorization.
+Each auxiliary Sidebar and editor runtime uses a private authenticated bridge.
+Only Primary publishes and clears bridge variables for future integrated terminals; auxiliary opening, selection, or close does not change that terminal environment.
+The additional `vscode_annotate` tool is restricted to the **Primary** Sidebar session and requires separate private authorization.
 
 A new ordinary integrated terminal inherits the authenticated bridge environment and bridge path, but plain `pi` does not load the bridge.
 The following commands require a separately available external Pi; the bundled runtime does not add `pi` to PATH.
@@ -1049,4 +1131,5 @@ It returns metadata only, with zero-based ranges; source text requires a separat
 The tool is not loaded by independent background/worktree agents.
 
 VS Code extensions in the same Extension Host can activate `narumi.narumi-pi` and call its exported `broadcast(event, data)` API.
+Broadcast targets Primary's existing integration, not the selected auxiliary conversation.
 Event names and payloads are validated and bounded.

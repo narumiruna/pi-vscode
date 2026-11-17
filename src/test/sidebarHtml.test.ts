@@ -874,7 +874,7 @@ test("sidebar places model and thinking controls before submission and exposes r
   assert.match(html, /let backgroundSubmissionPending = false/);
   assert.match(
     html,
-    /\(!text && !attachedItems\) \|\| \(!connected && !isSidebarSlashCommand\(\)\) \|\| submissionPending \|\| backgroundSubmissionPending/,
+    /\(!text && !attachedItems\) \|\| \(!connected && !isSidebarSlashCommand\(\) && !sidebar\?\.canStart\) \|\| submissionPending \|\| backgroundSubmissionPending/,
   );
   assert.match(html, /backgroundSubmissionPending = Boolean\(state\.backgroundSubmissionPending\)/);
   assert.match(
@@ -1768,7 +1768,15 @@ test("conversation header owns one accessible icon per action and no transcript 
   const buttons = [...actions.matchAll(/<button id="([^"]+)"([^>]*)>([\s\S]*?)<\/button>/g)];
   assert.deepEqual(
     buttons.map((button) => button[1]),
-    ["new-session", "delete-session", "history-search-open", "history-earlier", "history-latest", "more"],
+    [
+      "new-session",
+      "delete-session",
+      "close-sidebar-session",
+      "history-search-open",
+      "history-earlier",
+      "history-latest",
+      "more",
+    ],
   );
   for (const [_, id, attributes, content] of buttons) {
     assert.match(attributes, /class="[^"]*icon-button/);

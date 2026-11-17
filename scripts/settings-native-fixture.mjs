@@ -249,10 +249,14 @@ async function assertSettingsOverflow({ page, invoke, until, directory, version 
   await menu.extension.waitFor({ state: "hidden" });
   await menu.configuration.waitFor({ state: "hidden" });
   menu = await openSettingsOverflow(page);
+  await menu.extension.hover();
   await menu.extension.click();
+  await menu.extension.waitFor({ state: "hidden" });
   await page.locator(".settings-editor").waitFor({ state: "visible" });
   menu = await openSettingsOverflow(page);
+  await menu.configuration.hover();
   await menu.configuration.click();
+  await menu.configuration.waitFor({ state: "hidden" });
   await until(async () => (await invoke("settingsState")).tabs === 1, "Pi Configuration from title overflow");
   assert.equal(await read("pids.jsonl"), pids, "Title menu actions must not start or restart Pi");
   assert.equal(await read("prompts.jsonl"), prompts, "Title menu actions must not submit a prompt");

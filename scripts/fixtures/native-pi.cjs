@@ -10,8 +10,28 @@ const path = require("node:path");
 const directory = process.env.PI_VSCODE_UI_FIXTURE;
 if (!directory) throw new Error("An isolated native UI fixture is required");
 const sessionArgument = process.argv.indexOf("--session");
-let sessionFile = sessionArgument >= 0 ? process.argv[sessionArgument + 1] : path.join(directory, "session.jsonl");
-let sessionId = fs.existsSync(sessionFile) ? JSON.parse(fs.readFileSync(sessionFile, "utf8").split("\n")[0]).id : "native-ui-session";
+const startsFile = path.join(directory, "starts.jsonl");
+// The native UI concurrency lane gives each subsequent no-session launch a new
+// writer. Standalone fixture consumers retain their seeded single-session contract.
+let firstStartup = !fs.existsSync(path.join(directory, "sidebar-concurrency-enabled"));
+try {
+  fs.closeSync(fs.openSync(startsFile, "ax"));
+  firstStartup = true;
+} catch (error) {
+  if (error.code !== "EEXIST") throw error;
+}
+const primaryFile = path.join(directory, "session.jsonl");
+const freshId = `native-ui-${require("node:crypto").randomUUID()}`;
+let sessionFile = sessionArgument >= 0 ? process.argv[sessionArgument + 1]
+  : firstStartup ? primaryFile : path.join(directory, `${freshId}.jsonl`);
+let sessionId = fs.existsSync(sessionFile) ? JSON.parse(fs.readFileSync(sessionFile, "utf8").split("\n")[0]).id
+  : sessionFile === primaryFile ? "native-ui-session" : freshId;
+// Deliberately bounded metadata only: no argv, prompts, environment or credentials.
+if (sessionFile.length > 4096 || typeof sessionId !== "string" || sessionId.length > 256)
+  throw new Error("Invalid native fixture startup metadata");
+fs.appendFileSync(startsFile, `${JSON.stringify({
+  pid: process.pid, sessionFile, sessionId, sessionArgument: sessionArgument >= 0 ? sessionFile : null,
+})}\n`);
 if (!fs.existsSync(sessionFile)) fs.writeFileSync(
   sessionFile,
   `${JSON.stringify({ type: "session", version: 3, id: sessionId, cwd: process.cwd(), timestamp: new Date().toISOString() })}\n`,
@@ -265,6 +285,40 @@ const onLine = (line) => {
     }
     fs.appendFileSync(path.join(directory, "prompts.jsonl"), `${JSON.stringify(request)}\n`);
     const text = fs.readFileSync(path.join(directory, "response.txt"), "utf8");
+    // A captured response belongs to this request even when another session later
+    // changes response.txt. Per-session release files prevent cross-session release.
+    if (text.startsWith("HOLD_SIDEBAR_CONCURRENCY\n")) {
+      const token = sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
+      const releaseFile = path.join(directory, `sidebar-release-${token}`);
+      fs.rmSync(releaseFile, { force: true });
+      const user = { role: "user", content: [{ type: "text", text: request.message }], timestamp: Date.now() };
+      append(user);
+      fs.appendFileSync(path.join(directory, "sidebar-events.jsonl"), `${JSON.stringify({
+        type: "prompt", sessionId, sessionFile, message: request.message.slice(0, 512),
+      })}\n`);
+      emit({ type: "agent_start" });
+      emit({ type: "message_end", message: user });
+      const inputFile = path.join(directory, `sidebar-input-${token}`);
+      let inputSent = false;
+      heldTimer = setInterval(() => {
+        if (!inputSent && fs.existsSync(inputFile)) {
+          inputSent = true;
+          fs.rmSync(inputFile, { force: true });
+          emit({ type: "extension_ui_request", id: `sidebar-input-${token}`, method: "input", title: "B input while A is selected" });
+        }
+        if (!fs.existsSync(releaseFile)) return;
+        clearInterval(heldTimer);
+        fs.rmSync(releaseFile, { force: true });
+        const assistant = { role: "assistant", content: [{ type: "text", text: text.slice(text.indexOf("\n") + 1) }], stopReason: "stop", timestamp: Date.now() };
+        append(assistant);
+        emit({ type: "message_start", message: { role: "assistant", content: [], timestamp: assistant.timestamp } });
+        emit({ type: "message_end", message: assistant });
+        emit({ type: "agent_end", messages });
+        emit({ type: "agent_settled" });
+        fs.appendFileSync(path.join(directory, "sidebar-events.jsonl"), `${JSON.stringify({ type: "completed", sessionId, sessionFile })}\n`);
+      }, 50);
+      return;
+    }
     const imageFile = path.join(directory, "interface-images.json");
     const images = fs.existsSync(imageFile) ? JSON.parse(fs.readFileSync(imageFile, "utf8")) : [];
     if (images.length) fs.unlinkSync(imageFile);
@@ -378,6 +432,7 @@ const onLine = (line) => {
   }
   if (request.type === "abort") {
     clearInterval(heldTimer);
+    fs.appendFileSync(path.join(directory, "sidebar-events.jsonl"), `${JSON.stringify({ type: "abort", sessionId, sessionFile })}\n`);
     emit({ type: "agent_settled" });
   }
 };

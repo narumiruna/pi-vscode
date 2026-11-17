@@ -36,13 +36,17 @@ Persistent Pi session files and exact legacy global bridge cleanup paths are unc
 | Text draft recovery | More → Conversation details recovery controls, explicit retention consent, bounded workspace-scoped text storage, session-bound retained-text notice, manual Restore/Discard and Disable/discard-all | [Storage and recovery evidence](#text-draft-recovery). |
 | Discoverable file context and accessible messages | Capability-aware snapshot/path instructions in Submission help and the input's accessible description; stable, labelled message headings | [Context and accessibility limits](#discoverable-file-context-and-accessible-messages). |
 | Space-filling Sessions list | Recent sessions use the available height above the composer, with internal scrolling and View all search | `sidebarHtml.ts`, `sidebarHtml.test.ts`, `scripts/sessions-layout-fixture.mjs`; offline checks cover entries beyond the former three-row limit, responsive height, scrolling, search, and composer access. |
-| Quick session switching | Sidebar-targeted native Quick Pick plus previous/next commands and guarded default chords; bounded same-workspace discovery, stable cycle order, authoritative transition checks | `sidebar.ts`, `piRuntime.ts`, `sessionNavigation.test.ts`, `sessionSwitchRuntime.test.ts`; native keyboard and picker fixtures run without a live model. |
-| Concurrent interactive editor sessions | Pi: New Concurrent Session and Pi view-title +; up to eight independent native editor panels plus the sidebar, with explicit shared-file confirmation | [Concurrency contract and validation](#concurrent-interactive-editor-sessions). |
+| Quick session switching | Sidebar-native Quick Pick, View all and previous/next commands select retained live or validated cold saved sessions during ordinary work; bounded discovery and stable cycling | [Current routing and validation](#concurrent-sidebar-sessions). |
+| Concurrent Sidebar requests | One Sidebar over independent retained controllers; A and B can run ordinary requests without stopping each other | [Behavior and current validation](#concurrent-sidebar-sessions). |
+| New/resumed Sidebar conversation during work | New Session, Resume Session and the Sessions composer admit a separate runtime rather than replacing A | [Admission and mutation boundaries](#concurrent-sidebar-sessions). |
+| Sessions activity | Host-owned Idle, Running, Waiting for input, Completed, Failed and Stopped outcomes, separate from cleanup/delivery warnings | [Activity semantics](#concurrent-sidebar-sessions). |
+| Unread Sidebar results | Per-result revisions clear only after visible latest-following detail renders the exact result, not on selection | [Unread semantics](#concurrent-sidebar-sessions). |
+| Concurrent interactive editor sessions | Pi: New Concurrent Session and Pi view-title +; editor panels share the eight additional runtime slots with auxiliary Sidebar entries alongside one Primary | [Concurrency contract and earlier validation](#concurrent-interactive-editor-sessions). |
 | Sidebar slash commands | Disconnected local suggestions; session, model, thinking and settings shortcuts; explicit command/skill discovery with typed resource labels and revision-bound insertion | [Slash command behavior and checks](#sidebar-slash-commands). |
 | Grouped native session actions | One searchable native Quick Pick with five groups, including Conversation display → Word wrap / Conversation details; existing mutation routes retain host checks | `sidebar.ts`, `sessionActions.test.ts`; separators, description filtering, stale/lifecycle rejection and cancellation retain original host guards and command IDs. |
 | Transcript code wrapping | More… → Conversation display → Word wrap shows On/Off, off by default and local to the view | [Display-only behavior](#transcript-code-wrapping). |
 | Bounded conversation search/history | Header Find text / Earlier history / Latest history icons; search-only scope and unloaded-history note, no passive unavailable strip, conditional loading/position/truncation feedback and safe literal highlighting | [History bounds](#bounded-conversation-searchhistory). |
-| Temporary passage annotations | Foreground whole-line highlights, literal hovers and read-only native comments; collapsed by default, with an initial-state setting | [Annotation contract and evidence](#temporary-passage-annotations). |
+| Temporary passage annotations | Primary-only whole-line highlights, literal hovers and read-only native comments; collapsed by default, with an initial-state setting | [Annotation contract and evidence](#temporary-passage-annotations). |
 | Theme-aware Pi editor button | The editor-title Open Sessions action uses separate light and dark Pi icons | `package.json`, `resources/pi.svg`, `resources/pi-dark.svg`; manifest tests check theme mappings, explicit colors and matching shapes. |
 | Native Pi extension dialogs | Single-line input, explicitly accepted non-secret multiline editor, and full read-only review before timed confirmation | [Dialog boundaries and evidence](#native-pi-extension-dialogs). |
 | Approved Pi resource reload and restart | Local `/reload`, Reload Pi Resources, and separately confirmed Restart Pi with current launch policy | [Resource-control evidence](#approved-pi-resource-reload-and-restart). |
@@ -66,7 +70,7 @@ Persistent Pi session files and exact legacy global bridge cleanup paths are unc
 | Rich panel responses | Markdown tables, nested/task lists, quotes, links, strikethrough, highlighted code, KaTeX math, and Mermaid flowchart/sequence SVG | [Renderer evidence and limits](#rich-panel-responses). |
 | Codex side-by-side chat panel | Quiet idle composer, attachment and model/thinking controls, fixed primary status, separate Stop and blocking notices | [Panel behavior and evidence](#codex-side-by-side-chat-panel). |
 | Codex context from open files and selections | Selection, current file, file picker, diagnostics, terminal text, and image attachments | [Attachment and selection evidence](#codex-context-from-open-files-and-selections). |
-| Codex edit and preview changes | Editor actions use the persistent Pi Chat session, create proposal cards, generate virtual-document diffs, and require Preview before Apply | Implemented in `src/editorActions.ts` and `src/sidebar.ts`. |
+| Codex edit and preview changes | Editor actions use the stable Primary Pi Chat session, create proposal cards, generate virtual-document diffs, and require Preview before Apply | Implemented in `src/editorActions.ts` and `src/sidebar.ts`. |
 | Codex cloud delegation | Independent background and detached-worktree Pi agents with streamed tracking | Local equivalent implemented; OpenAI-hosted Codex Cloud remains an OpenAI service dependency. |
 | Codex cloud task review locally | Inspect actual isolated-task results and explicitly import selected files into the originating worktree | [Task import evidence and limits](#codex-cloud-task-review-locally). |
 | GitHub Copilot inline completion | Manual or opt-in automatic VS Code ghost-text completion | Implemented with cancellation, debounce, cache, and bounded context. |
@@ -90,7 +94,7 @@ Persistent Pi session files and exact legacy global bridge cleanup paths are unc
 | Claude Code permission prompts | Pi and installed extensions own permissions; no pi-vscode built-in tool/shell confirmation policy | [Permission boundary](#claude-code-permission-prompts). |
 | Claude Code subagents | Multiple independent foreground/background/worktree Pi RPC clients | Implemented local equivalent. |
 | Claude Code custom slash commands | Pi extension commands, prompt templates, and skills from `get_commands` | Implemented. |
-| Claude Code terminal-style interface | Open the active Pi session in an integrated terminal | Implemented. |
+| Claude Code terminal-style interface | Open the Primary Pi session in an integrated terminal | Implemented. |
 | Claude Code subscription/model choice | Pi's provider authentication, subscription OAuth, API keys, model catalog, and thinking levels | Implemented by reusing Pi; provider subscriptions remain provider dependencies. |
 | Image-aware chat | Bounded PNG, JPEG, GIF, and WebP RPC image payloads from file selection or Ctrl/Cmd+V paste, with model-capability checks | [Image lifecycle](#image-aware-chat). |
 | Provider authentication | Separate native sign-in/sign-out commands; isolated selected Pi helper accepting exactly 1.3.0 or 1.5.2 using public `ModelRuntime`, masked stdin input, explicit host/store approval | [Authentication evidence and limits](#provider-authentication). |
@@ -136,6 +140,90 @@ The universal layout retains the production dependency closure and six native pr
 Asset inclusion is not a claim that all targets work.
 See [Bundled runtime validation](BUNDLED_RUNTIME_VALIDATION.md) for discovery evidence, final-gate status, license disposition, and retained platform/remote/provider handoff.
 
+### Concurrent Sidebar sessions
+
+One registered Sidebar displays retained per-runtime conversation controllers.
+A running ordinary request in A does not block selecting live B, opening an unloaded saved B, or creating C from Sessions.
+Sessions rows, View all, native Switch Session, Previous/Next, New Session, Resume Session, and local `/new`/`/resume` use the registry.
+Live selection changes presentation only; it does not dispatch RPC `switch_session`, abort A, or release A's request lease.
+Cold saved sessions use validated initial-session startup in a separate runtime.
+An editor-owned file reveals its existing panel instead of creating another writer.
+
+Transcripts, streams, history windows, composer text, attachments, queues, model/thinking state, proposals, checkpoints, and Stop stay with their originating controller.
+Opaque entry IDs and view-binding generations reject stale renderer actions; already accepted asynchronous work keeps its captured origin.
+Native input/approval dialogs identify their source conversation and remain source-bound across selection changes.
+
+| Host-owned status | Meaning |
+| --- | --- |
+| Idle | No owned current-window request outcome; saved history does not infer success. |
+| Running | Accepted startup/submission, request/tools, retry, compaction, queue draining, or settlement is active. |
+| Waiting for input | A live source-bound input/selection/editor/approval request needs a response. |
+| Completed | The request settled successfully, including queue reconciliation; content and edits are not certified. |
+| Failed | Startup/request failure or unexpected disconnect prevented settlement. |
+| Stopped | Explicit cancellation settled. |
+
+Connection, delivery uncertainty, and cleanup warnings remain distinct from these labels.
+A settled retained result or actionable failure diagnostic advances one host-memory result revision per owned request.
+Token/progress updates, list refreshes, and row selection do not advance it.
+Unread clears only for the exact revision rendered in selected conversation detail while the Sidebar is visible and the reader follows the latest output.
+Sessions view, hidden views, earlier history, and stale/cross-session acknowledgements cannot clear a newer result.
+Transcript New output/Jump to latest remains a separate feature.
+
+One fixed admission pool permits **one Primary plus eight additional interactive runtimes total across Sidebar entries and editor panels**.
+Retained idle entries and quarantined cleanup count toward the additional eight; capacity rejection does not evict work or lose a draft.
+Saved discovery stays bounded to 100 entries and a 64 MiB metadata-read budget; live entries are merged and deduplicated so they remain selectable.
+An additional Sidebar opening requires explicit **Open Session** confirmation of shared files without worktree isolation.
+Auxiliary **Close Session** confirms before stopping its work or discarding unsent memory-only state, retains saved Pi history, and cannot discard protected failed-restore data.
+Capacity and writer claims release only after bounded verified cleanup; uncertainty retains reservations and originating canonical-root exclusive-workflow exclusion until reload.
+
+**Primary** is the stable window-service owner, not current display selection.
+Terminal environment/handoff/recovery, restart, annotations, editor actions, review/repair/debug, settings/authentication, transfer/sharing, and public bridge broadcast remain Primary-owned.
+Auxiliary Sidebar runtimes support ordinary controls but use editor-role restrictions for privileged routes.
+Selection and panel focus do not silently retarget global commands.
+Ordinary requests retain shared canonical agent leases; direct shell, actual session/resource mutation, Apply, import, and checkpoint restore retain exclusive gates.
+Checkpoint overlap safeguards apply to auxiliary Sidebar trackers too.
+
+Hiding or re-resolving the Sidebar does not stop owned work; extension deactivation shuts down owned runtimes.
+Activity, unread state, auxiliary transcripts, and auxiliary restore references are memory-only, without additional persistent transcript keys.
+Primary keeps its existing restore/cache behavior.
+Reload does not automatically restore auxiliary sessions, restart their requests, or replay queues.
+Optional composer recovery uses the same consent-gated `SessionDraftStore` and unchanged aggregate limits.
+
+Implementation: `sidebarSessions.ts`, `sessionActivity.ts`, `interactiveSessionSlots.ts`, `sidebar.ts`, `sidebarHtml.ts`, `piRuntime.ts`, and the existing writer, gate, checkpoint, dialog, and draft controllers.
+Validation on 2026-11-17 used Node.js 26.8.2 and network-disabled `bwrap` copies with isolated stores/profiles, not a live provider.
+The ownership suite passed 21 tests, including cancelled submissions, promoted draft ownership, transactional construction, and uncertain cleanup.
+Eleven direct-shell lifecycle regressions verify owned settlement and unread results without weakening exclusive admission.
+The single-document Sidebar browser fixture verified five entry bindings, six activity labels, independent Stop, delayed image origins, drafts/reading position, stable focus, and guarded acknowledgements with zero CSP, page, console, or unexpected-network errors.
+
+| Final gate | Current result |
+| --- | --- |
+| Compile and full `npm test` | Passed: 114 files, 1,940 tests passed, three existing skips. |
+| Documented Biome 2.5.13 check | Passed with warnings/information; no errors. |
+| Full rich-content, thinking-picker, and settings browser suites | Passed; thinking picker covers 864 layout cases. |
+| VS Code 1.146.0 native Extension Host, Restricted Mode, and full UI | Passed with deterministic RPC fixtures and a private virtual input seat. |
+| Current stable native Extension Host, Restricted Mode, and full UI | Passed; stable was independently resolved to 1.146.0, commit `69047191fc427f2f92828279aae1d90d8eeda7ab`. Offline launchers used that verified cached artifact. |
+
+[Development scenarios](DEVELOPMENT.md#sidebar-concurrency-validation) cover the four requested capabilities and Primary-only limits.
+Earlier editor-session evidence below is historical and does not validate the new shared pool or concurrent Sidebar routing.
+Full native UI runs verify A-running → saved B cold startup → fresh C → retained A, separate drafts, hidden B unread results, inactive B native input replies, and B-only Stop while A completes.
+Retained selection issues zero RPC `switch_session` calls.
+Cold first sends and Sessions-composer promotion clear only their exact accepted draft across recovery-owner changes; newer text remains protected.
+The fixtures also retain native settings, read-only review, Preview/Apply/Undo, queue, terminal ownership across reload, and explicit text-only draft recovery checks.
+Native fixture corrections wait for file-watcher/editor updates and current pickers; they do not retry writes or change production guards.
+The configured/imported session store is used when seeding cold B.
+Native concurrency runs produce `pi-sidebar-concurrency-before.png` and `pi-sidebar-concurrency-sessions.png` in the test temporary directory for visual review.
+
+#### External handoff
+
+| Responsible role | Prerequisite and action | Expected result / unverified behavior | Restriction |
+| --- | --- | --- | --- |
+| macOS/Windows maintainers | Use disposable native profiles and repeat concurrency, source-bound input, shortcuts, Stop, and cleanup fixtures. | Equivalent UI routing and process lifecycle; platform input and descendant cleanup remain unverified here. | Do not infer platform validation from Linux/WSL; preserve Windows cleanup warnings. |
+| Remote maintainers | Use an authorized Remote SSH/WSL/container workspace with disposable stores and repeat the fixtures. | Processes and discovery stay on the workspace Extension Host; remote behavior remains unverified. | Local Linux under WSL is not Remote WSL evidence. |
+| Accessibility/product reviewer | Review the generated before/workflow captures and keyboard/focus evidence with real assistive technology. | Understandable activity/unread semantics without lost focus or excessive announcements; subjective usability and actual announcements remain unverified. | DOM/native keyboard checks are not screen-reader acceptance. |
+| Account owner | Obtain separate authorization before live-provider or account validation. | Provider behavior and external service effects remain unverified by deterministic fixtures. | No login, live calls, uploads, existing-profile installation, or publication was performed. |
+
+No packaging or distribution change was needed; no VSIX, installation, publication, or live-provider validation is claimed for this change.
+
 ### Concurrent interactive editor sessions
 
 **Pi: New Concurrent Session** (`pi.newConcurrentSession`) and the Pi view-title **+** open independent native `WebviewPanel` sessions.
@@ -143,13 +231,13 @@ Each opening requires a trusted, file-backed workspace and confirmation that con
 The opened workspace URI is retained for folder lookup, scoped settings, and reconnect; a separate verified canonical root owns filesystem checks and operation locks.
 Editor runtime startup and ordinary prompt dispatch check the original folder registration and canonical root, including after asynchronous preparation.
 Removing the original folder or changing its root fails closed instead of selecting the first workspace folder.
-At most eight additional panels can run alongside the sidebar.
+Editor panels share at most eight additional runtime slots with auxiliary Sidebar conversations alongside the stable Primary runtime.
 Each panel owns its RPC process, transcript, composer draft, attachments, queue, model/thinking controls, and Stop.
 Hiding a panel or switching tabs does not stop work; closing it shuts down only its runtime and retains saved Pi session files.
 A normal close frees its slot after every pending bounded stop settles; cleanup-unverified closes retain their slot and writer claim until window reload.
 An unverified RPC cleanup result also leaves a canonical-root reservation that blocks exclusive workspace operations until reload, including when no request lease remains.
 Ordinary shared agents can continue, but active and later requests receive unverified checkpoint attribution for that root.
-The eight-session bound includes quarantined closed sessions.
+The shared eight-additional-runtime bound includes retained idle entries and quarantined closed sessions.
 Inspect and stop residual processes before reloading; no request is retried automatically.
 
 Panels have no serializer and do not restore or restart automatically after reload.
@@ -158,8 +246,9 @@ Panel transcript caches and restore references are memory-only and bypass the si
 Optional text recovery uses one shared consent-gated `SessionDraftStore`, with the existing aggregate limits and Disable/discard-all semantics.
 Existing Pi credentials, configuration, and session storage remain shared; separate runtimes are not a sandbox.
 
-Existing global session commands, editor actions, review, and repair stay sidebar-bound, regardless of editor-panel focus.
-Panel **More…** omits sidebar-only transfer/sharing, authentication, review/repair/debug, compatibility, terminal handoff/recovery, and restart routes.
+Sidebar navigation commands select entries through the registry; editor-panel focus does not redirect them.
+Other global integrations, including editor actions, review, and repair, stay Primary-bound.
+Panel **More…** omits Primary-only transfer/sharing, authentication, review/repair/debug, compatibility, terminal handoff/recovery, and restart routes.
 The runtime host also rejects editor-panel terminal, restart, and annotation requests.
 Per-panel native model and thinking pickers remain available.
 
@@ -172,6 +261,10 @@ Native extension dialogs share one origin-bound controller and one owned multili
 The shared log uses client generations unique across runtimes and retains at most 32 warning-suppression generations.
 
 Implementation: `concurrentSessions.ts`, `sidebar.ts`, `piRuntime.ts`, `sessionWriters.ts`, and the shared operation, checkpoint, dialog, draft, and logging controllers.
+
+#### Earlier editor-session validation
+
+The following evidence predates Sidebar concurrency and shared admission across both surfaces.
 Offline host regression tests cover simultaneous requests, separate transcript and Stop routing, close/startup races, capacity and cleanup quarantine, single-writer reservations, deletion races, shared drafts, and origin-bound dialogs.
 The full unit suite and host/browser compilation passed with locked dependencies and one test worker.
 `npm run test:rich-content` passed with two independent Chromium documents using the bundled renderer.
@@ -227,7 +320,7 @@ Windows/macOS and Remote SSH/WSL/container routing/focus require environment-spe
 ### Text draft recovery
 
 Implementation: `sessionDraftStore.ts`, `sessionDraftController.ts`, `composerDraftHtml.ts`; revision/view/session binding, no automatic replay or attachment persistence.
-Sidebar and editor-session composers share consent, aggregate storage bounds, and Disable/discard-all state.
+Primary, auxiliary Sidebar, and editor-session composers share consent, aggregate storage bounds, and Disable/discard-all state.
 Disabling recovery invalidates pending consent and stale draft bindings across subscribed views.
 The shared store tracks a memory-only writer identity for each retained record.
 Accepted sends remove a record only when the captured binding still owns it; equal text, revisions, or timestamps cannot clear another view's saved draft.
@@ -274,15 +367,16 @@ Resource selection inserts a revision- and draft-bound command without sending i
 The connected menu labels Sidebar, Skill, Prompt, and Extension entries and hides reserved internal controls.
 Local names take precedence over duplicate Pi commands.
 Only `/compact` accepts inline arguments; existing native controls handle other values.
-Attachments, active work, pending queues/dialogs, and prepared editor actions block local commands.
+Attachments and prepared editor actions block registry-routed `/new` and `/resume`, but another conversation's ordinary request, queue, or dialog does not.
+Other local commands retain their originating runtime's idle and mutation guards.
 
 Evidence: `slashCommands.ts`, `slashCommands.test.ts`, `sidebarHtml.test.ts`, `composerDraftHtml.test.ts`, and the offline Chromium fixtures cover routing, cold suggestions, skill filtering, cancellation, stale pickers, bounded cold-start handoffs, draft preservation, and narrow menus.
 Native Extension Host, remote, other-platform, and live-provider slash command checks remain unverified.
 
 ### Temporary passage annotations
 
-Foreground sidebar `vscode_annotate` adds whole-line highlights, literal hovers and read-only native comments below marked ranges.
-Concurrent editor runtimes cannot authorize annotations.
+Primary Sidebar `vscode_annotate` adds whole-line highlights, literal hovers and read-only native comments below marked ranges.
+Auxiliary Sidebar and concurrent editor runtimes cannot authorize annotations.
 Comments are grouped at the range end line and show **Pi** as author and **Pi annotation** as label.
 Literal untrusted explanations also appear in the Comments panel.
 
@@ -506,7 +600,7 @@ Client Windows/macOS, remote, and real assistive-technology checks were not reru
 ### Codex context from open files and selections
 
 Implemented with item, size, and total bounds.
-Ask About Selection, the Ask Pi code action, and Ctrl+Alt+A (Cmd+Alt+A on macOS) stage selected text as an unsent reference in the active session's composer.
+Ask About Selection, the Ask Pi code action, and Ctrl+Alt+A (Cmd+Alt+A on macOS) stage selected text as an unsent reference in the stable Primary session's composer.
 Capture happens before view focus changes the active editor.
 File and precise line/column labels keep same-line selections distinct; repeat capture of the same range replaces its snapshot.
 Users can add multiple references, remove each one, and describe the requested work before explicit Send.

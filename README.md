@@ -1,7 +1,7 @@
 # Pi for VS Code
 
 Use your existing [Pi](https://pi.dev) providers, models, and tools in VS Code.
-Ask about code in the sidebar, independent editor sessions, or native `@pi` chat.
+Ask about code in concurrent Sidebar conversations, independent editor sessions, or native `@pi` chat.
 Attach editor context, review Git changes, and use focused edit workflows with Preview and Apply.
 
 **Permission boundary:** Focused edit workflows generate proposals under a read-only policy and require explicit Apply. Ordinary agent sessions can run tools and change files without Preview and Apply. Pi and installed extensions own tool and shell permissions; without a permission policy, actions can run with no confirmation.
@@ -93,7 +93,8 @@ See [slash commands](docs/USER_GUIDE.md#focused-workflows) for all shortcuts and
 
 Select editor text and choose **Pi → Ask About Selection**, the **Ask Pi** code action, or **Ctrl+Alt+A** (**Cmd+Alt+A** on macOS) to add an unsent reference above the Sidebar composer.
 Add more selections, remove individual references, and describe what to discuss or change for each file/range before sending.
-This keeps the current session and its draft; it does not open a separate question input or send immediately.
+This targets the stable **Primary** Sidebar session and keeps its draft; it does not open a separate question input or send immediately.
+Selecting an auxiliary Sidebar conversation or focusing an editor panel does not redirect editor actions.
 The other selection-menu actions also prepare a labelled read-only action before **Send**, without replacing your text.
 **Modify Selection (Preview)** needs a description; the other presets show their default request and accept extra details.
 **Cancel** removes only the pending action, keeping references and text.
@@ -102,9 +103,11 @@ Prepared read-only actions wait for idle Pi instead of entering the ordinary que
 The Sessions list fills the available space above the composer and scrolls when needed, rather than showing only three entries.
 Choose **View all** to search the discovered sessions in this workspace.
 
-Use **Pi: Switch Session** to search saved sessions for the sidebar in the current workspace, or **Pi: Previous Session** / **Pi: Next Session** to cycle through them.
+Use **Pi: Switch Session** to search live and saved Sidebar sessions in the current workspace, or **Pi: Previous Session** / **Pi: Next Session** to cycle through them.
 Default shortcuts use **Ctrl+K**, then **Ctrl+Alt+Shift+S / Left / Right**; on macOS use **Cmd+K**, then **Cmd+Alt+Shift+S / Left / Right**.
-Cycling keeps its order while sessions are updated; switching requires idle Pi without pending queues or dialogs.
+Cycling keeps its order while sessions are updated.
+Selecting another conversation does not stop active requests, queues, or source-bound input dialogs.
+Actual RPC session mutations and exclusive workspace actions retain their existing idle and ownership gates.
 See [session switching](docs/USER_GUIDE.md#switch-sessions) for discovery limits and recovery behavior.
 
 Use `@pi` in VS Code's native Chat view if you prefer that interface.
@@ -112,11 +115,39 @@ Native Chat history is separate from sidebar sessions.
 The sidebar's **More…** provides session management, terminal handoff, repair tools, checkpoints, and background agents.
 See the [user guide](docs/USER_GUIDE.md#get-started) for controls and shortcuts.
 
+### Concurrent Sidebar sessions
+
+Start work in A, return to **Sessions**, and select live B, open a saved B, or create a new conversation while A continues.
+**View all**, **Pi: Switch Session**, **Previous/Next Session**, **New Session**, and **Resume Session** use the same Sidebar selection.
+Each conversation retains its transcript, draft, attachments, queue, model/thinking selection, and **Stop**.
+Native input and approval dialogs identify their source conversation; changing the displayed conversation does not answer or transfer them.
+
+Sessions rows show **Idle**, **Running**, **Waiting for input**, **Completed**, **Failed**, or **Stopped**.
+An **Unread result** marker clears only after that result is rendered in visible conversation detail while following the latest output.
+Row selection alone, Sessions view, a hidden Sidebar, or earlier history does not acknowledge it.
+Completed means the request settled, not that its answer or file changes are correct.
+
+One fixed pool permits **one Primary plus eight additional runtimes in total across Sidebar conversations and editor panels**.
+Retained idle conversations and cleanup-quarantined sessions count toward the additional eight.
+Opening an additional Sidebar session requires the shared-file warning's explicit **Open Session** confirmation.
+Use **Close Session** on an auxiliary Sidebar conversation to stop only its work and discard its unsent memory-only state after confirmation, without deleting saved Pi history.
+Hiding the Sidebar does not close conversations.
+
+**Primary** labels the stable window-service owner, not the selected or busiest conversation.
+Terminal handoff/recovery, restart, annotations, editor actions, review/repair, settings, authentication, and public bridge broadcast stay Primary-owned.
+Auxiliary conversations support ordinary conversation controls, but omit or reject privileged routes like editor sessions.
+Selection or panel focus never silently redirects global commands.
+Sessions share files without worktree isolation.
+Activity, unread state, auxiliary transcripts, and auxiliary restore references are memory-only; reload does not restart auxiliary work or replay queues.
+Optional draft recovery keeps its existing consent and shared limits, without additional persistent transcript keys.
+See [concurrent Sidebar sessions](docs/USER_GUIDE.md#concurrent-sidebar-sessions) and [current validation](docs/FEATURE_MATRIX.md#concurrent-sidebar-sessions).
+Offline unit, browser, and VS Code 1.146.0 native checks passed; platform, remote, and screen-reader limits remain in the linked validation.
+
 ### Concurrent editor sessions
 
 Run **Pi: New Concurrent Session** (`pi.newConcurrentSession`) or choose **+** in the Pi view title to open an independent native editor panel.
 Confirm the shared-file warning before opening each session.
-Up to eight additional editor sessions can run alongside the sidebar.
+Editor panels share the eight additional runtime slots with auxiliary Sidebar conversations; they do not receive a separate allowance.
 Each has its own Pi RPC process, transcript, composer draft, attachments, queue, model/thinking controls, and Stop.
 Panels keep the opened workspace URI, including a workspace-root alias, and reconnect to that workspace rather than the active editor's workspace.
 Startup, reconnect, and new ordinary requests fail if the original folder is removed or its canonical root changes.
@@ -129,18 +160,20 @@ Inspect and stop residual processes before reloading; requests are not retried a
 Queued instructions with equal text keep distinct recovery drafts and attachment snapshots, within the existing recovery limits.
 
 Sessions share workspace files and existing Pi credentials, configuration, and storage; they are not isolated or sandboxed.
-Existing global session commands, editor actions, review, and repair workflows still target the sidebar, regardless of editor-panel focus.
-Terminal handoff/recovery, confirmed restart, and temporary annotations remain sidebar-only and are omitted from editor-panel routes.
+Sidebar navigation commands select conversations through Sessions; editor-panel focus does not redirect them.
+Other existing global integrations, including editor actions, review, and repair, target **Primary**.
+Terminal handoff/recovery, confirmed restart, and temporary annotations remain Primary-only and are omitted from auxiliary routes.
 Ordinary requests can overlap, but direct shell, session/resource controls, Apply, import, and checkpoint restore keep their exclusive workspace gates.
 Concurrent activity can make checkpoint restoration unavailable.
 
 Editor panels do not automatically restore or restart after window reload.
 After a panel closes and writer cleanup is verified, resume its saved session through the sidebar.
-Panel transcript caches and restore references stay in memory; optional text draft recovery uses the shared consent-gated store and existing limits.
+Auxiliary Sidebar and panel transcript caches and restore references stay in memory; optional text draft recovery uses the shared consent-gated store and existing limits.
 A late send acknowledgement cannot remove a newer retained draft written by another view, even when its text is the same.
 See [concurrent editor sessions](docs/USER_GUIDE.md#concurrent-editor-sessions) for writer-ownership and recovery limits.
-Offline host and Chromium checks passed, with a focused macOS VS Code 1.146.0 native check for two editor sessions and independent Stop.
-Remote, other platforms, reload, and live-provider behavior remain unverified.
+Earlier editor-session validation recorded offline host and Chromium checks and a focused macOS VS Code 1.146.0 native check for two editor sessions and independent Stop.
+Those results do not establish final verification of Sidebar concurrency or the shared pool.
+Remote, other platforms, reload, and live-provider limits remain separate.
 See the [validation coverage](docs/FEATURE_MATRIX.md#concurrent-interactive-editor-sessions).
 
 ## Focused workflows
@@ -161,7 +194,7 @@ Tool calls appear in conversation order between responses, each collapsed by def
 Expand a call to inspect its input, output, and status.
 History navigation keeps responses accessible when tool calls reach a window limit.
 
-The foreground sidebar agent can add [temporary passage annotations](docs/USER_GUIDE.md#temporary-passage-annotations): whole-line highlights, literal hovers and read-only native comments below the marked code or text. Comments start collapsed by default. Set `pi.annotations.initialState` to `expanded` in **VS Code Settings → Pi → Editor → Annotation initial state** to expand newly created or replaced annotations; existing threads and user state on redraw are unchanged. VS Code may open the Comments panel and change editor layout or scroll position; source files remain unchanged. Use **Pi: Clear Annotations** to remove them.
+The **Primary** Sidebar agent can add [temporary passage annotations](docs/USER_GUIDE.md#temporary-passage-annotations): whole-line highlights, literal hovers and read-only native comments below the marked code or text. Comments start collapsed by default. Set `pi.annotations.initialState` to `expanded` in **VS Code Settings → Pi → Editor → Annotation initial state** to expand newly created or replaced annotations; existing threads and user state on redraw are unchanged. VS Code may open the Comments panel and change editor layout or scroll position; source files remain unchanged. Use **Pi: Clear Annotations** to remove them.
 
 ## Settings
 
