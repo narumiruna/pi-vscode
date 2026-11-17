@@ -41,6 +41,8 @@ Waiting for input means live input/approval is pending, not an empty idle compos
 Running includes request/tools, retries, compaction, queue draining, and settlement.
 Completed means successful owned settlement, not verified answer or edit quality; explicit cancellation settles as Stopped.
 Row identity remains stable so metadata updates do not replace focused rows or reorder an active cycle.
+Native Previous/Next retains a saved conversation's cycle position when loading replaces its summary key with a live entry ID.
+Local settings and session-details shortcuts run before launcher admission, with existing validation and source-bound acceptance.
 Status is not color-only, and meaningful transitions use the existing coalesced live region rather than per-token announcements.
 
 Unread uses host-memory result revisions, not token counts or selection.

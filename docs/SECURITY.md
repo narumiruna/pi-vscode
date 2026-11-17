@@ -157,6 +157,8 @@ Their selection cannot acquire terminal recovery ownership, write Primary's pers
 UI omissions do not replace host rejection; global commands do not silently retarget with focus or selection.
 Ordinary shared agent leases remain independent; actual session/resource mutations, direct shell, Apply, import, and checkpoint restore retain their exclusive gates.
 Additional Sidebar checkpoint trackers use the existing overlap safeguards and retain protected recovery data.
+Opening an unadmitted Sessions launcher does not activate concurrent-safety mode or invalidate Primary checkpoints.
+Both trackers activate only after admission, before a competing prompt; failed activation releases the reservation without starting work.
 
 Activity, unread state, auxiliary transcripts, and auxiliary restore references stay memory-only.
 No additional persistent transcript keys, queue replay, durable unread history, or automatic auxiliary restore is added.

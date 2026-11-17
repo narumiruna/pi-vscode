@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { installVscodeMock, MockUri } from "./vscodeMock";
@@ -1396,6 +1396,314 @@ test.each(["pi.switchSession", "pi.previousSession", "pi.nextSession"])(
     );
   },
 );
+
+test.each(["repeated Previous", "direction reversal"])(
+  "R12 native cycling preserves saved-session order across lazy loading: %s",
+  async (route) => {
+    await fixture(async (f) => {
+      const originals = new Map<string, string>();
+      for (const [index, id] of ["A", "B", "C"].entries()) {
+        const file = path.join(f.root, `cycle-${id}.jsonl`);
+        const text = `${JSON.stringify({ type: "session", id: `cycle-${id}`, cwd: f.root })}\n`;
+        await writeFile(file, text);
+        const timestamp = new Date(Date.UTC(2025, 0, 3 - index));
+        await utimes(file, timestamp, timestamp);
+        originals.set(file, text);
+      }
+      await f.manager.refresh();
+      assert.deepEqual(
+        f.rows().map((row: any) => row.sessionId),
+        [f.runtime.currentState.sessionId, "cycle-A", "cycle-B", "cycle-C"],
+      );
+      const switchSession = vi.spyOn(PiRuntimeManager.prototype, "switchSession");
+      try {
+        await mock.registrations.get("pi.previousSession")();
+        const c = f.displayed();
+        assert.equal(c.runtime.currentState.sessionId, "cycle-C");
+        if (route === "direction reversal") {
+          await mock.registrations.get("pi.nextSession")();
+          assert.equal(f.displayed().id, f.a.id, "Next from lazily opened C must return to Primary");
+          await mock.registrations.get("pi.previousSession")();
+          assert.equal(f.displayed(), c, "reversing again must reuse the retained C owner");
+        } else {
+          for (const id of ["cycle-B", "cycle-A", f.runtime.currentState.sessionId]) {
+            await mock.registrations.get("pi.previousSession")();
+            assert.equal(f.displayed().runtime.currentState.sessionId, id);
+          }
+          assert.equal(f.displayed(), f.a);
+          await mock.registrations.get("pi.previousSession")();
+          assert.equal(f.displayed(), c, "the next complete cycle must keep the original order");
+        }
+        assert.equal(switchSession.mock.calls.length, 0, "navigation must not mutate an existing RPC session");
+        assert.equal(f.starts.length, route === "direction reversal" ? 2 : 4);
+        assert.equal(f.slots.count, route === "direction reversal" ? 1 : 3);
+        for (const entry of f.entries()) assert.deepEqual(f.clients.get(entry.runtime)?.prompts ?? [], []);
+        for (const [file, text] of originals) assert.equal(await readFile(file, "utf8"), text);
+      } finally {
+        switchSession.mockRestore();
+      }
+    });
+  },
+);
+
+test("R13 browsing Sessions preserves Primary's restorable checkpoint without enabling concurrent safety", async () => {
+  await fixture(async (f) => {
+    const file = path.join(f.root, "checkpoint.txt");
+    await writeFile(file, "before browsing\n");
+    const tracker = f.primary.changeTracker;
+    tracker.startRequest(f.root, f.runtime.currentState.sessionId);
+    tracker.captureToolEvent({
+      type: "tool_execution_start",
+      toolName: "write",
+      args: { path: "checkpoint.txt", content: "covered result\n" },
+    });
+    await writeFile(file, "covered result\n");
+    const [change] = tracker.finishRequest();
+    assert.ok(change);
+    assert.equal(change.canRevert, true);
+    const safety = vi.spyOn(WorkspaceChangeTracker.prototype, "enableConcurrentSafety");
+    const invalidate = vi.spyOn(tracker, "invalidateCheckpoints");
+    const starts = f.starts.length;
+    try {
+      for (let index = 0; index < 2; index++) {
+        await f.manager.showSessions();
+        const launcher = f.displayed();
+        assert.equal(f.clients.has(launcher.runtime), false);
+        f.dispatch({ type: "draftSelect", scope: "session" });
+        await vi.waitFor(() => assert.equal(f.displayed(), f.a));
+      }
+      assert.equal(safety.mock.calls.length, 0, "a display-only launcher is not a competing writer");
+      assert.equal(invalidate.mock.calls.length, 0);
+      assert.equal(f.slots.count, 0);
+      assert.equal(f.starts.length, starts);
+      assert.equal(tracker.changes[0].canRevert, true);
+      tracker.revert(change.id);
+      assert.equal(await readFile(file, "utf8"), "before browsing\n");
+    } finally {
+      safety.mockRestore();
+      invalidate.mockRestore();
+    }
+  });
+});
+
+test.each(["captured launcher send", "admitted auxiliary"])(
+  "R13 %s enables concurrent safety before the competing prompt",
+  async (route) => {
+    await fixture(async (f) => {
+      const safety = vi.spyOn(WorkspaceChangeTracker.prototype, "enableConcurrentSafety");
+      const invalidate = vi.spyOn(f.primary.changeTracker, "invalidateCheckpoints");
+      const prompt = vi.spyOn(PiRuntimeManager.prototype, "prompt");
+      try {
+        await f.manager.showSessions();
+        const launcher = f.displayed();
+        assert.equal(safety.mock.calls.length, 0);
+        assert.equal(invalidate.mock.calls.length, 0);
+        let entry: any;
+        if (route === "captured launcher send") {
+          f.compose("captured competing request", 4, true, false);
+          f.dispatch({ type: "sendNewSession", text: "captured competing request", revision: 4 });
+          await vi.waitFor(() => assert.equal(f.clients.get(launcher.runtime)?.active, true));
+          entry = launcher;
+          assert.equal(f.displayed(), entry);
+          await vi.waitFor(() => assert.deepEqual(entry.composer, { text: "", revision: 5 }));
+        } else {
+          await f.manager.select(f.a.id);
+          assert.equal(await f.manager.create(), true);
+          entry = f.displayed();
+          assert.notEqual(entry, launcher);
+          assert.equal(f.clients.has(entry.runtime), false);
+          await f.send(entry, "captured competing request", 4);
+        }
+        assert.equal(f.slots.count, 1);
+        const targets = safety.mock.contexts;
+        for (const tracker of [f.primary.changeTracker, entry.tracker]) {
+          const index = targets.indexOf(tracker);
+          assert.notEqual(index, -1, "both admitted writer trackers need concurrent safety");
+          assert.deepEqual(safety.mock.calls[index], [f.root]);
+          assert.ok(safety.mock.invocationCallOrder[index] < prompt.mock.invocationCallOrder[0]);
+        }
+        assert.ok(invalidate.mock.calls.length > 0);
+        assert.ok(invalidate.mock.invocationCallOrder[0] < prompt.mock.invocationCallOrder[0]);
+        assert.equal(f.clients.get(entry.runtime).prompts.length, 1);
+        assert.match(f.clients.get(entry.runtime).prompts[0], /captured competing request/);
+        assert.deepEqual(f.clients.get(f.runtime).prompts, []);
+        await f.complete(entry, "competing request settled");
+      } finally {
+        safety.mockRestore();
+        invalidate.mockRestore();
+        prompt.mockRestore();
+      }
+    });
+  },
+);
+
+for (const [text, command] of [
+  ["/settings", "pi.openPiConfiguration"],
+  ["/extension-settings", "pi.openSettings"],
+]) {
+  test.each([
+    [0, "accepted"],
+    [8, "accepted"],
+    [0, "rejected"],
+    [8, "rejected"],
+  ] as const)(`R14 Sessions %s slots: local ${text} is %s without admission`, async (used, outcome) => {
+    await fixture(async (f) => {
+      await f.manager.showSessions();
+      const launcher = f.displayed();
+      const releases = Array.from({ length: used }, () => f.slots.acquire());
+      const warning = vi.fn(async () => undefined);
+      mock.window.showWarningMessage = warning;
+      const acquire = vi.spyOn(f.slots, "acquire");
+      const execute = vi.spyOn(mock.commands, "executeCommand").mockImplementation(async () => {
+        if (outcome === "rejected") throw new Error("local settings command rejected");
+      });
+      const starts = f.starts.length;
+      const rawText = `  ${text}  `;
+      f.compose(rawText, 4, true, false);
+      const origin = f.binding();
+      const mark = f.view.webview.messages.length;
+      try {
+        f.dispatch({ type: "sendNewSession", text: rawText, revision: 4 }, origin);
+        await vi.waitFor(() => assert.deepEqual(execute.mock.calls, [[command]]));
+        const settlementType = outcome === "accepted" ? "clearInput" : "sendRejected";
+        await vi.waitFor(() =>
+          assert.equal(
+            f.view.webview.messages.slice(mark).filter((message: any) => message.type === settlementType).length,
+            1,
+          ),
+        );
+        const settlements = f.view.webview.messages
+          .slice(mark)
+          .filter((message: any) => ["clearInput", "sendRejected"].includes(message.type));
+        assert.equal(settlements.length, 1);
+        const [settlement] = settlements;
+        assert.equal(settlement.sidebar.entryId, origin.entryId);
+        assert.equal(settlement.sidebar.bindingGeneration, origin.bindingGeneration);
+        if (outcome === "accepted") {
+          assert.equal(settlement.expectedText, rawText);
+          assert.equal(settlement.expectedRevision, 4);
+          assert.deepEqual(launcher.composer, { text: "", revision: 5 });
+        } else assert.deepEqual(launcher.composer, { text: rawText, revision: 4 });
+        assert.equal(warning.mock.calls.length, 0, "local settings must not ask to Open Session");
+        assert.equal(acquire.mock.calls.length, 0, "local settings must not even attempt slot admission");
+        assert.equal(f.slots.count, used);
+        assert.equal(f.starts.length, starts);
+        assert.equal(f.clients.has(launcher.runtime), false);
+        assert.equal(f.displayed(), launcher);
+        assert.equal((f.manager as any).selected, f.a);
+        assert.equal((f.manager as any).launcher, launcher);
+        assert.deepEqual(f.clients.get(f.runtime).prompts, []);
+      } finally {
+        acquire.mockRestore();
+        execute.mockRestore();
+        for (const release of releases) release();
+      }
+    });
+  });
+
+  test(`R14 delayed local ${text} acceptance cannot clear a newer or selected Primary draft`, async () => {
+    await fixture(async (f) => {
+      f.compose("keep Primary input", 3);
+      await f.manager.showSessions();
+      const launcher = f.displayed();
+      const result = deferred<void>();
+      const execute = vi.spyOn(mock.commands, "executeCommand").mockImplementation(() => result.promise);
+      const warning = vi.fn(async () => undefined);
+      mock.window.showWarningMessage = warning;
+      const starts = f.starts.length;
+      try {
+        f.compose(text, 4, true, false);
+        f.dispatch({ type: "sendNewSession", text, revision: 4 });
+        await vi.waitFor(() => assert.deepEqual(execute.mock.calls, [[command]]));
+        f.compose("keep newer Sessions input", 5, true, false);
+        await f.manager.select(f.a.id);
+        const mark = f.view.webview.messages.length;
+        result.resolve();
+        await nextTurn();
+        await nextTurn();
+        assert.equal(f.displayed(), f.a);
+        assert.deepEqual(f.a.composer, { text: "keep Primary input", revision: 3 });
+        assert.deepEqual(launcher.composer, { text: "keep newer Sessions input", revision: 5 });
+        assert.ok(!f.view.webview.messages.slice(mark).some((message: any) => message.type === "clearInput"));
+        assert.equal(warning.mock.calls.length, 0);
+        assert.equal(f.slots.count, 0);
+        assert.equal(f.starts.length, starts);
+        assert.equal(f.clients.has(launcher.runtime), false);
+      } finally {
+        result.resolve();
+        execute.mockRestore();
+      }
+    });
+  });
+}
+
+test.each(["/session", "/settings unexpected", "/extension-settings unexpected"])(
+  "R14 local-only %s does not try admission at capacity",
+  async (text) => {
+    await fixture(async (f) => {
+      await f.manager.showSessions();
+      const launcher = f.displayed();
+      const releases = Array.from({ length: 8 }, () => f.slots.acquire());
+      const acquire = vi.spyOn(f.slots, "acquire");
+      const warning = vi.spyOn(mock.window, "showWarningMessage");
+      const execute = vi.spyOn(mock.commands, "executeCommand");
+      const starts = f.starts.length;
+      const mark = f.view.webview.messages.length;
+      try {
+        f.compose(text, 4, true, false);
+        f.dispatch({ type: "sendNewSession", text, revision: 4 });
+        const expected = text === "/session" ? "clearInput" : "sendRejected";
+        await vi.waitFor(() =>
+          assert.ok(f.view.webview.messages.slice(mark).some((message: any) => message.type === expected)),
+        );
+        if (text === "/session")
+          assert.ok(
+            f.view.webview.messages.slice(mark).some((message: any) => message.type === "showConversationDetails"),
+          );
+        else assert.equal(launcher.composer.text, text);
+        assert.equal(acquire.mock.calls.length, 0);
+        assert.equal(warning.mock.calls.length, 0);
+        assert.equal(execute.mock.calls.length, 0);
+        assert.equal(f.slots.count, 8);
+        assert.equal(f.starts.length, starts);
+        assert.equal(f.displayed(), launcher);
+      } finally {
+        acquire.mockRestore();
+        warning.mockRestore();
+        execute.mockRestore();
+        for (const release of releases) release();
+      }
+    });
+  },
+);
+
+test("R13 failed launcher safety activation releases admission before any prompt", async () => {
+  await fixture(async (f) => {
+    await f.manager.showSessions();
+    const launcher = f.displayed();
+    const safety = vi.spyOn(f.primary.changeTracker, "enableConcurrentSafety").mockImplementation(() => {
+      throw new Error("concurrent safety setup failed");
+    });
+    const starts = f.starts.length;
+    const mark = f.view.webview.messages.length;
+    try {
+      f.compose("must not reach Pi", 4, true, false);
+      f.dispatch({ type: "sendNewSession", text: "must not reach Pi", revision: 4 });
+      await vi.waitFor(() =>
+        assert.ok(f.view.webview.messages.slice(mark).some((message: any) => message.type === "sendRejected")),
+      );
+      assert.equal(safety.mock.calls.length, 1);
+      assert.equal(f.slots.count, 0);
+      assert.equal(f.starts.length, starts);
+      assert.equal(f.clients.has(launcher.runtime), false);
+      assert.equal(f.displayed(), launcher);
+      assert.equal((f.manager as any).launcher, launcher);
+      assert.deepEqual(launcher.composer, { text: "must not reach Pi", revision: 4 });
+    } finally {
+      safety.mockRestore();
+    }
+  });
+});
 
 test("R8 cold native selection starts Primary without starting another retained cold entry", async () => {
   await fixture(

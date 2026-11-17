@@ -305,6 +305,7 @@ A session from another workspace or worktree must be opened in its matching VS C
 
 Next moves forward through a stable snapshot of live entries followed by discovered saved entries; Previous moves backward, and both wrap around.
 Updates to session modification times do not reorder an active cycle.
+Loading a saved conversation keeps its position in that cycle, including when direction changes.
 Changed membership rebuilds the cycle; retained unsaved live entries remain selectable.
 An empty list does not switch, and a single current entry does not create another runtime.
 

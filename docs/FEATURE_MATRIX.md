@@ -191,7 +191,7 @@ Optional composer recovery uses the same consent-gated `SessionDraftStore` and u
 
 Implementation: `sidebarSessions.ts`, `sessionActivity.ts`, `interactiveSessionSlots.ts`, `sidebar.ts`, `sidebarHtml.ts`, `piRuntime.ts`, and the existing writer, gate, checkpoint, dialog, and draft controllers.
 Validation on 2026-11-17 used Node.js 26.8.2 and network-disabled `bwrap` copies with isolated stores/profiles, not a live provider.
-The ownership suite passed 52 tests after the 2026-11-18 review fixes, including cancelled submissions, promoted draft ownership, transactional construction, uncertain cleanup, unchanged-binding navigation, and shared image eviction.
+The ownership suite passed 71 tests after the 2026-11-18 review fixes, including cancelled submissions, promoted draft ownership, transactional construction, uncertain cleanup, unchanged-binding navigation, and shared image eviction.
 Twelve direct-shell lifecycle regressions verify owned settlement and unread results without weakening exclusive admission.
 The single-document Sidebar browser fixture verified eight entry bindings, six activity labels, independent Stop, delayed image origins, drafts/reading position, stable focus, and guarded acknowledgements with zero CSP, page, console, or unexpected-network errors.
 
@@ -226,8 +226,10 @@ A host-owned `composerContext` binds reports and sends to actual session replace
 The browser fixture keeps old nonempty input blocked until clear, even when new host metadata still reports an empty unblocked composer.
 Six accepted-submission lifecycle tests cover detached Primary/auxiliary delivery, newer and blocked text, inactive owners, and acceptance after reconstruction.
 The browser fixture also checks restored-composer acceptance without a local submission token and rejects old tokens, mismatched host revisions, and repeated acceptance over newer text.
-The review-fix run passed all 115 unit files with 1,986 tests and three existing skips, the documented Biome check with no errors, and full rich-content, thinking-picker, and settings browser suites.
+The review-fix run passed all 115 unit files with 2,005 tests and three existing skips, the documented Biome check with no errors, and full rich-content, thinking-picker, and settings browser suites.
 New browser checks verify row unlocking after an unchanged-binding reply, image recovery after B evicts A's payload at the 100-image limit, and same-revision acknowledgement after loading finishes, with zero CSP, page, console, or unexpected-network errors.
+Nineteen further mock-host cases verify stable saved-to-live cycle positions, Primary checkpoint restoration after display-only Sessions browsing, admitted safety activation before prompts, and local settings at full capacity.
+Local command failure, delayed acceptance, invalid arguments, and session details do not allocate or retarget a conversation.
 The native checks above are retained initial-PR evidence; they were not rerun for these review fixes.
 The fixtures also retain native settings, read-only review, Preview/Apply/Undo, queue, terminal ownership across reload, and explicit text-only draft recovery checks.
 Native fixture corrections wait for file-watcher/editor updates and current pickers; they do not retry writes or change production guards.

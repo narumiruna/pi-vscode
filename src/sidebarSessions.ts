@@ -11,6 +11,7 @@ import { listRecentPiSessions, type PiSessionSummary } from "./sessionHistory";
 import type { SessionWriters } from "./sessionWriters";
 import type { PiChatViewProvider } from "./sidebar";
 import { isRecord } from "./sidebarHelpers";
+import { parseSidebarSlashCommand } from "./slashCommands";
 import { requireTrustedFile } from "./workflowUi";
 
 interface ConversationView {
@@ -451,7 +452,8 @@ export class SidebarSessions implements vscode.Disposable {
       let delegated = false;
       try {
         if (/^!!?/.test(message.text)) throw new Error("Open a session before running direct shell.");
-        if (["/new", "/resume"].includes(message.text.trim())) {
+        const command = parseSidebarSlashCommand(message.text);
+        if (command && ["new", "resume", "settings", "extension-settings", "session"].includes(command.name)) {
           delegated = true;
           await entry.controller.receiveSidebarMessage({ ...message, type: "send" });
           return;
@@ -616,8 +618,10 @@ export class SidebarSessions implements vscode.Disposable {
       entry.cleanupUnverified = cleanupUnverified;
       entry.subscriptions.push(this.services.dialogs.addRuntime(runtime, entry.label));
       entry.subscriptions.push(this.services.primary.addCheckpointTracker(entry.tracker));
-      entry.tracker.enableConcurrentSafety(workspace.root);
-      this.primary.tracker.enableConcurrentSafety(workspace.root);
+      if (release) {
+        entry.tracker.enableConcurrentSafety(workspace.root);
+        this.primary.tracker.enableConcurrentSafety(workspace.root);
+      }
       this.attach(entry);
       return entry;
     } catch (error) {
@@ -677,6 +681,13 @@ export class SidebarSessions implements vscode.Disposable {
     if (this.launcher !== entry || this.disposed) {
       release();
       throw new Error("The session composer changed.");
+    }
+    try {
+      entry.tracker.enableConcurrentSafety(entry.runtime.currentCwd);
+      this.primary.tracker.enableConcurrentSafety(entry.runtime.currentCwd);
+    } catch (error) {
+      release();
+      throw error;
     }
     entry.release = release;
     this.launcher = undefined;
@@ -746,6 +757,9 @@ export class SidebarSessions implements vscode.Disposable {
       const reservation = release;
       release = undefined;
       connect = await this.make(summary, reservation);
+      // Loading changes this conversation's ID, not its native cycle position.
+      const retainedId = connect.id;
+      this.cycle = this.cycle.map((member) => (member === summary.key ? retainedId : member));
       this.display(connect);
     } finally {
       release?.();

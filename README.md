@@ -128,6 +128,8 @@ If an actual runtime replacement changes the session behind a nonempty draft, ve
 That context block stays with its entry across selection and renderer recreation.
 Accepted text is cleared even while the Sidebar renderer is closed; newer or context-blocked drafts stay intact.
 Late composer reports cannot make old text sendable in a replacement session.
+Local `/settings`, `/extension-settings`, and `/session` commands do not allocate a conversation.
+Opening Sessions alone preserves Primary checkpoints; admitted shared sessions still activate concurrent-safety checks.
 Native input and approval dialogs identify their source conversation; changing the displayed conversation does not answer or transfer them.
 
 Sessions rows show **Idle**, **Running**, **Waiting for input**, **Completed**, **Failed**, or **Stopped**.
