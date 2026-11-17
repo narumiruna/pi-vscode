@@ -73,6 +73,7 @@ export class SidebarSessions implements vscode.Disposable {
   private picking = false;
   private sequence = 0;
   private summaries: PiSessionSummary[] = [];
+  private refreshSequence = 0;
   private cycle: readonly string[] = [];
   private listSignature = "";
 
@@ -776,6 +777,7 @@ export class SidebarSessions implements vscode.Disposable {
   }
 
   public async refresh(): Promise<void> {
+    const sequence = ++this.refreshSequence;
     const owner = this.selected.runtime.currentState.sessionFile ? this.selected : this.primary;
     const file = owner.runtime.currentState.sessionFile;
     const cwd = owner.runtime.currentCwd;
@@ -784,6 +786,8 @@ export class SidebarSessions implements vscode.Disposable {
       if (
         summaries &&
         !this.disposed &&
+        sequence === this.refreshSequence &&
+        owner === (this.selected.runtime.currentState.sessionFile ? this.selected : this.primary) &&
         cwd === owner.runtime.currentCwd &&
         file === owner.runtime.currentState.sessionFile
       )

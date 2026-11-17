@@ -82,7 +82,7 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
         sessionId: sessionsView ? undefined : `session-${id}`,
         sessionFile: sessionsView ? undefined : `/fixture/${id}.jsonl`,
       },
-      history: { available: true, mode: options.mode || "latest", canNavigate: true, generation: 1 },
+      history: { available: true, mode: options.mode || "latest", loading: Boolean(options.historyLoading), canNavigate: true, generation: 1 },
       sessions: rows,
       imageSupported: true,
       attachments: [],
@@ -252,10 +252,20 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
     });
     assert.equal((await posted(page, "acknowledgeResult")).at(-1).revision, 2);
     resultRevision = 3;
+    await state(a, { historyLoading: true });
+    assert.equal((await posted(page, "acknowledgeResult")).length, 2, "loading history cannot acknowledge or consume its dedup key");
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    assert.equal((await posted(page, "acknowledgeResult")).length, 2);
+    await state(a, { historyLoading: false });
+    assert.equal((await posted(page, "acknowledgeResult")).length, 3, "the same revision acknowledges after history finishes loading");
+    assert.equal((await posted(page, "acknowledgeResult")).at(-1).revision, 3);
+    await state(a, { historyLoading: false });
+    assert.equal((await posted(page, "acknowledgeResult")).length, 3, "a rendered result still deduplicates normally");
+    resultRevision = 4;
     await state(a, { mode: "earlier" });
-    assert.equal((await posted(page, "acknowledgeResult")).length, 2, "earlier history cannot acknowledge");
+    assert.equal((await posted(page, "acknowledgeResult")).length, 3, "earlier history cannot acknowledge");
     await state(launcher);
-    assert.equal((await posted(page, "acknowledgeResult")).length, 2, "Sessions cannot acknowledge results");
+    assert.equal((await posted(page, "acknowledgeResult")).length, 3, "Sessions cannot acknowledge results");
     await page.locator("#input").fill("Separate launcher draft");
     await state(b);
     assert.equal(await page.locator("#input").inputValue(), "B unsent draft");
@@ -354,6 +364,7 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
       keyedFocusPreserved: true,
       unchangedNavigationReleased: true,
       imageEvictionRecovered: true,
+      loadingHistoryAcknowledgedAfterRender: true,
       visibilityAndLatestAcknowledgement: true,
       cspViolations: 0,
       pageErrors: 0,

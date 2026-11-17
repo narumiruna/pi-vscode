@@ -10,3 +10,4 @@ Require explicit shared-file confirmation and provide non-destructive confirmed 
 Keep Primary-only global integrations, single-writer checks, exclusive mutation gates, checkpoint safeguards, cleanup quarantine, and existing consent-gated draft-store limits.
 Keep auxiliary activity, unread state, transcripts, and restore references memory-only without automatic restoration or queue replay after reload.
 Keep session rows usable after cancelled or rejected navigation, and resend retained image payloads when a conversation is selected.
+Keep the latest selected-session scan and acknowledge results only after history loading and final shell publication.

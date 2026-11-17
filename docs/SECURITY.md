@@ -115,6 +115,8 @@ A settled retained result or actionable failure diagnostic advances its owned re
 Tokens, progress, list rendering, and row selection do not advance or acknowledge results.
 Acknowledgement requires the exact revision rendered in selected detail, a visible Sidebar, a loaded latest history window, and latest-output following.
 Hidden/list/earlier-history views and stale or cross-session acknowledgements cannot clear newer unread results.
+The renderer does not save an acknowledgement key while rendered history is loading.
+A shell result revision is published only after its final controller state, not with a cached preparation transcript.
 This marker is not durable history, a permission signal, or proof that work is safe to repeat.
 
 One fixed shared pool permits **one Primary runtime plus eight additional runtimes total across auxiliary Sidebar conversations and editor panels**.

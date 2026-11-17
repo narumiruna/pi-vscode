@@ -399,6 +399,7 @@ export function getSidebarHtml(
     let sidebarFocusAfterRender = false;
     let sidebarDetailRendered = false;
     let sidebarHistoryMode;
+    let sidebarHistoryLoading = true;
     let acknowledgedSidebarResult;
     const captureSidebarEnvelope = () => sidebar
       ? { entryId: sidebar.entryId, bindingGeneration: sidebar.bindingGeneration } : undefined;
@@ -570,7 +571,7 @@ export function getSidebarHtml(
 
     function acknowledgeSidebarResult() {
       if (!sidebar || sidebarRendering || !sidebarDetailRendered || sidebar.view !== 'session' || sessionsLayerVisible
-          || document.visibilityState !== 'visible' || !conversationPinnedToBottom || sidebarHistoryMode !== 'latest'
+          || document.visibilityState !== 'visible' || !conversationPinnedToBottom || sidebarHistoryMode !== 'latest' || sidebarHistoryLoading
           || !Number.isSafeInteger(sidebar.resultRevision) || sidebar.resultRevision <= 0) return;
       const key = JSON.stringify([sidebar.entryId, sidebar.bindingGeneration, sidebar.resultRevision]);
       if (acknowledgedSidebarResult === key) return;
@@ -1923,6 +1924,7 @@ export function getSidebarHtml(
         }
         sidebarReadingRestore = undefined;
         sidebarHistoryMode = state.history?.mode;
+        sidebarHistoryLoading = Boolean(state.history?.loading);
         sidebarDetailRendered = !sessionsLayerVisible;
         sidebarRendering = false;
         if (sidebarFocusAfterRender) {

@@ -127,6 +127,7 @@ Native input and approval dialogs identify their source conversation; changing t
 Sessions rows show **Idle**, **Running**, **Waiting for input**, **Completed**, **Failed**, or **Stopped**.
 An **Unread result** marker clears only after that result is rendered in visible conversation detail while following the latest output.
 Row selection alone, Sessions view, a hidden Sidebar, or earlier history does not acknowledge it.
+History loading must finish, and a shell result must be in the published transcript before its result revision can be acknowledged.
 Completed means the request settled, not that its answer or file changes are correct.
 
 One fixed pool permits **one Primary plus eight additional runtimes in total across Sidebar conversations and editor panels**.

@@ -1044,3 +1044,84 @@ test("factory failure before entry creation still retains admission on uncertain
     }
   });
 });
+
+test.each(["same-owner", "cross-owner"] as const)(
+  "out-of-order %s refreshes keep the newest saved index",
+  async (mode) => {
+    await fixture(async (f) => {
+      await vi.waitFor(() => assert.equal(f.primary.status, "Ready"));
+      const latestOwner = mode === "cross-owner" ? await f.open() : f.a;
+      await f.manager.select(f.a.id);
+      const [olderIndex, newerIndex] = ["older-index", "newer-index"].map((id) => [
+        { key: id, path: path.join(f.root, `${id}.jsonl`), sessionId: id, title: id, updatedAt: 0 },
+      ]);
+      const olderScan = deferred<import("../sessionHistory").PiSessionSummary[]>();
+      const newerScan = deferred<import("../sessionHistory").PiSessionSummary[]>();
+      const scans = vi
+        .spyOn(require("../sessionHistory"), "listRecentPiSessions")
+        .mockImplementationOnce(() => olderScan.promise)
+        .mockImplementationOnce(() => newerScan.promise);
+      const pending: Promise<void>[] = [];
+      try {
+        const older = f.manager.refresh();
+        pending.push(older);
+        await f.manager.select(latestOwner.id);
+        const newer = f.manager.refresh();
+        pending.push(newer);
+        assert.deepEqual(scans.mock.calls, [
+          [f.a.runtime.currentState.sessionFile, f.a.runtime.currentCwd],
+          [latestOwner.runtime.currentState.sessionFile, latestOwner.runtime.currentCwd],
+        ]);
+        newerScan.resolve(newerIndex);
+        await newer;
+        assert.deepEqual((f.manager as any).summaries, newerIndex);
+        olderScan.resolve(olderIndex);
+        await older;
+        assert.deepEqual((f.manager as any).summaries, newerIndex);
+        assert.ok(f.rows().some((row: any) => row.id === "newer-index"));
+        assert.ok(!f.rows().some((row: any) => row.id === "older-index"));
+      } finally {
+        olderScan.resolve([]);
+        newerScan.resolve([]);
+        await Promise.all(pending);
+        scans.mockRestore();
+      }
+    });
+  },
+);
+
+test("selection changes without a newer scan preserve the saved index on stale refresh completion", async () => {
+  await fixture(async (f) => {
+    await vi.waitFor(() => assert.equal(f.primary.status, "Ready"));
+    const b = await f.open();
+    await f.manager.select(f.a.id);
+    const [retainedIndex, staleIndex] = ["retained-index", "stale-index"].map((id) => [
+      { key: id, path: path.join(f.root, `${id}.jsonl`), sessionId: id, title: id, updatedAt: 0 },
+    ]);
+    const staleScan = deferred<import("../sessionHistory").PiSessionSummary[]>();
+    const scans = vi
+      .spyOn(require("../sessionHistory"), "listRecentPiSessions")
+      .mockResolvedValueOnce(retainedIndex)
+      .mockImplementationOnce(() => staleScan.promise);
+    const pending: Promise<void>[] = [];
+    try {
+      await f.manager.refresh();
+      assert.deepEqual((f.manager as any).summaries, retainedIndex);
+      const stale = f.manager.refresh();
+      pending.push(stale);
+      await f.manager.select(b.id);
+      assert.equal(f.displayed(), b);
+      assert.equal(scans.mock.calls.length, 2, "selection must not start a newer scan in this regression");
+      staleScan.resolve(staleIndex);
+      await stale;
+      assert.equal(scans.mock.calls.length, 2);
+      assert.deepEqual((f.manager as any).summaries, retainedIndex);
+      assert.ok(f.rows().some((row: any) => row.id === "retained-index"));
+      assert.ok(!f.rows().some((row: any) => row.id === "stale-index"));
+    } finally {
+      staleScan.resolve([]);
+      await Promise.all(pending);
+      scans.mockRestore();
+    }
+  });
+});

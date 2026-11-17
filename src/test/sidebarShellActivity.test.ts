@@ -283,6 +283,39 @@ test("shell acceptance and settlement stay with A after selection changes to B, 
   });
 });
 
+test("a new shell result revision is never published with the preparation transcript", async () => {
+  await fixture(async (f) => {
+    const result = shellResult({ output: "authoritative shell result" });
+    f.a.runtime.executeBash.mockImplementation(
+      async (
+        command: string,
+        exclude: boolean,
+        accepted: () => void,
+        history: (values: unknown[]) => Promise<void>,
+      ) => {
+        accepted();
+        await history([{ role: "bashExecution", command, excludeFromContext: exclude, ...result }]);
+        return result;
+      },
+    );
+    await f.a.provider.send("!fixture shell publication", 1);
+    const snapshots = f.posted.filter(
+      (message: any) =>
+        message.type === "state" && message.sidebar.entryId === f.a.entry.id && message.sidebar.resultRevision === 1,
+    );
+    assert.ok(snapshots.length > 0);
+    for (const snapshot of snapshots) {
+      assert.ok(
+        snapshot.messages.some(
+          (message: any) => message.role === "shell" && message.content.includes("authoritative shell result"),
+        ),
+        "every state carrying the result revision must include the final shell transcript",
+      );
+      assert.match(snapshot.status, /Shell finished/);
+    }
+  });
+});
+
 for (const conflict of ["attachments", "request", "runtime", "background"] as const) {
   test(`shell ${conflict} rejection creates no owned success or unread result`, async () => {
     await fixture(async (f) => {

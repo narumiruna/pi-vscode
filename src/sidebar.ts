@@ -1563,13 +1563,13 @@ export class PiChatViewProvider
       } finally {
         this.foregroundCancellable = false;
         release();
+        this.postState();
         this.sidebarSessions?.requestFinished(
           this,
           sidebarRequestId,
           sidebarOutcome,
           submitted || sidebarOutcome === "failed",
         );
-        this.postState();
       }
     }
   }
