@@ -191,11 +191,11 @@ Optional composer recovery uses the same consent-gated `SessionDraftStore` and u
 
 Implementation: `sidebarSessions.ts`, `sessionActivity.ts`, `interactiveSessionSlots.ts`, `sidebar.ts`, `sidebarHtml.ts`, `piRuntime.ts`, and the existing writer, gate, checkpoint, dialog, and draft controllers.
 Validation on 2026-11-17 used Node.js 26.8.2 and network-disabled `bwrap` copies with isolated stores/profiles, not a live provider.
-The ownership suite passed 21 tests, including cancelled submissions, promoted draft ownership, transactional construction, and uncertain cleanup.
+The ownership suite passed 28 tests after the 2026-11-18 review fixes, including cancelled submissions, promoted draft ownership, transactional construction, uncertain cleanup, unchanged-binding navigation, and shared image eviction.
 Eleven direct-shell lifecycle regressions verify owned settlement and unread results without weakening exclusive admission.
 The single-document Sidebar browser fixture verified five entry bindings, six activity labels, independent Stop, delayed image origins, drafts/reading position, stable focus, and guarded acknowledgements with zero CSP, page, console, or unexpected-network errors.
 
-| Final gate | Current result |
+| Initial full-workflow gate | Result on 2026-11-17 |
 | --- | --- |
 | Compile and full `npm test` | Passed: 114 files, 1,940 tests passed, three existing skips. |
 | Documented Biome 2.5.13 check | Passed with warnings/information; no errors. |
@@ -208,6 +208,13 @@ Earlier editor-session evidence below is historical and does not validate the ne
 Full native UI runs verify A-running → saved B cold startup → fresh C → retained A, separate drafts, hidden B unread results, inactive B native input replies, and B-only Stop while A completes.
 Retained selection issues zero RPC `switch_session` calls.
 Cold first sends and Sessions-composer promotion clear only their exact accepted draft across recovery-owner changes; newer text remains protected.
+Review fixes on 2026-11-18 also settle row navigation when cancellation, rejected admission, a no-op, or editor reveal leaves the binding unchanged.
+Late completion cannot unlock a newer binding.
+Selecting a retained controller resets its image delivery record and resends referenced payloads that remain in its bounded host cache; other state refreshes do not reset that record.
+This repairs shared-renderer image eviction without increasing image limits or moving payload ownership between conversations.
+The review-fix run passed all 114 unit files with 1,947 tests and three existing skips, the documented Biome check with no errors, and the full rich-content browser suite.
+New browser checks verify row unlocking after an unchanged-binding reply and image recovery after B evicts A's payload at the 100-image limit, with zero CSP, page, console, or unexpected-network errors.
+The native, thinking-picker, and settings checks above are retained initial-PR evidence; they were not rerun for these review fixes.
 The fixtures also retain native settings, read-only review, Preview/Apply/Undo, queue, terminal ownership across reload, and explicit text-only draft recovery checks.
 Native fixture corrections wait for file-watcher/editor updates and current pickers; they do not retry writes or change production guards.
 The configured/imported session store is used when seeding cold B.

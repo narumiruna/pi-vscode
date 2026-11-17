@@ -9,3 +9,4 @@ Share one fixed pool of eight additional runtimes across auxiliary Sidebar conve
 Require explicit shared-file confirmation and provide non-destructive confirmed Close Session for auxiliary Sidebar entries.
 Keep Primary-only global integrations, single-writer checks, exclusive mutation gates, checkpoint safeguards, cleanup quarantine, and existing consent-gated draft-store limits.
 Keep auxiliary activity, unread state, transcripts, and restore references memory-only without automatic restoration or queue replay after reload.
+Keep session rows usable after cancelled or rejected navigation, and resend retained image payloads when a conversation is selected.

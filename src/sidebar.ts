@@ -424,8 +424,10 @@ export class PiChatViewProvider
     this.imageAssets.clear();
   }
 
-  public refreshView(): void {
-    if (!this.disposed) this.postState();
+  public refreshView(resetImageDelivery = false): void {
+    if (this.disposed) return;
+    if (resetImageDelivery) this.imageAssetDelivery.reset();
+    this.postState();
   }
 
   public checkpointContent(uri: vscode.Uri): string {

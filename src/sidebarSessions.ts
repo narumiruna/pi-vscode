@@ -373,7 +373,14 @@ export class SidebarSessions implements vscode.Disposable {
       return;
     }
     if (message.type === "switchRecentSession" && typeof message.id === "string") {
-      await this.select(message.id);
+      const generation = this.generation;
+      try {
+        await this.select(message.id);
+      } finally {
+        // Cancel, rejected admission, and editor reveal can leave this binding unchanged.
+        if (this.displayed === entry && this.generation === generation)
+          this.fromController(entry, { type: "sessionSwitchRejected" });
+      }
       return;
     }
     if (message.type === "newSession") {
@@ -488,7 +495,8 @@ export class SidebarSessions implements vscode.Disposable {
     if (entry !== this.launcher) this.selected = entry;
     this.generation++;
     this.publish();
-    entry.controller.refreshView();
+    // Other entries can evict this controller's images from the shared renderer cache.
+    entry.controller.refreshView(true);
     entry.controller.refreshSidebarDraft();
     this.flushPending(entry);
   }

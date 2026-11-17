@@ -411,6 +411,157 @@ test("Stop cancels only the selected Sidebar runtime and preserves the sibling r
   });
 });
 
+test.each(["cancel", "capacity", "editor", "current", "missing"])(
+  "row selection settles its unchanged source binding after %s",
+  async (outcome) => {
+    await fixture(async (f) => {
+      const saved = path.join(f.root, "saved-navigation.jsonl");
+      await writeFile(saved, `${JSON.stringify({ type: "session", id: "saved-navigation", cwd: f.root })}\n`);
+      await f.manager.showSessions();
+      const launcher = f.displayed();
+      const savedRow = f.rows().find((row: any) => row.sessionId === "saved-navigation");
+      assert.ok(savedRow);
+      const releases: (() => void)[] = [];
+      const reveal = vi.fn(() => true);
+      if (outcome === "cancel") mock.window.showWarningMessage = async () => undefined;
+      if (outcome === "capacity") for (let i = 0; i < 8; i++) releases.push(f.slots.acquire());
+      if (outcome === "editor") (f.manager as any).services.revealEditorSession = reveal;
+      if (outcome === "current") await f.manager.select(f.a.id);
+      const origin = f.binding();
+      const entry = f.displayed();
+      const mark = f.view.webview.messages.length;
+      try {
+        f.dispatch({
+          type: "switchRecentSession",
+          id: outcome === "current" ? f.a.id : outcome === "missing" ? "missing" : savedRow.id,
+        });
+        await vi.waitFor(() => {
+          const reply = f.view.webview.messages
+            .slice(mark)
+            .find((message: any) => message.type === "sessionSwitchRejected");
+          assert.ok(reply, "every row selection must settle if it leaves the binding unchanged");
+          assert.equal(reply.sidebar.entryId, origin.entryId);
+          assert.equal(reply.sidebar.bindingGeneration, origin.bindingGeneration);
+        });
+        assert.equal(f.displayed(), entry);
+        assert.deepEqual(f.binding(), origin);
+        assert.equal(f.entries().length, 2, "no runtime is admitted for a cancelled or unchanged selection");
+        if (outcome === "editor") assert.deepEqual(reveal.mock.calls, [[saved]]);
+        if (outcome !== "current") assert.equal(f.displayed(), launcher);
+      } finally {
+        for (const release of releases) release();
+      }
+    });
+  },
+);
+
+test("a late row selection completion cannot unlock a newer binding of the same launcher", async () => {
+  await fixture(async (f) => {
+    await writeFile(
+      path.join(f.root, "saved-delayed.jsonl"),
+      `${JSON.stringify({ type: "session", id: "saved-delayed", cwd: f.root })}\n`,
+    );
+    await f.manager.showSessions();
+    const launcher = f.displayed();
+    const row = f.rows().find((row: any) => row.sessionId === "saved-delayed");
+    const decision = deferred<string | undefined>();
+    const warning = vi.fn(() => decision.promise);
+    mock.window.showWarningMessage = warning;
+    f.dispatch({ type: "switchRecentSession", id: row.id });
+    await vi.waitFor(() => assert.equal(warning.mock.calls.length, 1));
+    f.manager.revealConversation(f.primary);
+    await f.manager.showSessions();
+    assert.equal(f.displayed(), launcher);
+    const mark = f.view.webview.messages.length;
+    decision.resolve(undefined);
+    await vi.waitFor(() => assert.equal((f.manager as any).navigating, false));
+    assert.ok(!f.view.webview.messages.slice(mark).some((message: any) => message.type === "sessionSwitchRejected"));
+  });
+});
+
+test("returning to A redelivers a retained image evicted from the shared renderer by B", async () => {
+  await fixture(async (f) => {
+    const browserAssets = new Set<string>();
+    const evictions: any[] = [];
+    const post = f.view.webview.postMessage;
+    f.view.webview.postMessage = async (message: any) => {
+      const delivered = await post(message);
+      if (message.type === "imageAsset" && !browserAssets.has(message.id)) {
+        if (browserAssets.size === 100) {
+          const id = browserAssets.values().next().value!;
+          browserAssets.delete(id);
+          evictions.push({ id, entryId: message.sidebar.entryId });
+          f.dispatch(
+            { type: "imageAssetEvicted", id },
+            {
+              entryId: message.sidebar.entryId,
+              bindingGeneration: message.sidebar.bindingGeneration,
+            },
+          );
+        }
+        browserAssets.add(message.id);
+      }
+      return delivered;
+    };
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6MZkAAAAASUVORK5CYII=",
+      "base64",
+    );
+    const images = (entry: any, count: number, offset: number) => {
+      const assets = Array.from({ length: count }, (_, i) =>
+        entry.controller.imageAssets.store(
+          "image/png",
+          Buffer.concat([png, Buffer.from([offset + i])]).toString("base64"),
+        ),
+      );
+      assert.ok(assets.every(Boolean));
+      entry.controller.messages = [
+        {
+          id: `${entry.id}-images`,
+          role: "user",
+          content: "Retained images",
+          attachments: assets.map((asset: any) => ({
+            type: "image",
+            assetId: asset.id,
+            label: "retained.png",
+            mimeType: asset.mimeType,
+            width: asset.width,
+            height: asset.height,
+            availability: "available",
+          })),
+        },
+      ];
+      return assets;
+    };
+    const [aImage] = images(f.a, 1, 200);
+    f.a.controller.refreshView();
+    await nextTurn();
+    assert.equal(browserAssets.has(aImage.id), true);
+    const b = await f.open();
+    images(b, 100, 0);
+    b.controller.refreshView();
+    await nextTurn();
+    assert.equal(browserAssets.has(aImage.id), false);
+    assert.ok(evictions.some((event) => event.id === aImage.id && event.entryId === b.id));
+    assert.equal(f.a.controller.imageAssets.has(aImage.id), true, "A still owns the validated host payload");
+    const mark = f.view.webview.messages.length;
+    await f.manager.select(f.a.id);
+    await nextTurn();
+    const resent = f.view.webview.messages.slice(mark).filter((message: any) => message.type === "imageAsset");
+    assert.equal(resent.length, 1);
+    assert.equal(resent[0].id, aImage.id);
+    assert.equal(resent[0].sidebar.entryId, f.a.id);
+    assert.equal(browserAssets.has(aImage.id), true);
+    f.a.controller.refreshView();
+    await nextTurn();
+    assert.equal(
+      f.view.webview.messages.slice(mark).filter((message: any) => message.type === "imageAsset").length,
+      1,
+      "ordinary state refreshes must not resend payloads",
+    );
+  });
+});
+
 test("saved unloaded B gets an independent owner while A is busy and reuses it on reselection", async () => {
   await fixture(async (f) => {
     const saved = path.join(f.root, "saved-b.jsonl");

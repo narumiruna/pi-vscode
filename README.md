@@ -120,6 +120,8 @@ See the [user guide](docs/USER_GUIDE.md#get-started) for controls and shortcuts.
 Start work in A, return to **Sessions**, and select live B, open a saved B, or create a new conversation while A continues.
 **View all**, **Pi: Switch Session**, **Previous/Next Session**, **New Session**, and **Resume Session** use the same Sidebar selection.
 Each conversation retains its transcript, draft, attachments, queue, model/thinking selection, and **Stop**.
+Cancelled or rejected selection leaves session rows usable; selecting an editor-owned session can reveal its panel without locking Sidebar navigation.
+Selecting a retained conversation resends its referenced image payloads from the bounded host cache so the shared renderer can recover after eviction.
 Native input and approval dialogs identify their source conversation; changing the displayed conversation does not answer or transfer them.
 
 Sessions rows show **Idle**, **Running**, **Waiting for input**, **Completed**, **Failed**, or **Stopped**.

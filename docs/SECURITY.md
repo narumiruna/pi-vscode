@@ -489,6 +489,8 @@ This is a deliberate style-only change from the former nonce-only style policy, 
 Network connections, external images, frames, and object loads remain blocked.
 The Extension Host validates supported MIME, canonical Base64, decoded size, image header, and dimensions before delivery.
 The Webview independently checks the bounded one-shot payload protocol and constructs labels, image elements, and previews with DOM APIs rather than interpolating attachment values into HTML.
+A retained Sidebar controller resets its delivery record on selection because another conversation can evict its images from the shared renderer cache.
+Only referenced payloads still held in that controller's validated bounded host cache are resent; the image limits and renderer validation do not change.
 Raw Markdown HTML is escaped by the host parser.
 Link targets permit only HTTP, HTTPS, and mailto schemes without whitespace or control characters.
 Markdown images produce only their alt text.

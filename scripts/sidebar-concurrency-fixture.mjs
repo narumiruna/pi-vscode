@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 
 // One real Sidebar document with deterministic host snapshots, not a live provider.
 export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSafeMarkdown, origin) {
@@ -85,7 +86,7 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
       sessions: rows,
       imageSupported: true,
       attachments: [],
-      messages: sessionsView ? [] : messages(id),
+      messages: options.messages ?? (sessionsView ? [] : messages(id)),
     };
     await post(page, snapshot);
     await frames(page);
@@ -213,6 +214,18 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
       "background progress must keep the same focused button",
     );
     assert.equal(await page.locator("#recent-session-list .session-row-activity").nth(1).textContent(), "Completed");
+    // The binding stays unchanged after cancel, capacity rejection, or editor reveal.
+    const savedRow = page.locator("#recent-session-list .session-row").nth(2);
+    await savedRow.click();
+    assert.equal(await first.isDisabled(), true);
+    await post(page, { type: "sessionSwitchRejected", sidebar: { entryId: a, bindingGeneration: 0 } });
+    assert.equal(await first.isDisabled(), true, "stale replies cannot clear the current row action");
+    await post(page, { type: "sessionSwitchRejected", sidebar: envelope() });
+    assert.equal(await first.isEnabled(), true, "an unchanged-binding completion releases row navigation");
+    const selections = (await posted(page, "switchRecentSession")).length;
+    await savedRow.click();
+    assert.equal((await posted(page, "switchRecentSession")).length, selections + 1);
+    await post(page, { type: "sessionSwitchRejected", sidebar: envelope() });
     const navigationCount = (await posted(page, "draftSelect")).length;
     await first.click();
     assert.equal((await posted(page, "draftSelect")).at(-1).scope, "session");
@@ -281,6 +294,41 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
     await post(page, { type: "clearInput", draftBinding: "44444444-4444-4444-8444-444444444444", expectedText: olderSend.text, expectedRevision: olderSend.revision, sidebar: envelope() });
     assert.equal(await page.locator("#input").inputValue(), "Newer text must remain");
 
+    // Each host owns its payloads, but all Sidebar entries share this bounded DOM cache.
+    const imageData = await page.evaluate(() => {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 1;
+      const context = canvas.getContext("2d");
+      return Array.from({ length: 101 }, (_, index) => {
+        context.fillStyle = `rgb(${index},0,0)`;
+        context.fillRect(0, 0, 1, 1);
+        return canvas.toDataURL("image/png").split(",")[1];
+      });
+    });
+    const payloads = imageData.map((data) => {
+      const bytes = Buffer.from(data, "base64");
+      return { type: "imageAsset", id: `sha256-${createHash("sha256").update(bytes).digest("hex")}`,
+        mimeType: "image/png", data, byteLength: bytes.length, width: 1, height: 1 };
+    });
+    const withImages = (assets) => [{ id: "images", role: "user", html: "<p>Retained images</p>", attachments: assets.map((asset) => ({
+      type: "image", assetId: asset.id, label: "retained.png", fullLabel: "retained.png",
+      mimeType: asset.mimeType, width: 1, height: 1, availability: "available",
+    })) }];
+    const aImage = payloads.at(-1);
+    await state(a, { messages: withImages([aImage]) });
+    await post(page, { ...aImage, sidebar: envelope() });
+    await page.waitForFunction(() => document.querySelector("#messages img")?.naturalWidth === 1);
+    await state(b, { messages: withImages(payloads.slice(0, 100)) });
+    for (const asset of payloads.slice(0, 100)) await post(page, { ...asset, sidebar: envelope() });
+    const eviction = (await posted(page, "imageAssetEvicted")).find((message) => message.id === aImage.id);
+    assert.equal(eviction.entryId, b, "B reports eviction of A's asset under the current binding");
+    await state(a, { messages: withImages([aImage]) });
+    assert.equal(await page.locator("#messages img").count(), 0);
+    assert.match(await page.locator("#messages").innerText(), /Loading image/);
+    // The host regression requires selection to emit this retained payload again.
+    await post(page, { ...aImage, sidebar: envelope() });
+    await page.waitForFunction(() => document.querySelector("#messages img")?.naturalWidth === 1);
+
     const all = await page.evaluate(() => window.sidebarPosted);
     for (let index = 1; index < all.length; index += 1) {
       const message = all[index];
@@ -304,6 +352,8 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
       originBoundDelayedImage: true,
       draftsAndReadingAnchorPreserved: true,
       keyedFocusPreserved: true,
+      unchangedNavigationReleased: true,
+      imageEvictionRecovered: true,
       visibilityAndLatestAcknowledgement: true,
       cspViolations: 0,
       pageErrors: 0,
