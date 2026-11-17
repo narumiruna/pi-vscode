@@ -210,7 +210,11 @@ async function fixture(action: (f: any) => Promise<void>, options: { resolveView
   const latest = () => [...view.webview.messages].reverse().find((message) => message.type === "state");
   const binding = () => {
     assert.ok(latest()?.sidebar, "outgoing state must supply the renderer's origin envelope");
-    return { entryId: latest().sidebar.entryId, bindingGeneration: latest().sidebar.bindingGeneration };
+    return {
+      entryId: latest().sidebar.entryId,
+      bindingGeneration: latest().sidebar.bindingGeneration,
+      composerContext: latest().sidebar.composerContext,
+    };
   };
   const dispatch = (message: Record<string, unknown>, envelope = binding()) =>
     view.receive({ ...message, ...envelope });

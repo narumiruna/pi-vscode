@@ -127,6 +127,7 @@ Local `/new` and `/resume` can navigate during work without entering the model q
 If an actual runtime replacement changes the session behind a nonempty draft, verify the session and clear the kept text before sending.
 That context block stays with its entry across selection and renderer recreation.
 Accepted text is cleared even while the Sidebar renderer is closed; newer or context-blocked drafts stay intact.
+Late composer reports cannot make old text sendable in a replacement session.
 Native input and approval dialogs identify their source conversation; changing the displayed conversation does not answer or transfer them.
 
 Sessions rows show **Idle**, **Running**, **Waiting for input**, **Completed**, **Failed**, or **Stopped**.

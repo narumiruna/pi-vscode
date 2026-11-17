@@ -101,7 +101,14 @@ Send, Stop, queues, drafts, attachments, model/thinking pickers, history, and pr
 An actual runtime session-file replacement with nonempty composer text sets a host-owned per-entry context block.
 First file assignment in a new entry is not a replacement.
 The block survives disconnects, selection, and renderer recreation; the renderer restores the legacy draft warning and Send guard from this metadata.
-Only a valid empty composer report clears a blocked draft; a late acceptance cannot erase it.
+Only a valid empty composer report from the current context clears a blocked draft; a late acceptance cannot erase it.
+Each entry has a host-owned `composerContext` counter alongside its last known session file.
+A known-file replacement advances it, even when the last reported composer is empty; first assignment and same-file reconnect do not.
+Composer reports require a valid nonnegative context counter no greater than the host's current value.
+Valid late nonempty reports retain text only as blocked; old-context empty reports and invalid contexts cannot change the composer.
+Sidebar Send, queue, and background messages require the current context, independent of cached text.
+During an in-place replacement, the renderer keeps a nonempty draft's previous context until the input is empty.
+This counter detects stale messages; it is not a secret or an extra permission.
 Accepted-submission bookkeeping reaches the registry even when its controller view is detached.
 It uses the same source-entry, expected-text, expected-revision, and context-block checks as visible acceptance.
 A recreated renderer can accept a clear without its old document token only with the host's empty composer snapshot at exactly the captured revision plus one and unchanged current text/revision.

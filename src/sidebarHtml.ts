@@ -392,6 +392,7 @@ export function getSidebarHtml(
   <script nonce="${nonce}">
     const vscodeApi = acquireVsCodeApi();
     let sidebar;
+    let sidebarComposerContext;
     let sidebarRendering = false;
     let lastSidebarViewState = '';
     const sidebarReadingStates = new Map();
@@ -402,7 +403,8 @@ export function getSidebarHtml(
     let sidebarHistoryLoading = true;
     let acknowledgedSidebarResult;
     const captureSidebarEnvelope = () => sidebar
-      ? { entryId: sidebar.entryId, bindingGeneration: sidebar.bindingGeneration } : undefined;
+      ? { entryId: sidebar.entryId, bindingGeneration: sidebar.bindingGeneration,
+        composerContext: sidebarComposerContext } : undefined;
     const sameSidebarEnvelope = envelope => envelope
       ? sidebar?.entryId === envelope.entryId && sidebar?.bindingGeneration === envelope.bindingGeneration
       : !sidebar;
@@ -498,9 +500,10 @@ export function getSidebarHtml(
 
     function publishSidebarViewState(force = false) {
       if (!sidebar || sidebarRendering) return;
+      if (!input.value) sidebarComposerContext = sidebar.composerContext;
       const message = { type: 'sidebarViewState', text: input.value, revision: composerRevision,
         followingLatest: conversationPinnedToBottom, detailVisible: !sessionsLayerVisible };
-      const signature = JSON.stringify([sidebar.entryId, sidebar.bindingGeneration, message]);
+      const signature = JSON.stringify([sidebar.entryId, sidebar.bindingGeneration, sidebarComposerContext, message]);
       if (!force && signature === lastSidebarViewState) return;
       lastSidebarViewState = signature;
       vscodeApi.postMessage({ ...message, ...captureSidebarEnvelope() });
@@ -535,6 +538,7 @@ export function getSidebarHtml(
         for (const popover of document.querySelectorAll(':popover-open')) popover.hidePopover();
         if (sidebar?.entryId !== next.entryId) sidebarPendingSubmission = undefined;
         sidebar = next;
+        sidebarComposerContext = next.composerContext;
         sidebarRendering = true;
         // Cancel the legacy recovery debounce before the host supplies this entry's draft binding.
         composerDraft?.receive({ type: 'draftState', binding: next.entryId, enabled: false, writable: false, reset: false });
@@ -566,7 +570,9 @@ export function getSidebarHtml(
       if (sidebar) {
         sessionsLayerVisible = sidebar.view === 'sessions';
         sidebarRendering = true;
-        composerDraft?.setContextBlocked(sidebar.composer.contextBlocked === true);
+        if (!input.value) sidebarComposerContext = sidebar.composerContext;
+        composerDraft?.setContextBlocked(sidebar.composer.contextBlocked === true
+          || (Boolean(input.value) && sidebarComposerContext !== sidebar.composerContext));
       }
     }
 
@@ -2047,7 +2053,8 @@ export function getSidebarHtml(
       receive(message) {
         // Only the host can distinguish registry selection/first startup from a real replacement.
         legacyComposerDraft.receive(sidebar && message.type === 'draftState'
-          ? { ...message, reset: message.sidebar?.composer?.contextBlocked === true && message.reset }
+          ? { ...message, reset: (message.sidebar?.composer?.contextBlocked === true
+            || sidebarComposerContext !== sidebar.composerContext) && message.reset }
           : message);
       },
       select(scope) {
@@ -2070,8 +2077,12 @@ export function getSidebarHtml(
             || (message.sidebar.bindingGeneration === sidebar.bindingGeneration && message.sidebar.entryId !== sidebar.entryId))) return;
         bindSidebar(message.sidebar);
       } else if (sidebar && (!message.sidebar || !sameSidebarEnvelope(message.sidebar))) return;
+      if (sidebar && Number.isSafeInteger(message.sidebar?.composerContext))
+        sidebar.composerContext = Math.max(sidebar.composerContext, message.sidebar.composerContext);
+      if (sidebar && !input.value) sidebarComposerContext = sidebar.composerContext;
       if (sidebar && typeof message.sidebar?.composer?.contextBlocked === 'boolean')
-        composerDraft?.setContextBlocked(message.sidebar.composer.contextBlocked);
+        composerDraft?.setContextBlocked(message.sidebar.composer.contextBlocked
+          || (Boolean(input.value) && sidebarComposerContext !== sidebar.composerContext));
       if (message.type === 'sidebarSessions') {
         recentSessions = Array.isArray(message.sessions) ? message.sessions : [];
         updateSessionLayer();

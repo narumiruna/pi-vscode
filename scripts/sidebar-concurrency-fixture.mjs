@@ -30,6 +30,7 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
   const activities = ["running", "waiting", "completed", "failed", "stopped", "idle"];
   let generation = 0;
   let current;
+  let currentComposerContext = 0;
   let resultRevision = 0;
   let rows = activities.map((activity, index) => ({
     id: index === 0 ? a : index === 1 ? b : String(index).repeat(24),
@@ -60,12 +61,14 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
       generation += 1;
       current = id;
     }
+    currentComposerContext = options.composerContext ?? 0;
     const sessionsView = options.view === undefined ? id === launcher : options.view === "sessions";
     const snapshot = {
       type: "state",
       sidebar: {
         entryId: id,
         bindingGeneration: generation,
+        composerContext: currentComposerContext,
         view: sessionsView ? "sessions" : "session",
         resultRevision,
         composer: { ...entries.get(id), contextBlocked: Boolean(options.contextBlocked) },
@@ -93,7 +96,7 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
     await frames(page);
     return snapshot;
   };
-  const envelope = () => ({ entryId: current, bindingGeneration: generation });
+  const envelope = () => ({ entryId: current, bindingGeneration: generation, composerContext: currentComposerContext });
   try {
     await page.evaluate(() => {
       window.sidebarPosted = [];
@@ -431,6 +434,26 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
     await page.locator("#input").fill("New draft for the verified current session");
     assert.equal(await page.locator("#send").isEnabled(), true);
 
+    // The host has not received this text when a real replacement changes its context.
+    const racing = "202020202020202020202020";
+    entries.set(racing, { text: "", revision: 0 });
+    await state(racing);
+    await page.locator("#input").fill("Unreported text for the previous session");
+    await state(racing, { composerContext: 1 });
+    assert.equal(await page.locator("#send").isDisabled(), true, "a changed context must block unreported text");
+    assert.equal(await page.locator("#input").inputValue(), "Unreported text for the previous session");
+    assert.equal((await posted(page, "sidebarViewState")).at(-1).composerContext, 0);
+    await post(page, { type: "draftState", binding: "abababab-abab-4bab-8bab-abababababab", reset: true,
+      enabled: false, writable: true, available: false,
+      sidebar: { ...envelope(), composer: { contextBlocked: false } } });
+    assert.equal(await page.locator("#send").isDisabled(), true, "host metadata must not retarget old text");
+    await page.locator("#input").fill("");
+    const emptyReport = (await posted(page, "sidebarViewState")).at(-1);
+    assert.equal(emptyReport.composerContext, 1, "only explicit empty input adopts the new context");
+    await page.locator("#input").fill("Fresh text for the current session");
+    await page.locator("#send").click();
+    assert.equal((await posted(page, "send")).at(-1).composerContext, 1);
+
     const all = await page.evaluate(() => window.sidebarPosted);
     for (let index = 1; index < all.length; index += 1) {
       const message = all[index];
@@ -448,7 +471,7 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
     assert.deepEqual(external, []);
     return {
       documents: 1,
-      switchedEntries: 7,
+      switchedEntries: 8,
       activityLabels: activities.length,
       independentStops: 2,
       originBoundDelayedImage: true,
@@ -460,6 +483,7 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
       busyNavigationShortcuts: true,
       runtimeReplacementDraftGuard: true,
       reconstructedComposerAcceptance: true,
+      lateComposerContextGuard: true,
       visibilityAndLatestAcknowledgement: true,
       cspViolations: 0,
       pageErrors: 0,

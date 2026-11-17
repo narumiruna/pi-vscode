@@ -193,7 +193,7 @@ Implementation: `sidebarSessions.ts`, `sessionActivity.ts`, `interactiveSessionS
 Validation on 2026-11-17 used Node.js 26.8.2 and network-disabled `bwrap` copies with isolated stores/profiles, not a live provider.
 The ownership suite passed 52 tests after the 2026-11-18 review fixes, including cancelled submissions, promoted draft ownership, transactional construction, uncertain cleanup, unchanged-binding navigation, and shared image eviction.
 Twelve direct-shell lifecycle regressions verify owned settlement and unread results without weakening exclusive admission.
-The single-document Sidebar browser fixture verified seven entry bindings, six activity labels, independent Stop, delayed image origins, drafts/reading position, stable focus, and guarded acknowledgements with zero CSP, page, console, or unexpected-network errors.
+The single-document Sidebar browser fixture verified eight entry bindings, six activity labels, independent Stop, delayed image origins, drafts/reading position, stable focus, and guarded acknowledgements with zero CSP, page, console, or unexpected-network errors.
 
 | Initial full-workflow gate | Result on 2026-11-17 |
 | --- | --- |
@@ -221,10 +221,12 @@ Busy `/new` and `/resume` use the local navigation path, not a model queue, with
 A real runtime session replacement keeps nonempty text blocked in host-owned per-entry state until a valid empty composer report.
 The block survives view changes and renderer recreation, cannot be cleared by late acceptance, and also guards background launch before and after approval.
 First file assignment in a new entry remains valid for cold startup and launcher promotion.
-Ten dedicated composer-context tests cover these rules.
+Fourteen dedicated composer-context tests cover these rules and delayed old-context text/empty reports.
+A host-owned `composerContext` binds reports and sends to actual session replacements, including replacements while the last reported text is empty.
+The browser fixture keeps old nonempty input blocked until clear, even when new host metadata still reports an empty unblocked composer.
 Six accepted-submission lifecycle tests cover detached Primary/auxiliary delivery, newer and blocked text, inactive owners, and acceptance after reconstruction.
 The browser fixture also checks restored-composer acceptance without a local submission token and rejects old tokens, mismatched host revisions, and repeated acceptance over newer text.
-The review-fix run passed all 115 unit files with 1,982 tests and three existing skips, the documented Biome check with no errors, and full rich-content, thinking-picker, and settings browser suites.
+The review-fix run passed all 115 unit files with 1,986 tests and three existing skips, the documented Biome check with no errors, and full rich-content, thinking-picker, and settings browser suites.
 New browser checks verify row unlocking after an unchanged-binding reply, image recovery after B evicts A's payload at the 100-image limit, and same-revision acknowledgement after loading finishes, with zero CSP, page, console, or unexpected-network errors.
 The native checks above are retained initial-PR evidence; they were not rerun for these review fixes.
 The fixtures also retain native settings, read-only review, Preview/Apply/Undo, queue, terminal ownership across reload, and explicit text-only draft recovery checks.

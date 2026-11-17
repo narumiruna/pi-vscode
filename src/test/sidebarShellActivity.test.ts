@@ -135,6 +135,7 @@ async function fixture(action: (f: any) => Promise<void>): Promise<void> {
       type: "sidebarViewState",
       entryId: latest().sidebar.entryId,
       bindingGeneration: latest().sidebar.bindingGeneration,
+      composerContext: latest().sidebar.composerContext,
       text,
       revision,
       followingLatest: true,

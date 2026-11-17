@@ -106,10 +106,14 @@ async function fixture(action: (f: any) => Promise<void>): Promise<void> {
   };
   let view = makeView();
   const latest = () => [...posted].reverse().find((message) => message.type === "state");
-  const binding = () => ({
-    entryId: latest().sidebar.entryId,
-    bindingGeneration: latest().sidebar.bindingGeneration,
-  });
+  const binding = () => {
+    const { sidebar } = [...posted].reverse().find((message) => Number.isSafeInteger(message.sidebar?.composerContext));
+    return {
+      entryId: sidebar.entryId,
+      bindingGeneration: sidebar.bindingGeneration,
+      composerContext: sidebar.composerContext,
+    };
+  };
   const dispatch = (message: Record<string, unknown>, envelope = binding()) =>
     (manager as any).receive({ ...message, ...envelope });
   const compose = (text: string, revision: number) =>
@@ -144,12 +148,14 @@ test("first actual file assignment keeps nonempty text unblocked, including laun
     const messages = f.posted.slice(mark).filter((message: any) => ["draftState", "state"].includes(message.type));
     assert.equal(messages[0].type, "draftState");
     assert.ok(messages.every((message: any) => message.sidebar.composer.contextBlocked === false));
+    assert.ok(messages.every((message: any) => message.sidebar.composerContext === 0));
     assert.deepEqual(f.b.entry.composer, { text: "unsent startup text", revision: 4 });
     assert.equal(f.latest().sidebar.view, "session");
     f.b.updateState({ sessionId: "startup-id-finalized", sessionFile: undefined });
     f.b.updateState({ sessionFile: sessionFile("first-assignment") });
     f.b.provider.refreshView();
     assert.equal(f.latest().sidebar.composer.contextBlocked, false, "same file after disconnect is not replacement");
+    assert.equal(f.latest().sidebar.composerContext, 0);
   });
 });
 
@@ -233,6 +239,64 @@ test("detached runtime replacements remain blocked even if the original file ret
       revision: 3,
       contextBlocked: true,
     });
+  });
+});
+
+test.each(["send", "queueInstruction", "runBackground"])(
+  "R11 late old-context text cannot reach %s after replacement with an empty host composer",
+  async (type) => {
+    await fixture(async (f) => {
+      const old = { ...f.binding(), composerContext: f.latest().sidebar.composerContext ?? 0 };
+      assert.equal(f.a.entry.composer.text, "");
+      f.a.updateState({ sessionFile: sessionFile("unreported-replacement") });
+      const delegate = vi.spyOn(f.a.provider, "receiveSidebarMessage").mockResolvedValue(undefined);
+      try {
+        await f.dispatch(
+          {
+            type: "sidebarViewState",
+            text: "typed for the old session",
+            revision: 4,
+            followingLatest: true,
+            detailVisible: true,
+          },
+          old,
+        );
+        await f.dispatch(
+          { type, text: "typed for the old session", revision: 4, kind: "steering", isolated: false },
+          old,
+        );
+        assert.equal(delegate.mock.calls.length, 0, "old-context text must not reach the controller");
+        assert.deepEqual(f.a.entry.composer, { text: "typed for the old session", revision: 4 });
+        assert.equal(f.a.entry.contextBlocked, true, "late text must remain available but blocked");
+        assert.ok(f.posted.some((message: any) => message.type === "sendRejected"));
+      } finally {
+        delegate.mockRestore();
+      }
+    });
+  },
+);
+
+test("R11 a late old-context empty report cannot release the replacement guard", async () => {
+  await fixture(async (f) => {
+    await f.compose("keep old-context text", 4);
+    const old = { ...f.binding(), composerContext: f.latest().sidebar.composerContext ?? 0 };
+    f.a.updateState({ sessionFile: sessionFile("late-empty-replacement") });
+    await f.dispatch(
+      { type: "sidebarViewState", text: "", revision: 5, followingLatest: true, detailVisible: true },
+      old,
+    );
+    assert.equal(f.a.entry.contextBlocked, true);
+    assert.deepEqual(f.a.entry.composer, { text: "keep old-context text", revision: 4 });
+    const current = f.binding();
+    for (const composerContext of [undefined, -1, 0.5, NaN, current.composerContext + 1]) {
+      await f.dispatch(
+        { type: "sidebarViewState", text: "invalid context", revision: 99, followingLatest: true, detailVisible: true },
+        { ...current, composerContext },
+      );
+      assert.deepEqual(f.a.entry.composer, { text: "keep old-context text", revision: 4 });
+    }
+    await f.compose("", 5);
+    assert.equal(f.a.entry.contextBlocked, false, "an empty report from the current context clears the guard");
   });
 });
 

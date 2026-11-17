@@ -34,6 +34,7 @@ interface Entry {
   state?: Record<string, unknown>;
   composer: { text: string; revision: number };
   contextBlocked: boolean;
+  composerContext: number;
   lastSessionFile: string | undefined;
   readonly pendingComposerUpdates: Record<string, unknown>[];
   readonly notices: Record<string, unknown>[];
@@ -97,6 +98,7 @@ export class SidebarSessions implements vscode.Disposable {
       release,
       composer: { text: "", revision: 0 },
       contextBlocked: false,
+      composerContext: 0,
       lastSessionFile: runtime.currentState.sessionFile,
       pendingComposerUpdates: [],
       notices: [],
@@ -270,7 +272,10 @@ export class SidebarSessions implements vscode.Disposable {
     const file = entry.runtime.currentState.sessionFile;
     // Keep the last actual file through disconnect; first startup/promotion is not replacement.
     if (!file || file === entry.lastSessionFile) return;
-    if (entry.lastSessionFile && entry.composer.text) entry.contextBlocked = true;
+    if (entry.lastSessionFile) {
+      entry.composerContext += 1;
+      if (entry.composer.text) entry.contextBlocked = true;
+    }
     entry.lastSessionFile = file;
   }
 
@@ -279,6 +284,7 @@ export class SidebarSessions implements vscode.Disposable {
     return {
       entryId: entry.id,
       bindingGeneration: this.generation,
+      composerContext: entry.composerContext,
       view: entry === this.launcher ? "sessions" : "session",
       resultRevision: entry.activity.resultRevision,
       composer: { ...entry.composer, contextBlocked: entry.contextBlocked },
@@ -351,10 +357,14 @@ export class SidebarSessions implements vscode.Disposable {
     }
     const entry = this.displayed;
     if (input.entryId !== entry.id || input.bindingGeneration !== this.generation) return;
-    const { entryId: _entryId, bindingGeneration: _generation, ...message } = input;
+    const { entryId: _entryId, bindingGeneration: _generation, composerContext, ...message } = input;
     this.reconcileComposerContext(entry);
     if (message.type === "sidebarViewState") {
       if (
+        typeof composerContext !== "number" ||
+        !Number.isSafeInteger(composerContext) ||
+        composerContext < 0 ||
+        composerContext > entry.composerContext ||
         typeof message.text !== "string" ||
         message.text.length > 100_000 ||
         !Number.isSafeInteger(message.revision) ||
@@ -363,12 +373,15 @@ export class SidebarSessions implements vscode.Disposable {
         typeof message.detailVisible !== "boolean"
       )
         return;
+      // A late old-context report can retain text, but cannot authorize sending or clear a guard.
+      if (composerContext !== entry.composerContext && !message.text) return;
       const wasBlocked = entry.contextBlocked;
       entry.composer = { text: message.text, revision: message.revision as number };
-      if (!message.text) entry.contextBlocked = false;
+      if (composerContext !== entry.composerContext) entry.contextBlocked = true;
+      else if (!message.text) entry.contextBlocked = false;
       entry.followingLatest = message.followingLatest;
       entry.detailVisible = message.detailVisible;
-      if (wasBlocked && !entry.contextBlocked) this.publish();
+      if (wasBlocked !== entry.contextBlocked) this.publish();
       return;
     }
     if (message.type === "acknowledgeResult") {
@@ -421,8 +434,8 @@ export class SidebarSessions implements vscode.Disposable {
       return;
     }
     if (
-      entry.contextBlocked &&
-      ["send", "sendNewSession", "queueInstruction", "runBackground"].includes(String(message.type))
+      ["send", "sendNewSession", "queueInstruction", "runBackground"].includes(String(message.type)) &&
+      (entry.contextBlocked || composerContext !== entry.composerContext)
     ) {
       this.fromController(entry, { type: "sendRejected" });
       this.fromController(entry, {

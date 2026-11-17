@@ -29,6 +29,10 @@ A late acceptance cannot clear a blocked draft, and another entry does not inher
 Accepted-submission bookkeeping stays active after renderer disposal.
 A restored composer can clear an old submission without its document-local token only when the host reports empty text at the exact accepted revision plus one.
 Its current text and revision must still match the submitted values.
+A host-owned `composerContext` also tags reports and submissions.
+An in-place session replacement advances it; nonempty input keeps its previous context until cleared.
+First file assignment does not advance it.
+Late old-context text stays blocked, and an old empty report cannot release the guard.
 Native input and approval dialogs identify their source conversation; selection does not answer, transfer, or cancel them.
 Stopping or closing a runtime invalidates only its own handles.
 
