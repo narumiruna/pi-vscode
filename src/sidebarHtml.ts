@@ -37,7 +37,12 @@ interface RichContentAssets {
   readonly style: string;
 }
 
-export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number, assets?: RichContentAssets): string {
+export function getSidebarHtml(
+  maxInputCharacters: number,
+  maxImageBytes: number,
+  assets?: RichContentAssets,
+  conversationOnly = false,
+): string {
   const nonce = randomBytes(16).toString("base64url");
   const csp = [
     "default-src 'none'",
@@ -297,11 +302,11 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
   </style>
 </head>
 <body>
-  <main id="app" class="sessions-layer">
+  <main id="app" class="${conversationOnly ? "" : "sessions-layer"}">
     <section id="sessions" aria-label="Pi sessions">
       <div class="sessions-header">
         <button id="back-to-sessions" class="secondary icon-button" type="button" title="Back to Sessions" aria-label="Back to Sessions" hidden>${icon("back")}</button>
-        <span id="session-header-title" class="sessions-title">Sessions</span>
+        <span id="session-header-title" class="sessions-title">${conversationOnly ? "Session" : "Sessions"}</span>
         <div class="sessions-actions" aria-label="Pi session controls">
           <button id="new-session" class="secondary icon-button" type="button" title="New session" aria-label="New Pi session">${icon("plus")}</button>
           <button id="delete-session" class="secondary danger icon-button" type="button" title="Delete session" aria-label="Delete current Pi session" hidden>${icon("trash")}</button>
@@ -311,7 +316,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
           <button id="more" class="secondary icon-button" type="button" title="More… · Session and advanced actions" aria-label="More Pi actions">${icon("more")}</button>
         </div>
       </div>
-      <div id="session-list-content">
+      <div id="session-list-content"${conversationOnly ? " hidden" : ""}>
         <div id="recent-session-list" class="session-list" aria-label="Recent sessions"></div>
         <button id="view-all-sessions" class="secondary" type="button">View all</button>
         <div id="sessions-browser" hidden>
@@ -457,7 +462,8 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     let renderedBackground = '';
     let renderedAttachments = '';
     let recentSessions = [];
-    let sessionsLayerVisible = true;
+    const conversationOnly = ${conversationOnly};
+    let sessionsLayerVisible = !conversationOnly;
     let sessionsExpanded = false;
     let sessionSwitchPending;
     let newSessionSourceWasList;
@@ -1422,7 +1428,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
       $('session-list-content').hidden = !sessionsLayerVisible;
       recentSessionList.hidden = sessionsExpanded;
       $('sessions-browser').hidden = !sessionsExpanded;
-      $('back-to-sessions').hidden = sessionsLayerVisible && !sessionsExpanded;
+      $('back-to-sessions').hidden = conversationOnly || (sessionsLayerVisible && !sessionsExpanded);
       $('back-to-sessions').title = sessionsLayerVisible ? 'Back to recent Sessions' : 'Back to Sessions';
       $('session-header-title').textContent = sessionsLayerVisible ? 'Sessions' : current?.title || 'Session';
       $('session-header-title').title = sessionsLayerVisible ? '' : current?.title || '';
@@ -1440,6 +1446,7 @@ export function getSidebarHtml(maxInputCharacters: number, maxImageBytes: number
     }
 
     function showSessionsLayer() {
+      if (conversationOnly) return;
       composerDraft?.select('sessions');
       sessionsLayerVisible = true;
       updateSessionLayer();

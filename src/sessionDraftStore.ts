@@ -17,6 +17,7 @@ export interface DraftMemento {
   get<T>(key: string): T | undefined;
   update(key: string, value: unknown): Thenable<void> | Promise<void>;
 }
+export type SessionDraftChange = "enabled" | "disabled" | "records";
 
 // Pi assigns a file before saving its header. That path, not its temporary ID, owns the draft.
 export function sessionDraftOwner(sessionFile: string | undefined): string | undefined {
@@ -52,6 +53,7 @@ export class SessionDraftStore {
   private generation = 0;
   private written = 0;
   private writing: Promise<void> | undefined;
+  private readonly listeners = new Set<(change: SessionDraftChange) => void>();
 
   public constructor(
     private readonly state: DraftMemento,
@@ -79,14 +81,22 @@ export class SessionDraftStore {
   public get enabled(): boolean {
     return this.approved;
   }
+  /** Notifications are synchronous and contain no retained text. */
+  public subscribe(listener: (change: SessionDraftChange) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
   public enable(): void {
     this.approved = true;
-    this.changed();
+    this.changed("enabled");
   }
   public disable(): void {
     this.approved = false;
     this.records = [];
-    this.changed();
+    // Notify even when already disabled: pending consent must not survive discard-all.
+    this.changed("disabled");
   }
   public get(owner: string): SessionDraft | undefined {
     const count = this.records.length;
@@ -125,15 +135,25 @@ export class SessionDraftStore {
         return true;
       });
   }
-  private changed(): void {
+  private changed(change: SessionDraftChange = "records"): void {
     this.generation += 1;
+    this.scheduleWrite();
+    for (const listener of [...this.listeners]) {
+      try {
+        listener(change);
+      } catch {
+        // A failed view must not block persistence or other subscribers.
+      }
+    }
+  }
+  private scheduleWrite(): void {
     if (!this.writing) {
       // Coalesce synchronous mutations, including acceptance immediately following an update.
       this.writing = Promise.resolve()
         .then(() => this.drain())
         .finally(() => {
           this.writing = undefined;
-          if (this.written !== this.generation) this.changed();
+          if (this.written !== this.generation) this.scheduleWrite();
         });
     }
   }

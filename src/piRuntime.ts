@@ -24,6 +24,7 @@ import {
 } from "./piRpcClient";
 import { PiRuntimeControl } from "./piRuntimeControl";
 import { assertAssignedSessionWorkspace, assertSessionWorkspace, MissingSessionFileError } from "./sessionIdentity";
+import { SessionInUseError, type SessionWriters } from "./sessionWriters";
 import { VscodeBridgeServer } from "./vscodeBridge";
 import {
   vscodeAnnotationTokenEnvironmentKey,
@@ -34,6 +35,12 @@ import {
 import { initializePiRuntime, readPiInvocationOptions, readPiInvocationSettings } from "./vscodePi";
 
 const sessionPathKey = "pi.rpc.sessionPath.v1";
+let nextRuntimeGeneration = 0;
+
+export interface PiRuntimeOptions {
+  readonly editorSession?: boolean;
+  readonly sessionWriters?: SessionWriters;
+}
 const maxQueueRecoveryBytes = 30 * 1024 * 1024;
 const maxPendingQueueDisplayCharacters = 1_000;
 
@@ -194,8 +201,11 @@ export class PiRuntimeManager implements vscode.Disposable {
   private nextClientGeneration = 0;
   private readonly clientGenerations = new WeakMap<PiRpcClient, number>();
   private readonly unverifiedCleanupClients = new WeakSet<PiRpcClient>();
+  private readonly clientStops = new WeakMap<PiRpcClient, Promise<void>>();
   private requestLog: RuntimeRequestLog | undefined;
   private disposed = false;
+  private shutdownPromise: Promise<void> | undefined;
+  private rememberedSession: string | undefined;
   private clientSubscription: vscode.Disposable | undefined;
   private startPromise: Promise<void> | undefined;
   private resource: vscode.Uri | undefined;
@@ -237,12 +247,14 @@ export class PiRuntimeManager implements vscode.Disposable {
   public constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly logger: Logger = nullLogger,
+    private readonly options: PiRuntimeOptions = {},
   ) {
     initializePiRuntime(context.extensionUri.fsPath);
     this.state = emptyState();
     const runtime = this;
     this.control = new PiRuntimeControl({
       context,
+      editorSession: this.options.editorSession,
       get cwd() {
         return runtime.currentCwd;
       },
@@ -412,10 +424,12 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   public initializeControlOwnership(): Promise<void> {
+    if (this.options.editorSession) return Promise.resolve();
     return this.control.initializeOwnership();
   }
 
   public async initializeBridge(): Promise<void> {
+    if (this.options.editorSession) return;
     const environment = await this.bridgeEnvironment();
     this.context.environmentVariableCollection.description =
       "Connects process-local Pi bridge extensions to the active Pi VS Code window.";
@@ -442,6 +456,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     params: Record<string, unknown>,
     isCancelled: () => boolean,
   ): Promise<unknown> {
+    if (this.options.editorSession) throw new Error("Annotations are available only in the Pi sidebar session.");
     const launch = this.annotationLaunch;
     const scope = this.annotationScope;
     const sessionId = this.state.sessionId;
@@ -498,7 +513,9 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   public async ensureStarted(resource?: vscode.Uri, operationId?: OperationId): Promise<void> {
+    if (this.disposed) throw new Error("Pi runtime is closing.");
     await this.control.initializeOwnership();
+    if (this.disposed) throw new Error("Pi runtime is closing.");
     this.control.assertSidebarOwnership();
     if (!vscode.workspace.isTrusted) throw new Error("Pi requires a trusted workspace.");
     if (resource && !["file", "untitled"].includes(resource.scheme))
@@ -590,7 +607,7 @@ export class PiRuntimeManager implements vscode.Disposable {
         return await settled.promise;
       } catch (error) {
         this.promptActive = false;
-        await client.stop();
+        await (this.shutdownPromise ?? this.stopClient());
         this.updateState({ busy: false });
         throw error;
       } finally {
@@ -1060,13 +1077,13 @@ export class PiRuntimeManager implements vscode.Disposable {
         if (this.state.busy) throw new Error("Cancel or wait for the active request before deleting the conversation.");
         await assertSessionWorkspace(sessionFile, this.currentCwd);
         if (this.state.sessionFile !== sessionFile) {
-          await vscode.workspace.fs.delete(vscode.Uri.file(sessionFile), { useTrash: false });
+          await this.deleteReservedSessionFile(sessionFile, false);
           this.logger.record("info", "deletion", { operationId, generation: this.generation, result: "deleted" });
           return;
         }
         if (this.state.connected) await this.stopClient(operationId);
         try {
-          await vscode.workspace.fs.delete(vscode.Uri.file(sessionFile), { useTrash: false });
+          await this.deleteReservedSessionFile(sessionFile, false);
         } catch (error) {
           await this.recoverStartup(operationId).catch(() => undefined);
           throw error;
@@ -1088,7 +1105,7 @@ export class PiRuntimeManager implements vscode.Disposable {
         if (sessionFile) {
           this.logger.record("info", "trash", { operationId, generation: this.generation, result: "started" });
           try {
-            await vscode.workspace.fs.delete(vscode.Uri.file(sessionFile), { useTrash });
+            await this.deleteReservedSessionFile(sessionFile, useTrash);
           } catch (error) {
             const unsupported = useTrash && isTrashUnavailableError(error);
             this.logger.record(unsupported ? "warn" : "error", "trash", {
@@ -1110,6 +1127,17 @@ export class PiRuntimeManager implements vscode.Disposable {
         await this.finishDeletedSession(operationId);
       }),
     );
+  }
+
+  private async deleteReservedSessionFile(sessionFile: string, useTrash: boolean): Promise<void> {
+    const deletion = {};
+    try {
+      await this.options.sessionWriters?.reserve(deletion, sessionFile);
+      if (this.disposed || !vscode.workspace.isTrusted) throw new Error("Pi session deletion is no longer available.");
+      await vscode.workspace.fs.delete(vscode.Uri.file(sessionFile), { useTrash });
+    } finally {
+      this.options.sessionWriters?.release(deletion);
+    }
   }
 
   private async logDeletion(operationId: OperationId, action: () => Promise<void>): Promise<void> {
@@ -1158,7 +1186,7 @@ export class PiRuntimeManager implements vscode.Disposable {
   private async finishDeletedSession(operationId: OperationId = this.logger.operation()): Promise<void> {
     const warnings: string[] = [];
     try {
-      await this.context.workspaceState.update(sessionPathKey, undefined);
+      await this.rememberSession(undefined);
       this.logger.record("info", "storage-cleanup", { operationId, generation: this.generation, result: "completed" });
     } catch (error) {
       this.logger.record("warn", "storage-cleanup", {
@@ -1244,15 +1272,25 @@ export class PiRuntimeManager implements vscode.Disposable {
         throw new Error("The destination session changed before switching.");
       if ((await realpath(cwd)) !== root) throw new Error("Pi workspace changed before switching session.");
       assertSwitchOrigin(true);
-      this.control.invalidate();
-      // Pi can emit new extension UI during switch_session, so retain the existing pre-dispatch reset.
-      this.resetExtensionUi();
-      assertSwitchOrigin(true);
+      this.refreshRevision += 1;
+      await this.options.sessionWriters?.reserve(client, target.sessionFile);
       let cancelled = false;
       try {
+        assertSwitchOrigin(true);
+        this.control.invalidate();
+        // Pi can emit new extension UI during switch_session, so retain the existing pre-dispatch reset.
+        this.resetExtensionUi();
+        assertSwitchOrigin(true);
         const result = await client.switchSession(target.sessionFile);
         cancelled = isRecord(result) && result.cancelled === true;
-        if (cancelled) throw new Error("Pi cancelled the session switch.");
+        if (cancelled) {
+          cancelled = false;
+          assertSwitchOrigin(true);
+          await this.options.sessionWriters?.cancelReservation(client, target.sessionFile);
+          assertSwitchOrigin(true);
+          cancelled = true;
+          throw new Error("Pi cancelled the session switch.");
+        }
         assertSwitchOrigin();
         await this.refreshState(true, true, target);
         if ((await realpath(cwd)) !== root) throw new Error("Pi workspace changed during session switch.");
@@ -1420,6 +1458,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     return this.control.reloadResources();
   }
   public async restartSessionProcess(): Promise<boolean> {
+    if (this.options.editorSession) throw new Error("Close this editor session and open a new one to restart Pi.");
     const operationId = this.logger.operation();
     const started = Date.now();
     this.logger.record("info", "restart", { operationId, generation: this.generation, result: "started" });
@@ -1448,6 +1487,8 @@ export class PiRuntimeManager implements vscode.Disposable {
     return this.control.chooseSessionBranch(select);
   }
   public returnFromTerminal(): Promise<boolean> {
+    if (this.options.editorSession)
+      return Promise.reject(new Error("Terminal ownership is managed in the Pi sidebar."));
     return this.control.returnFromTerminal();
   }
 
@@ -1514,6 +1555,8 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   public openInTerminal(expectedOrigin?: () => Promise<void>): Promise<void> {
+    if (this.options.editorSession)
+      return Promise.reject(new Error("Terminal handoff is available in the Pi sidebar."));
     return this.control.openInTerminal(expectedOrigin);
   }
 
@@ -1525,23 +1568,51 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   public dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    this.resetExtensionUi();
-    this.annotations.dispose();
-    this.annotationLaunch = undefined;
-    this.control.dispose();
-    this.clientSubscription?.dispose();
-    this.clientSubscription = undefined;
-    void this.stopClient();
-    this.context.environmentVariableCollection.clear();
-    this.bridge.dispose();
-    this.eventEmitter.dispose();
-    this.stateEmitter.dispose();
+    void this.shutdown().catch(() => {});
+  }
+
+  public get shutdownCompletion(): Promise<void> | undefined {
+    return this.shutdownPromise;
+  }
+
+  public shutdown(): Promise<void> {
+    if (!this.shutdownPromise) {
+      this.shutdownPromise = Promise.resolve().then(() => this.finishShutdown());
+      this.disposed = true;
+      this.resetExtensionUi();
+      this.annotations.dispose();
+      this.annotationLaunch = undefined;
+      this.bridge.dispose();
+      this.eventEmitter.fire({ type: "runtime_shutdown" });
+    }
+    return this.shutdownPromise;
+  }
+
+  private async finishShutdown(): Promise<void> {
+    try {
+      await this.startPromise?.catch(() => {});
+      await this.stopClient();
+    } finally {
+      this.control.dispose();
+      if (!this.options.editorSession) this.context.environmentVariableCollection.clear();
+      this.eventEmitter.dispose();
+      this.stateEmitter.dispose();
+    }
+  }
+
+  private restoreSession(): string | undefined {
+    return this.options.editorSession
+      ? this.rememberedSession
+      : this.context.workspaceState.get<string>(sessionPathKey);
+  }
+
+  private async rememberSession(sessionFile: string | undefined): Promise<void> {
+    if (this.options.editorSession) this.rememberedSession = sessionFile;
+    else await this.context.workspaceState.update(sessionPathKey, sessionFile);
   }
 
   private async startClient(operationId: OperationId = this.logger.operation()): Promise<void> {
-    const savedSession = this.context.workspaceState.get<string>(sessionPathKey);
+    const savedSession = this.restoreSession();
     const settings = readPiInvocationSettings(this.resource);
     const approveProjectResources = piConfiguration().get<boolean>("approveProjectResources", false);
     let root: string | undefined;
@@ -1551,6 +1622,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     } catch (error) {
       if (
         !savedSession ||
+        error instanceof SessionInUseError ||
         this.disposed ||
         (settings.executablePath === "" && !(error instanceof MissingSessionFileError)) ||
         JSON.stringify(settings) !== JSON.stringify(readPiInvocationSettings(this.resource)) ||
@@ -1564,7 +1636,7 @@ export class PiRuntimeManager implements vscode.Disposable {
         if (
           this.disposed ||
           !vscode.workspace.isTrusted ||
-          this.context.workspaceState.get<string>(sessionPathKey) !== expectedSession ||
+          this.restoreSession() !== expectedSession ||
           JSON.stringify(settings) !== JSON.stringify(readPiInvocationSettings(this.resource)) ||
           approveProjectResources !== piConfiguration().get<boolean>("approveProjectResources", false) ||
           currentRoot !== root
@@ -1594,7 +1666,7 @@ export class PiRuntimeManager implements vscode.Disposable {
         errorCode: safeErrorCode(error),
       });
       try {
-        await this.context.workspaceState.update(sessionPathKey, undefined);
+        await this.rememberSession(undefined);
         this.logger.record("info", "storage-cleanup", {
           operationId,
           generation: this.generation,
@@ -1642,7 +1714,8 @@ export class PiRuntimeManager implements vscode.Disposable {
     expectedRoot?: string,
     operationId: OperationId = this.logger.operation(),
   ): Promise<void> {
-    const generation = ++this.nextClientGeneration;
+    const generation = Math.max(this.nextClientGeneration, nextRuntimeGeneration) + 1;
+    this.nextClientGeneration = nextRuntimeGeneration = generation;
     const started = Date.now();
     this.logger.record("info", "startup", { operationId, generation, result: "started" });
     try {
@@ -1693,7 +1766,10 @@ export class PiRuntimeManager implements vscode.Disposable {
     const options = {
       ...baseOptions,
       cwd: root,
-      env: { ...baseOptions.env, [vscodeAnnotationTokenEnvironmentKey]: credential },
+      env: {
+        ...baseOptions.env,
+        [vscodeAnnotationTokenEnvironmentKey]: this.options.editorSession ? undefined : credential,
+      },
     };
     const runtime = this;
     const client = new PiRpcClient(options, {
@@ -1717,6 +1793,9 @@ export class PiRuntimeManager implements vscode.Disposable {
     this.control.clientStarted();
     try {
       if (this.disposed || this.client !== client) throw new Error("Pi startup was disposed or replaced.");
+      if (sessionPath) await this.options.sessionWriters?.reserve(client, sessionPath);
+      if (this.disposed || this.client !== client) throw new Error("Pi startup was disposed or replaced.");
+      if (this.options.editorSession) this.control.assertSidebarOwnership();
       await client.start();
       if (this.disposed || this.client !== client) throw new Error("Pi startup was disposed or replaced.");
       await this.refreshState(true);
@@ -1796,7 +1875,7 @@ export class PiRuntimeManager implements vscode.Disposable {
         : Promise.resolve(this.state.commands),
     ]);
     const assertRefreshCurrent = () => {
-      const current = revision === this.refreshRevision && this.client === client;
+      const current = !this.disposed && revision === this.refreshRevision && this.client === client;
       if (!current && expectedSession) throw new Error("Pi session-switch state refresh expired.");
       return current;
     };
@@ -1828,8 +1907,16 @@ export class PiRuntimeManager implements vscode.Disposable {
     }
     if (expectedSession && !savedSession) throw new Error("The switched session file is no longer available.");
     if (!assertRefreshCurrent()) return;
+    try {
+      await this.options.sessionWriters?.commit(client, sessionFile, assertRefreshCurrent);
+    } catch (error) {
+      if (!assertRefreshCurrent()) return;
+      await this.stopClient();
+      throw error;
+    }
+    if (!assertRefreshCurrent()) return;
     // Pi assigns a path before its first save. Never restore that path, or an older session, after reload.
-    await this.context.workspaceState.update(sessionPathKey, savedSession);
+    await this.rememberSession(savedSession);
     if (!assertRefreshCurrent()) return;
     if (
       runtimeSessionIdentityChanged(this.state, {
@@ -1999,6 +2086,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       if (this.requestLog?.submitted && event.expected !== true) this.requestLog.exited = true;
       this.logProcessExit(event, this.generation, this.requestLog?.operationId);
       const cleanupVerified = !this.client || !this.unverifiedCleanupClients.has(this.client);
+      if (cleanupVerified && this.client) this.options.sessionWriters?.release(this.client);
       this.logger.record(cleanupVerified ? "info" : "warn", "cleanup", {
         generation: this.generation,
         operationId: this.requestLog?.operationId,
@@ -2186,7 +2274,7 @@ export class PiRuntimeManager implements vscode.Disposable {
           }
           subscription?.dispose();
           resolve(response.response);
-        } else if (event.type === "process_exit") {
+        } else if (event.type === "process_exit" || event.type === "runtime_shutdown") {
           if (timeout) {
             clearTimeout(timeout);
           }
@@ -2223,11 +2311,20 @@ export class PiRuntimeManager implements vscode.Disposable {
     return this.client;
   }
 
-  private async stopDetachedClient(
+  private stopDetachedClient(
     client: PiRpcClient | undefined,
     operationId: OperationId = this.logger.operation(),
   ): Promise<void> {
-    if (!client) return;
+    if (!client) return Promise.resolve();
+    const existing = this.clientStops.get(client);
+    if (existing) return existing;
+    this.options.sessionWriters?.retire(client);
+    const stopping = Promise.resolve().then(() => this.finishDetachedStop(client, operationId));
+    this.clientStops.set(client, stopping);
+    return stopping;
+  }
+
+  private async finishDetachedStop(client: PiRpcClient, operationId: OperationId): Promise<void> {
     const generation = this.clientGenerations.get(client) ?? this.generation;
     const started = Date.now();
     let cleanupVerified = !this.unverifiedCleanupClients.has(client);
@@ -2236,6 +2333,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     const subscription = client.onEvent((event) => {
       if (event.type === "runtime_warning" && event.warningCode === "cleanup-unverified") {
         cleanupVerified = false;
+        this.unverifiedCleanupClients.add(client);
         this.emitWarning(event, generation, operationId);
       } else if (event.type === "process_exit") {
         this.logProcessExit(event, generation, operationId);
@@ -2256,6 +2354,9 @@ export class PiRuntimeManager implements vscode.Disposable {
         result: cleanupVerified ? "verified" : "unverified",
       });
     } catch (error) {
+      const reportWarning = cleanupVerified;
+      cleanupVerified = false;
+      this.unverifiedCleanupClients.add(client);
       this.logger.record("error", "stop", {
         operationId,
         generation,
@@ -2265,9 +2366,20 @@ export class PiRuntimeManager implements vscode.Disposable {
         errorCode: safeErrorCode(error),
       });
       this.logger.record("warn", "cleanup", { operationId, generation, cleanupVerified: false, result: "unverified" });
+      if (reportWarning)
+        this.emitWarning(
+          {
+            type: "runtime_warning",
+            warningCode: "cleanup-unverified",
+            message: "Pi process cleanup failed. Inspect remaining processes before conflicting work.",
+          },
+          generation,
+          operationId,
+        );
       throw error;
     } finally {
       subscription.dispose();
+      if (cleanupVerified) this.options.sessionWriters?.release(client);
       this.logger.endGeneration(generation);
     }
   }

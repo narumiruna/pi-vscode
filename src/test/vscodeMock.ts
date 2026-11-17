@@ -302,6 +302,8 @@ export function installVscodeMock(): any {
           column,
           options,
           reveals: 0,
+          visible: true,
+          active: true,
           disposed: false,
           webview: {
             html: "",
@@ -317,7 +319,16 @@ export function installVscodeMock(): any {
           receive: (message: unknown) => events.emit("message", message),
           reveal: () => {
             panel.reveals++;
+            panel.visible = true;
+            panel.active = true;
+            events.emit("viewState", { webviewPanel: panel });
           },
+          hide: () => {
+            panel.visible = false;
+            panel.active = false;
+            events.emit("viewState", { webviewPanel: panel });
+          },
+          onDidChangeViewState: (listener: (...args: any[]) => void) => listen(events, "viewState", listener),
           onDidDispose: (listener: (...args: any[]) => void) => listen(events, "dispose", listener),
           dispose: () => {
             if (!panel.disposed) {

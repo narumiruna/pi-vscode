@@ -258,6 +258,13 @@
         }
       },
       {
+        "command": "pi.newConcurrentSession",
+        "title": "New Concurrent Session",
+        "category": "Pi",
+        "icon": "$(add)",
+        "enablement": "isWorkspaceTrusted && workspaceFolderCount != 0"
+      },
+      {
         "command": "pi.switchSession",
         "title": "Switch Session",
         "category": "Pi",
@@ -378,6 +385,11 @@
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "pi.newConcurrentSession",
+          "when": "view == pi.chatView",
+          "group": "navigation@1"
+        },
         {
           "command": "pi.openSettings",
           "when": "view == pi.chatView",

@@ -68,8 +68,10 @@ Queue drafts remain uncertain and checkpoint recovery remains conservative.
 Verify remaining work before another operation that can conflict.
 Prompts, source code, terminal text, and image payloads are written to Pi over stdin rather than process arguments.
 Pi provider authentication remains in Pi's credential store or provider environment variables.
-The VS Code bridge listens on a random loopback TCP port in the same extension-host environment.
-Each bridge request and event subscription requires a random per-window token passed to foreground Pi processes and future integrated terminals.
+The sidebar and each editor runtime own a separate bridge on a random loopback TCP port in the same extension-host environment.
+Each bridge request and event subscription requires that bridge's random token.
+Only the sidebar runtime publishes and clears bridge variables through the terminal environment collection for future integrated terminals.
+Editor runtimes pass their private bridge credentials only to their own Pi launches; panel creation and disposal do not replace or clear the sidebar's terminal environment.
 Independent background/worktree agents receive neither bridge credentials nor the bridge extension.
 Oversized or malformed bridge frames fail closed and terminate their socket.
 Session shutdown and subscription replacement mark outgoing callbacks inactive before destroying their sockets.
@@ -79,6 +81,45 @@ Processes in an authenticated terminal can inherit that token.
 The non-secret `PI_VSCODE_BRIDGE_EXTENSION` variable identifies the bridge bundled with the active VSIX, but users must pass it explicitly with `pi --extension` in an ordinary integrated shell.
 Requests remain allowlisted and expose no arbitrary command execution or file mutation method.
 The bridge exposes bounded editor context, language-provider navigation metadata, file opening, notifications, and JSON-safe events from same-host VS Code extensions.
+
+## Concurrent Editor Sessions
+
+**Pi: New Concurrent Session** and the Pi view-title **+** require a trusted, file-backed workspace and explicit shared-file confirmation.
+At most eight additional native editor `WebviewPanel` sessions can run alongside the sidebar.
+Each panel owns an independent RPC runtime, transcript, composer draft, attachments, queue, model/thinking controls, and Stop.
+Workspace files, Pi credentials, configuration, resources, and session storage remain shared; these runtimes are not a sandbox.
+Hiding a panel or switching tabs does not stop its work.
+Closing a panel shuts down only its runtime and retains saved Pi session files, subject to the existing process-cleanup uncertainty limits.
+
+Additional panels have no serializer and do not restore or restart automatically across window reload.
+Panel transcript caches and remembered restore references are memory-only and bypass `pi.sidebar.messages.v1` and `pi.rpc.sessionPath.v1`.
+Optional composer text retention still uses the shared consent-gated `SessionDraftStore` and its existing bounded workspace storage.
+A saved session can resume through the sidebar after its editor panel closes and writer cleanup is verified.
+
+One shared in-window `SessionWriters` registry reserves canonical session-file paths before RPC startup or switching.
+It rejects a second RPC owner of the same file, including assigned paths whose saved header does not yet exist.
+Verified destination state commits the current reservation; uncertain switches retain reservations until verified cleanup.
+A source-state refresh cannot release a reserved switch destination.
+Stopping retires the RPC owner before asynchronous cleanup, so late path validation cannot restore its claims.
+Session deletion holds a separate reservation through the filesystem deletion after the old writer stops.
+A normal panel close releases its session slot after bounded stop completes.
+Unverified cleanup quarantines both the writer's reservations and its session slot until window reload, including after panel closure.
+The eight-session bound includes these quarantined closed sessions.
+Inspect and stop residual processes before reloading the window; no request is retried automatically.
+This registry does not lock other windows or external Pi processes and is not a universal upstream cross-process session lock.
+It does not prove that detached descendants stopped.
+
+Editor-panel focus does not retarget existing global session commands, editor actions, review, or repair workflows from the sidebar.
+Panel **More…** omits sidebar-only transfer/sharing, authentication, review/repair/debug, compatibility, terminal handoff/recovery, and restart routes.
+The runtime host separately rejects editor-session terminal handoff/return, restart, and annotation requests.
+Editor runtimes check the current terminal-ownership marker without caching it or acquiring sidebar recovery ownership.
+They can retry after the sidebar clears that marker; panel closure cannot release the sidebar's gate.
+Per-panel native model and thinking pickers remain available under the existing host guards.
+Trust, project-resource approval, read-only enforcement, Preview/Apply, stale-content checks, and exclusive workflow gates remain required.
+Offline host regressions and two-document Chromium checks passed; see [concurrent-session validation](FEATURE_MATRIX.md#concurrent-interactive-editor-sessions).
+A focused macOS VS Code 1.146.0 native check verified two editor panels and independent Stop with a deterministic RPC fixture and disposable profile.
+It did not use a live provider or install the extension.
+Complete native UI, remote, other-platform, reload, and live-provider behavior remain unverified for this change.
 
 ## Pi Tools
 
@@ -106,14 +147,16 @@ Dialog replies are bound to the exact inbound event, originating RPC client, and
 Each request can complete once.
 Duplicate IDs are rejected, and failed response writes are not retried.
 Stop, disconnect, disposal, session replacement, and observed session-identity changes invalidate pending handles before a replacement process can receive a reply.
-The controller admits at most 16 pending dialogs and remembers at most 4,096 IDs per generation; further requests fail closed until that generation ends.
+Each runtime admits at most 16 pending dialogs and remembers at most 4,096 IDs per generation; further requests fail closed until that generation ends.
+One singleton native dialog controller subscribes to the sidebar and editor runtimes without changing reply-origin binding.
+Removing a runtime subscription cancels only requests claimed from that runtime.
 Select lists are validated as a whole: at most 100 string options and 100,000 total characters.
 Malformed or oversized lists never become partial permission menus.
 
 The multiline editor requires per-use acceptance of the non-secret text contract before creating an untitled document.
 VS Code can retain this text in hot-exit backups.
 This is not a credential editor, and this extension cannot promise to remove VS Code backups.
-Prefill and submitted text are limited to 100,000 characters, with one active editor request at a time.
+Prefill and submitted text are limited to 100,000 characters, with one active owned multiline editor request across all runtimes at a time.
 Submit captures the full current document text and version once; an empty string is a value, not cancellation.
 Text uses the native document's line endings, which can normalize mixed line endings.
 Save is not submission and can create a user-selected file.
@@ -198,8 +241,11 @@ Pi extensions execute with the user's permissions and must be reviewed before in
 
 ## Foreground Resource and Session Controls
 
-Reload, fork, clone, navigation, restart, and terminal ownership share the foreground operation owner and canonical workspace operation gate with Apply/import/restore.
-The gate prevents conflicting extension-owned operations.
+Reload, fork, clone, navigation, restart, and terminal ownership share the foreground operation owner and exclusive canonical workspace operation gate with direct shell and Apply/import/restore.
+Ordinary interactive requests use shared agent leases in that canonical workspace, permitting concurrent requests but excluding every exclusive gate holder.
+Exclusive operations cannot enter while an agent lease or another exclusive owner is active.
+Background tasks retain their existing exclusive workspace gate; they do not join the shared interactive leases.
+These gates serialize extension-owned conflicting workflows in this window, not other windows or external processes.
 
 Searchable switching, previous/next commands, and saved-session sidebar routes share the guarded runtime switch path.
 Discovery uses bounded same-workspace metadata from the active session directory, not arbitrary stores or full transcript search.
@@ -284,8 +330,9 @@ Workspace-root aliases are validated against their canonical root; nested symlin
 The host compares exact current lines with LF-normalized expected text, captures buffer versions before asynchronous validation, and rechecks versions, file identity, root bindings, trust, origin and clear/edit revisions before applying a replacement.
 External filesystem changes are not globally atomic with these checks.
 
-The shared window bridge token alone does not authorize annotations.
-Each foreground RPC client receives a separate random `PI_VSCODE_ANNOTATION_TOKEN` in its launch environment only.
+The sidebar bridge token alone does not authorize annotations.
+Each foreground sidebar RPC client receives a separate random `PI_VSCODE_ANNOTATION_TOKEN` in its launch environment only.
+Editor-session launches remove that credential, and their runtime host rejects annotation-origin and annotation requests.
 The terminal environment collection never receives that credential, terminal handoff explicitly removes it, and background launches remove inherited values.
 A private origin exchange also verifies the current live sidebar client, session ID and canonical cwd.
 Its opaque annotation origin changes on manual clear and session/resource/client resets.
@@ -338,6 +385,12 @@ Dirty buffers, unsupported files, creations/deletions and ambiguous attribution 
 Shell/custom-tool requests and process exits without settlement are non-restorable.
 Capture is bounded to 10,000 entries / 20 MiB.
 History is memory-only, capped at 20 requests, 2 MiB per file side and 20 MiB retained before/after bytes; unresolved restore failures retain recovery data and may prevent new history from being retained.
+
+Opening a concurrent editor session enables conservative checkpoint invalidation for the sidebar and panel trackers.
+Overlapping agent leases invalidate current request attribution, including overlap detected before capture begins.
+Later workspace operations admitted under another owner invalidate historical restoration and previews, even if disk contents still match.
+Invalidation blocks restoration without deleting retained failed-restore snapshots.
+Existing memory bounds and session/disposal lifecycle rules still apply.
 
 Restore preflights all selected paths/content/dirty buffers and later checkpoint dependencies, then rechecks each write.
 Proposal/import/restore and active Pi work in the same canonical directory share an operation gate.
@@ -527,7 +580,8 @@ See [Native configuration contract](NATIVE_CONFIGURATION.md) for upstream API ga
 
 ## Operational Logging
 
-Activation owns one host-local **Output → Pi** `LogOutputChannel`, shared by runtime, Sidebar and inline completion.
+Activation owns one host-local **Output → Pi** `LogOutputChannel`, shared by sidebar and editor runtimes and inline completion.
+Client generations are unique across these runtimes in the same Extension Host.
 Records are written when events occur, including runtime warnings when the Sidebar is closed.
 Logging does not start Pi, retry work, change operation ownership or open a panel.
 Only an explicit **Show Output** action calls `show(true)` to preserve editor focus.
@@ -548,7 +602,9 @@ Use VS Code's built-in log-level controls; this extension adds no logging settin
 Application-generated records are capped at 8,000 characters, marked if truncated, and exclude terminal/control/bidirectional formatting characters.
 Repeated protocol/runtime warnings are limited to one detailed record per code and generation per five seconds, with suppressed totals at the next eligible warning or generation end.
 Unknown codes share one key; each generation has fewer than 32 keys.
-Final outcomes and Sidebar warnings are not suppressed.
+Warning-suppression state retains at most 32 client generations across concurrent and outgoing runtimes.
+Admitting another generation flushes suppressed totals and removes the oldest tracked generation.
+Final outcomes and conversation warnings are not suppressed.
 No unbounded application log buffer is retained.
 
 VS Code log files can outlive the current window.
@@ -866,6 +922,9 @@ Draft insertion and accepted-send clearing check the composer revision, and atta
 
 Text draft retention is off until the user accepts a workspace-specific non-secret storage notice.
 The versioned `pi.sidebar.drafts.v1` workspaceState key is separate from transcript storage and is not enrolled in Settings Sync.
+Sidebar and editor composers share one `SessionDraftStore`, its consent state, and its aggregate limits; no per-panel storage allowance is added.
+Disable and discard all in any subscribed view disables retention across those views, invalidates pending consent and stale draft bindings, and clears retained records.
+Panel transcript and restore references remain memory-only; that does not exclude opted-in composer text from this shared store.
 Allowlisted records contain only a hashed session-file owner (or the separate Sessions composer), text and an update timestamp.
 Limits are 50,000 characters per draft, 20 records, 250,000 aggregate characters and seven-day recovery expiry.
 Cleanup runs on the next activation/access; an offline workspace cannot perform scheduled deletion.

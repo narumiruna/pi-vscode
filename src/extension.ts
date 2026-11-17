@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { registerPiChat } from "./chat";
+import { ConcurrentSessions } from "./concurrentSessions";
 import { registerDebugContext } from "./debugContextController";
 import { registerEditorActions } from "./editorActions";
 import { registerExtensionUiDialogs } from "./extensionUiDialogs";
@@ -11,11 +12,14 @@ import { registerNativePiManagement } from "./nativePiController";
 import { registerPiCompatibility } from "./piCompatibility";
 import { PiRuntimeManager } from "./piRuntime";
 import { registerProviderAuthentication } from "./providerAuth";
+import { SessionWriters } from "./sessionWriters";
 import { registerSettingsPanel } from "./settingsPanel";
 import { registerPiSidebar } from "./sidebar";
 import { registerTestRepair } from "./testRepairController";
 import { abortAllPiInvocations, initializePiRuntime } from "./vscodePi";
 import { registerWorkspaceDiagnostics } from "./workspaceDiagnosticsController";
+
+let shutdownSessions: (() => Promise<void>) | undefined;
 
 export interface PiVscodeApi {
   broadcast(event: string, data: unknown): number;
@@ -73,7 +77,8 @@ async function activateWithLogger(
   } catch (error) {
     throw new Error(`Could not remove the legacy global Pi bridge extension: ${formatError(error)}`, { cause: error });
   }
-  const runtime = new PiRuntimeManager(context, logger);
+  const writers = new SessionWriters();
+  const runtime = new PiRuntimeManager(context, logger, { sessionWriters: writers });
   context.subscriptions.push(
     runtime,
     vscode.commands.registerCommand("pi.clearAnnotations", () => runtime.clearAnnotations()),
@@ -83,8 +88,12 @@ async function activateWithLogger(
   stage("bridge");
   await runtime.initializeBridge();
   stage("registration");
-  registerExtensionUiDialogs(context, runtime);
+  const dialogs = registerExtensionUiDialogs(context, runtime);
   const conversation = registerPiSidebar(context, runtime, logger);
+  const sessions = new ConcurrentSessions(context, runtime, conversation, dialogs, writers, logger);
+  shutdownSessions = async () => {
+    await Promise.allSettled([sessions.shutdown(), runtime.shutdown()]);
+  };
   registerPiCompatibility(context, runtime);
   registerSettingsPanel(context, runtime);
   registerNativePiManagement(context, runtime);
@@ -102,8 +111,10 @@ async function activateWithLogger(
   });
 }
 
-export function deactivate(): void {
+export async function deactivate(): Promise<void> {
   abortAllPiInvocations();
+  await shutdownSessions?.();
+  shutdownSessions = undefined;
 }
 
 function formatError(error: unknown): string {

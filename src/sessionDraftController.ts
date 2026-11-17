@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import { draftLimits, type SessionDraftStore, sessionDraftOwner } from "./sessionDraftStore";
+import { draftLimits, type SessionDraftChange, type SessionDraftStore, sessionDraftOwner } from "./sessionDraftStore";
 
 export type SessionDraftMessage =
   | { readonly type: "draftSelect"; readonly scope: "sessions" | "session" }
@@ -48,6 +48,7 @@ export class SessionDraftController {
   private binding: Binding | undefined;
   private scope: "sessions" | "session" = "sessions";
   private alive = false;
+  private unsubscribe: (() => void) | undefined;
   private consentPending = false;
   private consentGeneration = 0;
   private readonly submission = new AsyncLocalStorage<Submission>();
@@ -62,15 +63,44 @@ export class SessionDraftController {
   ) {}
 
   public beginView(): void {
+    this.endView();
     this.alive = true;
     this.scope = "sessions";
-    this.binding = undefined;
+    this.unsubscribe = this.store.subscribe((change) => this.storeChanged(change));
     this.refresh();
   }
   public endView(): void {
     this.alive = false;
+    this.unsubscribe?.();
+    this.unsubscribe = undefined;
     this.binding = undefined;
     this.consentGeneration += 1;
+  }
+  private storeChanged(change: SessionDraftChange): void {
+    const binding = this.binding;
+    if (!this.alive || !binding) return;
+    if (change === "disabled") {
+      this.consentGeneration += 1;
+      this.recordWriters.clear();
+      this.binding = {
+        ...binding,
+        id: randomUUID(),
+        revision: -1,
+        accepted: -1,
+        recovery: false,
+        restoration: undefined,
+      };
+      this.publish();
+      return;
+    }
+    // A local saved edit is not recovery text. Only clear an existing recovery offer.
+    if (binding.recovery && (!binding.owner || !this.store.get(binding.owner))) {
+      binding.recovery = false;
+      binding.restoration = undefined;
+      this.publish();
+    } else if (change === "enabled") {
+      this.publish();
+    }
   }
   public refresh(): void {
     if (!this.alive) return;
@@ -124,18 +154,7 @@ export class SessionDraftController {
       return;
     }
     if (message.type === "draftDisable") {
-      this.consentGeneration += 1;
       this.store.disable();
-      this.recordWriters.clear();
-      this.binding = {
-        ...binding,
-        id: randomUUID(),
-        revision: -1,
-        accepted: -1,
-        recovery: false,
-        restoration: undefined,
-      };
-      this.publish();
       return;
     }
     if (!("revision" in message)) return;

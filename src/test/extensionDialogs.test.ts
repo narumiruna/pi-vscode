@@ -24,13 +24,13 @@ const tick = async () => {
 class FixtureRuntime {
   readonly registry = new ExtensionDialogRequests();
   readonly writes: { id: string; response: ExtensionDialogResponse }[] = [];
-  private listener: ((event: PiRpcEvent) => void) | undefined;
+  readonly listeners = new Set<(event: PiRpcEvent) => void>();
   private readonly origins = new WeakMap<PiRpcEvent, ReturnType<ExtensionDialogRequests["accept"]>>();
   onEvent = (listener: (event: PiRpcEvent) => void) => {
-    this.listener = listener;
+    this.listeners.add(listener);
     return {
       dispose: () => {
-        this.listener = undefined;
+        this.listeners.delete(listener);
       },
     };
   };
@@ -44,12 +44,13 @@ class FixtureRuntime {
       value,
       this.registry.accept(value, (response) => this.writes.push({ id: String(value.id), response })),
     );
-    this.listener?.(value);
+    for (const listener of this.listeners) listener(value);
   }
 }
 
-function setup() {
-  const { ExtensionUiDialogs } = require("../extensionUiDialogs") as typeof import("../extensionUiDialogs");
+function setup(registerCommands = false) {
+  const { ExtensionUiDialogs, registerExtensionUiDialogs } =
+    require("../extensionUiDialogs") as typeof import("../extensionUiDialogs");
   mock.workspace.isTrusted = true;
   mock.window.activeTextEditor = undefined;
   mock.window.tabGroups.all = [{ tabs: [] }];
@@ -57,6 +58,7 @@ function setup() {
   const closes: any[] = [];
   const providers = new Map<string, any>();
   mock.workspace.registerTextDocumentContentProvider = (scheme: string, provider: any) => {
+    assert.equal(providers.has(scheme), false, "Each content provider scheme must be registered once");
     providers.set(scheme, provider);
     return {
       dispose() {
@@ -93,9 +95,236 @@ function setup() {
   mock.window.showWarningMessage = async () => undefined;
   mock.window.showInputBox = async () => undefined;
   const runtime = new FixtureRuntime();
-  const dialogs = new ExtensionUiDialogs(runtime as unknown as PiRuntimeManager);
-  return { runtime, dialogs, documents, closes };
+  const subscriptions: vscode.Disposable[] = [];
+  const dialogs = registerCommands
+    ? registerExtensionUiDialogs({ subscriptions } as vscode.ExtensionContext, runtime as unknown as PiRuntimeManager)
+    : new ExtensionUiDialogs(runtime as unknown as PiRuntimeManager);
+  return { runtime, dialogs, documents, closes, providers, subscriptions };
 }
+
+test("one registered controller shares commands, provider and status items across runtimes", async () => {
+  const commands = vi.spyOn(mock.commands, "registerCommand");
+  const statusItems = vi.spyOn(mock.window, "createStatusBarItem");
+  const { runtime, dialogs, documents, providers, subscriptions } = setup(true);
+  const providerRegistration = vi.spyOn(mock.workspace, "registerTextDocumentContentProvider");
+  const second = new FixtureRuntime();
+  const registration = dialogs.addRuntime(second as unknown as PiRuntimeManager);
+  try {
+    assert.equal(subscriptions[0], dialogs);
+    assert.equal(subscriptions.length, 5);
+    assert.equal(runtime.listeners.size, 1);
+    assert.equal(second.listeners.size, 1);
+    runtime.emit(event("shared-id", "editor", { prefill: "first runtime" }));
+    await tick();
+    mock.registrations.get("pi.extensionEditor.submit")();
+    second.emit(event("shared-id", "editor", { prefill: "second runtime" }));
+    await tick();
+    mock.registrations.get("pi.extensionEditor.submit")();
+    assert.equal(documents.length, 2);
+    assert.deepEqual(runtime.writes, [{ id: "shared-id", response: { value: "first runtime" } }]);
+    assert.deepEqual(second.writes, [{ id: "shared-id", response: { value: "second runtime" } }]);
+    assert.equal(commands.mock.calls.length, 4);
+    assert.equal(statusItems.mock.calls.length, 4);
+    assert.equal(providers.size, 1);
+    assert.equal(providerRegistration.mock.calls.length, 0);
+  } finally {
+    for (const subscription of subscriptions) subscription.dispose();
+    registration.dispose();
+    providerRegistration.mockRestore();
+    statusItems.mockRestore();
+    commands.mockRestore();
+  }
+});
+
+test("overlapping input and select requests with equal IDs reply only to their originating runtime", async () => {
+  const { runtime, dialogs } = setup();
+  const second = new FixtureRuntime();
+  dialogs.addRuntime(second as unknown as PiRuntimeManager);
+  const firstClaim = vi.spyOn(runtime, "claimExtensionUiRequest");
+  const secondClaim = vi.spyOn(second, "claimExtensionUiRequest");
+  const replies = new Map<string, (value: string) => void>();
+  mock.window.showInputBox = (options: { title: string }) =>
+    new Promise<string>((resolve) => replies.set(options.title, resolve));
+  try {
+    const firstEvent = event("same-input", "input", { title: "first" });
+    const secondEvent = event("same-input", "input", { title: "second" });
+    runtime.emit(firstEvent);
+    second.emit(secondEvent);
+    assert.equal(firstClaim.mock.calls[0]?.[0], firstEvent);
+    assert.equal(secondClaim.mock.calls[0]?.[0], secondEvent);
+    const firstReply = replies.get("first");
+    const secondReply = replies.get("second");
+    assert.ok(firstReply && secondReply);
+    secondReply("second input");
+    firstReply("first input");
+    runtime.emit(event("same-select", "select", { options: ["first option"] }));
+    second.emit(event("same-select", "select", { options: ["second option"] }));
+    await tick();
+    assert.deepEqual(runtime.writes, [
+      { id: "same-input", response: { value: "first input" } },
+      { id: "same-select", response: { value: "first option" } },
+    ]);
+    assert.deepEqual(second.writes, [
+      { id: "same-input", response: { value: "second input" } },
+      { id: "same-select", response: { value: "second option" } },
+    ]);
+  } finally {
+    dialogs.dispose();
+    firstClaim.mockRestore();
+    secondClaim.mockRestore();
+  }
+});
+
+test("unregister cancels only that runtime's requests and ignores late replies after re-registration", async () => {
+  const { runtime, dialogs } = setup();
+  const second = new FixtureRuntime();
+  const registration = dialogs.addRuntime(second as unknown as PiRuntimeManager);
+  const inputs = new Map<string, { reply: (value: string) => void; token: vscode.CancellationToken }>();
+  mock.window.showInputBox = (options: { title: string }, token: vscode.CancellationToken) =>
+    new Promise<string>((reply) => inputs.set(options.title, { reply, token }));
+  let permission: ((value: string) => void) | undefined;
+  mock.window.showWarningMessage = () =>
+    new Promise<string>((resolve) => {
+      permission = resolve;
+    });
+  try {
+    runtime.emit(event("same", "input", { title: "first" }));
+    second.emit(event("same", "input", { title: "second" }));
+    second.emit(event("modal", "confirm", { message: "Allow second runtime?" }));
+    registration.dispose();
+    registration.dispose();
+    assert.equal(second.listeners.size, 0);
+    assert.equal(runtime.listeners.size, 1);
+    const firstInput = inputs.get("first");
+    const secondInput = inputs.get("second");
+    assert.ok(firstInput && secondInput && permission);
+    assert.equal(secondInput.token.isCancellationRequested, true);
+    assert.equal(firstInput.token.isCancellationRequested, false);
+    assert.equal(second.registry.hasPending, false);
+    assert.equal(runtime.registry.hasPending, true);
+    assert.deepEqual(second.writes, [
+      { id: "same", response: { cancelled: true } },
+      { id: "modal", response: { cancelled: true } },
+    ]);
+    second.emit(event("detached", "input", { title: "not displayed" }));
+    assert.equal(inputs.has("not displayed"), false);
+    second.registry.invalidate();
+    dialogs.addRuntime(second as unknown as PiRuntimeManager);
+    mock.window.showInputBox = async () => "new generation";
+    second.emit(event("same", "input"));
+    await tick();
+    secondInput.reply("late second input");
+    permission("Allow");
+    firstInput.reply("first input");
+    await tick();
+    assert.deepEqual(runtime.writes, [{ id: "same", response: { value: "first input" } }]);
+    assert.deepEqual(second.writes, [
+      { id: "same", response: { cancelled: true } },
+      { id: "modal", response: { cancelled: true } },
+      { id: "same", response: { value: "new generation" } },
+    ]);
+    runtime.emit(event("still-registered", "input"));
+    await tick();
+    assert.deepEqual(runtime.writes.at(-1), { id: "still-registered", response: { value: "new generation" } });
+  } finally {
+    dialogs.dispose();
+    second.registry.invalidate();
+  }
+});
+
+test("unregister expires only its confirmation review and preserves the other runtime's active context", async () => {
+  vi.useFakeTimers();
+  const { runtime, dialogs, documents, closes, providers } = setup();
+  const second = new FixtureRuntime();
+  const registration = dialogs.addRuntime(second as unknown as PiRuntimeManager);
+  const contexts = new Map<string, unknown>();
+  const contextCommands = vi.spyOn(mock.commands, "executeCommand").mockImplementation(async (...args: unknown[]) => {
+    if (args[0] === "setContext") contexts.set(String(args[1]), args[2]);
+  });
+  mock.window.showQuickPick = async (items: unknown[]) => items[1];
+  try {
+    runtime.emit(event("review", "confirm", { message: "First runtime message", timeout: 1000 }));
+    await tick();
+    second.emit(event("review", "confirm", { message: "Second runtime message", timeout: 1000 }));
+    await tick();
+    const provider = providers.get("pi-extension-confirmation");
+    const expired: string[] = [];
+    provider.onDidChange((uri: vscode.Uri) => expired.push(uri.toString()));
+    mock.window.activeTextEditor = { document: documents[0] };
+    mock.workspaceEvents.emit("activeEditor");
+    registration.dispose();
+    assert.deepEqual(second.writes, [{ id: "review", response: { cancelled: true } }]);
+    assert.deepEqual(runtime.writes, []);
+    assert.equal(contexts.get("pi.extensionConfirmationActive"), true);
+    assert.equal(contexts.get("pi.extensionEditorActive"), false);
+    assert.deepEqual(expired, [documents[1].uri.toString()]);
+    assert.equal(closes.length, 1);
+    assert.equal(closes[0].input.uri, documents[1].uri);
+    assert.equal(provider.provideTextDocumentContent(documents[1].uri), "This Pi confirmation expired.");
+    assert.match(provider.provideTextDocumentContent(documents[0].uri), /First runtime message/);
+    mock.window.activeTextEditor = { document: documents[1] };
+    dialogs.confirm(true);
+    assert.equal(second.writes.length, 1);
+    mock.window.activeTextEditor = { document: documents[0] };
+    dialogs.confirm(true);
+    assert.deepEqual(runtime.writes, [{ id: "review", response: { confirmed: true } }]);
+    assert.equal(contexts.get("pi.extensionConfirmationActive"), false);
+  } finally {
+    dialogs.dispose();
+    contextCommands.mockRestore();
+    vi.useRealTimers();
+  }
+});
+
+test("unregister closes its editor and releases the shared editor slot without sending late text", async () => {
+  const { runtime, dialogs, documents, closes } = setup();
+  const second = new FixtureRuntime();
+  const registration = dialogs.addRuntime(second as unknown as PiRuntimeManager);
+  try {
+    second.emit(event("edit", "editor", { prefill: "second runtime text" }));
+    await tick();
+    runtime.emit(event("busy-editor", "editor"));
+    assert.deepEqual(runtime.writes, [{ id: "busy-editor", response: { cancelled: true } }]);
+    registration.dispose();
+    dialogs.submit();
+    assert.equal(closes.length, 1);
+    assert.equal(closes[0].input.uri, documents[0].uri);
+    assert.deepEqual(second.writes, [{ id: "edit", response: { cancelled: true } }]);
+    runtime.emit(event("edit", "editor", { prefill: "first runtime text" }));
+    await tick();
+    dialogs.submit();
+    assert.deepEqual(runtime.writes.at(-1), { id: "edit", response: { value: "first runtime text" } });
+  } finally {
+    dialogs.dispose();
+  }
+});
+
+test("controller disposal cancels pending dialogs and removes listeners from every runtime", async () => {
+  const { runtime, dialogs } = setup();
+  const second = new FixtureRuntime();
+  const registration = dialogs.addRuntime(second as unknown as PiRuntimeManager);
+  const replies: ((value: string) => void)[] = [];
+  mock.window.showInputBox = () => new Promise<string>((resolve) => replies.push(resolve));
+  try {
+    runtime.emit(event("same", "input"));
+    second.emit(event("same", "input"));
+    dialogs.dispose();
+    dialogs.dispose();
+    registration.dispose();
+    assert.equal(runtime.listeners.size, 0);
+    assert.equal(second.listeners.size, 0);
+    assert.equal(runtime.registry.hasPending, false);
+    assert.equal(second.registry.hasPending, false);
+    dialogs.addRuntime(second as unknown as PiRuntimeManager).dispose();
+    assert.equal(second.listeners.size, 0);
+    for (const reply of replies) reply("late text");
+    await tick();
+    assert.deepEqual(runtime.writes, [{ id: "same", response: { cancelled: true } }]);
+    assert.deepEqual(second.writes, [{ id: "same", response: { cancelled: true } }]);
+  } finally {
+    dialogs.dispose();
+  }
+});
 
 test("dialog registry rejects duplicate IDs and bounds pending requests", () => {
   const registry = new ExtensionDialogRequests();
@@ -435,6 +664,32 @@ test("timed confirm reviews full Unicode/multiline text in an owned read-only do
   } finally {
     dialogs.dispose();
     vi.useRealTimers();
+  }
+});
+
+test("editor runtime dialogs use a host-owned label without changing the full permission message", async () => {
+  const { dialogs } = setup();
+  const editor = new FixtureRuntime();
+  dialogs.addRuntime(editor as unknown as PiRuntimeManager, "Pi Session 2");
+  mock.window.showInputBox = async (options: any) => {
+    assert.equal(options.title, "Pi Session 2: Input");
+    return "editor value";
+  };
+  mock.window.showWarningMessage = async (message: string, options: any) => {
+    assert.equal(message, "Full\npermission text");
+    assert.equal(options.detail, "Pi Session 2");
+    return "Allow";
+  };
+  try {
+    editor.emit(event("label-input", "input", { title: "Input" }));
+    editor.emit(event("label-confirm", "confirm", { message: "Full\npermission text" }));
+    await tick();
+    assert.deepEqual(editor.writes, [
+      { id: "label-input", response: { value: "editor value" } },
+      { id: "label-confirm", response: { confirmed: true } },
+    ]);
+  } finally {
+    dialogs.dispose();
   }
 });
 

@@ -232,9 +232,9 @@ export class PiLogger implements Logger, vscode.Disposable {
     const key = knownWarning(code);
     let entries = this.warnings.get(generation);
     if (!entries) {
-      // Only current and outgoing generations can coexist during bounded cleanup.
+      // Concurrent sessions and their outgoing clients share this bounded diagnostic channel.
       const oldest = this.warnings.keys().next().value;
-      if (this.warnings.size >= 2 && oldest !== undefined) this.endGeneration(oldest);
+      if (this.warnings.size >= 32 && oldest !== undefined) this.endGeneration(oldest);
       entries = new Map();
       this.warnings.set(generation, entries);
     }
