@@ -119,6 +119,7 @@ Confirm the shared-file warning before opening each session.
 Up to eight additional editor sessions can run alongside the sidebar.
 Each has its own Pi RPC process, transcript, composer draft, attachments, queue, model/thinking controls, and Stop.
 Panels keep the opened workspace URI, including a workspace-root alias, and reconnect to that workspace rather than the active editor's workspace.
+Startup, reconnect, and new ordinary requests fail if the original folder is removed or its canonical root changes.
 Hiding a panel or switching tabs keeps its work running.
 Closing it stops only its runtime and retains saved Pi session files.
 A normal close frees its slot after all bounded cleanup completes; unverified cleanup keeps the slot and session-file claim blocked until window reload.
@@ -136,6 +137,7 @@ Concurrent activity can make checkpoint restoration unavailable.
 Editor panels do not automatically restore or restart after window reload.
 After a panel closes and writer cleanup is verified, resume its saved session through the sidebar.
 Panel transcript caches and restore references stay in memory; optional text draft recovery uses the shared consent-gated store and existing limits.
+A late send acknowledgement cannot remove a newer retained draft written by another view, even when its text is the same.
 See [concurrent editor sessions](docs/USER_GUIDE.md#concurrent-editor-sessions) for writer-ownership and recovery limits.
 Offline host and Chromium checks passed, with a focused macOS VS Code 1.146.0 native check for two editor sessions and independent Stop.
 Remote, other platforms, reload, and live-provider behavior remain unverified.

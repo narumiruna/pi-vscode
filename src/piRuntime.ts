@@ -40,6 +40,7 @@ let nextRuntimeGeneration = 0;
 
 export interface PiRuntimeOptions {
   readonly editorSession?: boolean;
+  readonly editorWorkspace?: { readonly uri: vscode.Uri; readonly root: string };
   readonly sessionWriters?: SessionWriters;
 }
 const maxQueueRecoveryBytes = 30 * 1024 * 1024;
@@ -212,6 +213,9 @@ export class PiRuntimeManager implements vscode.Disposable {
   private clientSubscription: vscode.Disposable | undefined;
   private startPromise: Promise<void> | undefined;
   private resource: vscode.Uri | undefined;
+  private readonly editorWorkspace:
+    | { readonly uri: vscode.Uri; readonly identity: string; readonly root: string }
+    | undefined;
   private state: PiRuntimeState;
   private readonly queueGate = new ExclusiveOperationGate("Wait for the current queue operation.");
   private readonly ownership = new ExclusiveOperationGate("Wait for the current Pi request or session operation.");
@@ -253,6 +257,10 @@ export class PiRuntimeManager implements vscode.Disposable {
     private readonly options: PiRuntimeOptions = {},
   ) {
     initializePiRuntime(context.extensionUri.fsPath);
+    if (options.editorSession && options.editorWorkspace) {
+      this.editorWorkspace = { ...options.editorWorkspace, identity: options.editorWorkspace.uri.toString() };
+      this.resource = this.editorWorkspace.uri;
+    }
     this.state = emptyState();
     const runtime = this;
     this.control = new PiRuntimeControl({
@@ -418,7 +426,7 @@ export class PiRuntimeManager implements vscode.Disposable {
   }
 
   public get currentCwd(): string {
-    return readPiInvocationSettings(this.resource).cwd;
+    return this.editorWorkspace?.uri.fsPath ?? readPiInvocationSettings(this.resource).cwd;
   }
 
   private get bridgeExtensionPath(): string {
@@ -531,19 +539,37 @@ export class PiRuntimeManager implements vscode.Disposable {
       throw new Error("Pi requires file-backed resources (or an untitled editor in a file-backed workspace).");
     const folder = resource ? vscode.workspace.getWorkspaceFolder(resource) : vscode.workspace.workspaceFolders?.[0];
     if (folder && folder.uri.scheme !== "file") throw new Error("Pi does not support virtual workspaces.");
+    if (this.editorWorkspace) await this.assertEditorWorkspace();
+    if (this.disposed) throw new Error("Pi runtime is closing.");
     if (this.client?.isRunning) {
       return;
     }
     if (this.startPromise) {
       return this.startPromise;
     }
-    this.resource = resource ?? this.resource ?? vscode.window.activeTextEditor?.document.uri;
+    this.resource =
+      this.editorWorkspace?.uri ?? resource ?? this.resource ?? vscode.window.activeTextEditor?.document.uri;
     this.startPromise = this.startClient(operationId);
     try {
       await this.startPromise;
     } finally {
       this.startPromise = undefined;
     }
+  }
+
+  private async assertEditorWorkspace(): Promise<void> {
+    const binding = this.editorWorkspace;
+    if (!binding) return;
+    const assertMembership = () => {
+      if (vscode.workspace.getWorkspaceFolder(binding.uri)?.uri.toString() !== binding.identity)
+        throw new Error("Pi editor session workspace changed. Close this panel and open a new session.");
+    };
+    assertMembership();
+    const root = await realpath(binding.uri.fsPath);
+    assertMembership();
+    if (root !== binding.root)
+      throw new Error("Pi editor session workspace changed. Close this panel and open a new session.");
+    if (!vscode.workspace.isTrusted) throw new Error("Pi requires a trusted workspace.");
   }
 
   private async assertResourceMatchesActiveWorkspace(resource: vscode.Uri): Promise<void> {
@@ -603,6 +629,11 @@ export class PiRuntimeManager implements vscode.Disposable {
         pendingQueue: emptyPendingQueue(),
       });
       try {
+        if (this.editorWorkspace) {
+          await this.assertEditorWorkspace();
+          if (this.disposed || this.client !== client || !client.isRunning)
+            throw new Error("Pi request was disposed or replaced before submission.");
+        }
         request.submitted = true;
         request.generation = this.generation;
         const disposition = await client.prompt(message, images);
@@ -1644,9 +1675,10 @@ export class PiRuntimeManager implements vscode.Disposable {
     const approveProjectResources = piConfiguration().get<boolean>("approveProjectResources", false);
     let root: string | undefined;
     try {
-      root = await realpath(this.currentCwd);
+      root = this.editorWorkspace?.root ?? (await realpath(this.currentCwd));
       await this.createAndStartClient(savedSession, false, root, operationId);
     } catch (error) {
+      if (this.editorWorkspace) await this.assertEditorWorkspace();
       if (
         !savedSession ||
         error instanceof SessionInUseError ||
@@ -1659,6 +1691,7 @@ export class PiRuntimeManager implements vscode.Disposable {
       }
       const assertRecoveryCurrent = async (expectedSession: string | undefined) => {
         const currentRoot = await realpath(this.currentCwd);
+        if (this.editorWorkspace) await this.assertEditorWorkspace();
         this.control.assertSidebarOwnership();
         if (
           this.disposed ||
@@ -1775,8 +1808,9 @@ export class PiRuntimeManager implements vscode.Disposable {
     generation: number,
   ): Promise<void> {
     if (this.disposed) throw new Error("Pi startup was disposed.");
+    if (this.editorWorkspace) await this.assertEditorWorkspace();
     const launch = JSON.stringify(this.buildClientOptions(sessionPath, {}));
-    const root = expectedRoot ?? (await realpath(this.currentCwd));
+    const root = this.editorWorkspace?.root ?? expectedRoot ?? (await realpath(this.currentCwd));
     if ((await realpath(this.currentCwd)) !== root) throw new Error("Pi workspace changed during startup.");
     if (sessionPath) {
       if (allowUnsaved) await assertAssignedSessionWorkspace(sessionPath, this.currentCwd);
@@ -1822,6 +1856,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     try {
       if (this.disposed || this.client !== client) throw new Error("Pi startup was disposed or replaced.");
       if (sessionPath) await this.options.sessionWriters?.reserve(client, sessionPath);
+      if (this.editorWorkspace) await this.assertEditorWorkspace();
       if (this.disposed || this.client !== client) throw new Error("Pi startup was disposed or replaced.");
       if (this.options.editorSession) this.control.assertSidebarOwnership();
       await client.start();

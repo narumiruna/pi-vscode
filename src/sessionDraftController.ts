@@ -52,7 +52,6 @@ export class SessionDraftController {
   private consentPending = false;
   private consentGeneration = 0;
   private readonly submission = new AsyncLocalStorage<Submission>();
-  private readonly recordWriters = new Map<string, Binding>();
   private readonly deleted = new Set<string>();
 
   public constructor(
@@ -81,7 +80,6 @@ export class SessionDraftController {
     if (!this.alive || !binding) return;
     if (change === "disabled") {
       this.consentGeneration += 1;
-      this.recordWriters.clear();
       this.binding = {
         ...binding,
         id: randomUUID(),
@@ -179,9 +177,7 @@ export class SessionDraftController {
         this.publish();
       }
       if (!binding.recovery) {
-        this.recordWriters.set(binding.owner, binding);
-        this.store.put(binding.owner, message.text);
-        for (const owner of this.recordWriters.keys()) if (!this.store.get(owner)) this.recordWriters.delete(owner);
+        this.store.put(binding.owner, message.text, binding);
       }
     } else if (message.type === "draftDiscard") {
       this.store.remove(binding.owner);
@@ -221,14 +217,7 @@ export class SessionDraftController {
     const binding = submission.binding;
     binding.accepted = Math.max(binding.accepted, revision);
     const owner = binding.owner;
-    const writer = owner && this.recordWriters.get(owner);
-    if (owner && (!writer || writer === binding) && binding.revision <= revision && !binding.recovery) {
-      this.store.remove(owner);
-      if (this.binding?.owner === owner && this.binding !== binding) {
-        this.binding.recovery = false;
-        this.publish();
-      }
-    }
+    if (owner && binding.revision <= revision && !binding.recovery) this.store.remove(owner, binding);
     return binding.id;
   }
   public deleteSession(sessionFile: string | undefined): void {
@@ -240,7 +229,6 @@ export class SessionDraftController {
       const oldest = this.deleted.values().next().value;
       if (oldest) this.deleted.delete(oldest);
     }
-    this.recordWriters.delete(owner);
     this.store.remove(owner);
     if (this.binding?.owner === owner) {
       this.binding.recovery = false;

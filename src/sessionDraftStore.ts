@@ -49,6 +49,7 @@ function record(value: unknown, now: number): SessionDraft | undefined {
 /** Only allowlisted text records cross this persistence boundary. No browser object is stored. */
 export class SessionDraftStore {
   private records: SessionDraft[] = [];
+  private readonly writers = new Map<string, object>();
   private approved = false;
   private generation = 0;
   private written = 0;
@@ -95,6 +96,7 @@ export class SessionDraftStore {
   public disable(): void {
     this.approved = false;
     this.records = [];
+    this.writers.clear();
     // Notify even when already disabled: pending consent must not survive discard-all.
     this.changed("disabled");
   }
@@ -105,16 +107,22 @@ export class SessionDraftStore {
     const found = this.records.find((item) => item.owner === owner);
     return found && { ...found };
   }
-  public put(owner: string, text: string): void {
+  public put(owner: string, text: string, writer?: object): void {
     if (!this.approved || !validOwner(owner) || typeof text !== "string" || text.length > draftLimits.perDraft) return;
     this.records = this.records.filter((item) => item.owner !== owner);
-    if (text.length) this.records.push({ owner, text, updated: this.now() });
+    this.writers.delete(owner);
+    if (text.length) {
+      this.records.push({ owner, text, updated: this.now() });
+      if (writer) this.writers.set(owner, writer);
+    }
     this.prune();
     this.changed();
   }
-  public remove(owner: string): void {
-    if (!this.approved) return;
+  /** Accepted sends can remove only the record still owned by their captured binding. */
+  public remove(owner: string, writer?: object): void {
+    if (!this.approved || (writer && this.writers.get(owner) !== writer)) return;
     this.records = this.records.filter((item) => item.owner !== owner);
+    this.writers.delete(owner);
     this.changed();
   }
   private prune(): void {
@@ -134,6 +142,7 @@ export class SessionDraftStore {
         characters += item.text.length;
         return true;
       });
+    for (const owner of this.writers.keys()) if (!seen.has(owner)) this.writers.delete(owner);
   }
   private changed(change: SessionDraftChange = "records"): void {
     this.generation += 1;

@@ -108,7 +108,9 @@ Stopping retires the RPC owner before asynchronous cleanup, so late path validat
 Session deletion holds a separate reservation through the filesystem deletion after the old writer stops.
 A normal panel close releases its session slot only after all pending bounded stops settle.
 The opened workspace-folder URI is separate from the canonical launch root and remains the panel's resource on reconnect.
-Changed folder or alias bindings fail before a new panel can start.
+Each editor runtime retains the original folder URI and canonical launch root.
+Startup, reconnect, and ordinary prompt dispatch reject a removed folder, changed owning-folder URI, or changed canonical root.
+These checks run again after asynchronous preparation; the first workspace folder is not a fallback for editor sessions.
 Unverified cleanup quarantines both the writer's reservations and its session slot until window reload, including after panel closure.
 The eight-session bound includes these quarantined closed sessions.
 RPC cleanup uncertainty also retains exclusive workspace exclusion by the originating client's canonical launch root, not a later current workspace or the session-file directory.
@@ -953,7 +955,10 @@ No credential-storage or secure-erasure guarantee is made.
 
 Attachments, pins, image bytes, extension-dialog text and queued-message recovery ledgers do not enter this store.
 Debounced text updates carry a random view/session binding and monotonically checked composer revision.
-Accepted sends remove only their captured draft revision; serialized writes cannot replay an obsolete snapshot over a later clear.
+Accepted sends remove only their captured draft revision and only while the shared store still records their binding as its writer.
+Writer identities stay in host memory, are bounded by retained records, and do not enter the persisted envelope or browser messages.
+A sibling write changes that identity even when text and timestamps match; a late acceptance cannot clear that record or its recovery offer.
+Serialized writes cannot replay an obsolete snapshot over a later clear.
 Context changes and late replies cannot clear newer input.
 Kept text with uncertain context blocks normal composer submission until the user verifies the session and clears it.
 Restore requires an empty unchanged composer and is an insertion only, never a send, queue or shell dispatch.

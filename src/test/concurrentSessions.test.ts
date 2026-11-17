@@ -188,6 +188,7 @@ test("an opened workspace alias is used for folder lookup and panel startup sett
     const session = await f.open();
     assert.equal(f.starts.find((start: any) => start.runtime === session.runtime)?.resource, folder.uri);
     assert.equal(session.provider.surface.resource, folder.uri);
+    assert.deepEqual(session.runtime.options.editorWorkspace, { uri: folder.uri, root: target });
     assert.equal(session.runtime.resource, folder.uri);
     assert.equal(session.runtime.currentCwd, folder.uri.fsPath);
     assert.equal(readPiInvocationSettings(session.runtime.resource).model, "model-a");

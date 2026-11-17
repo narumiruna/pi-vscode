@@ -284,6 +284,62 @@ test("shared controllers keep interleaved per-session writes, bindings and revis
   );
 });
 
+for (const siblingText of ["newer sibling draft", "submitted"]) {
+  test(`accepted sends keep a sibling's saved draft with ${siblingText === "submitted" ? "equal" : "different"} text`, async () => {
+    const a = fixture();
+    const b = fixture(undefined, a.store);
+    for (const f of [a, b]) await f.controller.handle({ type: "draftSelect", scope: "session" });
+    a.store.enable();
+    await a.change(1, "submitted");
+    let accept!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      accept = resolve;
+    });
+    const sending = a.controller.runMessage({ type: "send", revision: 1, text: "submitted" }, async () => {
+      await pending;
+      assert.equal(a.controller.accepted(1, "submitted"), a.binding());
+    });
+    await b.change(1, siblingText);
+    accept();
+    await sending;
+    const owner = sessionDraftOwner("/sessions/a.jsonl") ?? assert.fail("missing owner");
+    assert.equal(a.store.get(owner)?.text, siblingText);
+    await a.store.flush();
+    const records = (a.writes.at(-1) as { records: Record<string, unknown>[] }).records;
+    assert.equal(records.length, 1);
+    assert.equal(records[0]?.text, siblingText);
+    assert.deepEqual(Object.keys(records[0] ?? {}).sort(), ["owner", "text", "updated"]);
+    assert.equal(
+      [...a.posts, ...b.posts].some((message) => "text" in message),
+      false,
+    );
+    await b.controller.runMessage({ type: "send", revision: 1, text: siblingText }, async () => {
+      assert.equal(b.controller.accepted(1, siblingText), b.binding());
+    });
+    assert.equal(a.store.get(owner), undefined, "the current writer can still clear its accepted draft");
+  });
+}
+
+test("late acceptance cannot clear a replacement view's recovery offer after a sibling write", async () => {
+  const a = fixture();
+  const b = fixture(undefined, a.store);
+  for (const f of [a, b]) await f.controller.handle({ type: "draftSelect", scope: "session" });
+  a.store.enable();
+  await a.change(1, "submitted");
+  const origin = a.binding();
+  await a.controller.runMessage({ type: "send", revision: 1, text: "submitted" }, async () => {
+    a.controller.beginView();
+    await a.controller.handle({ type: "draftSelect", scope: "session" });
+    assert.equal(a.state().available, true);
+    await b.change(1, "new recovery text");
+    assert.equal(a.controller.accepted(1, "submitted"), origin);
+  });
+  assert.equal(a.state().available, true);
+  await a.controller.handle({ type: "draftRestore", binding: a.binding(), revision: 0 });
+  assert.equal(a.posts.at(-1)?.type, "draftRestored");
+  assert.equal(a.posts.at(-1)?.text, "new recovery text");
+});
+
 test("shared discard clears recovery without resetting bindings or echoing retained text", async () => {
   const a = fixture();
   await a.controller.handle({ type: "draftSelect", scope: "session" });

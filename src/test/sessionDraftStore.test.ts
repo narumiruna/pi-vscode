@@ -141,6 +141,55 @@ test("draft writes serialize/coalesce and cannot restore cleared text after an i
   assert.equal(writes.length, 2);
 });
 
+test("conditional draft removal checks shared writer identity even when text and timestamps match", async () => {
+  const { store, writes } = fixture();
+  const a = {};
+  const b = {};
+  store.enable();
+  store.put("sessions", "same", a);
+  const first = store.get("sessions");
+  store.put("sessions", "same", b);
+  assert.deepEqual(store.get("sessions"), first);
+  await store.flush();
+  const changes: SessionDraftChange[] = [];
+  store.subscribe((change) => changes.push(change));
+  const saved = writes.length;
+  store.remove("sessions", a);
+  await store.flush();
+  assert.deepEqual(store.get("sessions"), first);
+  assert.equal(writes.length, saved, "a rejected clear does not write persistence");
+  assert.deepEqual(changes, [], "a rejected clear does not remove sibling recovery offers");
+  assert.deepEqual(writes.at(-1), { version: 1, consent: true, records: [first] });
+  store.remove("sessions", b);
+  assert.equal(store.get("sessions"), undefined);
+  store.put("sessions", "explicit unowned write");
+  store.remove("sessions", b);
+  assert.equal(store.get("sessions")?.text, "explicit unowned write");
+  store.remove("sessions");
+  assert.equal(store.get("sessions"), undefined, "explicit discard still removes the current record");
+  await store.flush();
+});
+
+test("draft writer identity cannot survive disable or persistence reload", async () => {
+  const { store, writes } = fixture();
+  const writer = {};
+  store.enable();
+  store.put("sessions", "old", writer);
+  store.disable();
+  store.enable();
+  store.put("sessions", "new consent");
+  store.remove("sessions", writer);
+  assert.equal(store.get("sessions")?.text, "new consent");
+  store.put("sessions", "retained", writer);
+  await store.flush();
+  const reloaded = fixture(writes.at(-1));
+  reloaded.store.remove("sessions", writer);
+  assert.equal(reloaded.store.get("sessions")?.text, "retained");
+  reloaded.store.remove("sessions");
+  assert.equal(reloaded.store.get("sessions"), undefined);
+  await reloaded.store.flush();
+});
+
 test("draft subscriptions are synchronous, text-free, disposable and isolated from listener failures", async () => {
   const { store } = fixture();
   const changes: SessionDraftChange[] = [];

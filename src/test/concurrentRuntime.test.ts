@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { link, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { MockInstance } from "vitest";
@@ -206,6 +206,291 @@ async function fixture(action: (f: RuntimeFixture) => Promise<void>): Promise<vo
     await rm(root, { recursive: true, force: true });
   }
 }
+
+async function boundWorkspace(f: RuntimeFixture, alias = false) {
+  const target = path.join(f.root, "workspace-a");
+  const other = path.join(f.root, "workspace-b");
+  await Promise.all([mkdir(target), mkdir(other)]);
+  const opened = alias ? path.join(f.root, "opened-a") : target;
+  const linkType = process.platform === "win32" ? "junction" : "dir";
+  if (alias) await symlink(target, opened, linkType);
+  const folder = { uri: MockUri.file(opened) };
+  const otherFolder = { uri: MockUri.file(other) };
+  mock.workspace.workspaceFolders = [otherFolder, folder];
+  mock.workspace.getWorkspaceFolder = (resource: MockUri) =>
+    [...mock.workspace.workspaceFolders]
+      .sort((a, b) => b.uri.fsPath.length - a.uri.fsPath.length)
+      .find(({ uri }) => {
+        const relative = path.relative(uri.fsPath, resource.fsPath);
+        return (
+          uri.scheme === resource.scheme &&
+          (relative === "" ||
+            (!path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`)))
+        );
+      });
+  mock.workspace.getConfiguration = (_section: string, resource?: MockUri) => ({
+    get: (key: string, fallback: unknown) =>
+      key === "model"
+        ? mock.workspace.getWorkspaceFolder(resource ?? otherFolder.uri) === folder
+          ? "model-a"
+          : "model-b"
+        : fallback,
+  });
+  const uri = folder.uri as unknown as vscode.Uri;
+  const options = { editorSession: true, editorWorkspace: { uri, root: target } };
+  const editor = f.create(options);
+  const exit = () => {
+    const client = editor.internal.client;
+    f.transport(client).running = false;
+    clientInternals(client).emit({ type: "process_exit", expected: false });
+  };
+  return { target, other, opened, linkType, folder, otherFolder, uri, editor, exit };
+}
+
+for (const fallback of ["first-folder", "parent-folder"] as const) {
+  test(`removed editor workspace rejects reconnect and resource-less send instead of ${fallback} fallback`, async () => {
+    await fixture(async (f) => {
+      const { target, folder, otherFolder, uri, editor, exit } = await boundWorkspace(f);
+      if (fallback === "parent-folder") mock.workspace.workspaceFolders.push({ uri: MockUri.file(f.root) });
+      await editor.runtime.ensureStarted(uri);
+      assert.equal(clientInternals(editor.internal.client).options.cwd, target);
+      assert.equal(clientInternals(editor.internal.client).options.model, "model-a");
+      assert.equal(editor.runtime.currentState.sessionFile?.includes("assigned-"), true, "The session is unsaved");
+      exit();
+      mock.workspace.workspaceFolders = mock.workspace.workspaceFolders.filter((entry: unknown) => entry !== folder);
+      mock.window.activeTextEditor = { document: { uri: MockUri.joinPath(otherFolder.uri, "source.ts") } };
+      vi.mocked(PiRpcClient.prototype.prompt).mockResolvedValue("handled");
+      const results = await Promise.allSettled([
+        editor.runtime.ensureStarted(uri),
+        editor.runtime.prompt("Do not send in another workspace"),
+      ]);
+      assert.deepEqual(
+        results.map((result) => result.status),
+        ["rejected", "rejected"],
+      );
+      for (const result of results) {
+        assert.ok(result.status === "rejected");
+        assert.match(String(result.reason), /workspace changed/i);
+      }
+      assert.equal(f.start.mock.calls.length, 1);
+      assert.equal(vi.mocked(PiRpcClient.prototype.prompt).mock.calls.length, 0);
+      assert.equal(editor.internal.client, undefined);
+    });
+  });
+}
+
+for (const state of ["exited", "running"] as const) {
+  test(`retargeted editor workspace alias rejects reconnect and resource-less send (${state})`, async () => {
+    await fixture(async (f) => {
+      const { opened, other, linkType, uri, editor, exit } = await boundWorkspace(f, true);
+      await editor.runtime.ensureStarted(uri);
+      if (state === "exited") exit();
+      await rm(opened);
+      await symlink(other, opened, linkType);
+      vi.mocked(PiRpcClient.prototype.prompt).mockResolvedValue("handled");
+      const results = await Promise.allSettled([
+        editor.runtime.ensureStarted(uri),
+        editor.runtime.prompt("Do not send through a retargeted alias"),
+      ]);
+      assert.deepEqual(
+        results.map((result) => result.status),
+        ["rejected", "rejected"],
+      );
+      assert.equal(f.start.mock.calls.length, 1);
+      assert.equal(vi.mocked(PiRpcClient.prototype.prompt).mock.calls.length, 0);
+    });
+  });
+}
+
+test("unchanged editor workspace alias keeps its canonical cwd and scoped settings with workspace B active", async () => {
+  await fixture(async (f) => {
+    const { target, otherFolder, uri, editor, exit } = await boundWorkspace(f, true);
+    await editor.runtime.ensureStarted(uri);
+    exit();
+    mock.window.activeTextEditor = { document: { uri: MockUri.joinPath(otherFolder.uri, "source.ts") } };
+    await editor.runtime.ensureStarted(uri);
+    assert.equal(f.start.mock.calls.length, 2);
+    assert.equal(clientInternals(editor.internal.client).options.cwd, target);
+    assert.equal(clientInternals(editor.internal.client).options.model, "model-a");
+    assert.equal(editor.runtime.currentCwd, uri.fsPath);
+    vi.mocked(PiRpcClient.prototype.prompt).mockResolvedValue("handled");
+    assert.deepEqual(await editor.runtime.prompt("Still workspace A"), { disposition: "handled" });
+    assert.equal(vi.mocked(PiRpcClient.prototype.prompt).mock.calls.length, 1);
+  });
+});
+
+test("editor startup cannot replace its opened resource with another explicit resource or active editor", async () => {
+  await fixture(async (f) => {
+    const { target, otherFolder, uri, editor } = await boundWorkspace(f, true);
+    mock.window.activeTextEditor = { document: { uri: MockUri.joinPath(otherFolder.uri, "source.ts") } };
+    await editor.runtime.ensureStarted(otherFolder.uri as unknown as vscode.Uri);
+    assert.equal(clientInternals(editor.internal.client).options.cwd, target);
+    assert.equal(clientInternals(editor.internal.client).options.model, "model-a");
+    await editor.internal.stopClient();
+    await editor.runtime.ensureStarted();
+    assert.equal(clientInternals(editor.internal.client).options.cwd, target);
+    assert.equal(clientInternals(editor.internal.client).options.model, "model-a");
+    assert.equal(editor.runtime.currentCwd, uri.fsPath);
+  });
+});
+
+for (const change of ["folder", "alias"] as const) {
+  test(`editor startup rechecks ${change} binding after an awaited writer reservation`, async () => {
+    await fixture(async (f) => {
+      const { target, opened, other, otherFolder, linkType, uri, editor } = await boundWorkspace(f, true);
+      const file = path.join(f.root, "saved-a.jsonl");
+      await writeFile(file, `${JSON.stringify({ type: "session", id: "saved-a", cwd: target })}\n`);
+      await editor.internal.rememberSession(file);
+      const reached = deferred();
+      const resume = deferred();
+      const reserve = f.writers.reserve.bind(f.writers);
+      vi.spyOn(f.writers, "reserve").mockImplementationOnce(async (owner, sessionFile, isCurrent) => {
+        const key = await reserve(owner, sessionFile, isCurrent);
+        reached.resolve();
+        await resume.promise;
+        return key;
+      });
+      const startup = editor.runtime.ensureStarted(uri);
+      const result = Promise.allSettled([startup]);
+      await reached.promise;
+      try {
+        if (change === "folder") mock.workspace.workspaceFolders = [otherFolder];
+        else {
+          await rm(opened);
+          await symlink(other, opened, linkType);
+        }
+      } finally {
+        resume.resolve();
+      }
+      assert.equal((await result)[0]?.status, "rejected");
+      assert.equal(f.start.mock.calls.length, 0);
+      assert.equal(editor.internal.client, undefined);
+      assert.equal(await reserve({}, file), file, "Rejected startup must release its writer reservation");
+    });
+  });
+}
+
+test("a changed editor binding rejects a second ensureStarted before joining pending startup", async () => {
+  await fixture(async (f) => {
+    const { uri, editor, otherFolder } = await boundWorkspace(f);
+    const reached = deferred();
+    const resume = deferred();
+    editor.internal.bridgeEnvironment = async () => {
+      reached.resolve();
+      await resume.promise;
+      return {};
+    };
+    const startup = editor.runtime.ensureStarted(uri);
+    const result = Promise.allSettled([startup]);
+    await reached.promise;
+    mock.workspace.workspaceFolders = [otherFolder];
+    let outcome = "pending";
+    const joining = editor.runtime.ensureStarted(uri).then(
+      () => {
+        outcome = "resolved";
+      },
+      () => {
+        outcome = "rejected";
+      },
+    );
+    try {
+      await vi.waitFor(() => assert.equal(outcome, "rejected"));
+    } finally {
+      resume.resolve();
+      await joining;
+      await result;
+    }
+    assert.equal((await result)[0]?.status, "rejected");
+    assert.equal(f.start.mock.calls.length, 0);
+  });
+});
+
+test("a running editor rechecks exact folder membership after awaiting its canonical root", async () => {
+  await fixture(async (f) => {
+    const { opened, uri, editor, otherFolder } = await boundWorkspace(f);
+    await editor.runtime.ensureStarted(uri);
+    const fs: typeof import("node:fs/promises") = require("node:fs/promises");
+    const actual = fs.realpath;
+    vi.spyOn(fs, "realpath").mockImplementation(async (value, options) => {
+      const root = await actual(value, options);
+      if (value === opened) mock.workspace.workspaceFolders = [otherFolder];
+      return root;
+    });
+    await assert.rejects(editor.runtime.ensureStarted(), /workspace changed/i);
+    assert.equal(f.start.mock.calls.length, 1);
+  });
+});
+
+test("resource-less editor prompt rechecks its binding after the pre-submit callback", async () => {
+  await fixture(async (f) => {
+    const { uri, editor, otherFolder } = await boundWorkspace(f);
+    await editor.runtime.ensureStarted(uri);
+    vi.mocked(PiRpcClient.prototype.prompt).mockResolvedValue("handled");
+    await assert.rejects(
+      editor.runtime.prompt("Do not dispatch", undefined, undefined, undefined, () => {
+        mock.workspace.workspaceFolders = [otherFolder];
+      }),
+      /workspace changed/i,
+    );
+    assert.equal(f.start.mock.calls.length, 1);
+    assert.equal(vi.mocked(PiRpcClient.prototype.prompt).mock.calls.length, 0);
+  });
+});
+
+for (const transition of ["shutdown", "replacement"] as const) {
+  test(`editor prompt cannot dispatch to a retired client after awaited binding validation (${transition})`, async () => {
+    await fixture(async (f) => {
+      const { opened, uri, editor, exit } = await boundWorkspace(f);
+      await editor.runtime.ensureStarted(uri);
+      const original = editor.internal.client;
+      const reached = deferred();
+      const resume = deferred();
+      const fs: typeof import("node:fs/promises") = require("node:fs/promises");
+      const actual = fs.realpath;
+      let checks = 0;
+      vi.spyOn(fs, "realpath").mockImplementation(async (value, options) => {
+        const root = await actual(value, options);
+        if (value === opened && ++checks === 2) {
+          reached.resolve();
+          await resume.promise;
+        }
+        return root;
+      });
+      vi.mocked(PiRpcClient.prototype.prompt).mockResolvedValue("handled");
+      const request = editor.runtime.prompt("Do not dispatch to a retired client");
+      const result = Promise.allSettled([request]);
+      await reached.promise;
+      try {
+        if (transition === "shutdown") await editor.runtime.shutdown();
+        else {
+          exit();
+          await editor.runtime.ensureStarted(uri);
+          assert.notEqual(editor.internal.client, original);
+        }
+      } finally {
+        resume.resolve();
+      }
+      const outcome = (await result)[0];
+      assert.ok(outcome?.status === "rejected");
+      assert.match(String(outcome.reason), /disposed|replaced/);
+      assert.equal(vi.mocked(PiRpcClient.prototype.prompt).mock.calls.length, 0);
+    });
+  });
+}
+
+test("sidebar startup keeps its active-resource and first-folder fallback without an editor binding", async () => {
+  await fixture(async (f) => {
+    const { target, other, uri } = await boundWorkspace(f);
+    const primary = f.create({ editorSession: false });
+    await primary.runtime.ensureStarted(uri);
+    assert.equal(clientInternals(primary.internal.client).options.cwd, target);
+    await primary.internal.stopClient();
+    mock.workspace.workspaceFolders = [{ uri: MockUri.file(other) }];
+    await primary.runtime.ensureStarted();
+    assert.equal(clientInternals(primary.internal.client).options.cwd, other);
+    assert.equal(clientInternals(primary.internal.client).options.model, "model-b");
+  });
+});
 
 test("independent editor runtimes retain separate writers and reject an already-open saved session before start", async () => {
   await fixture(async (f) => {

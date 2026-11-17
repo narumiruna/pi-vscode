@@ -141,6 +141,8 @@ See [Bundled runtime validation](BUNDLED_RUNTIME_VALIDATION.md) for discovery ev
 **Pi: New Concurrent Session** (`pi.newConcurrentSession`) and the Pi view-title **+** open independent native `WebviewPanel` sessions.
 Each opening requires a trusted, file-backed workspace and confirmation that concurrent sessions share files without isolation.
 The opened workspace URI is retained for folder lookup, scoped settings, and reconnect; a separate verified canonical root owns filesystem checks and operation locks.
+Editor runtime startup and ordinary prompt dispatch check the original folder registration and canonical root, including after asynchronous preparation.
+Removing the original folder or changing its root fails closed instead of selecting the first workspace folder.
 At most eight additional panels can run alongside the sidebar.
 Each panel owns its RPC process, transcript, composer draft, attachments, queue, model/thinking controls, and Stop.
 Hiding a panel or switching tabs does not stop work; closing it shuts down only its runtime and retains saved Pi session files.
@@ -227,6 +229,9 @@ Windows/macOS and Remote SSH/WSL/container routing/focus require environment-spe
 Implementation: `sessionDraftStore.ts`, `sessionDraftController.ts`, `composerDraftHtml.ts`; revision/view/session binding, no automatic replay or attachment persistence.
 Sidebar and editor-session composers share consent, aggregate storage bounds, and Disable/discard-all state.
 Disabling recovery invalidates pending consent and stale draft bindings across subscribed views.
+The shared store tracks a memory-only writer identity for each retained record.
+Accepted sends remove a record only when the captured binding still owns it; equal text, revisions, or timestamps cannot clear another view's saved draft.
+Offline regressions cover late acceptance, shared writers, replacement-view recovery offers, and the unchanged persistence envelope.
 Earlier storage evidence below does not validate this multi-view behavior.
 Recorded native checks verify active-row placement and Disable in Linux desktop SQLite on VS Code 1.106.0 / 1.142.0.
 Earlier web-remote client IndexedDB evidence predates this relocation; remote controls were not rerun.

@@ -80,6 +80,7 @@ export class ConcurrentSessions implements vscode.Disposable {
       this.primary.changeTracker.enableConcurrentSafety(root);
       const runtime = new PiRuntimeManager(this.context, this.logger, {
         editorSession: true,
+        editorWorkspace: { uri: resource, root },
         sessionWriters: this.writers,
       });
       const tracker = new WorkspaceChangeTracker();

@@ -156,6 +156,8 @@ This opens an independent session in a native editor `WebviewPanel`, not another
 A trusted, file-backed workspace is required.
 A workspace-root symlink or junction keeps its opened URI while filesystem checks use its canonical root.
 Reconnect keeps the panel's workspace even when an editor in another workspace is active.
+Startup, reconnect, and new ordinary requests fail if the original folder is removed or its alias points to another root.
+Restore the original workspace binding, or open a new panel for the intended workspace.
 
 1. Review the modal warning that sessions can change the same workspace files and are not isolated.
    Choose **Open Session** to continue, or cancel without opening a panel.
@@ -306,6 +308,7 @@ The extension uses workspace-scoped VS Code `workspaceState`, without Settings S
 Sidebar and editor-session composers share one `SessionDraftStore`; these aggregate limits are not separate allowances per panel.
 Consent applies to this shared store, and **Disable and discard all** in any view disables retention for all subscribed views.
 Disabling also invalidates pending consent and stale draft updates from those views.
+A late send acknowledgement cannot remove a newer retained draft written by another view, even when the text is identical.
 Recovery expires after seven days; expired records are removed on the next activation or access.
 On checked Linux desktop builds, drafts reside in the local profile's workspace database.
 With the checked VS Code Server web clients, they reside in the browser's IndexedDB workspace storage, even though the extension runs in a remote Node Extension Host.
