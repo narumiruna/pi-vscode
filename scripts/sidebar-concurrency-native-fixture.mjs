@@ -196,6 +196,7 @@ export async function assertNativeSidebarConcurrency(options) {
     assert.equal(await optional("switches.jsonl"), switchesBefore, "Concurrent navigation never calls switch_session");
     // The Sessions composer promotes its own entry and changes recovery bindings during acceptance.
     await pi.locator("#back-to-sessions").click();
+    await pi.locator("#sessions").waitFor({ state: "visible" });
     await composer.fill("Native launcher first-send acceptance");
     await writeFile(path.join(directory, "response.txt"), "Native launcher accepted result");
     const launcherStarts = (await records("starts.jsonl")).length;
