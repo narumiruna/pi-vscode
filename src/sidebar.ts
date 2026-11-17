@@ -2949,6 +2949,8 @@ export class PiChatViewProvider
     ) {
       const binding = this.drafts.accepted(message.expectedRevision, message.expectedText);
       if (binding) message.draftBinding = binding;
+      if (!this.view && message.type === "clearInput")
+        this.sidebarSessions?.acceptComposerSubmission(this, message.expectedRevision, message.expectedText);
     }
     void this.view?.webview.postMessage(message);
   }

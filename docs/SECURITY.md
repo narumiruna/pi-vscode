@@ -102,6 +102,10 @@ An actual runtime session-file replacement with nonempty composer text sets a ho
 First file assignment in a new entry is not a replacement.
 The block survives disconnects, selection, and renderer recreation; the renderer restores the legacy draft warning and Send guard from this metadata.
 Only a valid empty composer report clears a blocked draft; a late acceptance cannot erase it.
+Accepted-submission bookkeeping reaches the registry even when its controller view is detached.
+It uses the same source-entry, expected-text, expected-revision, and context-block checks as visible acceptance.
+A recreated renderer can accept a clear without its old document token only with the host's empty composer snapshot at exactly the captured revision plus one and unchanged current text/revision.
+Legacy editor-panel draft-binding checks are unchanged.
 Direct Send, queue, and background submissions reject blocked text.
 Background launch through More also rechecks this context before and after approval.
 Across cold startup or launcher promotion, a recovery-binding change cannot discard a newer draft: acceptance must match the captured entry/text/revision and current input exactly.

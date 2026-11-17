@@ -2143,7 +2143,12 @@ export function getSidebarHtml(
         const acceptedSidebarOrigin = sidebar && sidebarPendingSubmission?.entryId === sidebar.entryId
           && sidebarPendingSubmission.revision === message.expectedRevision && sidebarPendingSubmission.text === message.expectedText;
         if (acceptedSidebarOrigin) sidebarPendingSubmission = undefined;
-        const revisionMatches = (acceptedSidebarOrigin || composerDraft.matches(message.draftBinding, message.expectedRevision, message.expectedText)) && (message.expectedRevision === undefined || composerRevision === message.expectedRevision);
+        // A recreated document has no local token. Require the host's exact accepted snapshot instead.
+        const acceptedSidebarSnapshot = sidebar && typeof message.expectedText === 'string'
+          && Number.isSafeInteger(message.expectedRevision) && message.sidebar?.composer?.text === ''
+          && message.sidebar.composer.contextBlocked === false
+          && message.sidebar.composer.revision === message.expectedRevision + 1;
+        const revisionMatches = (acceptedSidebarOrigin || acceptedSidebarSnapshot || composerDraft.matches(message.draftBinding, message.expectedRevision, message.expectedText)) && (message.expectedRevision === undefined || composerRevision === message.expectedRevision);
         const textMatches = message.expectedText === undefined || input.value === message.expectedText;
         if (revisionMatches && textMatches) {
           input.value = '';

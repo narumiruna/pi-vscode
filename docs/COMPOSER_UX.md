@@ -26,6 +26,9 @@ Cold startup and launcher promotion can change recovery bindings; their accepted
 Actual runtime session-file replacements retain the stale-context warning and submission block for nonempty text.
 The host keeps that block per entry through selection and renderer recreation; verify the session and clear the kept text before sending.
 A late acceptance cannot clear a blocked draft, and another entry does not inherit the block.
+Accepted-submission bookkeeping stays active after renderer disposal.
+A restored composer can clear an old submission without its document-local token only when the host reports empty text at the exact accepted revision plus one.
+Its current text and revision must still match the submitted values.
 Native input and approval dialogs identify their source conversation; selection does not answer, transfer, or cancel them.
 Stopping or closing a runtime invalidates only its own handles.
 

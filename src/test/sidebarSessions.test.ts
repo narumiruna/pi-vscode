@@ -200,6 +200,7 @@ async function fixture(action: (f: any) => Promise<void>, options: { resolveView
       },
       onDidReceiveMessage: (listener: (...args: any[]) => void) => listen("message", listener),
     },
+    dispose: () => events.emit("dispose"),
     receive: (message: unknown) => events.emit("message", message),
     onDidDispose: (listener: () => void) => listen("dispose", listener),
     onDidChangeVisibility: (listener: () => void) => listen("visibility", listener),
@@ -235,10 +236,10 @@ async function fixture(action: (f: any) => Promise<void>, options: { resolveView
     clients.get(entry.runtime).complete(text);
     await vi.waitFor(() => assert.equal(row(entry)?.activity, "completed"));
   };
-  const resolveView = async () => {
+  const resolveView = async (waitForHistory = true) => {
     primary.resolveWebviewView(view as any);
     view.receive({ type: "ready" });
-    await vi.waitFor(() => assert.equal((primary as any).historyAvailable, true));
+    if (waitForHistory) await vi.waitFor(() => assert.equal((primary as any).historyAvailable, true));
   };
   try {
     if (options.resolveView !== false) await resolveView();
@@ -353,6 +354,107 @@ test("source envelopes reject stale sends and Stop; a late A acceptance cannot c
     await f.complete(f.a, "accepted by A only");
     await f.manager.select(b.id);
     assert.equal(f.latest().sidebar.composer.text, "keep B draft");
+  });
+});
+
+test.each(["primary", "auxiliary"])("R10 accepted %s text is cleared while its renderer is disposed", async (owner) => {
+  await fixture(async (f) => {
+    const entry = owner === "primary" ? f.a : await f.open();
+    const acceptance = deferred<string>();
+    f.acceptances.set(entry.runtime, acceptance);
+    await f.send(entry, "accepted while detached", 4);
+    const starts = f.starts.length;
+    f.view.dispose();
+    assert.equal(f.manager.view, undefined);
+    assert.equal(entry.controller.view, undefined);
+    const mark = f.view.webview.messages.length;
+    acceptance.resolve("submitted");
+    await vi.waitFor(() => assert.deepEqual(entry.composer, { text: "", revision: 5 }));
+    assert.equal(f.view.webview.messages.length, mark, "no message may reach the disposed renderer");
+    await f.resolveView(false);
+    assert.deepEqual(f.latest().sidebar.composer, { text: "", revision: 5, contextBlocked: false });
+    assert.equal(f.starts.length, starts, "reconstruction must not reconnect the retained owner");
+    assert.equal(f.clients.get(entry.runtime).prompts.length, 1);
+    await f.complete(entry, "accepted once");
+  });
+});
+
+test.each(["newer draft", "changed context"])(
+  "R10 detached acceptance preserves %s and another entry's draft",
+  async (change) => {
+    await fixture(async (f) => {
+      const acceptance = deferred<string>();
+      f.acceptances.set(f.a.runtime, acceptance);
+      await f.send(f.a, "original submission", 4);
+      if (change === "newer draft") f.compose("keep newer input", 5);
+      else {
+        f.runtime.state = { ...f.runtime.currentState, sessionFile: path.join(f.root, "replacement.jsonl") };
+        f.runtime.stateEmitter.fire(f.runtime.state);
+      }
+      const expected = { ...f.a.composer };
+      const b = await f.open();
+      f.compose("keep B input", 6);
+      f.view.dispose();
+      const accepted = vi.spyOn(f.a.controller.drafts, "accepted");
+      try {
+        acceptance.resolve("submitted");
+        await vi.waitFor(() => assert.ok(accepted.mock.calls.some(([revision]) => revision === 4)));
+        await nextTurn();
+        assert.deepEqual(f.a.composer, expected);
+        assert.equal(f.a.contextBlocked, change === "changed context");
+        assert.deepEqual(b.composer, { text: "keep B input", revision: 6 });
+        await f.resolveView(false);
+        assert.equal(f.latest().sidebar.entryId, b.id);
+        assert.equal(f.latest().sidebar.composer.text, "keep B input");
+        await f.manager.select(f.a.id);
+        assert.equal(f.latest().sidebar.composer.text, expected.text);
+        assert.equal(f.latest().sidebar.composer.contextBlocked, change === "changed context");
+      } finally {
+        accepted.mockRestore();
+      }
+      await f.complete(f.a, "original accepted");
+    });
+  },
+);
+
+test("R10 detached acceptance clears only its inactive owner", async () => {
+  await fixture(async (f) => {
+    const acceptance = deferred<string>();
+    f.acceptances.set(f.a.runtime, acceptance);
+    await f.send(f.a, "accepted inactive A", 4);
+    const b = await f.open();
+    f.compose("keep B input", 6);
+    f.view.dispose();
+    acceptance.resolve("submitted");
+    await vi.waitFor(() => assert.deepEqual(f.a.composer, { text: "", revision: 5 }));
+    assert.deepEqual(b.composer, { text: "keep B input", revision: 6 });
+    await f.resolveView(false);
+    assert.equal(f.latest().sidebar.entryId, b.id);
+    assert.equal(f.latest().sidebar.composer.text, "keep B input");
+    await f.manager.select(f.a.id);
+    assert.equal(f.latest().sidebar.composer.text, "");
+    await f.complete(f.a, "inactive acceptance kept");
+  });
+});
+
+test("R10 acceptance after reconstruction carries the registry's exact accepted revision", async () => {
+  await fixture(async (f) => {
+    const acceptance = deferred<string>();
+    f.acceptances.set(f.a.runtime, acceptance);
+    await f.send(f.a, "accepted after reconstruction", 4);
+    f.view.dispose();
+    await f.resolveView(false);
+    assert.equal(f.latest().sidebar.composer.text, "accepted after reconstruction");
+    const mark = f.view.webview.messages.length;
+    acceptance.resolve("submitted");
+    await vi.waitFor(() => assert.deepEqual(f.a.composer, { text: "", revision: 5 }));
+    const clear = f.view.webview.messages.slice(mark).find((message: any) => message.type === "clearInput");
+    assert.ok(clear);
+    assert.equal(clear.expectedText, "accepted after reconstruction");
+    assert.equal(clear.expectedRevision, 4);
+    assert.equal(clear.sidebar.entryId, f.a.id);
+    assert.deepEqual(clear.sidebar.composer, { text: "", revision: 5, contextBlocked: false });
+    await f.complete(f.a, "reconstructed acceptance kept");
   });
 });
 

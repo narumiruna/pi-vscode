@@ -505,6 +505,16 @@ export class SidebarSessions implements vscode.Disposable {
     return command === "new" ? this.create() : this.resume();
   }
 
+  public acceptComposerSubmission(
+    controller: PiChatViewProvider,
+    expectedRevision: number,
+    expectedText: string,
+  ): void {
+    const entry = this.find(controller);
+    if (!entry || entry.closing) return;
+    this.fromController(entry, { type: "clearInput", expectedRevision, expectedText });
+  }
+
   public assertComposerContext(controller: PiChatViewProvider): void {
     const entry = this.find(controller);
     if (!entry) return;

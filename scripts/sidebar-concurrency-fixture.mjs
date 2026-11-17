@@ -329,6 +329,49 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
     await post(page, { type: "clearInput", draftBinding: "44444444-4444-4444-8444-444444444444", expectedText: olderSend.text, expectedRevision: olderSend.revision, sidebar: envelope() });
     assert.equal(await page.locator("#input").inputValue(), "Newer text must remain");
 
+    // A restored composer has no local submission token from its destroyed document.
+    const restored = "101010101010101010101010";
+    const restoredText = "Accepted after renderer reconstruction";
+    entries.set(restored, { text: restoredText, revision: 80 });
+    await state(restored);
+    await draftState("88888888-8888-4888-8888-888888888888");
+    const restoredAcceptance = {
+      type: "clearInput",
+      draftBinding: "99999999-9999-4999-8999-999999999999",
+      expectedText: restoredText,
+      expectedRevision: 80,
+    };
+    await post(page, { ...restoredAcceptance, sidebar: envelope() });
+    assert.equal(
+      await page.locator("#input").inputValue(), restoredText,
+      "an old draft token alone cannot clear restored text",
+    );
+    await post(page, {
+      ...restoredAcceptance,
+      sidebar: { ...envelope(), composer: { text: "", revision: 82, contextBlocked: false } },
+    });
+    assert.equal(
+      await page.locator("#input").inputValue(), restoredText,
+      "a mismatched host revision cannot clear restored text",
+    );
+    await post(page, {
+      ...restoredAcceptance,
+      sidebar: { ...envelope(), composer: { text: "", revision: 81, contextBlocked: false } },
+    });
+    assert.equal(
+      await page.locator("#input").inputValue(), "",
+      "the host's exact accepted snapshot clears without a document-local token",
+    );
+    await page.locator("#input").fill("New text after reconstruction");
+    await post(page, {
+      ...restoredAcceptance,
+      sidebar: { ...envelope(), composer: { text: "", revision: 81, contextBlocked: false } },
+    });
+    assert.equal(
+      await page.locator("#input").inputValue(), "New text after reconstruction",
+      "a repeated acceptance must preserve newer text",
+    );
+
     // Each host owns its payloads, but all Sidebar entries share this bounded DOM cache.
     const imageData = await page.evaluate(() => {
       const canvas = document.createElement("canvas");
@@ -405,7 +448,7 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
     assert.deepEqual(external, []);
     return {
       documents: 1,
-      switchedEntries: 6,
+      switchedEntries: 7,
       activityLabels: activities.length,
       independentStops: 2,
       originBoundDelayedImage: true,
@@ -416,6 +459,7 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
       loadingHistoryAcknowledgedAfterRender: true,
       busyNavigationShortcuts: true,
       runtimeReplacementDraftGuard: true,
+      reconstructedComposerAcceptance: true,
       visibilityAndLatestAcknowledgement: true,
       cspViolations: 0,
       pageErrors: 0,
