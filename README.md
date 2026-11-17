@@ -125,6 +125,7 @@ A normal close frees its slot after all bounded cleanup completes; unverified cl
 Unverified RPC cleanup also blocks exclusive workspace actions, including Apply and checkpoint restore, until window reload.
 Ordinary concurrent requests remain available, but their checkpoint attribution is unverified.
 Inspect and stop residual processes before reloading; requests are not retried automatically.
+Queued instructions with equal text keep distinct recovery drafts and attachment snapshots, within the existing recovery limits.
 
 Sessions share workspace files and existing Pi credentials, configuration, and storage; they are not isolated or sandboxed.
 Existing global session commands, editor actions, review, and repair workflows still target the sidebar, regardless of editor-panel focus.

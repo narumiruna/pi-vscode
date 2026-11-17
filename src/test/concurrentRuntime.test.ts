@@ -837,6 +837,98 @@ for (const failure of ["timeout", "prompt-rejection", "process-exit"] as const) 
   }
 }
 
+for (const kind of ["steer", "followUp"] as const) {
+  for (const pendingObserved of [false, true]) {
+    test(`equal-text ${kind} snapshots survive timeout with ${pendingObserved ? "a reported" : "an unreported"} pending record`, async () => {
+      await fixture(async (f) => {
+        const editor = await f.launch(await f.session("editor"));
+        const client = editor.internal.client as RpcClient;
+        const submitted = deferred();
+        const pendingAck = deferred();
+        const firstImages = [{ type: "image" as const, data: "R0lGODlhAgADAAAAAA==", mimeType: "image/gif" }];
+        const secondImages = [{ type: "image" as const, data: "R0lGODlhBAAFAAAAAA==", mimeType: "image/gif" }];
+        const restored: unknown[] = [];
+        const emit = clientInternals(client).emit.bind(client);
+        let queue = { steering: [] as string[], followUp: [] as string[] };
+        let submissions = 0;
+        const queued = vi.spyOn(client, kind).mockImplementation(async (text) => {
+          submissions++;
+          if (submissions === 1 || pendingObserved) {
+            const queueKind = kind === "steer" ? "steering" : "followUp";
+            queue = { ...queue, [queueKind]: [...queue[queueKind], text] };
+            emit({ type: "queue_update", ...queue });
+          }
+          if (submissions === 2) await pendingAck.promise;
+        });
+        vi.spyOn(client, "prompt").mockImplementation(async () => {
+          submitted.resolve();
+          return undefined;
+        });
+        const createWaiter = editor.internal.createSettledWaiter.bind(editor.internal);
+        vi.spyOn(editor.internal, "createSettledWaiter").mockImplementation(() => createWaiter(100));
+        vi.useFakeTimers();
+        const request = editor.runtime.prompt("ordinary request", undefined, undefined, undefined, undefined, true);
+        const rejectedRequest = assert.rejects(request, /Timed out/);
+        let rejectedPending: Promise<void> | undefined;
+        try {
+          await submitted.promise;
+          await editor.runtime.queueInstruction(kind, "revise", {
+            images: firstImages,
+            recoveryText: "first image draft",
+            hasAttachments: true,
+            recoveryBytes: 10,
+            restoreAttachments: () => restored.push(firstImages),
+          });
+          const pending = editor.runtime.queueInstruction(kind, "revise", {
+            images: secondImages,
+            recoveryText: "second image draft",
+            hasAttachments: true,
+            recoveryBytes: 10,
+            restoreAttachments: () => restored.push(secondImages),
+          });
+          rejectedPending = assert.rejects(pending, /uncertain/);
+          await vi.advanceTimersByTimeAsync(100);
+          await rejectedRequest;
+          const recovered = editor.runtime.currentState.recoveredDrafts;
+          assert.deepEqual(
+            recovered?.map(({ text, uncertain, hasAttachments }) => ({ text, uncertain, hasAttachments })),
+            ["first image draft", "second image draft"].map((text) => ({
+              text,
+              uncertain: true,
+              hasAttachments: true,
+            })),
+          );
+          assert.equal(new Set(recovered?.map((draft) => draft.id)).size, 2, "Each snapshot keeps its own identity");
+          for (const draft of recovered ?? []) {
+            editor.runtime.restoreRecoveredDraftAttachments(draft.id);
+            editor.runtime.restoreRecoveredDraftAttachments(draft.id);
+          }
+          assert.deepEqual(restored, [firstImages, secondImages], "Each image snapshot is restored only once");
+          assert.deepEqual(
+            queued.mock.calls.map((call) => call[1]),
+            [firstImages, secondImages],
+          );
+          assert.equal(vi.mocked(client.prompt).mock.calls.length, 1, "Recovery must not replay the request");
+          assert.equal(submissions, 2, "Recovery must not replay either queued instruction");
+          pendingAck.reject(new Error("Queue acknowledgement failed after timeout."));
+          await rejectedPending;
+          emit({ type: "process_exit", expected: true });
+          assert.deepEqual(
+            editor.runtime.currentState.recoveredDrafts?.map((draft) => draft.text),
+            ["first image draft", "second image draft"],
+            "Late acknowledgement failure and exit do not repeat recovery",
+          );
+        } finally {
+          pendingAck.resolve();
+          await vi.advanceTimersByTimeAsync(100);
+          await Promise.allSettled([rejectedRequest, rejectedPending]);
+          vi.useRealTimers();
+        }
+      });
+    });
+  }
+}
+
 for (const phase of ["idle", "active", "startup", "detached-warning", "detached-error"] as const) {
   test(`cleanup uncertainty marks the captured canonical launch root (${phase})`, async () => {
     await fixture(async (f) => {

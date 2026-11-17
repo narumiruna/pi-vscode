@@ -178,6 +178,7 @@ The documented `biome check src resources` check passed with warnings and no err
 A one-off macOS VS Code 1.146.0 native screenshot check used a disposable development profile and deterministic RPC fixture, without extension installation or model calls.
 It verified native session-opening confirmation, two split editor panels with distinct session IDs and active requests, separate drafts, and Stop in one panel while the other kept working.
 Post-review host regressions cover opened workspace aliases, multi-root reconnect, accepted queue recovery, already-detached stop completion, late capacity warnings, and exclusive exclusion after unverified cleanup.
+Queue recovery tests also cover equal text with distinct image snapshots in Next and After this, with both reported and unreported pending records.
 A post-review macOS VS Code 1.146.0 check opened the workspace through a directory symlink and verified two native panels, distinct session IDs, concurrent requests, and independent Stop with the same offline fixture.
 These focused checks are not a complete native UI suite.
 The alias fixture selects a junction on Windows; this local run tested a macOS symlink only.

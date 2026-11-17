@@ -2070,8 +2070,10 @@ export class PiRuntimeManager implements vscode.Disposable {
     const queue = this.state.queue ?? { steering: [], followUp: [] };
     const records: TrackedQueueInstruction[] = [...this.awaitingQueueStarts];
     const pending = this.pendingInstruction;
+    const unobservedPending = pending && !pending.observed ? pending.record : undefined;
     for (const kind of ["steering", "followUp"] as const) {
-      const tracked = this.trackedQueue[kind];
+      // An unobserved submission cannot identify a record in the last reported queue.
+      const tracked = this.trackedQueue[kind].filter((record) => record.id !== unobservedPending?.id);
       const remote = queue[kind];
       let delivered = -1;
       if (remote.length > 0) {
