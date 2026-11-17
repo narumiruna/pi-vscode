@@ -36,7 +36,8 @@ Persistent Pi session files and exact legacy global bridge cleanup paths are unc
 | Text draft recovery | More → Conversation details recovery controls, explicit retention consent, bounded workspace-scoped text storage, session-bound retained-text notice, manual Restore/Discard and Disable/discard-all | [Storage and recovery evidence](#text-draft-recovery). |
 | Discoverable file context and accessible messages | Capability-aware snapshot/path instructions in Submission help and the input's accessible description; stable, labelled message headings | [Context and accessibility limits](#discoverable-file-context-and-accessible-messages). |
 | Space-filling Sessions list | Recent sessions use the available height above the composer, with internal scrolling and View all search | `sidebarHtml.ts`, `sidebarHtml.test.ts`, `scripts/sessions-layout-fixture.mjs`; offline checks cover entries beyond the former three-row limit, responsive height, scrolling, search, and composer access. |
-| Quick session switching | Searchable native Quick Pick plus previous/next commands and guarded default chords; bounded same-workspace discovery, stable cycle order, authoritative transition checks | `sidebar.ts`, `piRuntime.ts`, `sessionNavigation.test.ts`, `sessionSwitchRuntime.test.ts`; native keyboard and picker fixtures run without a live model. |
+| Quick session switching | Sidebar-targeted native Quick Pick plus previous/next commands and guarded default chords; bounded same-workspace discovery, stable cycle order, authoritative transition checks | `sidebar.ts`, `piRuntime.ts`, `sessionNavigation.test.ts`, `sessionSwitchRuntime.test.ts`; native keyboard and picker fixtures run without a live model. |
+| Concurrent interactive editor sessions | Pi: New Concurrent Session and Pi view-title +; up to eight independent native editor panels plus the sidebar, with explicit shared-file confirmation | [Concurrency contract and validation](#concurrent-interactive-editor-sessions). |
 | Sidebar slash commands | Disconnected local suggestions; session, model, thinking and settings shortcuts; explicit command/skill discovery with typed resource labels and revision-bound insertion | [Slash command behavior and checks](#sidebar-slash-commands). |
 | Grouped native session actions | One searchable native Quick Pick with five groups, including Conversation display → Word wrap / Conversation details; existing mutation routes retain host checks | `sidebar.ts`, `sessionActions.test.ts`; separators, description filtering, stale/lifecycle rejection and cancellation retain original host guards and command IDs. |
 | Transcript code wrapping | More… → Conversation display → Word wrap shows On/Off, off by default and local to the view | [Display-only behavior](#transcript-code-wrapping). |
@@ -135,6 +136,56 @@ The universal layout retains the production dependency closure and six native pr
 Asset inclusion is not a claim that all targets work.
 See [Bundled runtime validation](BUNDLED_RUNTIME_VALIDATION.md) for discovery evidence, final-gate status, license disposition, and retained platform/remote/provider handoff.
 
+### Concurrent interactive editor sessions
+
+**Pi: New Concurrent Session** (`pi.newConcurrentSession`) and the Pi view-title **+** open independent native `WebviewPanel` sessions.
+Each opening requires a trusted, file-backed workspace and confirmation that concurrent sessions share files without isolation.
+The opened workspace URI is retained for folder lookup, scoped settings, and reconnect; a separate verified canonical root owns filesystem checks and operation locks.
+Editor runtime startup and ordinary prompt dispatch check the original folder registration and canonical root, including after asynchronous preparation.
+Removing the original folder or changing its root fails closed instead of selecting the first workspace folder.
+At most eight additional panels can run alongside the sidebar.
+Each panel owns its RPC process, transcript, composer draft, attachments, queue, model/thinking controls, and Stop.
+Hiding a panel or switching tabs does not stop work; closing it shuts down only its runtime and retains saved Pi session files.
+A normal close frees its slot after every pending bounded stop settles; cleanup-unverified closes retain their slot and writer claim until window reload.
+An unverified RPC cleanup result also leaves a canonical-root reservation that blocks exclusive workspace operations until reload, including when no request lease remains.
+Ordinary shared agents can continue, but active and later requests receive unverified checkpoint attribution for that root.
+The eight-session bound includes quarantined closed sessions.
+Inspect and stop residual processes before reloading; no request is retried automatically.
+
+Panels have no serializer and do not restore or restart automatically after reload.
+A saved session can resume through the sidebar after its panel closes and writer cleanup is verified.
+Panel transcript caches and restore references are memory-only and bypass the sidebar's persisted keys.
+Optional text recovery uses one shared consent-gated `SessionDraftStore`, with the existing aggregate limits and Disable/discard-all semantics.
+Existing Pi credentials, configuration, and session storage remain shared; separate runtimes are not a sandbox.
+
+Existing global session commands, editor actions, review, and repair stay sidebar-bound, regardless of editor-panel focus.
+Panel **More…** omits sidebar-only transfer/sharing, authentication, review/repair/debug, compatibility, terminal handoff/recovery, and restart routes.
+The runtime host also rejects editor-panel terminal, restart, and annotation requests.
+Per-panel native model and thinking pickers remain available.
+
+One in-window canonical session-file registry prevents duplicate RPC starts and switches, retaining reservations when cleanup is uncertain.
+Other windows and external processes are not locked; this is not a universal upstream cross-process lock.
+Ordinary interactive requests share workspace agent leases; direct shell, controls, Apply, import, and restore remain exclusive.
+Active background tasks retain the existing exclusive gate in their canonical workspace.
+Overlapping requests and later operations from another owner conservatively invalidate checkpoint restoration without discarding failed-restore snapshots.
+Native extension dialogs share one origin-bound controller and one owned multiline editor across all runtimes.
+The shared log uses client generations unique across runtimes and retains at most 32 warning-suppression generations.
+
+Implementation: `concurrentSessions.ts`, `sidebar.ts`, `piRuntime.ts`, `sessionWriters.ts`, and the shared operation, checkpoint, dialog, draft, and logging controllers.
+Offline host regression tests cover simultaneous requests, separate transcript and Stop routing, close/startup races, capacity and cleanup quarantine, single-writer reservations, deletion races, shared drafts, and origin-bound dialogs.
+The full unit suite and host/browser compilation passed with locked dependencies and one test worker.
+`npm run test:rich-content` passed with two independent Chromium documents using the bundled renderer.
+The concurrency fixture verifies initial detail mode, hidden Sessions navigation, separate drafts, interleaved streams, and per-document Stop, with no CSP violations, page errors, or external requests.
+The documented `biome check src resources` check passed with warnings and no errors.
+A one-off macOS VS Code 1.146.0 native screenshot check used a disposable development profile and deterministic RPC fixture, without extension installation or model calls.
+It verified native session-opening confirmation, two split editor panels with distinct session IDs and active requests, separate drafts, and Stop in one panel while the other kept working.
+Post-review host regressions cover opened workspace aliases, multi-root reconnect, accepted queue recovery, already-detached stop completion, late capacity warnings, and exclusive exclusion after unverified cleanup.
+Queue recovery tests also cover equal text with distinct image snapshots in Next and After this, with both reported and unreported pending records.
+A post-review macOS VS Code 1.146.0 check opened the workspace through a directory symlink and verified two native panels, distinct session IDs, concurrent requests, and independent Stop with the same offline fixture.
+These focused checks are not a complete native UI suite.
+The alias fixture selects a junction on Windows; this local run tested a macOS symlink only.
+Remote, other platforms, reload, and live-provider behavior remain unverified for this change.
+
 ### Fixed primary composer status
 
 One permanent area stays inside the composer above its box, outside transcript/workflow scroll, at the same location in Sessions and conversations.
@@ -176,6 +227,12 @@ Windows/macOS and Remote SSH/WSL/container routing/focus require environment-spe
 ### Text draft recovery
 
 Implementation: `sessionDraftStore.ts`, `sessionDraftController.ts`, `composerDraftHtml.ts`; revision/view/session binding, no automatic replay or attachment persistence.
+Sidebar and editor-session composers share consent, aggregate storage bounds, and Disable/discard-all state.
+Disabling recovery invalidates pending consent and stale draft bindings across subscribed views.
+The shared store tracks a memory-only writer identity for each retained record.
+Accepted sends remove a record only when the captured binding still owns it; equal text, revisions, or timestamps cannot clear another view's saved draft.
+Offline regressions cover late acceptance, shared writers, replacement-view recovery offers, and the unchanged persistence envelope.
+Earlier storage evidence below does not validate this multi-view behavior.
 Recorded native checks verify active-row placement and Disable in Linux desktop SQLite on VS Code 1.106.0 / 1.142.0.
 Earlier web-remote client IndexedDB evidence predates this relocation; remote controls were not rerun.
 
@@ -224,7 +281,8 @@ Native Extension Host, remote, other-platform, and live-provider slash command c
 
 ### Temporary passage annotations
 
-Foreground `vscode_annotate` adds whole-line highlights, literal hovers and read-only native comments below marked ranges.
+Foreground sidebar `vscode_annotate` adds whole-line highlights, literal hovers and read-only native comments below marked ranges.
+Concurrent editor runtimes cannot authorize annotations.
 Comments are grouped at the range end line and show **Pi** as author and **Pi annotation** as label.
 Literal untrusted explanations also appear in the Comments panel.
 
@@ -255,7 +313,8 @@ Public RPC `input` stays single-line; `editor` opens an explicitly accepted non-
 Timed confirmations use full read-only review before Allow; untimed permission modals are unchanged.
 
 Implementation: `extensionDialogRequests.ts`, `extensionUiDialogs.ts`, origin-bound runtime handles, unit and deterministic native UI fixtures.
-One active multiline editor request / 100,000 characters; cancellation never returns partial text.
+One active multiline editor request across sidebar and editor runtimes / 100,000 characters; cancellation never returns partial text.
+The singleton controller subscribes to each runtime and keeps replies bound to their origin.
 VS Code can retain untitled hot-exit backups; Save is not Submit.
 No credential-editor claim or arbitrary TUI component support.
 
@@ -326,6 +385,8 @@ Two attempts, one source file; no private Test Explorer API.
 
 Implementation: `checkpointHistory.ts`, `changeTracker.ts`; immediate-write subprocess boundary and stale/dirty/dependency tests.
 Memory-only; no creations/deletions/shell rollback.
+Concurrent-session safety invalidates current attribution on overlapping agent leases and historical restoration on later operations from another owner.
+Invalidation retains failed-restore snapshots under the existing storage and lifecycle limits; it does not establish attribution for external writers.
 
 ### Direct shell
 

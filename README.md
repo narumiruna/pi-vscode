@@ -1,6 +1,8 @@
 # Pi for VS Code
 
-Use your existing [Pi](https://pi.dev) providers, models, and tools in VS Code. Ask about code in a persistent sidebar or native `@pi` chat. Attach editor context, review Git changes, and use focused edit workflows with Preview and Apply.
+Use your existing [Pi](https://pi.dev) providers, models, and tools in VS Code.
+Ask about code in the sidebar, independent editor sessions, or native `@pi` chat.
+Attach editor context, review Git changes, and use focused edit workflows with Preview and Apply.
 
 **Permission boundary:** Focused edit workflows generate proposals under a read-only policy and require explicit Apply. Ordinary agent sessions can run tools and change files without Preview and Apply. Pi and installed extensions own tool and shell permissions; without a permission policy, actions can run with no confirmation.
 
@@ -100,12 +102,46 @@ Prepared read-only actions wait for idle Pi instead of entering the ordinary que
 The Sessions list fills the available space above the composer and scrolls when needed, rather than showing only three entries.
 Choose **View all** to search the discovered sessions in this workspace.
 
-Use **Pi: Switch Session** to search saved sessions in the current workspace, or **Pi: Previous Session** / **Pi: Next Session** to cycle through them.
+Use **Pi: Switch Session** to search saved sessions for the sidebar in the current workspace, or **Pi: Previous Session** / **Pi: Next Session** to cycle through them.
 Default shortcuts use **Ctrl+K**, then **Ctrl+Alt+Shift+S / Left / Right**; on macOS use **Cmd+K**, then **Cmd+Alt+Shift+S / Left / Right**.
 Cycling keeps its order while sessions are updated; switching requires idle Pi without pending queues or dialogs.
 See [session switching](docs/USER_GUIDE.md#switch-sessions) for discovery limits and recovery behavior.
 
-Use `@pi` in VS Code's native Chat view if you prefer that interface. Native Chat history is separate from sidebar sessions. **More…** provides session management, terminal handoff, repair tools, checkpoints, and background agents. See the [user guide](docs/USER_GUIDE.md#get-started) for controls and shortcuts.
+Use `@pi` in VS Code's native Chat view if you prefer that interface.
+Native Chat history is separate from sidebar sessions.
+The sidebar's **More…** provides session management, terminal handoff, repair tools, checkpoints, and background agents.
+See the [user guide](docs/USER_GUIDE.md#get-started) for controls and shortcuts.
+
+### Concurrent editor sessions
+
+Run **Pi: New Concurrent Session** (`pi.newConcurrentSession`) or choose **+** in the Pi view title to open an independent native editor panel.
+Confirm the shared-file warning before opening each session.
+Up to eight additional editor sessions can run alongside the sidebar.
+Each has its own Pi RPC process, transcript, composer draft, attachments, queue, model/thinking controls, and Stop.
+Panels keep the opened workspace URI, including a workspace-root alias, and reconnect to that workspace rather than the active editor's workspace.
+Startup, reconnect, and new ordinary requests fail if the original folder is removed or its canonical root changes.
+Hiding a panel or switching tabs keeps its work running.
+Closing it stops only its runtime and retains saved Pi session files.
+A normal close frees its slot after all bounded cleanup completes; unverified cleanup keeps the slot and session-file claim blocked until window reload.
+Unverified RPC cleanup also blocks exclusive workspace actions, including Apply and checkpoint restore, until window reload.
+Ordinary concurrent requests remain available, but their checkpoint attribution is unverified.
+Inspect and stop residual processes before reloading; requests are not retried automatically.
+Queued instructions with equal text keep distinct recovery drafts and attachment snapshots, within the existing recovery limits.
+
+Sessions share workspace files and existing Pi credentials, configuration, and storage; they are not isolated or sandboxed.
+Existing global session commands, editor actions, review, and repair workflows still target the sidebar, regardless of editor-panel focus.
+Terminal handoff/recovery, confirmed restart, and temporary annotations remain sidebar-only and are omitted from editor-panel routes.
+Ordinary requests can overlap, but direct shell, session/resource controls, Apply, import, and checkpoint restore keep their exclusive workspace gates.
+Concurrent activity can make checkpoint restoration unavailable.
+
+Editor panels do not automatically restore or restart after window reload.
+After a panel closes and writer cleanup is verified, resume its saved session through the sidebar.
+Panel transcript caches and restore references stay in memory; optional text draft recovery uses the shared consent-gated store and existing limits.
+A late send acknowledgement cannot remove a newer retained draft written by another view, even when its text is the same.
+See [concurrent editor sessions](docs/USER_GUIDE.md#concurrent-editor-sessions) for writer-ownership and recovery limits.
+Offline host and Chromium checks passed, with a focused macOS VS Code 1.146.0 native check for two editor sessions and independent Stop.
+Remote, other platforms, reload, and live-provider behavior remain unverified.
+See the [validation coverage](docs/FEATURE_MATRIX.md#concurrent-interactive-editor-sessions).
 
 ## Focused workflows
 
@@ -119,7 +155,11 @@ Use `@pi` in VS Code's native Chat view if you prefer that interface. Native Cha
 | Import isolated-agent results | **More… → Review Results → Apply Selected** on an inactive worktree agent. |
 | Inspect or restore request checkpoints | **More… → Request Checkpoints**; memory-only file recovery, not a Git rewind. |
 
-See [workflow instructions and limits](docs/USER_GUIDE.md#focused-workflows) and the [feature matrix](docs/FEATURE_MATRIX.md). Responses support Markdown, highlighted code, math, and supported Mermaid diagrams with bundled rendering assets. Tool calls appear in conversation order between responses, each collapsed by default. Expand a call to inspect its input, output, and status. History navigation keeps responses accessible when tool calls reach a window limit.
+See [workflow instructions and limits](docs/USER_GUIDE.md#focused-workflows) and the [feature matrix](docs/FEATURE_MATRIX.md).
+Responses support Markdown, highlighted code, math, and supported Mermaid diagrams with bundled rendering assets.
+Tool calls appear in conversation order between responses, each collapsed by default.
+Expand a call to inspect its input, output, and status.
+History navigation keeps responses accessible when tool calls reach a window limit.
 
 The foreground sidebar agent can add [temporary passage annotations](docs/USER_GUIDE.md#temporary-passage-annotations): whole-line highlights, literal hovers and read-only native comments below the marked code or text. Comments start collapsed by default. Set `pi.annotations.initialState` to `expanded` in **VS Code Settings → Pi → Editor → Annotation initial state** to expand newly created or replaced annotations; existing threads and user state on redraw are unchanged. VS Code may open the Comments panel and change editor layout or scroll position; source files remain unchanged. Use **Pi: Clear Annotations** to remove them.
 
@@ -203,7 +243,7 @@ Do not keep both extension IDs installed. Stop old work and preserve sessions an
 ## Documentation
 
 1. [User guide](docs/USER_GUIDE.md): conversation controls, session transfer, authentication, rendering, and operational limits.
-2. [Extension bridge](docs/USER_GUIDE.md#extension-bridge): editor tools in sidebar sessions and terminal handoffs.
+2. [Extension bridge](docs/USER_GUIDE.md#extension-bridge): editor tools in sidebar sessions, concurrent editor sessions, and sidebar terminal handoffs.
 3. [Pi terminology](docs/PI_TERMINOLOGY.md): Pi core and extension naming boundaries.
 4. [Development and release](docs/DEVELOPMENT.md): source builds, tests, validation limits, and publishing.
 5. [Issues](https://github.com/narumiruna/pi-vscode/issues): report defects and request changes.

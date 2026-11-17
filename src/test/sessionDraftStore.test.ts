@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { draftLimits, SessionDraftStore, sessionDraftOwner, sessionDraftStorageKey } from "../sessionDraftStore";
+import {
+  draftLimits,
+  type SessionDraftChange,
+  SessionDraftStore,
+  sessionDraftOwner,
+  sessionDraftStorageKey,
+} from "../sessionDraftStore";
 
 function fixture(initial?: unknown) {
   const writes: unknown[] = [];
@@ -133,6 +139,143 @@ test("draft writes serialize/coalesce and cannot restore cleared text after an i
   (releases.shift() ?? assert.fail("missing write"))();
   await store.flush();
   assert.equal(writes.length, 2);
+});
+
+test("conditional draft removal checks shared writer identity even when text and timestamps match", async () => {
+  const { store, writes } = fixture();
+  const a = {};
+  const b = {};
+  store.enable();
+  store.put("sessions", "same", a);
+  const first = store.get("sessions");
+  store.put("sessions", "same", b);
+  assert.deepEqual(store.get("sessions"), first);
+  await store.flush();
+  const changes: SessionDraftChange[] = [];
+  store.subscribe((change) => changes.push(change));
+  const saved = writes.length;
+  store.remove("sessions", a);
+  await store.flush();
+  assert.deepEqual(store.get("sessions"), first);
+  assert.equal(writes.length, saved, "a rejected clear does not write persistence");
+  assert.deepEqual(changes, [], "a rejected clear does not remove sibling recovery offers");
+  assert.deepEqual(writes.at(-1), { version: 1, consent: true, records: [first] });
+  store.remove("sessions", b);
+  assert.equal(store.get("sessions"), undefined);
+  store.put("sessions", "explicit unowned write");
+  store.remove("sessions", b);
+  assert.equal(store.get("sessions")?.text, "explicit unowned write");
+  store.remove("sessions");
+  assert.equal(store.get("sessions"), undefined, "explicit discard still removes the current record");
+  await store.flush();
+});
+
+test("draft writer identity cannot survive disable or persistence reload", async () => {
+  const { store, writes } = fixture();
+  const writer = {};
+  store.enable();
+  store.put("sessions", "old", writer);
+  store.disable();
+  store.enable();
+  store.put("sessions", "new consent");
+  store.remove("sessions", writer);
+  assert.equal(store.get("sessions")?.text, "new consent");
+  store.put("sessions", "retained", writer);
+  await store.flush();
+  const reloaded = fixture(writes.at(-1));
+  reloaded.store.remove("sessions", writer);
+  assert.equal(reloaded.store.get("sessions")?.text, "retained");
+  reloaded.store.remove("sessions");
+  assert.equal(reloaded.store.get("sessions"), undefined);
+  await reloaded.store.flush();
+});
+
+test("draft subscriptions are synchronous, text-free, disposable and isolated from listener failures", async () => {
+  const { store } = fixture();
+  const changes: SessionDraftChange[] = [];
+  const sibling: SessionDraftChange[] = [];
+  const stopFailed = store.subscribe(() => {
+    throw Error("disposed view");
+  });
+  const stop = store.subscribe((change) => changes.push(change));
+  store.subscribe((change) => sibling.push(change));
+  assert.deepEqual(changes, [], "subscription does not replay or expose retained records");
+  store.enable();
+  assert.deepEqual(changes, ["enabled"]);
+  store.put("sessions", "private text");
+  store.remove("sessions");
+  store.disable();
+  store.disable();
+  assert.deepEqual(changes, ["enabled", "records", "records", "disabled", "disabled"]);
+  await store.flush();
+  assert.deepEqual(sibling, changes, "a failed subscriber does not block sibling notifications or storage");
+  stop();
+  stop();
+  stopFailed();
+  store.enable();
+  assert.equal(changes.length, 5);
+  assert.equal(sibling.at(-1), "enabled");
+  await store.flush();
+});
+
+test("draft expiry notifies subscribers on the next access", async () => {
+  const { store, advance } = fixture();
+  store.enable();
+  store.put("sessions", "expired text");
+  const changes: SessionDraftChange[] = [];
+  store.subscribe((change) => changes.push(change));
+  advance(draftLimits.age);
+  assert.equal(store.get("sessions"), undefined);
+  assert.deepEqual(changes, ["records"]);
+  await store.flush();
+});
+
+test("interleaved session mutations retain the latest full envelope across in-flight writes", async () => {
+  const writes: unknown[] = [];
+  const releases: (() => void)[] = [];
+  const store = new SessionDraftStore(
+    {
+      get: <T>() => undefined as T | undefined,
+      update: (_key, value) => {
+        writes.push(value);
+        return new Promise<void>((resolve) => releases.push(resolve));
+      },
+    },
+    () => assert.fail("unexpected write failure"),
+  );
+  const a = sessionDraftOwner("/sessions/a.jsonl") ?? assert.fail("missing owner");
+  const b = sessionDraftOwner("/sessions/b.jsonl") ?? assert.fail("missing owner");
+  const texts = () =>
+    (writes.at(-1) as { records: { owner: string; text: string }[] }).records
+      .map(({ owner, text }) => [owner, text])
+      .sort();
+  store.enable();
+  store.put(a, "A first");
+  await Promise.resolve();
+  store.put(b, "B first");
+  store.remove(a);
+  assert.equal(writes.length, 1);
+  (releases.shift() ?? assert.fail("missing write"))();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(writes.length, 2);
+  assert.deepEqual(texts(), [[b, "B first"]]);
+  store.put(a, "A final");
+  store.put(b, "B final");
+  (releases.shift() ?? assert.fail("missing write"))();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(writes.length, 3);
+  assert.deepEqual(
+    texts(),
+    [
+      [a, "A final"],
+      [b, "B final"],
+    ].sort(),
+  );
+  (releases.shift() ?? assert.fail("missing write"))();
+  await store.flush();
+  assert.equal(writes.length, 3);
 });
 
 test("draft storage failure is reported without automatic retry or resurrection", async () => {

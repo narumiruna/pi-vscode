@@ -191,6 +191,24 @@ test("warnings are bounded by known code and generation, with suppressed totals 
   logger.dispose();
 });
 
+test("concurrent session generations retain independent suppression within the shared bound", () => {
+  const { channel, logger } = fixture();
+  for (let generation = 1; generation <= 9; generation++) {
+    logger.warning("protocol-error", generation);
+    logger.warning("protocol-error", generation);
+  }
+  assert.equal(channel.records.length, 9);
+  const state = (logger as any).warnings as Map<number, Map<string, unknown>>;
+  assert.equal(state.size, 9);
+  logger.endGeneration(1);
+  assert.equal(state.size, 8);
+  assert.ok(state.has(2));
+  assert.match(channel.records.at(-1).message, /"count":1/);
+  for (let generation = 10; generation <= 100; generation++) logger.warning("protocol-error", generation);
+  assert.equal(state.size, 32);
+  logger.dispose();
+});
+
 test("final outcomes are not suppressed and unavailable/throwing/disposed logging cannot break work", async () => {
   const { channel, logger } = fixture();
   logger.warning("cleanup-unverified", 1);

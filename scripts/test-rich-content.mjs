@@ -14,6 +14,7 @@ import { assertRichContent, richFixture } from "./rich-content-fixture.mjs";
 import { assertComposerFileCompletion } from "./completion-fixture.mjs";
 import { assertThinkingBrowser } from "./thinking-fixture.mjs";
 import { assertPanelInteractions } from "./panel-interaction-fixture.mjs";
+import { assertConcurrentSessions } from "./concurrent-sessions-fixture.mjs";
 import thinkingFixture from "./fixtures/thinking.cjs";
 
 const require = createRequire(import.meta.url);
@@ -44,6 +45,10 @@ const origin = `http://127.0.0.1:${server.address().port}`;
 let browser;
 try {
   browser = await chromium.launch({ headless: true });
+  console.log(
+    "PI_CONCURRENT_SESSIONS_BROWSER_EVIDENCE",
+    JSON.stringify(await assertConcurrentSessions(browser, getSidebarHtml, renderSafeMarkdown, origin)),
+  );
   console.log(
     "PI_INTERFACE_BROWSER_EVIDENCE",
     JSON.stringify(await assertInterface(browser, getSidebarHtml, renderSafeMarkdown)),

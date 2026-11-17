@@ -14,11 +14,14 @@ import path from "node:path";
 import * as vscode from "vscode";
 import { CheckpointHistory, expectedToolText, type RequestCheckpoint } from "./checkpointHistory";
 import { decodeText, safeRelativePath } from "./gitSnapshots";
-import { acquireOperation } from "./operationLocks";
+import { acquireOperation, observeOperations } from "./operationLocks";
 import type { PiRpcEvent } from "./piRpcClient";
 import { isDirtyFile, requireTrustedFile } from "./workflowUi";
 
 const maxFile = 2 * 1024 * 1024;
+const concurrentWriterExclusion = "Concurrent workspace writers: request attribution is unproven; restore unavailable.";
+const invalidatedCheckpointExclusion =
+  "Other workspace activity: historical checkpoint attribution is unverified; restore unavailable.";
 export interface TrackedFileChange {
   readonly id: string;
   readonly uri: string;
@@ -36,7 +39,12 @@ interface StartFile {
 }
 export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvider, vscode.Disposable {
   private readonly history = new CheckpointHistory();
+  private readonly changesEmitter = new vscode.EventEmitter<void>();
+  public readonly onDidInvalidateCheckpoints = this.changesEmitter.event;
   private readonly previews = new Map<string, string>();
+  private readonly invalidatedCheckpoints = new WeakSet<RequestCheckpoint>();
+  private operationObserver: ReturnType<typeof observeOperations> | undefined;
+  private observedRoot: string | undefined;
   private current:
     | {
         cwd: string;
@@ -50,9 +58,38 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
     | undefined;
   private latest: RequestCheckpoint | undefined;
 
+  /** Enable conservative history invalidation when multiple local sessions can use this workspace. */
+  public enableConcurrentSafety(cwd: string): void {
+    const root = realpathSync(cwd);
+    if (this.operationObserver && this.observedRoot === root) return;
+    this.operationObserver?.dispose();
+    this.observedRoot = root;
+    this.invalidateCheckpoints();
+    this.operationObserver = observeOperations(root, (owner) => {
+      if (owner !== this) this.invalidateCheckpoints();
+    });
+  }
+
+  /** Retain recovery snapshots, but do not restore their unverified historical attribution. */
+  public invalidateCheckpoints(): void {
+    for (const record of this.history.values) this.invalidatedCheckpoints.add(record);
+    this.previews.clear();
+    this.changesEmitter.fire();
+  }
+
+  /** Call again after startRequest if overlap was detected before capture began. */
+  public invalidateConcurrentRequest(): void {
+    this.invalidateCheckpoints();
+    const request = this.current;
+    if (!request) return;
+    request.unprovenEffects = true;
+    if (!request.exclusions.includes(concurrentWriterExclusion)) request.exclusions.unshift(concurrentWriterExclusion);
+  }
+
   /** This boundary completes synchronously before runtime.prompt can submit to the subprocess. */
   public startRequest(cwd: string, sessionId = "unknown"): void {
     const root = realpathSync(cwd);
+    if (this.operationObserver && this.observedRoot !== root) this.enableConcurrentSafety(root);
     this.previews.clear();
     const files = new Map<string, StartFile>();
     const exclusions: string[] = [
@@ -281,7 +318,7 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
       this.history.values
         .filter((record) => record.repository === realpathSync(cwd) && record.sessionId === sessionId)
         .map((record) => ({
-          label: `${new Date(record.startedAt).toLocaleTimeString()} · ${record.files.length} covered · ${record.exclusions.length} excluded · ${record.status}`,
+          label: `${new Date(record.startedAt).toLocaleTimeString()} · ${record.files.length} covered · ${this.checkpointExclusions(record).length} excluded · ${record.status}`,
           record,
         })),
       { title: "Request checkpoints (memory-only; not a transcript rewind)" },
@@ -292,12 +329,15 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
     this.previews.clear();
     this.previews.set(
       report.toString(),
-      `Request ${record.id}; session ${record.sessionId}; ${record.status}\nCovered: ${record.files.map((file) => `${file.path}${file.reverted ? " (reverted)" : ""}`).join(", ") || "none"}\nExcluded:\n${record.exclusions.join("\n")}\n${record.restoreFailed ? "A restore failed; recovery before/after snapshots are retained." : ""}`,
+      `Request ${record.id}; session ${record.sessionId}; ${record.status}\nCovered: ${record.files.map((file) => `${file.path}${file.reverted ? " (reverted)" : ""}`).join(", ") || "none"}\nExcluded:\n${this.checkpointExclusions(record).join("\n")}\n${record.restoreFailed ? "A restore failed; recovery before/after snapshots are retained." : ""}`,
     );
     await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(report), { preview: true });
     const picks = await vscode.window.showQuickPick(
       record.files.filter((file) => !file.reverted).map((file) => ({ label: file.path, file })),
-      { title: `Preview covered changes; exclusions: ${record.exclusions.slice(0, 5).join("; ")}`, canPickMany: true },
+      {
+        title: `Preview covered changes; exclusions: ${this.checkpointExclusions(record).slice(0, 5).join("; ")}`,
+        canPickMany: true,
+      },
     );
     if (!picks?.length) return false;
     const names = picks.map((pick) => pick.file.path);
@@ -305,7 +345,7 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
     for (const name of names) await this.review(`${record.id}:${name}`);
     if (
       (await vscode.window.showWarningMessage(
-        `Revert ${names.length} covered files? ${record.exclusions.length} exclusions remain. No transcript, index, or session rewind. Filesystem-wide atomicity is not guaranteed.`,
+        `Revert ${names.length} covered files? ${this.checkpointExclusions(record).length} exclusions remain. No transcript, index, or session rewind. Filesystem-wide atomicity is not guaranteed.`,
         { modal: true },
         "Revert Covered Changes",
       )) !== "Revert Covered Changes"
@@ -316,7 +356,7 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
   }
   private restore(record: RequestCheckpoint, names: string[]): void {
     requireTrustedFile();
-    const release = acquireOperation(record.repository, "checkpoint restore");
+    const release = acquireOperation(record.repository, "checkpoint restore", this);
     const reverted: string[] = [];
     try {
       this.preflight(record, names);
@@ -357,7 +397,13 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
       release();
     }
   }
+  private checkpointExclusions(record: RequestCheckpoint): readonly string[] {
+    return this.invalidatedCheckpoints.has(record)
+      ? [invalidatedCheckpointExclusion, ...record.exclusions]
+      : record.exclusions;
+  }
   private preflight(record: RequestCheckpoint, names: string[]): void {
+    if (this.invalidatedCheckpoints.has(record)) throw new Error(invalidatedCheckpointExclusion);
     this.history.assertRestorable(record.id, names, (name) => ({
       text: readCovered(record.repository, name),
       dirty: dirty(path.join(record.repository, name)),
@@ -370,8 +416,11 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
     if (!record.files.some((file) => file.path === name)) throw new Error("Unknown checkpoint file.");
     return { record, name };
   }
+  public lookupPreview(uri: vscode.Uri): string | undefined {
+    return this.previews.get(uri.toString());
+  }
   public provideTextDocumentContent(uri: vscode.Uri): string {
-    return this.previews.get(uri.toString()) ?? "Checkpoint preview expired.";
+    return this.lookupPreview(uri) ?? "Checkpoint preview expired.";
   }
   public resetSession(): void {
     this.current = undefined;
@@ -380,6 +429,9 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
     this.previews.clear();
   }
   public dispose(): void {
+    this.changesEmitter.dispose();
+    this.operationObserver?.dispose();
+    this.operationObserver = undefined;
     this.resetSession();
   }
 }

@@ -14,6 +14,7 @@ import { readPiInvocationSettings } from "./vscodePi";
 
 export interface RuntimeControlHost {
   readonly context: vscode.ExtensionContext;
+  readonly editorSession?: boolean;
   readonly cwd: string;
   readonly resource: vscode.Uri | undefined;
   readonly state: PiRuntimeState;
@@ -90,6 +91,10 @@ export class PiRuntimeControl {
   }
   public async initializeOwnership(): Promise<void> {
     if (this.disposed) return;
+    if (this.host.editorSession) {
+      this.assertSidebarOwnership();
+      return;
+    }
     if (!this.ownershipLoaded) {
       this.ownershipLoaded = true;
       const stored = this.host.context.workspaceState.get<unknown>(externalOwnershipKey);
@@ -113,6 +118,8 @@ export class PiRuntimeControl {
 
   public assertSidebarOwnership(): void {
     if (this.disposed) throw new Error("Pi control is disposed.");
+    if (this.host.editorSession && this.host.context.workspaceState.get<unknown>(externalOwnershipKey) !== undefined)
+      throw new Error("Return Pi terminal ownership in the sidebar before using this editor session.");
     if (this.terminal || this.persistedOwnership)
       throw new Error(
         "Pi is owned by the terminal or cleanup is uncertain. Use Return Pi from Terminal / Recover Ownership first.",

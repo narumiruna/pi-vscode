@@ -17,6 +17,7 @@ export interface DraftMemento {
   get<T>(key: string): T | undefined;
   update(key: string, value: unknown): Thenable<void> | Promise<void>;
 }
+export type SessionDraftChange = "enabled" | "disabled" | "records";
 
 // Pi assigns a file before saving its header. That path, not its temporary ID, owns the draft.
 export function sessionDraftOwner(sessionFile: string | undefined): string | undefined {
@@ -48,10 +49,12 @@ function record(value: unknown, now: number): SessionDraft | undefined {
 /** Only allowlisted text records cross this persistence boundary. No browser object is stored. */
 export class SessionDraftStore {
   private records: SessionDraft[] = [];
+  private readonly writers = new Map<string, object>();
   private approved = false;
   private generation = 0;
   private written = 0;
   private writing: Promise<void> | undefined;
+  private readonly listeners = new Set<(change: SessionDraftChange) => void>();
 
   public constructor(
     private readonly state: DraftMemento,
@@ -79,14 +82,23 @@ export class SessionDraftStore {
   public get enabled(): boolean {
     return this.approved;
   }
+  /** Notifications are synchronous and contain no retained text. */
+  public subscribe(listener: (change: SessionDraftChange) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
   public enable(): void {
     this.approved = true;
-    this.changed();
+    this.changed("enabled");
   }
   public disable(): void {
     this.approved = false;
     this.records = [];
-    this.changed();
+    this.writers.clear();
+    // Notify even when already disabled: pending consent must not survive discard-all.
+    this.changed("disabled");
   }
   public get(owner: string): SessionDraft | undefined {
     const count = this.records.length;
@@ -95,16 +107,22 @@ export class SessionDraftStore {
     const found = this.records.find((item) => item.owner === owner);
     return found && { ...found };
   }
-  public put(owner: string, text: string): void {
+  public put(owner: string, text: string, writer?: object): void {
     if (!this.approved || !validOwner(owner) || typeof text !== "string" || text.length > draftLimits.perDraft) return;
     this.records = this.records.filter((item) => item.owner !== owner);
-    if (text.length) this.records.push({ owner, text, updated: this.now() });
+    this.writers.delete(owner);
+    if (text.length) {
+      this.records.push({ owner, text, updated: this.now() });
+      if (writer) this.writers.set(owner, writer);
+    }
     this.prune();
     this.changed();
   }
-  public remove(owner: string): void {
-    if (!this.approved) return;
+  /** Accepted sends can remove only the record still owned by their captured binding. */
+  public remove(owner: string, writer?: object): void {
+    if (!this.approved || (writer && this.writers.get(owner) !== writer)) return;
     this.records = this.records.filter((item) => item.owner !== owner);
+    this.writers.delete(owner);
     this.changed();
   }
   private prune(): void {
@@ -124,16 +142,27 @@ export class SessionDraftStore {
         characters += item.text.length;
         return true;
       });
+    for (const owner of this.writers.keys()) if (!seen.has(owner)) this.writers.delete(owner);
   }
-  private changed(): void {
+  private changed(change: SessionDraftChange = "records"): void {
     this.generation += 1;
+    this.scheduleWrite();
+    for (const listener of [...this.listeners]) {
+      try {
+        listener(change);
+      } catch {
+        // A failed view must not block persistence or other subscribers.
+      }
+    }
+  }
+  private scheduleWrite(): void {
     if (!this.writing) {
       // Coalesce synchronous mutations, including acceptance immediately following an update.
       this.writing = Promise.resolve()
         .then(() => this.drain())
         .finally(() => {
           this.writing = undefined;
-          if (this.written !== this.generation) this.changed();
+          if (this.written !== this.generation) this.scheduleWrite();
         });
     }
   }

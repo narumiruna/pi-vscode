@@ -28,7 +28,7 @@ import { EditProposalStore } from "./editProposals";
 import { ImageAssetCache, ImageAssetDeliveryTracker } from "./imageAssets";
 import { type LogEvent, type Logger, type LogMetadata, nullLogger, safeErrorCategory, safeErrorCode } from "./logging";
 import { escapeHtml, MarkdownRenderer } from "./markdown";
-import { acquireOperation } from "./operationLocks";
+import { acquireAgentOperation } from "./operationLocks";
 import type { PiRpcEvent, PiRpcImage } from "./piRpcClient";
 import { deleteConversationWithTrashFallback, type PiRuntimeManager, runtimeSessionIdentityChanged } from "./piRuntime";
 import { type AgentRequestPolicy, buildAgentPrompt, type ChatReferenceContext } from "./prompts";
@@ -88,6 +88,35 @@ const maxImageAttachments = 5;
 const maxImageBytes = 5 * 1024 * 1024;
 const maxImageAssetCacheBytes = 25 * 1024 * 1024;
 const maxImageAssets = 100;
+const sidebarOnlyActions = new Set([
+  "terminal",
+  "returnTerminal",
+  "restart",
+  "export",
+  "import",
+  "share",
+  "login",
+  "logout",
+  "review",
+  "findings",
+  "diagnostics",
+  "staged",
+  "repair",
+  "debug",
+  "compatibility",
+]);
+
+interface ConversationView {
+  readonly webview: vscode.Webview;
+  title?: string;
+  readonly onDidDispose: vscode.Event<void>;
+}
+
+interface ConversationSurface {
+  readonly reveal: () => void | Promise<void>;
+  readonly resource: vscode.Uri;
+  readonly label?: string;
+}
 
 interface QueuedTranscriptPresentation {
   readonly id: string;
@@ -98,7 +127,7 @@ export function registerPiSidebar(
   context: vscode.ExtensionContext,
   runtime: PiRuntimeManager,
   logger: Logger = nullLogger,
-): PiEditorConversationController {
+): PiChatViewProvider {
   const backgroundAgents = new BackgroundAgentManager(context);
   const changeTracker = new WorkspaceChangeTracker();
   const provider = new PiChatViewProvider(context, runtime, changeTracker, backgroundAgents, logger);
@@ -107,7 +136,9 @@ export function registerPiSidebar(
     backgroundAgents,
     changeTracker,
     provider,
-    vscode.workspace.registerTextDocumentContentProvider("pi-checkpoint", changeTracker),
+    vscode.workspace.registerTextDocumentContentProvider("pi-checkpoint", {
+      provideTextDocumentContent: (uri) => provider.checkpointContent(uri),
+    }),
     vscode.window.registerWebviewViewProvider(viewId, provider, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
@@ -124,10 +155,14 @@ export function registerPiSidebar(
   return provider;
 }
 
-class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable, PiEditorConversationController {
+export class PiChatViewProvider
+  implements vscode.WebviewViewProvider, vscode.Disposable, PiEditorConversationController
+{
   private readonly disposables: vscode.Disposable[] = [];
   private readonly markdownRenderer = new MarkdownRenderer();
-  private view: vscode.WebviewView | undefined;
+  private view: ConversationView | undefined;
+  public readonly draftStore: SessionDraftStore;
+  private readonly checkpointTrackers = new Set<WorkspaceChangeTracker>();
   private webviewReady = false;
   private disposed = false;
   private pendingNavigation: "showSessionDetail" | "showSessionsLayer" | undefined;
@@ -200,10 +235,13 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   public constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly runtime: PiRuntimeManager,
-    private readonly changeTracker: WorkspaceChangeTracker,
-    private readonly backgroundAgents: BackgroundAgentManager,
+    public readonly changeTracker: WorkspaceChangeTracker,
+    public readonly backgroundAgents: BackgroundAgentManager,
     private readonly logger: Logger = nullLogger,
+    private readonly surface?: ConversationSurface,
+    draftStore?: SessionDraftStore,
   ) {
+    this.checkpointTrackers.add(changeTracker);
     this.proposals = new EditProposalStore(
       () => this.postState(),
       (message, level) => this.postNotice(message, level),
@@ -230,7 +268,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       post: (message) => this.postMessage(message),
       onSupportChange: () => this.postState(),
     });
-    this.drafts = new SessionDraftController(
+    this.draftStore =
+      draftStore ??
       new SessionDraftStore(context.workspaceState, () => {
         this.logger.record("warn", "cache-save", { result: "failed", category: "storage" });
         this.postNotice(
@@ -238,7 +277,9 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           "warning",
           true,
         );
-      }),
+      });
+    this.drafts = new SessionDraftController(
+      this.draftStore,
       () => this.runtime.currentState.sessionFile,
       (message) => this.postMessage(message),
       async () =>
@@ -248,9 +289,15 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           "Enable Draft Recovery",
         )) === "Enable Draft Recovery",
     );
-    this.messages = restoreMessages(context.workspaceState.get<unknown>(storageKey), maxMessages, maxStoredCharacters);
+    this.messages = this.surface
+      ? []
+      : restoreMessages(context.workspaceState.get<unknown>(storageKey), maxMessages, maxStoredCharacters);
     this.streamSessionIdentity = JSON.stringify([runtime.currentState.sessionFile, runtime.currentState.sessionId]);
     this.disposables.push(
+      changeTracker.onDidInvalidateCheckpoints(() => {
+        this.changes = changeTracker.changes;
+        this.scheduleState();
+      }),
       runtime.onEvent((event) => this.handleRuntimeEvent(event)),
       runtime.onDidChangeState(() => {
         this.drafts.refresh();
@@ -283,7 +330,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     );
   }
 
-  public resolveWebviewView(webviewView: vscode.WebviewView): void {
+  public resolveWebviewView(webviewView: ConversationView): void {
     this.view = webviewView;
     this.webviewReady = false;
     this.drafts.beginView();
@@ -293,11 +340,17 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, "out", "rich-content")],
     };
     const assets = vscode.Uri.joinPath(this.context.extensionUri, "out", "rich-content");
-    webviewView.webview.html = getSidebarHtml(maxInputCharacters, maxImageBytes, {
-      source: webviewView.webview.cspSource,
-      script: webviewView.webview.asWebviewUri(vscode.Uri.joinPath(assets, "rich-content.js")).toString(),
-      style: webviewView.webview.asWebviewUri(vscode.Uri.joinPath(assets, "rich-content.css")).toString(),
-    });
+    webviewView.webview.html = getSidebarHtml(
+      maxInputCharacters,
+      maxImageBytes,
+      {
+        source: webviewView.webview.cspSource,
+        script: webviewView.webview.asWebviewUri(vscode.Uri.joinPath(assets, "rich-content.js")).toString(),
+        style: webviewView.webview.asWebviewUri(vscode.Uri.joinPath(assets, "rich-content.css")).toString(),
+      },
+      Boolean(this.surface),
+    );
+    if (this.surface) this.pendingNavigation = "showSessionDetail";
 
     const messageListener = webviewView.webview.onDidReceiveMessage((message) => {
       if (this.view === webviewView) void this.drafts.runMessage(message, () => this.handleMessage(message));
@@ -320,6 +373,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
 
   public dispose(): void {
     this.disposed = true;
+    this.historySyncRevision += 1;
+    this.sessionRefreshRevision += 1;
     this.sessionCycle = [];
     this.clearToolMessages();
     this.webviewReady = false;
@@ -342,9 +397,35 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.imageAssets.clear();
   }
 
+  public refreshView(): void {
+    if (!this.disposed) this.postState();
+  }
+
+  public checkpointContent(uri: vscode.Uri): string {
+    for (const tracker of this.checkpointTrackers) {
+      const content = tracker.lookupPreview(uri);
+      if (content !== undefined) return content;
+    }
+    return "Checkpoint preview expired.";
+  }
+
+  public addCheckpointTracker(tracker: WorkspaceChangeTracker): vscode.Disposable {
+    this.checkpointTrackers.add(tracker);
+    return {
+      dispose: () => {
+        this.checkpointTrackers.delete(tracker);
+      },
+    };
+  }
+
+  private async reveal(): Promise<void> {
+    if (this.surface) await this.surface.reveal();
+    else await vscode.commands.executeCommand(`${viewId}.focus`);
+  }
+
   public async showSessions(): Promise<void> {
-    await vscode.commands.executeCommand(`${viewId}.focus`);
-    this.navigate("showSessionsLayer");
+    await this.reveal();
+    this.navigate(this.surface ? "showSessionDetail" : "showSessionsLayer");
   }
 
   public async attachSelection(): Promise<void> {
@@ -352,7 +433,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.fileCompletion.cancel();
     // Capture the editor snapshot before view focus can change the active editor.
     this.attachments.attachSelection();
-    await vscode.commands.executeCommand(`${viewId}.focus`);
+    await this.reveal();
     if (!this.disposed) this.navigate("showSessionDetail");
   }
 
@@ -380,7 +461,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       };
     }
     this.postState();
-    await vscode.commands.executeCommand(`${viewId}.focus`);
+    await this.reveal();
     if (!this.disposed) this.navigate("showSessionDetail");
   }
 
@@ -389,7 +470,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     contexts: readonly ChatReferenceContext[],
     options: ConversationRequestOptions = {},
   ): Promise<string> {
-    await vscode.commands.executeCommand(`${viewId}.focus`);
+    await this.reveal();
     this.navigate("showSessionDetail");
     return this.runRequest(
       request,
@@ -414,7 +495,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.status = "Connecting to Pi…";
     this.postState();
     try {
-      await this.runtime.ensureStarted(vscode.window.activeTextEditor?.document.uri);
+      await this.runtime.ensureStarted(this.surface?.resource ?? vscode.window.activeTextEditor?.document.uri);
       await this.syncMessagesFromPi(false, undefined, "history-load");
       await this.refreshRecentSessions(false);
       this.status = "Ready";
@@ -436,6 +517,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async handleMessage(message: unknown): Promise<void> {
+    if (this.disposed) return;
+    if (this.surface && isRecord(message) && message.type === "draftSelect" && message.scope === "sessions") return;
     if (!isWebviewMessage(message, maxImageBytes)) {
       return;
     }
@@ -472,6 +555,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     if (!["showMoreActions", "pickComposerSettings", "pickModel"].includes(message.type)) this.fileCompletion.cancel();
     const noticeRevision = this.noticeRevision;
     try {
+      if (this.surface && ["exportSession", "openTerminal", "sendNewSession"].includes(message.type))
+        throw new Error("Use the Pi sidebar for this action.");
       switch (message.type) {
         case "ready":
           this.webviewReady = true;
@@ -750,7 +835,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     this.status = "Connecting to Pi…";
     this.postState();
     try {
-      await this.runtime.ensureStarted(vscode.window.activeTextEditor?.document.uri);
+      await this.runtime.ensureStarted(this.surface?.resource ?? vscode.window.activeTextEditor?.document.uri);
       await this.syncMessagesFromPi();
       await this.refreshRecentSessions(false);
       this.historyRecoveryAvailable = false;
@@ -881,9 +966,12 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
         action: "logout",
       },
     ];
+    const availableItems = this.surface
+      ? items.filter((item) => !item.action || !sidebarOnlyActions.has(item.action))
+      : items;
     const selected = await this.chooseCurrent(
       () =>
-        vscode.window.showQuickPick(items, {
+        vscode.window.showQuickPick(availableItems, {
           title: "Pi Session Actions",
           placeHolder: "Search session, display, review, background, or configuration actions",
           matchOnDescription: true,
@@ -892,7 +980,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     );
     if (
       !selected ||
-      !items.includes(selected) ||
+      !availableItems.includes(selected) ||
       selected.kind === vscode.QuickPickItemKind.Separator ||
       !selected.action
     )
@@ -1468,9 +1556,18 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     let responseCaptured = false;
     let synchronizingHistory = false;
     let releaseOperation = () => {};
+    let overlapped = false;
     try {
-      await this.runtime.ensureStarted(resource);
-      releaseOperation = acquireOperation(await realpath(this.runtime.currentCwd), "foreground Pi request");
+      await this.runtime.ensureStarted(resource ?? this.surface?.resource);
+      releaseOperation = acquireAgentOperation(
+        await realpath(this.runtime.currentCwd),
+        "foreground Pi request",
+        () => {
+          overlapped = true;
+          this.changeTracker.invalidateConcurrentRequest();
+        },
+        this.changeTracker,
+      );
       if (historyOrigin !== undefined) await this.restoreLatestHistoryForSubmission(historyOrigin);
       const submittedTranscriptAttachments = transcriptAttachments ?? [
         ...contexts.flatMap((context) => contextTranscriptAttachment(context.label) ?? []),
@@ -1532,6 +1629,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
           validate?.();
           if (shouldTrackConversationChanges(policy)) {
             this.changeTracker.startRequest(this.runtime.currentCwd, this.runtime.currentState.sessionId);
+            if (overlapped) this.changeTracker.invalidateConcurrentRequest();
             this.trackCurrentRequestChanges = true;
           }
         },
@@ -1625,6 +1723,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       throw error;
     } finally {
       this.foregroundCancellable = false;
+      await this.runtime.shutdownCompletion?.catch(() => {});
       releaseOperation();
       releaseRequest();
       this.postState();
@@ -2025,7 +2124,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       this.sessionCycle = [];
       if (selected.path === this.runtime.currentState.sessionFile) return;
       await this.switchToSession(selected.path, "Pi session resumed", selected.sessionId);
-      await vscode.commands.executeCommand(`${viewId}.focus`);
+      await this.reveal();
     }, true);
   }
 
@@ -2061,7 +2160,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       try {
         await this.switchToSession(selected.path, "Pi session resumed", selected.sessionId);
         this.sessionCycleIdentity = this.submissionSessionIdentity();
-        await vscode.commands.executeCommand(`${viewId}.focus`);
+        await this.reveal();
       } finally {
         this.cyclingSession = false;
       }
@@ -2351,7 +2450,8 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
       }
     } else if (method === "setTitle") {
       if (this.view) {
-        this.view.title = stringValue(event.title) ?? "Chat";
+        const title = stringValue(event.title) ?? "Chat";
+        this.view.title = this.surface?.label ? `${this.surface.label}: ${title}` : title;
       }
     } else if (method === "set_editor_text") {
       this.postMessage({ type: "setInput", text: stringValue(event.text) ?? "" });
@@ -2482,6 +2582,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
     const revision = ++this.historySyncRevision;
     const session = JSON.stringify([this.runtime.currentState.sessionFile, this.runtime.currentState.sessionId]);
     const current = () =>
+      !this.disposed &&
       generation === this.runtime.clientGeneration &&
       historyRequestIsCurrent(
         { generation: revision, session },
@@ -2591,6 +2692,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private async persistMessages(correlation?: Pick<LogMetadata, "operationId" | "generation">): Promise<void> {
+    if (this.surface || this.disposed) return;
     try {
       await this.context.workspaceState.update(storageKey, persistableSidebarMessages(this.messages));
     } catch (error) {
@@ -2600,6 +2702,7 @@ class PiChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposabl
   }
 
   private scheduleState(): void {
+    if (this.disposed) return;
     this.refreshTools();
     if (this.renderTimer) {
       return;

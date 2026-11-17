@@ -20,7 +20,10 @@ interface OwnedConfirmation extends OwnedEditor {
   readonly text: string;
 }
 
-export function registerExtensionUiDialogs(context: vscode.ExtensionContext, runtime: PiRuntimeManager): void {
+export function registerExtensionUiDialogs(
+  context: vscode.ExtensionContext,
+  runtime: PiRuntimeManager,
+): ExtensionUiDialogs {
   const dialogs = new ExtensionUiDialogs(runtime);
   context.subscriptions.push(
     dialogs,
@@ -29,12 +32,13 @@ export function registerExtensionUiDialogs(context: vscode.ExtensionContext, run
     vscode.commands.registerCommand(extensionDialogAllowCommand, () => dialogs.confirm(true)),
     vscode.commands.registerCommand(extensionDialogBlockCommand, () => dialogs.confirm(false)),
   );
+  return dialogs;
 }
 
 /** Native dialogs are request-owned, not part of transcript or webview state. */
 export class ExtensionUiDialogs implements vscode.Disposable {
   private readonly subscriptions: vscode.Disposable[];
-  private readonly requests = new Set<ExtensionDialogRequest>();
+  private readonly runtimeSubscriptions = new Set<vscode.Disposable>();
   private editor: OwnedEditor | undefined;
   private readonly confirmations = new Map<string, OwnedConfirmation>();
   private readonly confirmationChanges = new vscode.EventEmitter<vscode.Uri>();
@@ -45,7 +49,7 @@ export class ExtensionUiDialogs implements vscode.Disposable {
   private readonly allowStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 98);
   private readonly blockStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 97);
 
-  public constructor(private readonly runtime: PiRuntimeManager) {
+  public constructor(runtime: PiRuntimeManager) {
     this.submitStatus.text = "$(check) Submit to Pi";
     this.submitStatus.command = extensionEditorSubmitCommand;
     this.submitStatus.tooltip = "Submit the full Pi extension editor text (Ctrl/Cmd+Enter). Save does not submit.";
@@ -60,21 +64,6 @@ export class ExtensionUiDialogs implements vscode.Disposable {
         onDidChange: this.confirmationChanges.event,
         provideTextDocumentContent: (uri) =>
           this.confirmations.get(uri.toString())?.text ?? "This Pi confirmation expired.",
-      }),
-      runtime.onEvent((event) => {
-        if (event.type !== "extension_ui_request") return;
-        const request = runtime.claimExtensionUiRequest(event);
-        if (!request) return;
-        this.requests.add(request);
-        request.onDidEnd(() => this.requests.delete(request));
-        void this.show(event, request).catch(() => {
-          try {
-            request.respond({ cancelled: true });
-          } catch {
-            /* Never retry a failed response write. */
-          }
-          void vscode.window.showErrorMessage("The Pi extension dialog failed. No dialog text was retried.");
-        });
       }),
       vscode.window.onDidChangeActiveTextEditor(() => this.updateContext()),
       vscode.window.tabGroups.onDidChangeTabs(() => {
@@ -93,14 +82,55 @@ export class ExtensionUiDialogs implements vscode.Disposable {
         }
       }),
     ];
+    this.addRuntime(runtime);
   }
 
-  private async show(event: PiRpcEvent, request: ExtensionDialogRequest): Promise<void> {
+  /** Removing a runtime cancels only the requests claimed by this subscription. */
+  public addRuntime(runtime: PiRuntimeManager, label?: string): vscode.Disposable {
+    if (this.disposed) return { dispose() {} };
+    const requests = new Set<ExtensionDialogRequest>();
+    let active = true;
+    const listener = runtime.onEvent((event) => {
+      if (!active || this.disposed || event.type !== "extension_ui_request") return;
+      const request = runtime.claimExtensionUiRequest(event);
+      if (!request) return;
+      requests.add(request);
+      request.onDidEnd(() => requests.delete(request));
+      void this.show(event, request, label).catch(() => {
+        try {
+          request.respond({ cancelled: true });
+        } catch {
+          /* Never retry a failed response write. */
+        }
+        void vscode.window.showErrorMessage("The Pi extension dialog failed. No dialog text was retried.");
+      });
+    });
+    const subscription = {
+      dispose: () => {
+        if (!active) return;
+        active = false;
+        listener.dispose();
+        this.runtimeSubscriptions.delete(subscription);
+        for (const request of requests) {
+          try {
+            request.respond({ cancelled: true });
+          } catch {
+            request.end();
+          }
+        }
+      },
+    };
+    this.runtimeSubscriptions.add(subscription);
+    return subscription;
+  }
+
+  private async show(event: PiRpcEvent, request: ExtensionDialogRequest, label?: string): Promise<void> {
     if (!vscode.workspace.isTrusted || this.disposed) {
       request.respond({ cancelled: true });
       return;
     }
-    const title = typeof event.title === "string" ? event.title.slice(0, 200) : "Pi";
+    const eventTitle = typeof event.title === "string" ? event.title.slice(0, 200) : "Pi";
+    const title = label ? `${label}: ${eventTitle}` : eventTitle;
     if (event.method === "editor") {
       await this.openEditor(event, request, title);
       return;
@@ -146,7 +176,11 @@ export class ExtensionUiDialogs implements vscode.Disposable {
           else request.respond({ confirmed: false });
         } else {
           // Preserve full, untimed confirmation messages requested by Pi extensions.
-          const choice = await vscode.window.showWarningMessage(message, { modal: true }, "Allow");
+          const choice = await vscode.window.showWarningMessage(
+            message,
+            { modal: true, ...(label ? { detail: label } : {}) },
+            "Allow",
+          );
           request.respond({ confirmed: choice === "Allow" });
         }
       } else if (event.method === "input") {
@@ -353,13 +387,7 @@ export class ExtensionUiDialogs implements vscode.Disposable {
   public dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    for (const request of this.requests) {
-      try {
-        request.respond({ cancelled: true });
-      } catch {
-        request.end();
-      }
-    }
+    for (const subscription of this.runtimeSubscriptions) subscription.dispose();
     for (const subscription of this.subscriptions) subscription.dispose();
     this.submitStatus.dispose();
     this.cancelStatus.dispose();

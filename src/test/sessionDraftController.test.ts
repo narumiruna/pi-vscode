@@ -2,19 +2,21 @@ import assert from "node:assert/strict";
 import { isSessionDraftMessage, SessionDraftController } from "../sessionDraftController";
 import { SessionDraftStore, sessionDraftOwner } from "../sessionDraftStore";
 
-function fixture(consent: () => Promise<boolean> = async () => true) {
+function fixture(consent: () => Promise<boolean> = async () => true, sharedStore?: SessionDraftStore) {
   const posts: Record<string, unknown>[] = [];
   const writes: unknown[] = [];
   let file = "/sessions/a.jsonl";
-  const store = new SessionDraftStore(
-    {
-      get: <T>() => undefined as T | undefined,
-      update: async (_key, value) => {
-        writes.push(value);
+  const store =
+    sharedStore ??
+    new SessionDraftStore(
+      {
+        get: <T>() => undefined as T | undefined,
+        update: async (_key, value) => {
+          writes.push(value);
+        },
       },
-    },
-    () => assert.fail("write failure"),
-  );
+      () => assert.fail("write failure"),
+    );
   const controller = new SessionDraftController(
     store,
     () => file,
@@ -22,7 +24,8 @@ function fixture(consent: () => Promise<boolean> = async () => true) {
     consent,
   );
   controller.beginView();
-  const binding = () => posts.filter((item) => item.type === "draftState").at(-1)?.binding as string;
+  const state = () => posts.filter((item) => item.type === "draftState").at(-1) ?? assert.fail("missing state");
+  const binding = () => state().binding as string;
   const change = (revision: number, text: string, id = binding()) =>
     controller.handle({ type: "draftChanged", binding: id, revision, text });
   return {
@@ -30,6 +33,7 @@ function fixture(consent: () => Promise<boolean> = async () => true) {
     store,
     posts,
     writes,
+    state,
     binding,
     change,
     setFile: (value: string) => {
@@ -232,6 +236,281 @@ test("More acceptance clears its own captured draft, but not an edited draft", a
     assert.equal(f.controller.accepted(2, "worktree prompt"), f.binding());
   });
   assert.equal(f.store.get("sessions")?.text, "newer draft");
+});
+
+test("shared controllers keep interleaved per-session writes, bindings and revisions", async () => {
+  const a = fixture();
+  const b = fixture(undefined, a.store);
+  b.setFile("/sessions/b.jsonl");
+  await a.controller.handle({ type: "draftSelect", scope: "session" });
+  await b.controller.handle({ type: "draftSelect", scope: "session" });
+  const aBinding = a.binding();
+  const bBinding = b.binding();
+  await a.change(0, "before consent A");
+  await b.change(6, "before consent B");
+  await a.controller.handle({ type: "draftEnable", binding: aBinding });
+  assert.equal(a.state().enabled, true);
+  assert.equal(b.state().enabled, true, "consent updates the sibling without another consent prompt");
+  assert.equal(a.binding(), aBinding);
+  assert.equal(b.binding(), bBinding);
+  await a.change(0, "duplicate pre-consent A");
+  await b.change(6, "duplicate pre-consent B");
+  assert.equal(a.store.get(sessionDraftOwner("/sessions/a.jsonl") ?? assert.fail("missing owner")), undefined);
+  assert.equal(a.store.get(sessionDraftOwner("/sessions/b.jsonl") ?? assert.fail("missing owner")), undefined);
+  await a.change(1, "A first");
+  await b.change(7, "B first");
+  await a.change(2, "A second");
+  await a.controller.handle({ type: "draftDiscard", binding: aBinding, revision: 2 });
+  await b.change(6, "B stale");
+  await b.change(7, "B duplicate");
+  await a.change(2, "A duplicate");
+  await a.change(3, "A final");
+  await a.store.flush();
+  const records = (a.writes.at(-1) as { records: { owner: string; text: string }[] }).records;
+  assert.deepEqual(
+    records.map(({ owner, text }) => [owner, text]).sort(),
+    [
+      [sessionDraftOwner("/sessions/a.jsonl"), "A final"],
+      [sessionDraftOwner("/sessions/b.jsonl"), "B first"],
+    ].sort(),
+  );
+  assert.equal(a.binding(), aBinding);
+  assert.equal(b.binding(), bBinding);
+  assert.equal(a.state().available, false, "own writes are not recovery offers");
+  assert.equal(b.state().available, false);
+  assert.equal(
+    [...a.posts, ...b.posts].some((message) => "text" in message),
+    false,
+  );
+});
+
+for (const siblingText of ["newer sibling draft", "submitted"]) {
+  test(`accepted sends keep a sibling's saved draft with ${siblingText === "submitted" ? "equal" : "different"} text`, async () => {
+    const a = fixture();
+    const b = fixture(undefined, a.store);
+    for (const f of [a, b]) await f.controller.handle({ type: "draftSelect", scope: "session" });
+    a.store.enable();
+    await a.change(1, "submitted");
+    let accept!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      accept = resolve;
+    });
+    const sending = a.controller.runMessage({ type: "send", revision: 1, text: "submitted" }, async () => {
+      await pending;
+      assert.equal(a.controller.accepted(1, "submitted"), a.binding());
+    });
+    await b.change(1, siblingText);
+    accept();
+    await sending;
+    const owner = sessionDraftOwner("/sessions/a.jsonl") ?? assert.fail("missing owner");
+    assert.equal(a.store.get(owner)?.text, siblingText);
+    await a.store.flush();
+    const records = (a.writes.at(-1) as { records: Record<string, unknown>[] }).records;
+    assert.equal(records.length, 1);
+    assert.equal(records[0]?.text, siblingText);
+    assert.deepEqual(Object.keys(records[0] ?? {}).sort(), ["owner", "text", "updated"]);
+    assert.equal(
+      [...a.posts, ...b.posts].some((message) => "text" in message),
+      false,
+    );
+    await b.controller.runMessage({ type: "send", revision: 1, text: siblingText }, async () => {
+      assert.equal(b.controller.accepted(1, siblingText), b.binding());
+    });
+    assert.equal(a.store.get(owner), undefined, "the current writer can still clear its accepted draft");
+  });
+}
+
+test("late acceptance cannot clear a replacement view's recovery offer after a sibling write", async () => {
+  const a = fixture();
+  const b = fixture(undefined, a.store);
+  for (const f of [a, b]) await f.controller.handle({ type: "draftSelect", scope: "session" });
+  a.store.enable();
+  await a.change(1, "submitted");
+  const origin = a.binding();
+  await a.controller.runMessage({ type: "send", revision: 1, text: "submitted" }, async () => {
+    a.controller.beginView();
+    await a.controller.handle({ type: "draftSelect", scope: "session" });
+    assert.equal(a.state().available, true);
+    await b.change(1, "new recovery text");
+    assert.equal(a.controller.accepted(1, "submitted"), origin);
+  });
+  assert.equal(a.state().available, true);
+  await a.controller.handle({ type: "draftRestore", binding: a.binding(), revision: 0 });
+  assert.equal(a.posts.at(-1)?.type, "draftRestored");
+  assert.equal(a.posts.at(-1)?.text, "new recovery text");
+});
+
+test("shared discard clears recovery without resetting bindings or echoing retained text", async () => {
+  const a = fixture();
+  await a.controller.handle({ type: "draftSelect", scope: "session" });
+  await a.controller.handle({ type: "draftEnable", binding: a.binding() });
+  await a.change(1, "retained A");
+  const b = fixture(undefined, a.store);
+  await b.controller.handle({ type: "draftSelect", scope: "session" });
+  const binding = b.binding();
+  assert.equal(b.state().available, true);
+  await b.change(4, "");
+  await a.change(2, "updated A");
+  assert.equal(b.binding(), binding);
+  assert.equal(b.state().available, true);
+  assert.equal(
+    b.posts.some((message) => "text" in message),
+    false,
+  );
+  await a.controller.handle({ type: "draftDiscard", binding: a.binding(), revision: 2 });
+  assert.equal(b.state().available, false);
+  assert.equal(b.state().enabled, true);
+  assert.equal(b.state().reset, false);
+  assert.equal(b.binding(), binding);
+  await b.controller.handle({ type: "draftRestore", binding, revision: 3 });
+  await b.controller.handle({ type: "draftRestore", binding, revision: 4 });
+  assert.equal(
+    b.posts.some((message) => message.type === "draftRestored"),
+    false,
+  );
+  await b.change(4, "duplicate startup update");
+  assert.equal(a.store.get(sessionDraftOwner("/sessions/a.jsonl") ?? assert.fail("missing owner")), undefined);
+  await b.change(5, "new local text");
+  assert.equal(
+    a.store.get(sessionDraftOwner("/sessions/a.jsonl") ?? assert.fail("missing owner"))?.text,
+    "new local text",
+  );
+  assert.equal(b.state().available, false);
+});
+
+test("shared recovery remains offered until explicit restoration is confirmed", async () => {
+  const a = fixture();
+  await a.controller.handle({ type: "draftSelect", scope: "session" });
+  await a.controller.handle({ type: "draftEnable", binding: a.binding() });
+  await a.change(1, "retained text");
+  const b = fixture(undefined, a.store);
+  await b.controller.handle({ type: "draftSelect", scope: "session" });
+  await b.change(0, "new unconfirmed text");
+  assert.equal(b.state().available, true);
+  await b.controller.handle({ type: "draftRestore", binding: b.binding(), revision: 0 });
+  assert.equal(b.posts.at(-1)?.type, "draftRestored");
+  assert.equal(b.posts.at(-1)?.text, "retained text");
+  assert.equal(b.state().available, true, "requesting insertion does not confirm restoration");
+  await b.change(1, "retained text");
+  assert.equal(b.state().available, false);
+  await b.change(2, "edited restored text");
+  assert.equal(a.state().available, false, "a sibling's save does not turn a live writer into recovery");
+  assert.equal(
+    a.posts.some((message) => "text" in message),
+    false,
+  );
+  assert.equal(
+    a.store.get(sessionDraftOwner("/sessions/a.jsonl") ?? assert.fail("missing owner"))?.text,
+    "edited restored text",
+  );
+});
+
+test("shared disable rotates every active binding and rejects stale updates and restoration", async () => {
+  const a = fixture();
+  await a.controller.handle({ type: "draftSelect", scope: "session" });
+  await a.controller.handle({ type: "draftEnable", binding: a.binding() });
+  await a.change(1, "retained text");
+  const b = fixture(undefined, a.store);
+  await b.controller.handle({ type: "draftSelect", scope: "session" });
+  assert.equal(b.state().available, true);
+  const aBinding = a.binding();
+  const bBinding = b.binding();
+  await b.controller.handle({ type: "draftDisable", binding: bBinding });
+  assert.notEqual(a.binding(), aBinding);
+  assert.notEqual(b.binding(), bBinding);
+  for (const f of [a, b]) {
+    assert.equal(f.state().enabled, false);
+    assert.equal(f.state().available, false);
+    assert.equal(f.state().reset, false);
+  }
+  await a.change(9, "stale A", aBinding);
+  await b.controller.handle({ type: "draftRestore", binding: bBinding, revision: 9 });
+  await a.store.flush();
+  assert.equal(a.writes.at(-1), undefined);
+  assert.equal(
+    b.posts.some((message) => message.type === "draftRestored"),
+    false,
+  );
+  await a.controller.handle({ type: "draftEnable", binding: a.binding() });
+  await b.change(10, "still stale B", bBinding);
+  await a.change(0, "fresh A");
+  assert.equal(a.store.get(sessionDraftOwner("/sessions/a.jsonl") ?? assert.fail("missing owner"))?.text, "fresh A");
+});
+
+test("sibling discard-all invalidates in-flight consent even while retention is disabled", async () => {
+  let finish!: (approved: boolean) => void;
+  let prompts = 0;
+  const a = fixture(() => {
+    prompts += 1;
+    return prompts === 1
+      ? new Promise((resolve) => {
+          finish = resolve;
+        })
+      : Promise.resolve(true);
+  });
+  const b = fixture(undefined, a.store);
+  const oldBinding = a.binding();
+  const enabling = a.controller.handle({ type: "draftEnable", binding: oldBinding });
+  await b.controller.handle({ type: "draftDisable", binding: b.binding() });
+  assert.notEqual(a.binding(), oldBinding);
+  finish(true);
+  await enabling;
+  assert.equal(a.store.enabled, false);
+  assert.equal(a.state().enabled, false);
+  assert.equal(b.state().enabled, false);
+  await a.store.flush();
+  assert.deepEqual(a.writes, [undefined]);
+  await a.controller.handle({ type: "draftEnable", binding: oldBinding });
+  assert.equal(prompts, 1, "the old binding cannot request consent again");
+  await a.controller.handle({ type: "draftEnable", binding: a.binding() });
+  assert.equal(prompts, 2);
+  assert.equal(a.state().enabled, true);
+  assert.equal(b.state().enabled, true);
+});
+
+test("sibling enable then disable cannot revive an earlier consent request", async () => {
+  let finish!: (approved: boolean) => void;
+  const a = fixture(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const b = fixture(undefined, a.store);
+  const enabling = a.controller.handle({ type: "draftEnable", binding: a.binding() });
+  await b.controller.handle({ type: "draftEnable", binding: b.binding() });
+  assert.equal(a.state().enabled, true);
+  assert.equal(b.state().enabled, true);
+  await b.controller.handle({ type: "draftDisable", binding: b.binding() });
+  finish(true);
+  await enabling;
+  assert.equal(a.store.enabled, false);
+  assert.equal(a.state().enabled, false);
+  assert.equal(b.state().enabled, false);
+  await a.store.flush();
+  assert.equal(a.writes.at(-1), undefined);
+});
+
+test("view subscriptions end on disposal and repeated beginView does not duplicate them", async () => {
+  const a = fixture();
+  const b = fixture(undefined, a.store);
+  a.controller.endView();
+  const stopped = a.posts.length;
+  await b.controller.handle({ type: "draftEnable", binding: b.binding() });
+  await b.controller.handle({ type: "draftDisable", binding: b.binding() });
+  assert.equal(a.posts.length, stopped);
+  a.controller.beginView();
+  a.controller.beginView();
+  const active = a.posts.length;
+  await b.controller.handle({ type: "draftEnable", binding: b.binding() });
+  assert.equal(a.posts.length, active + 1);
+  assert.equal(a.state().enabled, true);
+  await b.controller.handle({ type: "draftDisable", binding: b.binding() });
+  assert.equal(a.posts.length, active + 2);
+  a.controller.endView();
+  a.controller.endView();
+  await b.controller.handle({ type: "draftEnable", binding: b.binding() });
+  assert.equal(a.posts.length, active + 2);
 });
 
 test("disable invalidates queued updates/consent and oversize updates keep the last saved text", async () => {
