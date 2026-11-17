@@ -84,7 +84,7 @@ export default function (pi: ExtensionAPI): void {
     process.stdin.once("end", cancel);
     const timer = setTimeout(cancel, 300_000);
     try {
-      if (VERSION !== "1.3.0") {
+      if (VERSION !== "1.3.0" && VERSION !== "1.5.2") {
         send({ type: "unsupported" });
         return;
       }

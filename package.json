@@ -538,7 +538,7 @@
             "type": "string",
             "default": "",
             "order": 1,
-            "markdownDescription": "Empty or whitespace uses packaged Pi 1.3.0. A nonempty command or path selects external Pi on the workspace Extension Host. Used for new processes only. See [runtime selection](https://github.com/narumiruna/pi-vscode/blob/main/docs/USER_GUIDE.md#runtime-selection-and-recovery) for path and Windows limits."
+            "markdownDescription": "Empty or whitespace uses packaged Pi 1.5.2. A nonempty command or path selects external Pi on the workspace Extension Host. Used for new processes only. See [runtime selection](https://github.com/narumiruna/pi-vscode/blob/main/docs/USER_GUIDE.md#runtime-selection-and-recovery) for path and Windows limits."
           },
           "pi.provider": {
             "type": "string",

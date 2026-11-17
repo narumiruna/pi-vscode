@@ -42,7 +42,7 @@ export class IsolatedPiHelperError extends Error {
   ) {
     super(
       category === "unsupported"
-        ? "This Pi installation does not support the isolated Pi 1.3.0 helper. No operation was retried."
+        ? "This Pi installation does not support the isolated Pi 1.3.0 or 1.5.2 helper. No operation was retried."
         : category === "cancelled"
           ? "The isolated Pi operation was cancelled."
           : category === "uncertain"
@@ -194,7 +194,7 @@ export async function runIsolatedPiHelper(
         if (!record(value) || value.protocol !== isolatedProtocol || typeof value.type !== "string")
           throw new IsolatedPiHelperError("unsupported");
         if (value.type === "unsupported") throw new IsolatedPiHelperError("unsupported");
-        if (value.type === "ready" && !ready && value.version === "1.3.0") {
+        if (value.type === "ready" && !ready && (value.version === "1.3.0" || value.version === "1.5.2")) {
           ready = true;
           clearTimeout(startupTimer);
           send({ type: "request", ...request });

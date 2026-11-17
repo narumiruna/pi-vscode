@@ -67,6 +67,13 @@ test("configured custom executable discovers provider methods without auth or mo
   });
   assert.deepEqual(result.providers, [{ id: "fixture", methods: ["api_key", "oauth"] }]);
 });
+test("host accepts the verified bundled Pi 1.5.2 helper handshake", async () => {
+  const result = await runIsolatedPiHelper({ executablePath, cwd: directory }, "bundled-version", {
+    operation: "discover",
+    agentDir: "/unused",
+  });
+  assert.deepEqual(result.providers, [{ id: "fixture", methods: ["api_key", "oauth"] }]);
+});
 test("dedicated secret and optional selection input stays on stdin, never argv", async () => {
   const prompts: string[] = [];
   const result = await run("prompts", {

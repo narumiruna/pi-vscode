@@ -15,7 +15,9 @@ export async function verifyPackagedCommands(commands: readonly unknown[], resou
     const matches = commands.filter((value) => isRecord(value) && value.name === name);
     const command = matches[0];
     if (matches.length !== 1 || !isRecord(command) || command.source !== "extension" || !isRecord(command.sourceInfo))
-      throw new Error(`Unsupported Pi control route: missing or conflicting ${name}. Pi 1.3.0 metadata is required.`);
+      throw new Error(
+        `Unsupported Pi control route: missing or conflicting ${name}. Packaged command metadata is required.`,
+      );
     const source = command.sourceInfo.path;
     if (typeof source !== "string" || (await realpath(source)) !== (await realpath(path.join(resources, file))))
       throw new Error(`Unsupported Pi control route: ${name} is not owned by the packaged resource.`);

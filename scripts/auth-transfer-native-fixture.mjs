@@ -231,7 +231,7 @@ export async function assertAuthTransferDialogs({ page, directory, workspace, in
   await done();
   await writeFile(path.join(directory, "auth-mode.txt"), "unsupported");
   done = await command("pi.signInProvider");
-  await dismissNotice("does not support the isolated Pi 1.3.0 helper");
+  await dismissNotice("does not support the isolated Pi 1.3.0 or 1.5.2 helper");
   await done();
   await assert.rejects(stat(path.join(directory, "pi/auth.json")), { code: "ENOENT" });
   assert.equal(await optional("prompts.jsonl"), promptsBefore, "All dialogs leave model prompt count unchanged");

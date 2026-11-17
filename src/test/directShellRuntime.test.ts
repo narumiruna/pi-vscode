@@ -172,6 +172,16 @@ test("origin changes during asynchronous command discovery run no shell", async 
   });
 });
 
+test("direct shell accepts both exact verified Pi policy versions", async () => {
+  for (const version of ["1.3.0", "1.5.2"]) {
+    await fixture(async (f) => {
+      f.descriptors[0].description = `VS Code read-only direct-shell policy v1; Pi ${version}`;
+      assert.deepEqual(await f.runtime.executeBash("printf harmless", false), f.result);
+      assert.equal(f.executions(), 1);
+    });
+  }
+});
+
 test("read-only discovery rejects duplicate, missing, incompatible and foreign metadata without executing", async () => {
   await fixture(async (f) => {
     const descriptor = f.descriptors[0];
@@ -182,6 +192,8 @@ test("read-only discovery rejects duplicate, missing, incompatible and foreign m
       [descriptor, { ...descriptor }],
       [{ ...descriptor, description: "VS Code read-only direct-shell policy v1" }],
       [{ ...descriptor, description: "VS Code read-only direct-shell policy v1; Pi 1.2.0" }],
+      [{ ...descriptor, description: "VS Code read-only direct-shell policy v1; Pi 1.5.1" }],
+      [{ ...descriptor, description: "VS Code read-only direct-shell policy v1; Pi 1.5.2-prerelease" }],
       [{ ...descriptor, description: "VS Code read-only direct-shell policy v1; Pi unknown" }],
       [{ ...descriptor, source: "prompt" }],
       [{ ...descriptor, sourceInfo: undefined }],

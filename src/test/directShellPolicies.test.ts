@@ -95,7 +95,7 @@ test("settlement and shutdown restore the original tools once, including repeate
 });
 
 test("discovery metadata reports the actual package VERSION without a permission sentinel", async () => {
-  for (const version of ["1.3.0", "1.2.0", null]) {
+  for (const version of ["1.3.0", "1.5.2", "1.2.0", null]) {
     const p = await policy(version);
     assert.deepEqual([...p.commands.keys()], ["vscode-pi-read-only-ready"]);
     const command = p.commands.get("vscode-pi-read-only-ready");

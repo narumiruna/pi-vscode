@@ -124,6 +124,15 @@ test("public isolated extension discovers static providers without touching the 
   );
   assert.ok(!result.calls.some((call) => call.name === "login" || call.name === "logout"));
 });
+test("both verified Pi versions support isolated discovery, login and logout", async () => {
+  for (const version of ["1.3.0", "1.5.2"]) {
+    for (const operation of ["discover", "login", "logout"]) {
+      const result = await helperFixture(operation, { version });
+      assert.equal(result.output[0]?.version, version);
+      assert.equal(result.output.at(-1)?.type, operation === "discover" ? "providers" : "changed");
+    }
+  }
+});
 test("public login returns only changed status, not returned Credential or provider prose", async () => {
   const result = await helperFixture("login");
   assert.deepEqual(
@@ -147,12 +156,14 @@ test("provider/store failure and changed-but-unsynchronized are distinct with no
   assert.equal((await helperFixture("login", { partial: true })).output.at(-1)?.category, "changed-refresh-failed");
 });
 test("unsupported SDK never reaches a credential method", async () => {
-  const result = await helperFixture("login", { version: "0.0.0" });
-  assert.deepEqual(result.output, [{ protocol: "pi-vscode-isolated-v1", type: "unsupported" }]);
-  assert.deepEqual(
-    result.calls.map((call) => call.name),
-    ["shutdown"],
-  );
+  for (const version of ["0.0.0", "1.4.0", "1.5.1", "1.5.3", "1.5.2-prerelease"]) {
+    const result = await helperFixture("login", { version });
+    assert.deepEqual(result.output, [{ protocol: "pi-vscode-isolated-v1", type: "unsupported" }]);
+    assert.deepEqual(
+      result.calls.map((call) => call.name),
+      ["shutdown"],
+    );
+  }
 });
 test("unterminated oversized stdin cancels without waiting for a line or leaking listeners", async () => {
   const result = await helperFixture("login", { malformed: true });

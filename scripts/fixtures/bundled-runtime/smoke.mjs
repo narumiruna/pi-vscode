@@ -9,9 +9,11 @@ import { Worker } from "node:worker_threads";
 const extension = process.argv[2];
 const root = path.dirname(extension);
 const require = createRequire(path.join(extension, "package.json"));
-const { resolvePiRuntime } = require(path.join(extension, "out/piRuntimeSelection.js"));
+const { bundledPiVersion, resolvePiRuntime } = require(path.join(extension, "out/piRuntimeSelection.js"));
 const resources = path.join(extension, "resources");
 const packageRoot = path.join(extension, "node_modules/@earendil-works/pi-coding-agent");
+const manifest = JSON.parse(await readFile(path.join(extension, "package.json"), "utf8"));
+assert.equal(bundledPiVersion, manifest.dependencies["@earendil-works/pi-coding-agent"]);
 const workspace = path.join(root, "workspace");
 await mkdir(workspace);
 const selectedStore = path.join(root, "selected-store");
@@ -188,6 +190,8 @@ async function licenses() {
     "@earendil-works/pi-agent-core",
     "@earendil-works/pi-ai",
     "@earendil-works/pi-codemode",
+    "@earendil-works/pi-mcp",
+    "@earendil-works/pi-schema",
     "@earendil-works/pi-tui",
     "@earendil-works/pi-telemetry",
     "proxy-agent-negotiate",
@@ -225,19 +229,19 @@ async function licenses() {
     await visitModules(path.join(directory, "node_modules"));
   }
   await visitModules(path.join(extension, "node_modules"));
-  assert.equal(count, 118, "complete pinned production closure, without development packages");
-  console.log("PASS all 118 production packages have shipped notices or verified supplements");
+  assert.equal(count, 124, "complete pinned production closure, without development packages");
+  console.log("PASS all 124 production packages have shipped notices or verified supplements");
 }
 
 async function assets() {
   const piMetadata = JSON.parse(await readFile(path.join(packageRoot, "package.json"), "utf8"));
   const pi = await import(pathToFileURL(path.join(packageRoot, piMetadata.exports["."].import)).href);
-  assert.equal(pi.VERSION, "1.3.0");
+  assert.equal(pi.VERSION, bundledPiVersion);
   assert.equal(
     await readFile(path.join(packageRoot, "package.json"), "utf8")
       .then(JSON.parse)
       .then((value) => value.version),
-    "1.3.0",
+    bundledPiVersion,
   );
   const tui = path.dirname(require.resolve("@earendil-works/pi-tui/package.json"));
   for (const platform of ["darwin", "linux", "win32"]) {
@@ -264,8 +268,8 @@ async function assets() {
     await access(path.join(packageRoot, name));
   await assert.rejects(access(path.join(packageRoot, "examples/extensions/doom-overlay")), { code: "ENOENT" });
   for (const name of [
-    "pi-1.3.0-MIT.txt",
-    "marked-18.0.5-MIT.txt",
+    "pi-1.5.2-MIT.txt",
+    "marked-18.0.11-MIT.txt",
     "highlight.js-11.9.0-BSD-3-Clause.txt",
     "proxy-agent-negotiate-1.1.0-MIT.txt",
     "standardwebhooks-1.1.1-MIT.txt",
@@ -321,7 +325,7 @@ async function assets() {
 async function helper(operation) {
   const child = await launch(["--extension", path.join(resources, "pi-isolated-helper.ts")]);
   const ready = await child.wait((event) => event.protocol === "pi-vscode-isolated-v1" && event.type === "ready");
-  assert.equal(ready.version, "1.3.0");
+  assert.equal(ready.version, bundledPiVersion);
   child.send({ protocol: "pi-vscode-isolated-v1", type: "request", ...operation });
   const result = await child.wait((event) => event.protocol === "pi-vscode-isolated-v1" && event.type !== "ready");
   assert.notEqual(result.type, "failure", JSON.stringify(result));
@@ -333,7 +337,7 @@ try {
   await mkdir(path.join(root, "spoof-package"));
   await writeFile(path.join(root, "spoof-package/package.json"), '{"name":"spoof","version":"9.8.7"}');
   const version = await launch(["--version"], false);
-  assert.equal((await version.finish()).trim(), "1.3.0");
+  assert.equal((await version.finish()).trim(), bundledPiVersion);
   const updater = path.join(root, "fake-npm.cjs");
   await writeFile(
     updater,
@@ -366,7 +370,7 @@ try {
     assert.equal(found.length, 1);
     assert.equal(found[0].source, "extension");
     if (name === "vscode-pi-read-only-ready")
-      assert.equal(found[0].description, "VS Code read-only direct-shell policy v1; Pi 1.3.0");
+      assert.equal(found[0].description, `VS Code read-only direct-shell policy v1; Pi ${bundledPiVersion}`);
     assert.equal(found[0].sourceInfo.path, path.join(resources, file));
     assert.equal(found[0].sourceInfo.source, "cli");
     assert.equal(found[0].sourceInfo.scope, "temporary");
