@@ -15,7 +15,7 @@ async function fixture(action: (root: string, pkg: string) => Promise<void>) {
     path.join(pkg, "package.json"),
     JSON.stringify({
       name: "@earendil-works/pi-coding-agent",
-      version: "1.3.0",
+      version: "1.5.2",
       type: "module",
       bin: { pi: "dist/bundle/cli.js" },
       exports: { ".": { import: "./dist/index.js" } },

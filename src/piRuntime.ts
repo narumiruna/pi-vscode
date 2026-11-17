@@ -636,14 +636,15 @@ export class PiRuntimeManager implements vscode.Disposable {
       await assertCurrent();
       const commands = await client.getCommands();
       const readOnlyPath = path.join(this.context.extensionUri.fsPath, "resources", "pi-read-only-gate.ts");
-      const hasPolicy = async (name: string, sourcePath: string, description: string): Promise<boolean> => {
+      const hasPolicy = async (name: string, sourcePath: string, descriptions: readonly string[]): Promise<boolean> => {
         const matches = commands.filter((value) => isRecord(value) && value.name === name);
         const value = matches[0];
         if (
           matches.length !== 1 ||
           !isRecord(value) ||
           value.source !== "extension" ||
-          value.description !== description ||
+          typeof value.description !== "string" ||
+          !descriptions.includes(value.description) ||
           !isRecord(value.sourceInfo) ||
           typeof value.sourceInfo.path !== "string"
         )
@@ -655,13 +656,14 @@ export class PiRuntimeManager implements vscode.Disposable {
         }
       };
       if (
-        !(await hasPolicy(
-          "vscode-pi-read-only-ready",
-          readOnlyPath,
+        !(await hasPolicy("vscode-pi-read-only-ready", readOnlyPath, [
           "VS Code read-only direct-shell policy v1; Pi 1.3.0",
-        ))
+          "VS Code read-only direct-shell policy v1; Pi 1.5.2",
+        ]))
       )
-        throw new Error("Direct shell is unavailable: verified Pi 1.3.0 read-only policy is required. No command ran.");
+        throw new Error(
+          "Direct shell is unavailable: verified Pi 1.3.0 or 1.5.2 read-only policy is required. No command ran.",
+        );
       if (!this.state.sessionId || this.state.sessionId.length > 200 || cwd.length > 8_192)
         throw new Error("Direct shell requires a bounded verified session and working-directory identity.");
       await assertCurrent();

@@ -2,7 +2,7 @@
 
 ## Runtime Selection and Update Ownership
 
-An unset, empty, or whitespace-only `pi.executablePath` selects the exact bundled production dependency `@earendil-works/pi-coding-agent@1.3.0`.
+An unset, empty, or whitespace-only `pi.executablePath` selects the exact bundled production dependency `@earendil-works/pi-coding-agent@1.5.2`.
 A nonempty value selects external Pi, including an explicitly saved `pi` command.
 Configuration is not rewritten; reset removes only the selected target's override and runtime selection uses the resulting effective value.
 Opening Settings does not start or validate Pi.
@@ -33,7 +33,7 @@ Bundled launches set `PI_SKIP_VERSION_CHECK=1` and clear inherited `PI_PACKAGE_D
 Version-check suppression remains in Pi's environment and can reach descendants; it is not offline mode or a general network restriction.
 The bootstrap rejects an initial CLI `update` command before importing upstream code, including when Pi settings specify a custom `npmCommand`.
 This prevents that route from updating the packaged runtime or an unrelated global installation.
-Pinned Pi 1.3.0 has no built-in TUI `/update` route.
+Pinned Pi 1.5.2 has no built-in TUI `/update` route.
 Extension releases own bundled runtime updates.
 External Pi retains its existing environment, Node/shim lookup, package-directory behavior, and update ownership.
 Ordinary user-created terminals are unchanged; the extension adds no global Pi installation or PATH entry.
@@ -153,12 +153,13 @@ The host validates the originating client generation, session, workspace binding
 These checks do not request execution approval.
 
 Safe `get_commands` discovery checks the canonical packaged read-only sentinel path and its version metadata.
-Only the verified Pi 1.3.0 `user_bash` contract is enabled.
+Only exact Pi versions 1.3.0 and 1.5.2 enable the `user_bash` contract; version ranges are not accepted.
 No command is executed to probe support, and no approval handshake is used for compatibility discovery or execution.
 The read-only policy still throws while preview-only work is active.
 A `user_bash` handler returns `undefined` to continue; only a valid `{ operations }` or `{ result }` replaces execution.
 Tool-call `{ block }` objects are invalid here.
-Pi 1.3.0 reports and rethrows handler failures before local execution.
+The earlier Pi 1.3.0 reference check observed handler failures being reported and rethrown before local execution.
+Pi 1.5.2 extracted-runtime smoke also verifies that handler failure blocks actual shell dispatch without adding a message; see [current evidence](BUNDLED_RUNTIME_VALIDATION.md#pi-152-regression-checks).
 
 The controlled TUI adds no pi-vscode confirmation for `user_bash`.
 Pi and installed extensions can still request their own dialogs or enforce their own permission policies.
@@ -923,7 +924,8 @@ This does not lock another VS Code window; Pi owns cross-process credential-stor
 No credential file is copied, backed up, or restored by VS Code.
 
 The selected bundled or external Pi runtime loads the packaged helper through the documented `--extension` loader and public package root.
-The helper currently requires Pi 1.3.0.
+The helper accepts exactly Pi 1.3.0 or 1.5.2, not a version range.
+This preserves external Pi 1.3.0 support without changing isolation, approval, or credential boundaries.
 It runs with disposable working/home/agent/session directories, offline startup, no discovered extensions/MCP/tools/skills/prompts/context/themes, and an OS/runtime/proxy environment allowlist.
 Provider credentials, bridge tokens, Node hooks, and ordinary user settings are not inherited into bootstrap.
 Static built-in provider discovery uses an empty isolated credential store, `modelsPath: null`, `refreshOnCreate: false`, and `allowModelNetwork: false`.

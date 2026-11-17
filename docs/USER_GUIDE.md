@@ -45,7 +45,7 @@ See [Extension bridge](#extension-bridge) to use its tools in an ordinary integr
 
 ## Runtime selection and recovery
 
-The extension includes the exact production dependency `@earendil-works/pi-coding-agent@1.3.0`.
+The extension includes the exact production dependency `@earendil-works/pi-coding-agent@1.5.2`.
 No separate Pi or Node.js installation is required for the default runtime.
 
 1. An unset, empty, or whitespace-only `pi.executablePath` selects bundled Pi.
@@ -80,12 +80,12 @@ Ordinary user-created terminals are unchanged; bundling does not install a `pi` 
 Ordinary launches reuse the Extension Host's existing `~/.pi/agent` or `PI_CODING_AGENT_DIR`, normal session storage, configured resources, and provider environment.
 No credentials, configuration, or sessions are copied, migrated, or isolated by runtime selection.
 The isolated authentication/session helper still uses disposable stores and its environment allowlist until an explicitly approved operation selects a store.
-User-installed Pi extensions must be compatible with Pi 1.3.0; bundled Pi does not guarantee compatibility with every extension.
+User-installed Pi extensions must be compatible with Pi 1.5.2; bundled Pi does not guarantee compatibility with every extension.
 External Pi keeps its existing Node/shim lookup and `PI_PACKAGE_DIR` behavior.
 
 Extension releases own bundled Pi updates.
 Bundled launches set `PI_SKIP_VERSION_CHECK=1`, clear `PI_PACKAGE_DIR` and `PI_MANAGED_INSTALL_ROOT`, and reject an initial CLI `update` command before importing Pi, including with a configured `npmCommand`.
-Pi 1.3.0 has no built-in TUI `/update` route.
+Pi 1.5.2 has no built-in TUI `/update` route.
 This does not change external Pi updates or commands in ordinary terminals.
 
 Settings changes affect new processes, not a running client.
@@ -100,7 +100,9 @@ An extension downgrade does not roll back shared credentials or session formats;
 
 Remote SSH, WSL, and container windows resolve the package and stores on the remote workspace Extension Host, not the local UI computer.
 A universal asset layout is not proof that every platform or remote topology has been tested.
-See [Bundled runtime validation](BUNDLED_RUNTIME_VALIDATION.md) for separate platform results and release gates.
+The minimum VS Code version is 1.146.0, matching the pinned `@types/vscode` declarations.
+Pi 1.5.2 public API compatibility and Linux x64 extracted-runtime smoke passed; platform and live-provider limits remain separate.
+See [Bundled runtime validation](BUNDLED_RUNTIME_VALIDATION.md#pi-152-regression-checks) for current evidence, historical checks, and platform release gates.
 
 ## Windows process launches
 
@@ -466,7 +468,7 @@ Prompt markers now use `PI_VSCODE_*`; old markers remain plain transcript text.
   Pi and installed extensions own shell permissions; pi-vscode adds no execution confirmation.
   Remove attachments; commands cannot be queued or run from the Sessions-level composer.
   Prefix a leading `!` with a backslash (`\!text`) to send literal prompt text.
-  Requires Pi 1.3.0 compatibility verified through read-only sentinel version metadata; other versions leave this feature unavailable without an execution probe.
+  Accepts exactly Pi 1.3.0 or 1.5.2 through canonical packaged read-only sentinel version metadata; other versions leave this feature unavailable without an execution probe.
 - **Slash commands:** Type `/` in either Sidebar composer to list Sidebar shortcuts.
   The shortcuts appear before Pi connects, without starting a process.
   After connection, the list also includes Pi extension commands, prompt templates, and skills, with resource-type labels.
@@ -519,7 +521,7 @@ Open an isolated worktree in its own VS Code window before resuming its session.
 ## Pi resources, branches, and terminal ownership
 
 Resource reload and tree navigation do not send a model request.
-Pi 1.3.0 is the checked reference.
+Pi 1.5.2 public API compatibility is statically checked; earlier Pi 1.3.0 runtime evidence remains historical.
 
 - They use a packaged public extension command, verified against its canonical `get_commands` ownership metadata.
 - Missing metadata, command conflicts, unsupported APIs, and oversized trees produce an error, not a normal model prompt.
@@ -568,7 +570,7 @@ A terminal process can receive the foreground bridge token; independent backgrou
 The controlled terminal and selected Pi runtime run in the workspace Extension Host.
 Remote SSH, WSL, and container windows use that host's bundled package or explicit external executable and filesystem.
 Argument arrays preserve paths with spaces.
-See [Bundled runtime validation](BUNDLED_RUNTIME_VALIDATION.md) for current native results and unverified remote/platform handoff paths.
+See [Bundled runtime validation](BUNDLED_RUNTIME_VALIDATION.md) for historical native results and unverified remote/platform handoff paths.
 
 ### Extension-author compatibility
 
@@ -605,7 +607,7 @@ The extension does not add a PTY or a component protocol.
 Run **Pi: Sign In to Provider** or **Pi: Sign Out of Provider**, also available under **More…**.
 These actions require a trusted, file-backed workspace.
 They use the selected bundled or external Pi subprocess on the workspace Extension Host.
-The isolated helper currently accepts Pi **1.3.0** only.
+The isolated helper accepts exactly Pi **1.3.0 or 1.5.2**, not a version range.
 Unsupported installations fail without attempting another authentication route.
 
 The chooser lists built-in provider IDs and available API-key/OAuth methods without reading the selected credential store.
@@ -633,7 +635,7 @@ This is not a claim of all-provider native authentication support.
 Use **Pi: Export Session**, **Pi: Import Session Copy**, or **Pi: Share Session**, also available under **More…**.
 These operations share foreground ownership and the canonical workspace operation lock.
 Stop active work first.
-JSONL operations require the isolated Pi 1.3.0 helper; no UI transcript is used as a session backup.
+JSONL operations require the isolated helper with exactly Pi 1.3.0 or 1.5.2; no UI transcript is used as a session backup.
 
 - **HTML export:** Pi's existing renderer, including the complete entry tree and abandoned branches; up to 32 MiB.
 - **JSONL export:** Pi SDK active-branch semantics at the captured active leaf; up to 32 MiB.
@@ -772,7 +774,7 @@ Host trust and launch checks independently prevent untrusted process launches an
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `pi.executablePath` | Empty | Empty/whitespace selects bundled Pi 1.3.0; a nonempty value selects an external command or path on the workspace Extension Host. |
+| `pi.executablePath` | Empty | Empty/whitespace selects bundled Pi 1.5.2; a nonempty value selects an external command or path on the workspace Extension Host. |
 | `pi.provider` | Empty | Optional provider override; empty uses Pi settings. |
 | `pi.model` | Empty | Optional model override; empty uses Pi settings. |
 | `pi.thinkingLevel` | `default` | Optional thinking-level override. |

@@ -5,13 +5,13 @@ The completed plan was removed after the local acceptance checks passed.
 
 ## Contract and evidence status
 
-The default runtime is the exact production dependency `@earendil-works/pi-coding-agent@1.3.0`.
+The default runtime is the exact production dependency `@earendil-works/pi-coding-agent@1.5.2`.
 An unset, empty, or whitespace-only `pi.executablePath` selects it; a nonempty value, including saved `pi`, selects external Pi without configuration rewrites.
 Reset removes only the chosen target override and selection uses the resulting effective value.
 The workspace Extension Host's `process.execPath` starts an absolute pinned npm `dist/bundle/cli.js` entry through `resources/pi-runtime-bootstrap.cjs`.
 Desktop Electron receives `ELECTRON_RUN_AS_NODE=1` only for entry; the bootstrap removes it before Pi and its tools run.
 Bundled launches suppress automatic version checks, clear `PI_PACKAGE_DIR` and `PI_MANAGED_INSTALL_ROOT`, and reject initial CLI `update` before upstream import, including a configured `npmCommand`.
-Pi 1.3.0 has no built-in TUI `/update` route.
+Pi 1.5.2 has no built-in TUI `/update` route.
 Extension releases own bundled updates.
 External Pi behavior and ordinary terminals are unchanged.
 
@@ -25,6 +25,27 @@ See [Runtime selection and recovery](USER_GUIDE.md#runtime-selection-and-recover
 The evidence below separates pre-change discovery from final implementation checks.
 Pending results are not passing evidence.
 No universal-platform, remote, or live-provider validation is claimed.
+
+## Pi 1.5.2 regression checks
+
+PR #141 updates bundled Pi to 1.5.2 and the minimum VS Code version to 1.146.0.
+The production closure contains 124 packages, including the new Pi MCP and schema packages.
+The original three-platform CI run failed because the smoke fixture still expected Pi 1.3.0.
+The fixture now compares the CLI, public import, helper handshake, and policy marker with the pinned bundled version and checks the manifest dependency.
+The package-count assertion and exact-source license supplements match the new closure and embedded marked 18.0.11.
+Isolated helpers and direct-shell discovery accept exactly Pi 1.3.0 or 1.5.2; unknown versions remain rejected.
+
+Local Linux x64 validation used Node.js 26.8.2:
+
+- `npm test`: 105 files passed; 1,702 tests passed and 3 skipped.
+- `npm run package`: passed full regression, VSIX packaging, and extracted-artifact smoke.
+- The smoke verified all 124 production notices, public imports, six native prebuilds, local native loading, image/QuickJS workers, policy ownership, harmless shell, updater refusal, helper discovery, active-branch export, complete-tree import, and missing-asset rejection.
+- The extracted extension, source, source session, and dummy credential bytes remained unchanged.
+- Guarded network attempts and model, login, and live-MCP calls were zero.
+
+This local check does not establish native Extension Host/UI, remote deployment, Windows/macOS execution, or live-provider compatibility.
+Three-platform extracted-runtime CI must pass for the updated commit.
+The following baseline, discovery, native results, and original final-gate tables retain historical Pi 1.3.0 evidence; they are not Pi 1.5.2 reruns.
 
 ## Baseline
 

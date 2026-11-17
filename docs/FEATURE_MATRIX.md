@@ -3,8 +3,8 @@
 This matrix maps the capabilities advertised by the four requested reference extensions to the Pi workflow implemented in this repository.
 Vendor-owned hosted services cannot be reproduced by a local extension, so those rows name the external dependency and the available Pi-local alternative.
 
-The minimum supported VS Code version is 1.140.0, with matching `@types/vscode` declarations.
-Versions 1.106–1.139 are no longer supported.
+The minimum supported VS Code version is 1.146.0, with matching `@types/vscode` declarations.
+Versions before 1.146.0 are no longer supported.
 Validation results for older versions below are historical evidence, not the current compatibility contract.
 
 [Pi terminology](PI_TERMINOLOGY.md) maps core API names to extension-only views and adapters.
@@ -27,7 +27,7 @@ Persistent Pi session files and exact legacy global bridge cleanup paths are unc
 
 | Reference capability | Pi workflow | Status / evidence |
 | --- | --- | --- |
-| Bundled default Pi runtime | Exact Pi 1.3.0 production dependency, workspace Extension Host runtime, shared Pi stores, explicit external override and target-specific reset | [Runtime behavior and validation limits](#bundled-default-pi-runtime). |
+| Bundled default Pi runtime | Exact Pi 1.5.2 production dependency, workspace Extension Host runtime, shared Pi stores, explicit external override and target-specific reset | [Runtime behavior and validation limits](#bundled-default-pi-runtime). |
 | Fixed primary composer status | One permanent composer area, with quiet idle space and wrapping actionable text | [Status behavior and checks](#fixed-primary-composer-status). |
 | Visible submission blockers | Non-neutral blockers share primary status; neutral empty input uses only a tooltip and accessible description | [Submission descriptions and checks](#visible-submission-blockers). |
 | Latest-output navigation | Keyboard-accessible Jump to latest, bounded New output indicator and preserved manual reading | [Reading position and checks](#latest-output-navigation). |
@@ -92,7 +92,7 @@ Persistent Pi session files and exact legacy global bridge cleanup paths are unc
 | Claude Code terminal-style interface | Open the active Pi session in an integrated terminal | Implemented. |
 | Claude Code subscription/model choice | Pi's provider authentication, subscription OAuth, API keys, model catalog, and thinking levels | Implemented by reusing Pi; provider subscriptions remain provider dependencies. |
 | Image-aware chat | Bounded PNG, JPEG, GIF, and WebP RPC image payloads from file selection or Ctrl/Cmd+V paste, with model-capability checks | [Image lifecycle](#image-aware-chat). |
-| Provider authentication | Separate native sign-in/sign-out commands; isolated selected Pi 1.3.0 helper using public `ModelRuntime`, masked stdin input, explicit host/store approval | [Authentication evidence and limits](#provider-authentication). |
+| Provider authentication | Separate native sign-in/sign-out commands; isolated selected Pi helper accepting exactly 1.3.0 or 1.5.2 using public `ModelRuntime`, masked stdin input, explicit host/store approval | [Authentication evidence and limits](#provider-authentication). |
 | Session export/import | Existing full-tree HTML renderer, public SDK active-branch JSONL export, validated same-workspace v3-tree import into a retained collision-safe copy | [Session-transfer evidence and limits](#session-exportimport). |
 | Reviewed session sharing | Exact active-branch JSONL inspection/redaction, explicit destination and modal upload approval, public `gh gist create --public=false` stdin adapter | [Sharing evidence and limits](#reviewed-session-sharing). |
 | Hosted pull-request agent | Foreground/worktree sessions can use installed `git` and `gh` tools to create branches, commits, pushes, and PRs | Local orchestration implemented; GitHub credentials and hosted repository access are external dependencies. |
@@ -102,7 +102,7 @@ Persistent Pi session files and exact legacy global bridge cleanup paths are unc
 
 ### Bundled default Pi runtime
 
-Unset, empty, or whitespace-only `pi.executablePath` selects bundled `@earendil-works/pi-coding-agent@1.3.0` without system Pi/Node lookup.
+Unset, empty, or whitespace-only `pi.executablePath` selects bundled `@earendil-works/pi-coding-agent@1.5.2` without system Pi/Node lookup.
 Any nonempty value, including saved `pi`, selects external Pi without rewriting configuration.
 Reset removes only the chosen target override; another effective override can still win.
 All extension-owned launches share this selection, including helpers and controlled terminal handoff; ordinary terminals are unchanged.
@@ -111,11 +111,16 @@ The workspace Extension Host's `process.execPath` starts the pinned absolute npm
 Electron's initial `ELECTRON_RUN_AS_NODE=1` is removed before Pi/tools run.
 Bundled launches suppress automatic version checks, clear package/managed-install overrides, and reject initial CLI `update` before upstream import, including custom `npmCommand`.
 Extension releases own runtime updates; external launch behavior is unchanged.
-Pi 1.3.0 has no built-in TUI `/update` route.
+Pi 1.5.2 has no built-in TUI `/update` route.
 
 Ordinary Pi stores, credentials, sessions, resources and provider environment are reused without migration or new isolation.
 Helpers keep disposable directories and their environment allowlist.
-User-installed extensions must support Pi 1.3.0; broader external runtime compatibility is not verified.
+User-installed extensions must support Pi 1.5.2 for bundled launches; broader external runtime compatibility is not verified.
+Isolated helpers and direct-shell discovery accept exactly Pi 1.3.0 or 1.5.2, not version ranges.
+Canonical resource metadata, safety, approval, and isolation checks remain unchanged.
+The minimum VS Code version is 1.146.0, matching the pinned `@types/vscode` declarations.
+Pi 1.5.2 public API compatibility and Linux x64 extracted-runtime smoke passed; see [current evidence](BUNDLED_RUNTIME_VALIDATION.md#pi-152-regression-checks).
+Earlier Pi 1.3.0 and VS Code 1.140.0 / 1.143.0 validation below is historical and does not establish reruns for these updated dependencies.
 Settings opening does not start or validate Pi, and launch failures have no PATH fallback or operation replay.
 Trust, tool permissions, Preview/Apply, and ownership rules remain unchanged.
 
@@ -324,7 +329,7 @@ Memory-only; no creations/deletions/shell rollback.
 
 ### Direct shell
 
-Pi 1.3.0 compatibility uses canonical packaged read-only sentinel version metadata, without an execution probe or approval handshake.
+Compatibility with exactly Pi 1.3.0 or 1.5.2 uses canonical packaged read-only sentinel version metadata, without an execution probe or approval handshake.
 Read-only proposal enforcement remains active.
 `!!` excludes model context, not Pi history or exports.
 Attachments and queues are rejected; shell effects are non-restorable.
@@ -543,7 +548,7 @@ Explicit restart refreshes a running Pi; sign-out does not revoke provider acces
 
 Implementation: `sessionTransfer.ts`, `sessionTransferController.ts`, `piRuntime.ts`; bounded format/tree/reference/image validation, exclusive writes, stale/cancelled/failed activation fixtures, expired-client/execution history rejection, verified imported-history display under ownership, and unsaved-origin import.
 Native dialogs pass on minimum/current Linux, aliases and packaged builds.
-Isolated actual Pi 1.3.0 network-free SDK comparison is available through `scripts/test-isolated-sdk.mjs`.
+A network-free SDK comparison for an explicit supported Pi 1.3.0 or 1.5.2 installation is available through `scripts/test-isolated-sdk.mjs`.
 Full-tree JSONL export and legacy migration are not implemented.
 
 ### Reviewed session sharing

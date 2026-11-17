@@ -18,9 +18,10 @@ It does not install a Pi extension under `${PI_CODING_AGENT_DIR:-~/.pi/agent}`.
 The extension ID is `narumi.narumi-pi`.
 
 Use `npm run install:vsix` to package and install without the legacy global bridge cleanup.
-`npm ci` installs the locked project dependencies, including the exact production dependency `@earendil-works/pi-coding-agent@1.3.0`; it does not install the VS Code extension.
+`npm ci` installs the locked project dependencies, including the exact production dependency `@earendil-works/pi-coding-agent@1.5.2`; it does not install the VS Code extension.
 Bundled Pi is the default runtime and does not require a global Pi or Node.js command at runtime.
 Source development and build commands still require Node.js 22.19 or newer.
+The minimum VS Code version is 1.146.0, matching the pinned `@types/vscode` declarations.
 
 Run **Developer: Reload Window** after installation.
 Use **More… → Open in Terminal** for an automatically bridged Pi session.
@@ -102,12 +103,18 @@ Direct-shell fixtures check explicit composer guards, context labels, inert card
 
 ### Isolated Pi public-SDK check
 
-After compilation, run `node scripts/test-isolated-sdk.mjs <configured-pi-executable>` to verify the packaged helper against an explicit Pi 1.3.0 installation.
+After compilation, run `node scripts/test-isolated-sdk.mjs <configured-pi-executable>` to verify the packaged helper against an explicit Pi 1.3.0 or 1.5.2 installation.
+The helper accepts only these exact versions, not a range.
 This check uses disposable directories and a fixture session.
 It verifies static provider discovery, active-branch export, complete-tree import and unchanged source bytes without authentication, model calls, or uploads.
 No installed Pi path is embedded in the extension.
 
 ### Bundled runtime validation
+
+Pi 1.5.2 public API compatibility is statically verified.
+The Linux x64 extracted-runtime smoke passed; see [current evidence](BUNDLED_RUNTIME_VALIDATION.md#pi-152-regression-checks) for the separate platform and validation limits.
+Retained Pi 1.3.0 and VS Code 1.140.0 / 1.143.0 results are historical, not evidence for the updated dependencies.
+No live-provider or remote compatibility is verified by this update.
 
 The universal VSIX retains the production dependency closure, public package exports, lazy chunks, image/codemode workers, WASM, themes/export assets, and all six native prebuilds for Linux, Windows, and macOS arm64/x64.
 The unused GPL Doom example is excluded; verified supplemental notices are packaged under `resources/runtime-licenses`.
@@ -133,9 +140,9 @@ No extension installation or publication is part of these commands.
 After compilation, use the dedicated real-runtime native runner on an authorized desktop test host:
 
 ```bash
-node scripts/test-bundled-native.mjs 1.140.0
+node scripts/test-bundled-native.mjs 1.146.0
 node scripts/test-bundled-native.mjs stable
-node scripts/test-bundled-native.mjs 1.140.0 untrusted
+node scripts/test-bundled-native.mjs 1.146.0 untrusted
 node scripts/test-bundled-native.mjs stable untrusted
 ```
 
@@ -152,6 +159,7 @@ No model request, login, live MCP service, installation into an existing profile
 
 ### Session quick switch validation
 
+This section records historical validation before the Pi 1.5.2 and VS Code 1.146.0 update, not reruns with the new dependencies.
 Local validation on 2026-10-22 used Node.js 26.8.2 and a Linux x64 Extension Host under a WSL2 kernel.
 These local Linux runs do not verify VS Code Remote WSL.
 
@@ -187,11 +195,11 @@ No live-provider request, login, upload, user-profile installation, release, or 
 
 | Command | Purpose |
 | --- | --- |
-| `npm run test:native -- 1.140.0` | Isolated Extension Host assertions against the minimum supported VS Code version. |
-| `xvfb-run -a npm run test:native-ui -- 1.140.0` | Linux UI checks for attachments, image preview/focus, queue controls, status/Stop, session details, deletion confirmation, review confirmations, Problems actions, proposals, multi-file Apply/Undo, and reload. |
+| `npm run test:native -- 1.146.0` | Isolated Extension Host assertions against the minimum supported VS Code version. |
+| `xvfb-run -a npm run test:native-ui -- 1.146.0` | Linux UI checks for attachments, image preview/focus, queue controls, status/Stop, session details, deletion confirmation, review confirmations, Problems actions, proposals, multi-file Apply/Undo, and reload. |
 
 On headless Linux, also prefix `test:native` with `xvfb-run -a`.
-Replace `1.140.0` with `stable` to check the current VS Code release.
+Replace `1.146.0` with `stable` to check the current VS Code release.
 
 1. Append `untrusted` to the `test:native` command for Restricted Mode.
 2. Append `alias` to the `test:native-ui` command to test a workspace opened through a directory symlink.
@@ -210,7 +218,7 @@ Append `settings` to `test:native-ui` for focused native Settings and Pi Configu
 This mode supports Linux and macOS with disposable profiles, native configuration controls, and fixture-only file edits.
 Passive settings routes are checked before opening Sessions and must not start Pi.
 The title-menu checks then open Sessions, which initializes one fixture Pi runtime, and verify that settings actions start no additional process or model request.
-On macOS, run `TMPDIR=/private/tmp npm run test:native-ui -- 1.140.0 settings` and repeat with `stable`.
+On macOS, run `TMPDIR=/private/tmp npm run test:native-ui -- 1.146.0 settings` and repeat with `stable`.
 The checks cover all 11 native settings, array edits, category labels, User/Workspace save-on-edit and Reset, plus Pi Configuration singleton, draft recovery, row menus, explicit Save/Reset, and field focus.
 Actual remote-user targets and native virtual workspaces are not covered by this local mode.
 The other native UI modes remain Linux-only.
@@ -268,7 +276,7 @@ It checks that the short recovery summary remains visible, no raw sentinel reach
 It also checks that no model prompt or process restart occurs.
 This selector uses a source development profile, not an installed VSIX.
 
-Checked on Linux x64 with Node.js 26.8.2 on 2026-10-21, sequentially:
+Historical checks on Linux x64 with Node.js 26.8.2 on 2026-10-21, before this dependency update, ran sequentially:
 
 | Check | Result |
 | --- | --- |
@@ -328,7 +336,7 @@ On Linux x64, supply an extracted compatible Orca dependency prefix, system Pyth
 Compile the prefix's schemas first with `glib-compile-schemas /path/to/orca-prefix/usr/share/glib-2.0/schemas`:
 
 ```bash
-npm run test:screen-reader -- /path/to/orca-prefix 1.140.0
+npm run test:screen-reader -- /path/to/orca-prefix 1.146.0
 npm run test:screen-reader -- /path/to/orca-prefix stable
 ```
 
@@ -342,7 +350,7 @@ No live model or file attachment capture is required.
 
 ### Bridge lifecycle public contract check
 
-Run the offline check with an explicit Pi 1.3.0 CLI path:
+Run this historical reference check with an explicit Pi 1.3.0 CLI path:
 
 ```bash
 node scripts/test-bridge-lifecycle-reference.mjs /path/to/pi-coding-agent/dist/cli.js
@@ -354,7 +362,7 @@ This is a Pi RPC check, not a native VS Code UI or macOS validation.
 
 ### Direct-shell public contract check
 
-After compiling, run the reference check with an explicit Pi 1.3.0 CLI path:
+After compiling, run this historical reference check with an explicit Pi 1.3.0 CLI path:
 
 ```bash
 node scripts/test-shell-contract.mjs /path/to/pi-coding-agent/dist/cli.js

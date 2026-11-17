@@ -26,11 +26,11 @@ These screenshots use the current sidebar renderer with offline sample data. The
 
 ## Requirements
 
-1. VS Code **1.140 or newer**.
+1. VS Code **1.146.0 or newer**, matching the pinned `@types/vscode` declarations.
 2. A configured [Pi](https://pi.dev) provider for model requests.
 3. A trusted, file-backed workspace for process-launching and mutation workflows.
 
-The extension bundles **Pi 1.3.0** and uses it by default without a separate Pi or Node.js installation.
+The extension bundles **Pi 1.5.2** and uses it by default without a separate Pi or Node.js installation.
 An unset, empty, or whitespace-only `pi.executablePath` selects bundled Pi.
 Any nonempty value selects external Pi, including an explicitly saved `pi` command; existing overrides are not rewritten.
 Reset removes only the selected scope's override, so another effective override can still select external Pi.
@@ -48,11 +48,11 @@ See [Runtime selection and recovery](docs/USER_GUIDE.md#runtime-selection-and-re
 
 | Capability | Pi compatibility |
 | --- | --- |
-| Sidebar chat and focused edit requests | Use Pi's public RPC interface with bundled **1.3.0** by default; no broader external version range is verified. |
-| **Pi: Sign In to Provider** / **Pi: Sign Out of Provider** | The isolated helper accepts **1.3.0 only**. Other versions must use Pi's own authentication flow. |
-| JSONL session export, import, and GitHub sharing | The isolated helper requires **1.3.0**. JSONL export covers the active branch, not the complete tree. |
-| Direct shell (`!` / `!!`) | Requires **1.3.0** compatibility verified through read-only sentinel version metadata. Other versions leave this feature unavailable. |
-| Resource reload and session-tree controls | Require verified packaged-command ownership metadata, checked against **1.3.0**. Unsupported routes fail without sending a model prompt. |
+| Sidebar chat and focused edit requests | Use Pi's public RPC interface with bundled **1.5.2** by default; no broader external version range is verified. |
+| **Pi: Sign In to Provider** / **Pi: Sign Out of Provider** | The isolated helper accepts exactly **1.3.0 or 1.5.2**, not a version range. Other versions must use Pi's own authentication flow. |
+| JSONL session export, import, and GitHub sharing | The isolated helper accepts exactly **1.3.0 or 1.5.2**. JSONL export covers the active branch, not the complete tree. |
+| Direct shell (`!` / `!!`) | Accepts exactly **1.3.0 or 1.5.2** through canonical packaged read-only sentinel version metadata. Other versions leave this feature unavailable. |
+| Resource reload and session-tree controls | Require verified packaged-command ownership metadata, checked through **1.5.2** extracted-runtime smoke and retained earlier **1.3.0** evidence. Unsupported routes fail without sending a model prompt. |
 
 External Pi on Windows supports native executables and standard npm Node shims, not custom batch wrappers.
 See [Windows process launches](docs/USER_GUIDE.md#windows-process-launches) for lookup and cleanup limits.
@@ -168,7 +168,7 @@ The webview receives validated common-setting values, safe MCP metadata, opaque 
 Full snapshots stay in Extension Host memory; native draft persistence contains only bounded validated common-setting drafts.
 Restart feedback recovers after hide/reveal without repeating the action or storing its authority token.
 
-1. `pi.executablePath` defaults to empty, which selects bundled Pi **1.3.0**.
+1. `pi.executablePath` defaults to empty, which selects bundled Pi **1.5.2**.
    Set a nonempty command or path to use compatible external Pi on the workspace Extension Host.
    Opening Settings does not start or validate either runtime.
 2. `pi.approveProjectResources` defaults to `false`.

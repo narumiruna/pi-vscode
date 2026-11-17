@@ -31,7 +31,7 @@ if (mode === "wrong-version") {
   send({ type: "ready", version: "9.0.0" });
   process.exit(0);
 }
-send({ type: "ready", version: "1.3.0" });
+send({ type: "ready", version: mode === "bundled-version" ? "1.5.2" : "1.3.0" });
 let step = 0;
 const onLine = (line) => {
   const value = JSON.parse(line);
