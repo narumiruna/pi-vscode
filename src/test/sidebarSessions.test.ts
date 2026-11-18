@@ -161,6 +161,7 @@ async function fixture(action: (f: any) => Promise<void>, options: { resolveView
   const runtime = new PiRuntimeManager(context, nullLogger, { sessionWriters: writers });
   const primary = registerPiSidebar(context, runtime, nullLogger);
   const dialogs = registerExtensionUiDialogs(context, runtime);
+  const editors = new ConcurrentSessions(context, runtime, primary, dialogs, writers, nullLogger, slots);
   const manager = new SidebarSessions({
     context,
     primaryRuntime: runtime,
@@ -169,6 +170,7 @@ async function fixture(action: (f: any) => Promise<void>, options: { resolveView
     writers,
     slots,
     logger: nullLogger,
+    revealEditorSession: (sessionFile) => editors.revealSession(sessionFile),
     createConversation: (ownedRuntime, resource, label) =>
       new PiChatViewProvider(
         context,
@@ -180,7 +182,6 @@ async function fixture(action: (f: any) => Promise<void>, options: { resolveView
         primary.draftStore,
       ),
   });
-  const editors = new ConcurrentSessions(context, runtime, primary, dialogs, writers, nullLogger, slots);
   const events = new EventEmitter();
   const listen = (name: string, listener: (...args: any[]) => void) => {
     events.on(name, listener);
@@ -1445,6 +1446,105 @@ test.each(["repeated Previous", "direction reversal"])(
     });
   },
 );
+
+test.each(["pi.switchSession", "pi.previousSession", "pi.nextSession"])(
+  "native %s reveals an already-resolved hidden Sidebar after selection",
+  async (command) => {
+    await fixture(async (f) => {
+      const destination = await f.open();
+      await f.manager.select(f.a.id);
+      f.view.visible = false;
+      mock.window.showQuickPick = async (choices: { id: string }[]) =>
+        choices.find((item) => item.id === destination.id);
+      const focus = vi.spyOn(mock.commands, "executeCommand").mockImplementation(async (id) => {
+        assert.equal(id, "pi.chatView.focus");
+        assert.equal(f.displayed(), destination, "focus must follow a successful Sidebar selection");
+        f.view.visible = true;
+      });
+      try {
+        await mock.registrations.get(command)();
+        assert.equal(f.displayed(), destination);
+        assert.equal(f.view.visible, true, "the hidden Sidebar must become visible");
+        assert.deepEqual(focus.mock.calls, [["pi.chatView.focus"]]);
+        assert.equal(f.starts.length, 2, "retained selection must reuse the destination runtime");
+      } finally {
+        focus.mockRestore();
+      }
+    });
+  },
+);
+
+test("native switching does not focus the Sidebar after picker or admission cancellation", async () => {
+  await fixture(async (f) => {
+    const saved = path.join(f.root, "cancel-native-selection.jsonl");
+    await writeFile(saved, `${JSON.stringify({ type: "session", id: "cancel-native-selection", cwd: f.root })}\n`);
+    f.view.visible = false;
+    const focus = vi.spyOn(mock.commands, "executeCommand");
+    try {
+      await mock.registrations.get("pi.switchSession")();
+      mock.window.showQuickPick = async (choices: { id: string }[]) => {
+        const row = f.rows().find((item: any) => item.sessionId === "cancel-native-selection");
+        const choice = choices.find((item) => item.id === row?.id);
+        assert.ok(choice);
+        return choice;
+      };
+      mock.window.showWarningMessage = async () => undefined;
+      await mock.registrations.get("pi.switchSession")();
+      assert.deepEqual(focus.mock.calls, []);
+      assert.equal(f.displayed(), f.a);
+      assert.equal(f.view.visible, false);
+      assert.equal(f.slots.count, 0);
+    } finally {
+      focus.mockRestore();
+    }
+  });
+});
+
+test("native cycling advances past an editor-owned session in either direction without taking panel focus", async () => {
+  await fixture(async (f) => {
+    await f.editors.open();
+    const editor = [...(f.editors as any).sessions][0];
+    await vi.waitFor(() => assert.ok(f.clients.has(editor.runtime)));
+    const saved = path.join(f.root, "after-editor.jsonl");
+    await writeFile(saved, `${JSON.stringify({ type: "session", id: "after-editor", cwd: f.root })}\n`);
+    const older = new Date(Date.UTC(2025, 0, 1));
+    await utimes(saved, older, older);
+    await f.manager.refresh();
+    assert.deepEqual(
+      f.rows().map((row: any) => row.sessionId),
+      [f.runtime.currentState.sessionId, editor.runtime.currentState.sessionId, "after-editor"],
+    );
+    const focus = vi.spyOn(mock.commands, "executeCommand");
+    const warning = vi.spyOn(mock.window, "showWarningMessage");
+    try {
+      const next = mock.registrations.get("pi.nextSession");
+      const previous = mock.registrations.get("pi.previousSession");
+      await next();
+      assert.equal(editor.panel.reveals, 1);
+      assert.equal(f.displayed(), f.a);
+      assert.deepEqual(focus.mock.calls, [], "revealing the editor must not focus the Sidebar");
+      assert.deepEqual(warning.mock.calls, [], "revealing the existing writer must not ask for admission");
+      assert.equal(f.starts.length, 2);
+      await next();
+      const destination = f.displayed();
+      assert.equal(destination.runtime.currentState.sessionId, "after-editor");
+      assert.equal(editor.panel.reveals, 1);
+      await previous();
+      assert.equal(editor.panel.reveals, 2);
+      assert.equal(f.displayed(), destination);
+      assert.deepEqual(focus.mock.calls, [["pi.chatView.focus"]]);
+      await previous();
+      assert.equal(f.displayed(), f.a);
+      assert.equal(editor.panel.reveals, 2);
+      assert.equal(f.starts.length, 3);
+      assert.equal(f.slots.count, 2);
+      assert.deepEqual(focus.mock.calls, [["pi.chatView.focus"], ["pi.chatView.focus"]]);
+    } finally {
+      warning.mockRestore();
+      focus.mockRestore();
+    }
+  });
+});
 
 test("R13 browsing Sessions preserves Primary's restorable checkpoint without enabling concurrent safety", async () => {
   await fixture(async (f) => {

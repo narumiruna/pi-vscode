@@ -147,7 +147,9 @@ A running ordinary request in A does not block selecting live B, opening an unlo
 Sessions rows, View all, native Switch Session, Previous/Next, New Session, Resume Session, and local `/new`/`/resume` use the registry.
 Live selection changes presentation only; it does not dispatch RPC `switch_session`, abort A, or release A's request lease.
 Cold saved sessions use validated initial-session startup in a separate runtime.
+Native Switch and Previous/Next reveal the selected Sidebar conversation even when the retained view is hidden.
 An editor-owned file reveals its existing panel instead of creating another writer.
+The next cycle command continues from that panel's position without changing the Sidebar binding.
 
 Transcripts, streams, history windows, composer text, attachments, queues, model/thinking state, proposals, checkpoints, and Stop stay with their originating controller.
 Opaque entry IDs and view-binding generations reject stale renderer actions; already accepted asynchronous work keeps its captured origin.

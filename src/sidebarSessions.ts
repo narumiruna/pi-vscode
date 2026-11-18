@@ -79,6 +79,7 @@ export class SidebarSessions implements vscode.Disposable {
   private summaries: PiSessionSummary[] = [];
   private refreshSequence = 0;
   private cycle: readonly string[] = [];
+  private editorCycleId: string | undefined;
   private listSignature = "";
 
   public constructor(private readonly services: SidebarSessionServices) {
@@ -560,6 +561,7 @@ export class SidebarSessions implements vscode.Disposable {
   private display(entry: Entry): void {
     if (this.disposed || entry.closing) return;
     this.displayed = entry;
+    this.editorCycleId = undefined;
     if (entry !== this.launcher) this.selected = entry;
     this.generation++;
     this.publish();
@@ -728,7 +730,7 @@ export class SidebarSessions implements vscode.Disposable {
     await this.refresh();
   }
 
-  public async select(id: string): Promise<boolean> {
+  public async select(id: string, options?: { readonly revealSidebar: boolean }): Promise<boolean> {
     if (this.picking) throw new Error("A session picker is already open.");
     if (this.navigating) return false;
     this.navigating = true;
@@ -736,37 +738,40 @@ export class SidebarSessions implements vscode.Disposable {
     let connect: Entry | undefined;
     try {
       await this.workspace();
-      const existing = this.entries.get(id);
-      if (existing && existing !== this.launcher) {
-        if (existing.closing) throw new Error("This session is closing or its cleanup is unverified.");
-        if (existing !== this.displayed) this.display(existing);
-        return true;
+      let entry = this.entries.get(id);
+      if (!entry || entry === this.launcher) {
+        const summary = this.summaries.find((item) => item.key === id);
+        if (!summary) throw new Error("The saved session is no longer in this index. Refresh Sessions.");
+        const file = await realpath(summary.path);
+        entry = [...this.entries.values()].find((candidate) => candidate.runtime.currentState.sessionFile === file);
+        if (!entry) {
+          if (this.services.revealEditorSession?.(file)) {
+            // Keep the Sidebar binding, but continue cycling from the revealed panel.
+            this.editorCycleId = summary.key;
+            return true;
+          }
+          release = await this.admission();
+          if (!release) return false;
+          const reservation = release;
+          release = undefined;
+          entry = connect = await this.make(summary, reservation);
+          // Loading changes this conversation's ID, not its native cycle position.
+          const retainedId = entry.id;
+          this.cycle = this.cycle.map((member) => (member === summary.key ? retainedId : member));
+        }
       }
-      const summary = this.summaries.find((item) => item.key === id);
-      if (!summary) throw new Error("The saved session is no longer in this index. Refresh Sessions.");
-      const file = await realpath(summary.path);
-      const owned = [...this.entries.values()].find((entry) => entry.runtime.currentState.sessionFile === file);
-      if (owned) {
-        if (owned.closing) throw new Error("This session is closing or its cleanup is unverified.");
-        this.display(owned);
-        return true;
-      }
-      if (this.services.revealEditorSession?.(file)) return true;
-      release = await this.admission();
-      if (!release) return false;
-      const reservation = release;
-      release = undefined;
-      connect = await this.make(summary, reservation);
-      // Loading changes this conversation's ID, not its native cycle position.
-      const retainedId = connect.id;
-      this.cycle = this.cycle.map((member) => (member === summary.key ? retainedId : member));
-      this.display(connect);
+      if (entry.closing) throw new Error("This session is closing or its cleanup is unverified.");
+      if (entry !== this.displayed || entry.id !== id) this.display(entry);
+      else this.editorCycleId = undefined;
     } finally {
       release?.();
       this.navigating = false;
     }
-    // Loading the selected history must not prevent returning to another live entry.
-    if (connect) await this.connect(connect);
+    // Reveal the selected detail without waiting for history or blocking another selection.
+    await Promise.all([
+      connect ? this.connect(connect) : undefined,
+      options?.revealSidebar ? vscode.commands.executeCommand("pi.chatView.focus") : undefined,
+    ]);
     return true;
   }
 
@@ -780,7 +785,6 @@ export class SidebarSessions implements vscode.Disposable {
     }
     if (!this.selected.runtime.currentState.sessionFile && !this.primary.runtime.currentState.sessionFile)
       throw new Error("Pi has no current session location. Reconnect before switching sessions.");
-    if (!this.view) await vscode.commands.executeCommand("pi.chatView.focus");
     const current = await this.workspace();
     if (current.uri.toString() !== workspace.uri.toString() || current.root !== workspace.root)
       throw new Error("Pi workspace changed.");
@@ -814,7 +818,7 @@ export class SidebarSessions implements vscode.Disposable {
     } finally {
       this.picking = false;
     }
-    if (destination) await this.select(destination);
+    if (destination) await this.select(destination, { revealSidebar: true });
   }
 
   public async cycleSession(direction: -1 | 1): Promise<void> {
@@ -826,7 +830,8 @@ export class SidebarSessions implements vscode.Disposable {
     if (!this.cycle.length || this.cycle.length !== members.size || this.cycle.some((id) => !members.has(id)))
       this.cycle = rows.map((row) => row.id);
     if (!this.cycle.length) return;
-    const index = this.cycle.indexOf(this.selected.id);
+    if (this.editorCycleId && !members.has(this.editorCycleId)) this.editorCycleId = undefined;
+    const index = this.cycle.indexOf(this.editorCycleId ?? this.selected.id);
     const next =
       index < 0
         ? direction > 0
@@ -834,7 +839,7 @@ export class SidebarSessions implements vscode.Disposable {
           : this.cycle.length - 1
         : (index + direction + this.cycle.length) % this.cycle.length;
     const id = this.cycle[next];
-    if (id) await this.select(id);
+    if (id) await this.select(id, { revealSidebar: true });
   }
 
   public async resume(): Promise<boolean> {

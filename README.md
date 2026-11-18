@@ -105,6 +105,8 @@ Choose **View all** to search the discovered sessions in this workspace.
 
 Use **Pi: Switch Session** to search live and saved Sidebar sessions in the current workspace, or **Pi: Previous Session** / **Pi: Next Session** to cycle through them.
 Default shortcuts use **Ctrl+K**, then **Ctrl+Alt+Shift+S / Left / Right**; on macOS use **Cmd+K**, then **Cmd+Alt+Shift+S / Left / Right**.
+Native navigation shows the selected conversation, even if the Sidebar was hidden.
+If an editor panel owns the session, navigation focuses that panel and cycling continues from its position.
 Cycling keeps its order while sessions are updated.
 Selecting another conversation does not stop active requests, queues, or source-bound input dialogs.
 Actual RPC session mutations and exclusive workspace actions retain their existing idle and ownership gates.

@@ -16,3 +16,4 @@ Preserve the host-owned stale draft-context guard for actual runtime session rep
 Keep accepted-submission bookkeeping active after renderer disposal and clear restored accepted text only with exact host confirmation.
 Bind composer reports and sends to their session context so late reports cannot move text into a replacement session.
 Keep native cycle order after saved-session loading, preserve checkpoints during Sessions browsing, and run local settings/details before admission.
+Reveal hidden Sidebar conversations after native selection and continue cycling past editor-owned conversations.

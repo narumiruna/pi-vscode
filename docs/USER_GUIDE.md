@@ -284,6 +284,8 @@ Search matches titles and session IDs; **Current** identifies selection and **Pr
 Activity and unread text describe owned current-window state.
 Press Enter to select a live conversation or open a saved one; Escape leaves the conversation and composer unchanged.
 Selecting the current live entry reuses it without starting another process.
+Successful Sidebar selection from **Switch Session** or **Previous/Next Session** shows the Sidebar if it was hidden.
+If an editor panel owns the selected session, navigation focuses that panel instead.
 
 | Action | Windows/Linux | macOS |
 | --- | --- | --- |
@@ -306,6 +308,7 @@ A session from another workspace or worktree must be opened in its matching VS C
 Next moves forward through a stable snapshot of live entries followed by discovered saved entries; Previous moves backward, and both wrap around.
 Updates to session modification times do not reorder an active cycle.
 Loading a saved conversation keeps its position in that cycle, including when direction changes.
+Revealing an editor panel also keeps its position, so the next cycle command moves to the adjacent conversation.
 Changed membership rebuilds the cycle; retained unsaved live entries remain selectable.
 An empty list does not switch, and a single current entry does not create another runtime.
 
