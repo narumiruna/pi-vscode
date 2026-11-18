@@ -186,6 +186,9 @@ jobs:
     needs: [release, github-release]
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Check out the release commit
@@ -212,13 +215,4 @@ jobs:
         run: npm run test:bundled-runtime
 
       - name: Publish to Visual Studio Marketplace
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if test -z "${VSCE_PAT}"; then
-            echo "The VSCE_PAT repository secret is required." >&2
-            exit 1
-          fi
-          npx --no-install vsce publish --packagePath pi.vsix
+        run: npx --no-install vsce publish --oidc --packagePath pi.vsix

@@ -475,8 +475,12 @@ These commands run local processes or change the installed extension; they are n
 
 1. Add a repository Actions secret named `PAT_TOKEN`.
    Use a fine-grained personal access token with **Contents: Read and write** and **Pull requests: Read and write** access to this repository.
-2. Add a repository Actions secret named `VSCE_PAT`.
-   Use an Azure Personal Access Token with **Marketplace (Manage)** scope and access to publisher `narumi`.
+2. Create a [Trusted Publishing policy][marketplace-trusted-publishing] for publisher `narumi` in [Visual Studio Marketplace](https://marketplace.visualstudio.com/manage).
+   - **Policy name:** `Pi release`
+   - **Repository owner:** `narumiruna`
+   - **Repository:** `pi-vscode`
+   - **Workflow:** `publish.yml`
+   - **Environment:** Leave blank because the publishing job does not use a GitHub environment.
 3. For each release-worthy pull request, run `npm run changeset` and commit the generated `.changeset/*.md` file.
 4. Merge the pull request into `main`.
    The [Publish workflow](../.github/workflows/publish.yml) creates or updates a Version PR when pending changesets exist.
@@ -492,8 +496,13 @@ Review [bundled runtime release gates](BUNDLED_RUNTIME_VALIDATION.md#release-gat
 The `release` job builds and uploads the verified VSIX; `verify-runtime` checks that same artifact on Linux, Windows, and macOS.
 After those checks pass, `github-release` creates a `v<version>` GitHub release with `pi.vsix` attached.
 The separate `publish` job publishes the same artifact to Visual Studio Marketplace without rebuilding it, so retrying Marketplace publication does not recreate the release.
-`PAT_TOKEN` authenticates Version PR updates and GitHub release creation; `VSCE_PAT` authenticates Marketplace publication.
+`PAT_TOKEN` authenticates Version PR updates and GitHub release creation.
+The `publish` job uses GitHub Actions OIDC to authenticate to the Marketplace without `VSCE_PAT`.
 
 If Marketplace publication fails, the GitHub release remains available.
-Use **Re-run failed jobs** on the same workflow run to retry `publish` without repeating version updates or release creation.
-The VSIX artifact must still be available in that run.
+If the original workflow already uses OIDC, use **Re-run failed jobs** to retry `publish` after correcting the policy, while the VSIX artifact is still available in that run.
+[A re-run uses the original workflow revision][github-rerun], so it cannot apply later workflow changes.
+If the original workflow still used a PAT, you can upload the verified `pi.vsix` from the existing GitHub release to the extension's Marketplace listing without creating another release.
+
+[marketplace-trusted-publishing]: https://code.visualstudio.com/api/working-with-extensions/publishing-extension#publish-with-github-actions-and-trusted-publishing
+[github-rerun]: https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs

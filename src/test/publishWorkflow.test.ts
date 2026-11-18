@@ -139,10 +139,17 @@ test("release verification gates the same artifact before separate retry-safe pu
   assert.match(publish, /needs: \[release, github-release\]/);
   assert.doesNotMatch(publish, /gh release create/);
   assert.match(publish, /name: release-vsix/);
-  assert.ok(
-    publish.indexOf("run: npm run test:bundled-runtime") < publish.indexOf("vsce publish --packagePath pi.vsix"),
-  );
+  const recheckIndex = publish.indexOf("run: npm run test:bundled-runtime");
+  const publishIndex = publish.indexOf("run: npx --no-install vsce publish --oidc --packagePath pi.vsix");
+  assert.ok(recheckIndex >= 0 && publishIndex > recheckIndex);
   assert.doesNotMatch(publish, /vsce package|npm run package/);
+});
+
+test("only the Marketplace publish job can request an OIDC token", () => {
+  const [beforePublish, publish] = workflow.split("\n  publish:\n");
+  assert.match(publish, /^ {4}permissions:\n {6}contents: read\n {6}id-token: write$/m);
+  assert.doesNotMatch(beforePublish, /id-token:/);
+  assert.doesNotMatch(workflow, /VSCE_PAT/);
 });
 
 test("publish keeps pending version-bump runs within the GitHub queue limit", () => {

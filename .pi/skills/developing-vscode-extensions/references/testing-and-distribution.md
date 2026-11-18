@@ -32,6 +32,19 @@ Use this guide when adding tests, changing runtime assets or bundling, creating 
 - Keep the declared minimum VS Code version aligned with APIs and contribution points actually used by the package.
 - Review platform-specific native artifacts when publishing separate target packages.
 
+## Authenticate Marketplace Publication
+
+- For a PAT-based publish that returns `401` or `403`, check that the Azure DevOps PAT is valid and not expired or revoked.
+  - Confirm that the PAT uses **All accessible organizations** and **Marketplace (Manage)**, as described in [Microsoft's authentication troubleshooting guide][marketplace-auth].
+  - Confirm that the account that created the PAT has permission to publish under the extension's exact Marketplace publisher ID.
+- For GitHub Actions, prefer [Marketplace Trusted Publishing][marketplace-oidc] to a stored PAT.
+  - Create the policy on the publisher's **Trusted Publishing** tab in [Visual Studio Marketplace](https://marketplace.visualstudio.com/manage), not in GitHub repository settings.
+  - Match the policy to the GitHub repository owner and repository name.
+  - Enter the filename under `.github/workflows`, not the workflow's display name.
+  - Leave the policy's **Environment** field blank if the publishing job does not use a GitHub environment.
+  - Grant `id-token: write` to the publishing job and use `vsce publish --oidc` with a version that supports it, such as `@vscode/vsce` 4.1.1.
+- Use [Microsoft's Azure DevOps announcement][global-pat-retirement] for the current global PAT retirement date, which was postponed to January 27, 2027.
+
 ## Respect Release Boundaries
 
 - Treat `vsce package` as a local artifact operation.
@@ -39,3 +52,7 @@ Use this guide when adding tests, changing runtime assets or bundling, creating 
 - Do not publish a package that enables proposed APIs to the Marketplace.
 - A proposed-API package can be shared as a VSIX only when recipients use VS Code Insiders and explicitly enable the proposal for that extension.
 - Report the exact artifact inspected, checks run, target environments exercised, and any unverified compatibility claims.
+
+[marketplace-auth]: https://code.visualstudio.com/api/working-with-extensions/publishing-extension#i-get-403-forbidden-or-401-unauthorized-error-when-i-try-to-publish-my-extension
+[marketplace-oidc]: https://code.visualstudio.com/api/working-with-extensions/publishing-extension#publish-with-github-actions-and-trusted-publishing
+[global-pat-retirement]: https://devblogs.microsoft.com/devops/retirement-of-global-personal-access-tokens-in-azure-devops/
