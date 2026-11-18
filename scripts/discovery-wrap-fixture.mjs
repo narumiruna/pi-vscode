@@ -91,8 +91,9 @@ async function assertResponsiveHeader(page, state, post) {
         assert.equal(await page.locator("#session-header-title").innerText(), title.trim());
         assert.deepEqual(
           await page.locator(".sessions-actions > button").evaluateAll((nodes) => nodes.map((node) => node.id)),
-          ids,
+          [...ids.slice(0, 2), "close-sidebar-session", ...ids.slice(2)],
         );
+        assert.equal(await page.locator("#close-sidebar-session").isVisible(), false);
         for (const id of ids) {
           const button = page.locator(`#${id}`);
           assert.equal(await button.count(), 1, `${id} must be unique`);
@@ -108,7 +109,7 @@ async function assertResponsiveHeader(page, state, post) {
           return {
             title: rect(header.querySelector(".sessions-title")),
             actions: rect(header.querySelector(".sessions-actions")),
-            buttons: Array.from(header.querySelectorAll(".sessions-actions button"), rect),
+            buttons: Array.from(header.querySelectorAll(".sessions-actions button")).filter((node) => !node.hidden).map(rect),
             viewport: innerWidth,
             overflow: document.documentElement.scrollWidth > innerWidth,
           };

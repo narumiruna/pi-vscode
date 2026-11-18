@@ -21,6 +21,7 @@ const iconPaths = {
   attachment: '<path d="m6 9 4-4a2 2 0 0 1 3 3l-5 5a3.5 3.5 0 0 1-5-5l5-5"/>',
   send: '<path d="M8 13V3m-4 4 4-4 4 4"/>',
   stop: '<rect x="4" y="4" width="8" height="8" rx="1"/>',
+  close: '<path d="m4 4 8 8m0-8-8 8"/>',
   back: '<path d="m10.5 3-5 5 5 5"/>',
   search: '<circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/>',
   history: '<path d="M2 7a6 6 0 1 1 1.5 5M2 3v4h4M8 4.5V8l2.5 1.5"/>',
@@ -96,6 +97,8 @@ export function getSidebarHtml(
     button.session-row.current { background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-hoverBackground)); color: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground)); }
     .session-row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .session-row-time { flex: 0 0 auto; color: var(--vscode-descriptionForeground); font-size: .82em; font-variant-numeric: tabular-nums; }
+    .session-row-activity { flex: 0 0 auto; font-size: .82em; }
+    .session-unread-dot { width: 7px; height: 7px; flex: 0 0 auto; border: 1px solid currentColor; border-radius: 50%; background: currentColor; }
     button.session-row.current .session-row-time { color: inherit; opacity: .72; }
     #view-all-sessions { flex-shrink: 0; align-self: flex-start; min-height: 24px; margin-top: 2px; padding: 1px 7px; color: var(--vscode-descriptionForeground); font-size: .82em; }
     #sessions-browser { display: grid; min-height: 0; height: 100%; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 8px; padding-top: 4px; }
@@ -310,6 +313,7 @@ export function getSidebarHtml(
         <div class="sessions-actions" aria-label="Pi session controls">
           <button id="new-session" class="secondary icon-button" type="button" title="New session" aria-label="New Pi session">${icon("plus")}</button>
           <button id="delete-session" class="secondary danger icon-button" type="button" title="Delete session" aria-label="Delete current Pi session" hidden>${icon("trash")}</button>
+          <button id="close-sidebar-session" class="secondary icon-button" type="button" title="Close Session" aria-label="Close Session" hidden>${icon("close")}</button>
           <button id="history-search-open" class="secondary icon-button" type="button" title="Find literal, case-sensitive text in this history window" aria-label="Find text" aria-expanded="false" aria-controls="history-search-bar" hidden>${icon("search")}</button>
           <button id="history-earlier" class="secondary icon-button" type="button" title="Show an earlier history window" aria-label="Earlier history" hidden disabled>${icon("history")}</button>
           <button id="history-latest" class="secondary icon-button" type="button" title="Return to the latest history window" aria-label="Latest history" hidden disabled>${icon("latest")}</button>
@@ -386,7 +390,30 @@ export function getSidebarHtml(
   </dialog>
   ${assets ? `<script nonce="${nonce}" src="${assets.script}"></script>` : ""}
   <script nonce="${nonce}">
-    const vscode = acquireVsCodeApi();
+    const vscodeApi = acquireVsCodeApi();
+    let sidebar;
+    let sidebarComposerContext;
+    let sidebarRendering = false;
+    let lastSidebarViewState = '';
+    const sidebarReadingStates = new Map();
+    let sidebarReadingRestore;
+    let sidebarFocusAfterRender = false;
+    let sidebarDetailRendered = false;
+    let sidebarHistoryMode;
+    let sidebarHistoryLoading = true;
+    let acknowledgedSidebarResult;
+    const captureSidebarEnvelope = () => sidebar
+      ? { entryId: sidebar.entryId, bindingGeneration: sidebar.bindingGeneration,
+        composerContext: sidebarComposerContext } : undefined;
+    const sameSidebarEnvelope = envelope => envelope
+      ? sidebar?.entryId === envelope.entryId && sidebar?.bindingGeneration === envelope.bindingGeneration
+      : !sidebar;
+    const vscode = {
+      postMessage(message, envelope = captureSidebarEnvelope()) {
+        if (envelope && sameSidebarEnvelope(envelope) && !['ready', 'sidebarViewState', 'acknowledgeResult'].includes(message.type)) publishSidebarViewState(true);
+        return vscodeApi.postMessage(envelope ? { ...message, ...envelope } : message);
+      }
+    };
     const $ = id => document.getElementById(id);
     const appElement = $('app');
     const conversationElement = $('conversation');
@@ -468,7 +495,97 @@ export function getSidebarHtml(
     let sessionSwitchPending;
     let newSessionSourceWasList;
     let recoveredDraftPending;
+    let sidebarPendingSubmission;
     let sessionButtons = [];
+
+    function publishSidebarViewState(force = false) {
+      if (!sidebar || sidebarRendering) return;
+      if (!input.value) sidebarComposerContext = sidebar.composerContext;
+      const message = { type: 'sidebarViewState', text: input.value, revision: composerRevision,
+        followingLatest: conversationPinnedToBottom, detailVisible: !sessionsLayerVisible };
+      const signature = JSON.stringify([sidebar.entryId, sidebar.bindingGeneration, sidebarComposerContext, message]);
+      if (!force && signature === lastSidebarViewState) return;
+      lastSidebarViewState = signature;
+      vscodeApi.postMessage({ ...message, ...captureSidebarEnvelope() });
+    }
+
+    function saveSidebarReadingState() {
+      if (!sidebar) return;
+      const viewportTop = conversationElement.getBoundingClientRect().top;
+      const anchor = Array.from(messagesElement.children).find(node => node.getBoundingClientRect().bottom > viewportTop);
+      sidebarReadingStates.delete(sidebar.entryId);
+      sidebarReadingStates.set(sidebar.entryId, {
+        top: conversationElement.scrollTop, followingLatest: conversationPinnedToBottom,
+        newOutput: hasNewTranscriptOutput, anchorId: anchor?.messageId,
+        anchorOffset: anchor ? anchor.getBoundingClientRect().top - viewportTop : 0
+      });
+      while (sidebarReadingStates.size > 16) sidebarReadingStates.delete(sidebarReadingStates.keys().next().value);
+    }
+
+    function bindSidebar(next) {
+      const changed = next && (!sidebar || sidebar.entryId !== next.entryId || sidebar.bindingGeneration !== next.bindingGeneration);
+      if (changed) {
+        publishSidebarViewState();
+        saveSidebarReadingState();
+        fileCompletion?.cancel();
+        composerDraft?.flush();
+        closeSlashCommands();
+        if (conversationDetails.open) conversationDetails.close();
+        previewAssetId = undefined;
+        closeImagePreview();
+        $('preview-image').removeAttribute('src');
+        $('preview-image').alt = '';
+        for (const popover of document.querySelectorAll(':popover-open')) popover.hidePopover();
+        if (sidebar?.entryId !== next.entryId) sidebarPendingSubmission = undefined;
+        sidebar = next;
+        sidebarComposerContext = next.composerContext;
+        sidebarRendering = true;
+        // Cancel the legacy recovery debounce before the host supplies this entry's draft binding.
+        composerDraft?.receive({ type: 'draftState', binding: next.entryId, enabled: false, writable: false, reset: false });
+        input.value = next.composer.text;
+        composerRevision = next.composer.revision;
+        pendingImageReads = 0;
+        submissionPending = false;
+        backgroundSubmissionPending = false;
+        recoveredDraftPending = undefined;
+        sessionSwitchPending = undefined;
+        newSessionSourceWasList = undefined;
+        slashDismissed = true;
+        sidebarDetailRendered = false;
+        sidebarFocusAfterRender = true;
+        acknowledgedSidebarResult = undefined;
+        sidebarReadingRestore = sidebarReadingStates.get(next.entryId);
+        conversationPinnedToBottom = sidebarReadingRestore?.followingLatest ?? true;
+        hasNewTranscriptOutput = sidebarReadingRestore?.newOutput ?? false;
+        lastTranscriptSignature = '';
+        displayedSessionIdentity = undefined;
+        toolRows.clear();
+        messagesElement.replaceChildren();
+        renderedMessageStructure = '';
+        renderedAttachments = '';
+        wrapReadingAnchor = undefined;
+        clearNotice();
+        resizeInput();
+      } else sidebar = next;
+      if (sidebar) {
+        sessionsLayerVisible = sidebar.view === 'sessions';
+        sidebarRendering = true;
+        if (!input.value) sidebarComposerContext = sidebar.composerContext;
+        composerDraft?.setContextBlocked(sidebar.composer.contextBlocked === true
+          || (Boolean(input.value) && sidebarComposerContext !== sidebar.composerContext));
+      }
+    }
+
+    function acknowledgeSidebarResult() {
+      if (!sidebar || sidebarRendering || !sidebarDetailRendered || sidebar.view !== 'session' || sessionsLayerVisible
+          || document.visibilityState !== 'visible' || !conversationPinnedToBottom || sidebarHistoryMode !== 'latest' || sidebarHistoryLoading
+          || !Number.isSafeInteger(sidebar.resultRevision) || sidebar.resultRevision <= 0) return;
+      const key = JSON.stringify([sidebar.entryId, sidebar.bindingGeneration, sidebar.resultRevision]);
+      if (acknowledgedSidebarResult === key) return;
+      publishSidebarViewState();
+      acknowledgedSidebarResult = key;
+      vscode.postMessage({ type: 'acknowledgeResult', revision: sidebar.resultRevision });
+    }
 
     function showNotice(message, level, outputAvailable = false, transientLock = false) {
       notice.replaceChildren();
@@ -541,14 +658,16 @@ export function getSidebarHtml(
       if (button.textContent !== label) button.textContent = label;
       if (hidden && document.activeElement === button) input.focus();
       button.hidden = hidden;
+      publishSidebarViewState();
     }
 
     function scrollConversationToBottom() {
       conversationPinnedToBottom = true;
       hasNewTranscriptOutput = false;
       updateLatestOutput();
+      const envelope = captureSidebarEnvelope();
       const scroll = () => {
-        if (conversationPinnedToBottom) setConversationScrollTop(conversationElement.scrollHeight);
+        if (sameSidebarEnvelope(envelope) && conversationPinnedToBottom) setConversationScrollTop(conversationElement.scrollHeight);
       };
       scroll();
       if (typeof requestAnimationFrame === 'function') requestAnimationFrame(scroll);
@@ -568,6 +687,10 @@ export function getSidebarHtml(
       return sidebarSlashCommands.some(command => command.name === name);
     }
 
+    function isSidebarNavigationCommand() {
+      return Boolean(sidebar) && /^\\/(?:new|resume)\\s*$/.test(input.value.trim());
+    }
+
     function submit(kind = 'steer') {
       if (composerDraft?.blocked()) {
         showNotice('The draft context changed. Wait for the transition, or verify the session and clear the kept text before sending.', 'warning');
@@ -576,24 +699,25 @@ export function getSidebarHtml(
       if (fileCompletion?.busy) return;
       fileCompletion?.cancel();
       const text = input.value.trim();
+      const navigationCommand = isSidebarNavigationCommand();
       const editorBlocker = editorRequestBlocker();
       if (editorBlocker) {
         showNotice(editorBlocker, 'warning', false, true);
         return;
       }
-      if ((!text && !attachedItems) || (!connected && !isSidebarSlashCommand()) || submissionPending || backgroundSubmissionPending || recoveredDraftPending) return;
-      if (!busy && text.startsWith('/') && attachedItems) {
+      if ((!text && !attachedItems) || (!connected && !isSidebarSlashCommand() && !sidebar?.canStart) || submissionPending || backgroundSubmissionPending || recoveredDraftPending) return;
+      if ((!busy || navigationCommand) && text.startsWith('/') && attachedItems) {
         showNotice('Remove attachments before running a slash command.', 'warning', false, true);
         return;
       }
       if (pendingImageReads > 0 || (attachedImages && !imageSupported)) return;
-      if (sessionsLayerVisible && busy) {
+      if (sessionsLayerVisible && busy && !sidebar) {
         showNotice('Wait for Pi to finish before starting a new session.', 'warning', false, true);
         return;
       }
       // Return button submissions to the composer before host state can hide the action.
       if (document.activeElement === sendButton || document.activeElement === $('after-this')) input.focus({ preventScroll: true });
-      if (busy) {
+      if (busy && !navigationCommand) {
         if (input.value.trimStart().startsWith('/') || pendingQueueCount >= 10) {
           showNotice(input.value.trimStart().startsWith('/') ? 'Slash commands cannot be queued. Wait for Pi to finish.' : 'The queue is full. Wait for a pending message to start.', 'warning', false, true);
           return;
@@ -602,10 +726,12 @@ export function getSidebarHtml(
           showNotice('This request does not accept queued messages.', 'warning', false, true);
           return;
         }
+        if (sidebar) sidebarPendingSubmission = { entryId: sidebar.entryId, revision: composerRevision, text: input.value };
         submissionPending = true;
         updateSendState();
         vscode.postMessage({ type: 'queueInstruction', kind, text: input.value, revision: composerRevision });
       } else {
+        if (sidebar) sidebarPendingSubmission = { entryId: sidebar.entryId, revision: composerRevision, text: input.value };
         submissionPending = true;
         updateSendState();
         const coldSessionCommand = !connected && /^\\/(?:new|resume)\\s*$/.test(text);
@@ -624,8 +750,9 @@ export function getSidebarHtml(
     }
 
     function setMessageContent(content, html) {
+      const envelope = captureSidebarEnvelope();
       if (window.piRichContent) window.piRichContent.setContent(content, html, () => {
-        if (conversationPinnedToBottom) scrollConversationToBottom();
+        if (sameSidebarEnvelope(envelope) && conversationPinnedToBottom) scrollConversationToBottom();
       });
       else content.innerHTML = html;
     }
@@ -905,6 +1032,7 @@ export function getSidebarHtml(
     }
 
     function renderTranscriptImage(button, attachment) {
+      const envelope = captureSidebarEnvelope();
       button.replaceChildren();
       button.title = attachment.fullLabel;
       const cached = imageAssetCache.get(attachment.assetId);
@@ -921,12 +1049,13 @@ export function getSidebarHtml(
         image.alt = attachment.fullLabel;
         if (attachment.width && attachment.height) { image.width = attachment.width; image.height = attachment.height; }
         image.addEventListener('load', () => {
+          if (!sameSidebarEnvelope(envelope)) return;
           const heightDelta = conversationElement.scrollHeight - beforeHeight;
           setConversationScrollTop(wasNearBottom
             ? conversationElement.scrollHeight
             : wasBelowViewport ? beforeTop : beforeTop + Math.max(0, heightDelta));
         });
-        image.addEventListener('error', () => rejectImageAsset(attachment.assetId));
+        image.addEventListener('error', () => rejectImageAsset(attachment.assetId, envelope));
         image.src = cached.url;
         button.appendChild(image);
       } else {
@@ -945,6 +1074,7 @@ export function getSidebarHtml(
     }
 
     function renderComposerImage(button, attachment) {
+      const envelope = captureSidebarEnvelope();
       button.replaceChildren();
       button.title = attachment.fullLabel;
       const cached = imageAssetCache.get(attachment.assetId);
@@ -954,7 +1084,7 @@ export function getSidebarHtml(
         const image = document.createElement('img');
         image.alt = attachment.fullLabel;
         if (attachment.width && attachment.height) { image.width = attachment.width; image.height = attachment.height; }
-        image.addEventListener('error', () => rejectImageAsset(attachment.assetId));
+        image.addEventListener('error', () => rejectImageAsset(attachment.assetId, envelope));
         image.src = cached.url;
         button.appendChild(image);
       } else {
@@ -1003,10 +1133,10 @@ export function getSidebarHtml(
       for (const target of imageTargets.get(message.id) || []) rerenderImageTarget(target);
     }
 
-    function rejectImageAsset(id) {
-      if (!discardImageAsset(id)) return;
+    function rejectImageAsset(id, envelope = captureSidebarEnvelope()) {
+      if (!sameSidebarEnvelope(envelope) || !discardImageAsset(id)) return;
       if (previewAssetId === id) closeImagePreview();
-      vscode.postMessage({ type: 'imageAssetRejected', id });
+      vscode.postMessage({ type: 'imageAssetRejected', id }, envelope);
     }
 
     function renderProposals(proposals) {
@@ -1404,8 +1534,54 @@ export function getSidebarHtml(
       time.className = 'session-row-time';
       time.textContent = formatSessionAge(session.updatedAt);
       button.append(title, time);
-      sessionButtons.push(button);
+      if (!sidebar) sessionButtons.push(button);
       return button;
+    }
+
+    function updateConcurrentSessionRows(list, sessions) {
+      const focused = list.contains(document.activeElement) ? document.activeElement : undefined;
+      const retained = new Map(Array.from(list.children, button => [button.dataset.sessionId, button]));
+      const next = sessions.map(session => {
+        let button = retained.get(session.id);
+        if (!button?.querySelector('.session-row-activity')) {
+          button?.remove();
+          button = createSessionRow(session);
+          const activity = document.createElement('span');
+          activity.className = 'session-row-activity';
+          const dot = document.createElement('span');
+          dot.className = 'session-unread-dot';
+          dot.setAttribute('aria-hidden', 'true');
+          const unread = document.createElement('span');
+          unread.className = 'sr-only session-row-unread';
+          unread.textContent = 'Unread result';
+          button.insertBefore(activity, button.lastChild);
+          button.append(dot, unread);
+        }
+        retained.delete(session.id);
+        button.classList.toggle('current', Boolean(session.current));
+        if (session.current) button.setAttribute('aria-current', 'page');
+        else button.removeAttribute('aria-current');
+        button.title = session.title;
+        const title = button.querySelector('.session-row-title');
+        if (title.textContent !== session.title) title.textContent = session.title;
+        const time = button.querySelector('.session-row-time');
+        const age = formatSessionAge(session.updatedAt);
+        if (time.textContent !== age) time.textContent = age;
+        const labels = { idle: 'Idle', running: 'Running', waiting: 'Waiting for input', completed: 'Completed', failed: 'Failed', stopped: 'Stopped' };
+        const activity = button.querySelector('.session-row-activity');
+        const label = labels[session.activity] || 'Idle';
+        if (activity.textContent !== label) activity.textContent = label;
+        button.querySelector('.session-unread-dot').hidden = !session.unread;
+        button.querySelector('.session-row-unread').hidden = !session.unread;
+        button.disabled = Boolean(sessionSwitchPending);
+        return button;
+      });
+      for (const button of retained.values()) button.remove();
+      for (let index = 0; index < next.length; index += 1) {
+        if (list.children[index] !== next[index]) list.insertBefore(next[index], list.children[index] || null);
+      }
+      if (focused && list.contains(focused) && document.activeElement !== focused) focused.focus({ preventScroll: true });
+      sessionButtons.push(...next);
     }
 
     function renderSessions() {
@@ -1414,8 +1590,13 @@ export function getSidebarHtml(
         ? recentSessions.filter(session => session.title.toLocaleLowerCase().includes(query))
         : recentSessions;
       sessionButtons = [];
-      recentSessionList.replaceChildren(...recentSessions.map(createSessionRow));
-      allSessionList.replaceChildren(...filtered.map(createSessionRow));
+      if (sidebar) {
+        updateConcurrentSessionRows(recentSessionList, recentSessions);
+        updateConcurrentSessionRows(allSessionList, filtered);
+      } else {
+        recentSessionList.replaceChildren(...recentSessions.map(createSessionRow));
+        allSessionList.replaceChildren(...filtered.map(createSessionRow));
+      }
       $('no-sessions').hidden = filtered.length > 0;
       $('view-all-sessions').textContent = 'View all (' + recentSessions.length + ')';
       $('view-all-sessions').hidden = !sessionsLayerVisible || sessionsExpanded || recentSessions.length === 0;
@@ -1437,7 +1618,11 @@ export function getSidebarHtml(
       if (sessionsLayerVisible) renderSessions();
     }
 
-    function showSessionDetail() {
+    function showSessionDetail(navigate = true) {
+      if (sidebar) {
+        if (navigate) composerDraft?.select('session');
+        return;
+      }
       composerDraft?.select('session');
       sessionsLayerVisible = false;
       updateSessionLayer();
@@ -1445,8 +1630,12 @@ export function getSidebarHtml(
       input.focus();
     }
 
-    function showSessionsLayer() {
+    function showSessionsLayer(navigate = true) {
       if (conversationOnly) return;
+      if (sidebar) {
+        if (navigate) composerDraft?.select('sessions');
+        return;
+      }
       composerDraft?.select('sessions');
       sessionsLayerVisible = true;
       updateSessionLayer();
@@ -1477,7 +1666,7 @@ export function getSidebarHtml(
 
     function selectRecentSession(id) {
       const session = recentSessions.find(item => item.id === id);
-      if (!session || isInteractionLocked() || sessionSwitchPending) return;
+      if (!session || (!sidebar && isInteractionLocked()) || sessionSwitchPending) return;
       if (session.current) {
         showSessionDetail();
         return;
@@ -1525,34 +1714,35 @@ export function getSidebarHtml(
       updateFileDiscoveryHint();
       const imageBlocked = attachedImages && !imageSupported;
       const imageLoading = pendingImageReads > 0;
-      const sessionStartBlocked = sessionsLayerVisible && busy;
+      const sessionStartBlocked = sessionsLayerVisible && busy && !sidebar;
       const interactionLocked = isInteractionLocked();
       if (!interactionLocked && notice.dataset.transientLock === 'true') clearNotice();
-      $('model-picker').disabled = interactionLocked || !connected;
-      $('new-session').disabled = interactionLocked;
+      $('model-picker').disabled = interactionLocked || (!connected && !sidebar?.canStart);
+      $('new-session').disabled = sidebar ? false : interactionLocked;
       $('delete-session').disabled = interactionLocked || !connected || !deletableSession;
       $('more').disabled = false;
       $('recover-queue').disabled = interactionLocked;
-      for (const button of sessionButtons) button.disabled = interactionLocked || Boolean(sessionSwitchPending);
+      for (const button of sessionButtons) button.disabled = (!sidebar && interactionLocked) || Boolean(sessionSwitchPending);
       input.disabled = Boolean(recoveredDraftPending);
       $('add-context').disabled = Boolean(recoveredDraftPending);
       for (const button of emptyActionButtons) button.disabled = interactionLocked;
       const editorBlocker = editorRequestBlocker();
-      const canQueue = busy && queueable && !sessionsLayerVisible && !editorRequest;
+      const navigationCommand = isSidebarNavigationCommand();
+      const canQueue = busy && queueable && !sessionsLayerVisible && !editorRequest && !navigationCommand;
       const sidebarCommand = isSidebarSlashCommand();
-      const slashBlocked = !busy && input.value.trimStart().startsWith('/') && attachedItems > 0;
-      const connectionBlocked = !connected && !sidebarCommand;
+      const slashBlocked = (!busy || navigationCommand) && input.value.trimStart().startsWith('/') && attachedItems > 0;
+      const connectionBlocked = !connected && !sidebarCommand && !sidebar?.canStart;
       const shellInput = input.value.startsWith('!');
       const shellBlocked = shellInput && (attachedItems > 0 || canQueue || sessionsLayerVisible);
       const queueBlocked = canQueue && (input.value.trimStart().startsWith('/') || shellInput || pendingQueueCount >= 10);
-      sendButton.hidden = busy && !canQueue;
+      sendButton.hidden = busy && !canQueue && !navigationCommand;
       sendButton.classList.toggle('queue-action', canQueue);
       sendButton.setAttribute('aria-label', canQueue ? 'Next: send after the current tool finishes' : 'Send message');
       $('after-this').hidden = !canQueue;
-      sendButton.disabled = Boolean(editorBlocker) || Boolean(composerDraft?.blocked()) || Boolean(fileCompletion?.busy) || (busy && !canQueue) || queueBlocked || shellBlocked || slashBlocked || submissionPending || backgroundSubmissionPending || imageLoading || Boolean(recoveredDraftPending) || sessionStartBlocked || connectionBlocked || (!input.value.trim() && !attachedItems) || imageBlocked;
+      sendButton.disabled = Boolean(editorBlocker) || Boolean(composerDraft?.blocked()) || Boolean(fileCompletion?.busy) || (busy && !canQueue && !navigationCommand) || queueBlocked || shellBlocked || slashBlocked || submissionPending || backgroundSubmissionPending || imageLoading || Boolean(recoveredDraftPending) || sessionStartBlocked || connectionBlocked || (!input.value.trim() && !attachedItems) || imageBlocked;
       $('after-this').disabled = sendButton.disabled;
       $('after-this').title = 'Send when Pi finishes responding (' + followUpShortcutLabel + ')';
-      const settingsReason = !connected ? 'Reconnect to change settings.' : interactionLocked ? 'Settings are locked during active work.' : '';
+      const settingsReason = !connected && !sidebar?.canStart ? 'Reconnect to change settings.' : interactionLocked ? 'Settings are locked during active work.' : '';
       $('settings-description').textContent = [settingsReason, thinkingUnavailableReason].filter(Boolean).join(' ');
       $('model-picker').setAttribute('aria-describedby', 'settings-description');
       $('model-picker').title = modelTitle + (settingsReason ? ' · ' + settingsReason : '');
@@ -1566,7 +1756,7 @@ export function getSidebarHtml(
         : imageLoading ? 'Loading pasted images. Wait for loading to finish.'
         : editorBlocker ? editorBlocker
         : sessionStartBlocked ? 'Pi is working. Wait or use Stop before starting a new session.'
-        : busy && !canQueue ? 'This request cannot accept queued messages. Wait or use Stop.'
+        : busy && !canQueue && !navigationCommand ? 'This request cannot accept queued messages. Wait or use Stop.'
         : slashBlocked ? 'Remove attachments before running a slash command.'
         : shellBlocked ? 'Direct shell needs an idle session without attachments. Wait, open a session, or remove attachments.'
         : queueBlocked ? input.value.trimStart().startsWith('/')
@@ -1590,7 +1780,9 @@ export function getSidebarHtml(
             ? 'Wait for Pi to finish before starting a new session'
             : imageBlocked
               ? 'Choose a model that supports images, or remove them'
-              : queueable && !sessionsLayerVisible && !editorRequest
+              : navigationCommand
+                ? 'Select or create a Sidebar session without stopping this work.'
+                : queueable && !sessionsLayerVisible && !editorRequest
                 ? 'Next: after the current tool · After this: after the response · Enter / ' + followUpShortcutLabel + ' · Shift+Enter for a new line'
                 : busy
                   ? 'Wait for Pi to finish before sending'
@@ -1598,6 +1790,7 @@ export function getSidebarHtml(
       updateRuntimeStatus(emptyDraft ? '' : blocker);
       renderSlashCommands();
       fileCompletion?.refresh();
+      publishSidebarViewState();
     }
 
     let renderedExtensionUi = '';
@@ -1665,7 +1858,7 @@ export function getSidebarHtml(
         return true;
       });
       const sessionIdentity = JSON.stringify([state.runtime.sessionId, state.runtime.sessionFile]);
-      if (displayedSessionIdentity !== undefined && displayedSessionIdentity !== sessionIdentity) {
+      if (!sidebar && displayedSessionIdentity !== undefined && displayedSessionIdentity !== sessionIdentity) {
         conversationPinnedToBottom = true;
         hasNewTranscriptOutput = false;
         lastTranscriptSignature = '';
@@ -1684,7 +1877,7 @@ export function getSidebarHtml(
       imageSupported = Boolean(state.imageSupported);
       backgroundSubmissionPending = Boolean(state.backgroundSubmissionPending);
       recentSessions = Array.isArray(state.sessions) ? state.sessions : [];
-      if (sessionSwitchPending && recentSessions.some(session => session.id === sessionSwitchPending && session.current)) {
+      if (!sidebar && sessionSwitchPending && recentSessions.some(session => session.id === sessionSwitchPending && session.current)) {
         sessionSwitchPending = undefined;
         showSessionDetail();
       } else {
@@ -1720,25 +1913,52 @@ export function getSidebarHtml(
       modelTitle = modelName + ' · ' + modelIdentity + ' · Thinking: ' + thinkingName;
       $('model-picker').setAttribute('aria-label', 'Pi model: ' + modelName + ' · ' + modelIdentity + ' · Thinking: ' + thinkingName + '. Change model or thinking level');
       $('delete-session').hidden = !deletableSession;
+      $('close-sidebar-session').hidden = !sidebar?.canClose;
       $('runtime').dataset.connection = !connected ? 'disconnected' : busy ? 'busy' : 'connected';
       const status = busy && (!state.status || state.status === 'Ready') ? 'Working…' : state.status || 'Ready';
-      latestStatus = status + (connected || /disconnected/i.test(status) ? '' : ' · disconnected');
+      latestStatus = status + (connected || sidebar?.canStart || /disconnected/i.test(status) ? '' : ' · disconnected');
       $('session').value = state.runtime.sessionId || '';
       $('session-details').hidden = !state.runtime.sessionId;
       const context = (state.runtime.stats || {}).contextUsage || {};
       const hasContextUsage = typeof context.percent === 'number';
       $('usage').textContent = hasContextUsage ? 'Context ' + Math.round(context.percent) + '%' : 'Context usage is unavailable.';
       $('usage').title = hasContextUsage ? 'Share of the model’s context window currently in use' : '';
-      updateRecoveryControl('reconnect', connected);
+      updateRecoveryControl('reconnect', connected || Boolean(sidebar?.canStart));
       updateRecoveryControl('retry', !state.retryAvailable, busy || !connected);
       updateRecoveryControl('refresh-history', !state.historyRecoveryAvailable, busy || !connected);
       cancelButton.hidden = !cancellable;
       updateSendState();
+      if (sidebar) {
+        if (sidebarReadingRestore && !conversationPinnedToBottom && !sessionsLayerVisible) {
+          const saved = sidebarReadingRestore;
+          const anchor = saved.anchorId === undefined ? undefined
+            : Array.from(messagesElement.children).find(node => node.messageId === saved.anchorId);
+          setConversationScrollTop(anchor
+            ? conversationElement.scrollTop + anchor.getBoundingClientRect().top - conversationElement.getBoundingClientRect().top - saved.anchorOffset
+            : saved.top);
+        }
+        sidebarReadingRestore = undefined;
+        sidebarHistoryMode = state.history?.mode;
+        sidebarHistoryLoading = Boolean(state.history?.loading);
+        sidebarDetailRendered = !sessionsLayerVisible;
+        sidebarRendering = false;
+        if (sidebarFocusAfterRender) {
+          sidebarFocusAfterRender = false;
+          const target = sessionsLayerVisible
+            ? sessionsExpanded ? sessionSearchInput : recentSessionList.querySelector('[aria-current="page"]') || input
+            : input;
+          target.focus({ preventScroll: true });
+        }
+        publishSidebarViewState();
+        acknowledgeSidebarResult();
+      }
       updateLatestOutput();
     }
 
     function attachPastedImages(event) {
       if (input.disabled || input.readOnly) { event.preventDefault(); return; }
+      const envelope = captureSidebarEnvelope();
+      publishSidebarViewState(true);
       const items = Array.from((event.clipboardData && event.clipboardData.items) || []);
       const files = items.filter(item => item.kind === 'file' && item.type.startsWith('image/')).map(item => item.getAsFile()).filter(Boolean);
       if (files.length === 0) return;
@@ -1760,13 +1980,17 @@ export function getSidebarHtml(
           const result = typeof reader.result === 'string' ? reader.result : '';
           const separator = result.indexOf(',');
           if (separator < 0) {
-            showNotice('Could not read the pasted image.', 'error');
+            if (sameSidebarEnvelope(envelope)) showNotice('Could not read the pasted image.', 'error');
             return;
           }
-          vscode.postMessage({ type: 'pasteImage', data: result.slice(separator + 1), mimeType: file.type, fileName: file.name || 'pasted-image' });
+          if (!envelope && sidebar) return;
+          vscode.postMessage({ type: 'pasteImage', data: result.slice(separator + 1), mimeType: file.type, fileName: file.name || 'pasted-image' }, envelope);
         });
-        reader.addEventListener('error', () => showNotice('Could not read the pasted image.', 'error'));
+        reader.addEventListener('error', () => {
+          if (sameSidebarEnvelope(envelope)) showNotice('Could not read the pasted image.', 'error');
+        });
         reader.addEventListener('loadend', () => {
+          if (!sameSidebarEnvelope(envelope)) return;
           pendingImageReads = Math.max(0, pendingImageReads - 1);
           updateSendState();
         });
@@ -1822,14 +2046,48 @@ export function getSidebarHtml(
 
     ${composerFileCompletionHtml()}
     ${composerDraftHtml()}
+    // Sidebar navigation is host-owned. Keep legacy editor-panel recovery unchanged.
+    const legacyComposerDraft = composerDraft;
+    composerDraft = {
+      ...legacyComposerDraft,
+      receive(message) {
+        // Only the host can distinguish registry selection/first startup from a real replacement.
+        legacyComposerDraft.receive(sidebar && message.type === 'draftState'
+          ? { ...message, reset: (message.sidebar?.composer?.contextBlocked === true
+            || sidebarComposerContext !== sidebar.composerContext) && message.reset }
+          : message);
+      },
+      select(scope) {
+        if (sidebar) { legacyComposerDraft.flush(); vscode.postMessage({ type: 'draftSelect', scope }); }
+        else legacyComposerDraft.select(scope);
+      },
+      handoff() { if (sidebar) legacyComposerDraft.flush(); else legacyComposerDraft.handoff(); },
+      sendHandoff(count) { if (sidebar) legacyComposerDraft.flush(); else legacyComposerDraft.sendHandoff(count); }
+    };
     ${conversationHistoryScript()}
     conversationHistory.bind({
-      pauseFollowing() { conversationPinnedToBottom = false; updateLatestOutput(); },
-      followLatest() { scrollConversationToBottom(); }
+      pauseFollowing() { conversationPinnedToBottom = false; updateLatestOutput(); publishSidebarViewState(); },
+      followLatest() { scrollConversationToBottom(); publishSidebarViewState(); acknowledgeSidebarResult(); }
     });
     window.addEventListener('message', event => {
       const message = event.data;
       if (!message || typeof message.type !== 'string') return;
+      if (message.type === 'state') {
+        if (sidebar && (!message.sidebar || message.sidebar.bindingGeneration < sidebar.bindingGeneration
+            || (message.sidebar.bindingGeneration === sidebar.bindingGeneration && message.sidebar.entryId !== sidebar.entryId))) return;
+        bindSidebar(message.sidebar);
+      } else if (sidebar && (!message.sidebar || !sameSidebarEnvelope(message.sidebar))) return;
+      if (sidebar && Number.isSafeInteger(message.sidebar?.composerContext))
+        sidebar.composerContext = Math.max(sidebar.composerContext, message.sidebar.composerContext);
+      if (sidebar && !input.value) sidebarComposerContext = sidebar.composerContext;
+      if (sidebar && typeof message.sidebar?.composer?.contextBlocked === 'boolean')
+        composerDraft?.setContextBlocked(message.sidebar.composer.contextBlocked
+          || (Boolean(input.value) && sidebarComposerContext !== sidebar.composerContext));
+      if (message.type === 'sidebarSessions') {
+        recentSessions = Array.isArray(message.sessions) ? message.sessions : [];
+        updateSessionLayer();
+        return;
+      }
       if (message.type === 'copyTextResult') {
         copyRequests.get(message.requestId)?.(message.ok === true);
         return;
@@ -1838,8 +2096,8 @@ export function getSidebarHtml(
       fileCompletion.receive(message);
       if (['clearInput', 'appendDraft', 'commitRecoveredDraft', 'showSessionDetail', 'showSessionsLayer'].includes(message.type)) fileCompletion.cancel();
       if (message.type === 'state') render(message);
-      else if (message.type === 'showSessionDetail') showSessionDetail();
-      else if (message.type === 'showSessionsLayer') showSessionsLayer();
+      else if (message.type === 'showSessionDetail') showSessionDetail(false);
+      else if (message.type === 'showSessionsLayer') showSessionsLayer(false);
       else if (message.type === 'showConversationDetails') showConversationDetails();
       else if (message.type === 'toggleCodeWrapping') toggleCodeWrapping();
       else if (message.type === 'imageAsset') acceptImageAsset(message);
@@ -1886,7 +2144,22 @@ export function getSidebarHtml(
       }
       else if (message.type === 'clearInput') {
         submissionPending = false;
-        const revisionMatches = composerDraft.matches(message.draftBinding, message.expectedRevision, message.expectedText) && (message.expectedRevision === undefined || composerRevision === message.expectedRevision);
+        if (sidebar && composerDraft?.blocked()) {
+          sidebarPendingSubmission = undefined;
+          updateSendState();
+          return;
+        }
+        // Startup/promotion can assign a new draft owner after this exact submission was accepted.
+        // Bridge only its captured entry/text/revision; other controls keep legacy binding checks.
+        const acceptedSidebarOrigin = sidebar && sidebarPendingSubmission?.entryId === sidebar.entryId
+          && sidebarPendingSubmission.revision === message.expectedRevision && sidebarPendingSubmission.text === message.expectedText;
+        if (acceptedSidebarOrigin) sidebarPendingSubmission = undefined;
+        // A recreated document has no local token. Require the host's exact accepted snapshot instead.
+        const acceptedSidebarSnapshot = sidebar && typeof message.expectedText === 'string'
+          && Number.isSafeInteger(message.expectedRevision) && message.sidebar?.composer?.text === ''
+          && message.sidebar.composer.contextBlocked === false
+          && message.sidebar.composer.revision === message.expectedRevision + 1;
+        const revisionMatches = (acceptedSidebarOrigin || acceptedSidebarSnapshot || composerDraft.matches(message.draftBinding, message.expectedRevision, message.expectedText)) && (message.expectedRevision === undefined || composerRevision === message.expectedRevision);
         const textMatches = message.expectedText === undefined || input.value === message.expectedText;
         if (revisionMatches && textMatches) {
           input.value = '';
@@ -1897,7 +2170,7 @@ export function getSidebarHtml(
         }
         updateSendState();
       }
-      else if (message.type === 'sendRejected') { submissionPending = false; updateSendState(); input.focus(); }
+      else if (message.type === 'sendRejected') { sidebarPendingSubmission = undefined; submissionPending = false; updateSendState(); input.focus(); }
       else if (message.type === 'sessionSwitchRejected') { sessionSwitchPending = undefined; renderSessions(); }
       else if (message.type === 'newSessionAccepted') { newSessionSourceWasList = undefined; }
       else if (message.type === 'newSessionRejected') {
@@ -1930,10 +2203,14 @@ export function getSidebarHtml(
       });
     }
     $('new-session').addEventListener('click', () => {
+      if (sidebar) { vscode.postMessage({ type: 'newSession' }); return; }
       newSessionSourceWasList = sessionsLayerVisible;
       composerDraft?.handoff();
       showSessionDetail();
       vscode.postMessage({ type: 'newSession' });
+    });
+    $('close-sidebar-session').addEventListener('click', () => {
+      if (sidebar?.canClose) vscode.postMessage({ type: 'closeSidebarSession' });
     });
     $('delete-session').addEventListener('click', () => vscode.postMessage({ type: 'deleteSession' }));
     $('more').addEventListener('click', () => vscode.postMessage({ type: 'showMoreActions', text: input.value, revision: composerRevision, codeWrapping: messagesElement.classList.contains('wrap-code') }));
@@ -1947,6 +2224,12 @@ export function getSidebarHtml(
       if (conversationHistory.isEarlier()) conversationHistory.latest();
       else scrollConversationToBottom();
       input.focus();
+      publishSidebarViewState();
+      acknowledgeSidebarResult();
+    });
+    document.addEventListener('visibilitychange', () => {
+      publishSidebarViewState();
+      acknowledgeSidebarResult();
     });
     window.addEventListener('pi-transcript-layout', updateLatestOutput);
     window.addEventListener('resize', resizeInput);
@@ -1979,6 +2262,7 @@ export function getSidebarHtml(
       else if (event.isTrusted) conversationPinnedToBottom = false;
       programmaticConversationScrollTop = undefined;
       updateLatestOutput();
+      acknowledgeSidebarResult();
     });
     conversationElement.addEventListener('wheel', event => {
       if (event.deltaY < 0) conversationPinnedToBottom = false;

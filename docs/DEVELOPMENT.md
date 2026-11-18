@@ -90,6 +90,10 @@ Run it after renderer changes.
 Run the thinking-picker check after thinking-picker changes.
 The settings check tests controls, scopes, reset, external-change conflicts, draft recovery, keyboard navigation, themes, layout, and CSP using the bundled assets.
 None of these checks uses a live model.
+The rich-content, thinking-picker, settings, native Extension Host, and native UI launchers use `scripts/test-browser-platform.mjs` to detect WSL through `WSL_DISTRO_NAME`, `WSL_INTEROP`, or a case-insensitive `microsoft` kernel match.
+They add `--ozone-platform=wayland` on WSL, including automated Chromium launches.
+Check WSL before any other Chromium/VS Code launch and pass that argument when applicable.
+These launcher changes affect test launches, not bundled Pi runtime assets.
 
 Fixed-status regressions check the permanent composer parent, Sessions parity, reserved idle geometry, message priority, neutral empty input, long text and recovery-button wrapping, unchanged recovery checks, focus, scroll preservation, and no duplicate DOM live announcements.
 Unit/browser checks and full Linux native UI suites passed on VS Code 1.106.0 and 1.142.0.
@@ -157,6 +161,91 @@ Report these results separately from extracted-archive smoke, browser fixtures, 
 Unresolved distribution/runtime requirements must be resolved before release, not silently waived.
 No model request, login, live MCP service, installation into an existing profile, or publication is authorized by the offline checks.
 
+### Sidebar concurrency validation
+
+The current contract is one Sidebar over retained independent conversation controllers, with one Primary plus eight additional runtimes shared across Sidebar and editor surfaces.
+The minimum supported VS Code version is 1.146.0 and bundled Pi is 1.5.2.
+Dated quick-switch and editor-panel evidence does not validate concurrent Sidebar selection or the shared pool.
+
+Prepare locked dependencies, local Chromium, and VS Code test artifacts before network-disabled fixture execution.
+Use a disposable sandbox with isolated stores/profiles, no host credentials or home mounts, and only the required toolchain.
+Record sandbox setup failures separately from test results; a missing prerequisite leaves the gate pending, not waived.
+Compile-based commands share generated assets and must run sequentially.
+After preparation, run:
+
+```bash
+npm run compile
+npm test
+npm exec --yes --package=@biomejs/biome@2.5.13 -- biome check src resources
+npm run test:rich-content
+npm run test:thinking-picker
+npm run test:settings
+xvfb-run -a npm run test:native -- 1.146.0
+xvfb-run -a npm run test:native -- 1.146.0 untrusted
+xvfb-run -a npm run test:native-ui -- 1.146.0
+xvfb-run -a npm run test:native -- stable
+xvfb-run -a npm run test:native -- stable untrusted
+xvfb-run -a npm run test:native-ui -- stable
+```
+
+Resolve and record the actual stable version and native Electron/Node.js/OS/architecture versions.
+On a desktop Linux host, omit `xvfb-run -a` only when an available display is intended.
+Check the WSL launch argument described under [Browser checks](#browser-checks); local Linux under WSL is not Remote WSL validation.
+The focused native `session-switch` selector is available for iteration, not a substitute for final full native UI runs.
+No runtime artifact or distribution change is required for this feature; packaging is not part of this validation unless separate asset inspection becomes necessary.
+Do not install into an existing profile, authenticate, call a live provider, or publish a package to validate these scenarios.
+
+#### Manual and native scenarios
+
+Use deterministic Pi fixture responses and disposable profiles for the following checks.
+Use the verification table below to distinguish automated coverage from the remaining platform and human review.
+
+1. **Two ordinary Sidebar requests.**
+   Start A, select an already live B through Sessions, submit in B, and return to A while both run.
+   Repeat through View all, native Switch Session, and Previous/Next.
+   Verify independent streams, equal-text queued instructions with different attachment snapshots, drafts, model/thinking choices, history windows, and Stop.
+   Stop A and verify B continues; selection must not send RPC `switch_session` or abort to A.
+2. **Open saved or new work during A.**
+   While A runs, open a previously unloaded saved B, then create C from New Session and the Sessions composer.
+   Repeat Resume Session and local `/new`/`/resume` without attachments/prepared actions.
+   Confirm **Open Session**, verify separate writers and captured composer transfer, then cancel an opening and verify unchanged selection/draft.
+   Exercise editor-owned file reveal, shared capacity with editor panels, cancelled Close Session, verified cleanup, and retained writer/slot/root quarantine on uncertain cleanup.
+3. **Authoritative Sessions activity.**
+   Observe Running through startup/tools/retry/compaction/queue settlement, Waiting for input during source-labelled input/approval, and Completed/Failed/Stopped after their distinct outcomes.
+   Select B while A waits and respond to A's dialog; verify the reply and Stop remain A-bound, including equal request IDs in B.
+   Keep connection/delivery/cleanup warnings separate from activity and do not infer Completed from saved history.
+4. **Unread settled results.**
+   Let hidden A settle while B or Sessions is displayed; verify A has an accessible unread marker.
+   Select A with earlier history or paused following and verify it stays unread.
+   Render its exact result in visible latest-following detail and verify acknowledgement.
+   Race a newer result against an older acknowledgement, hide/re-resolve the Sidebar, and test stale/cross-session acknowledgements without clearing the newer result.
+5. **Primary-only boundaries and lifecycle.**
+   Verify **Primary** remains the service-owner label as selection changes.
+   Select an auxiliary entry and exercise ordinary controls; confirm its privileged actions are omitted or rejected and global editor/review/repair/settings/authentication routes still target Primary.
+   Check terminal environment/handoff/recovery, restart, annotations, primary restore/cache keys, and public bridge broadcast without focus-based retargeting.
+   Verify actual RPC session/resource mutations, direct shell, Apply/import/restore, and background gates remain exclusive while display selection remains available.
+   Test canonical aliases/duplicate writers, changed headers/workspaces/trust/policy, checkpoint overlap, keyboard/focus, narrow themes, CSP, and unexpected network requests.
+   Reload without auxiliary restart, queue replay, durable status/unread, or additional persistent transcript keys; retain existing consent and aggregate draft-store limits.
+
+#### Current verification
+
+Validation on 2026-11-17 used network-disabled `bwrap` copies, isolated stores/profiles, Node.js 26.8.2, and a private Wayland compositor with a virtual input seat.
+See [the feature matrix](FEATURE_MATRIX.md#concurrent-sidebar-sessions) for exact scenario evidence and retained external handoff.
+Native fixtures wait for completed file-watcher reloads and current picker transitions, without replaying writes or weakening production guards.
+Reload tests explicitly select retained Primary before its controls; Sessions remains an independent launcher.
+The full native UI lane runs the new concurrency fixture last so earlier exact prompt/history assertions remain intact.
+
+| Gate | Result |
+| --- | --- |
+| Compile and full unit suite | Passed: 114 files, 1,940 tests passed, three existing skips. |
+| Documented Biome 2.5.13 check | Passed with warnings/information; no errors. |
+| Full rich-content, thinking-picker, and settings browser suites | Passed, including single-document concurrency, editor compatibility, and 864 thinking-picker layout cases. |
+| Minimum VS Code 1.146.0 trusted/untrusted Extension Host and full UI | Passed with deterministic fixtures. |
+| Resolved current stable trusted/untrusted Extension Host and full UI | Passed; independently verified stable 1.146.0, commit `69047191fc427f2f92828279aae1d90d8eeda7ab`; network-disabled launchers used the matching cached artifact. |
+
+macOS/Windows native cleanup and shortcuts, actual Remote SSH/WSL/container targets, real assistive-technology announcements, and live providers need separate evidence.
+Do not infer those results from Linux/WSL, DOM, or earlier editor-panel checks.
+
 ### Session quick switch validation
 
 This section records historical validation before the Pi 1.5.2 and VS Code 1.146.0 update, not reruns with the new dependencies.
@@ -173,8 +262,8 @@ These local Linux runs do not verify VS Code Remote WSL.
 | `npm run test:rich-content` | Passed, including clipboard success/failure IPC and lifecycle assertions. |
 | `npm run package` | Passed full tests and extracted bundled-runtime smoke; ZIP inspection confirmed all three commands and guarded shifted chords. |
 
-The native UI runner also accepts `session-switch` after the version for focused iteration.
-Default native UI runs include the same assertions.
+The current native UI runner accepts `session-switch` after the version for focused iteration over retained Sidebar sessions.
+Default native UI runs include the current assertions; see [Sidebar concurrency validation](#sidebar-concurrency-validation) for current results and limits.
 Generated native default-keybinding JSON confirmed no Linux built-in conflicts for the shifted chords.
 Static checks of VS Code 1.140.0 and 1.143.0 bundles found conflicts with the original unshifted Git and macOS editor-group chords; the final chords avoid these known conflicts.
 
@@ -196,7 +285,7 @@ No live-provider request, login, upload, user-profile installation, release, or 
 | Command | Purpose |
 | --- | --- |
 | `npm run test:native -- 1.146.0` | Isolated Extension Host assertions against the minimum supported VS Code version. |
-| `xvfb-run -a npm run test:native-ui -- 1.146.0` | Linux UI checks for attachments, image preview/focus, queue controls, status/Stop, session details, deletion confirmation, review confirmations, Problems actions, proposals, multi-file Apply/Undo, and reload. |
+| `xvfb-run -a npm run test:native-ui -- 1.146.0` | Linux UI checks for Sidebar session selection, attachments, image preview/focus, queue controls, status/Stop, session details, deletion confirmation, review confirmations, Problems actions, proposals, multi-file Apply/Undo, and reload. |
 
 On headless Linux, also prefix `test:native` with `xvfb-run -a`.
 Replace `1.146.0` with `stable` to check the current VS Code release.

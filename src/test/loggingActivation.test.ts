@@ -12,6 +12,15 @@ function replace(module: string, name: string, value: unknown): void {
   });
 }
 
+replace(
+  "../sidebarSessions",
+  "SidebarSessions",
+  class {
+    async shutdown() {}
+    dispose() {}
+  },
+);
+
 let failMigration = false;
 let failBridge = false;
 let createdRuntime = 0;

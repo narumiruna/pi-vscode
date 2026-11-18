@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { WorkspaceChangeTracker } from "./changeTracker";
 import { registerPiChat } from "./chat";
 import { ConcurrentSessions } from "./concurrentSessions";
 import { registerDebugContext } from "./debugContextController";
@@ -6,6 +7,7 @@ import { registerEditorActions } from "./editorActions";
 import { registerExtensionUiDialogs } from "./extensionUiDialogs";
 import { registerGitReview } from "./gitReviewController";
 import { registerInlineCompletions } from "./inlineCompletion";
+import { InteractiveSessionSlots } from "./interactiveSessionSlots";
 import { removeLegacyGlobalBridgeExtensions } from "./legacyBridge";
 import { type LogMetadata, PiLogger, safeErrorCategory, safeErrorCode } from "./logging";
 import { registerNativePiManagement } from "./nativePiController";
@@ -14,7 +16,8 @@ import { PiRuntimeManager } from "./piRuntime";
 import { registerProviderAuthentication } from "./providerAuth";
 import { SessionWriters } from "./sessionWriters";
 import { registerSettingsPanel } from "./settingsPanel";
-import { registerPiSidebar } from "./sidebar";
+import { PiChatViewProvider, registerPiSidebar } from "./sidebar";
+import { SidebarSessions } from "./sidebarSessions";
 import { registerTestRepair } from "./testRepairController";
 import { abortAllPiInvocations, initializePiRuntime } from "./vscodePi";
 import { registerWorkspaceDiagnostics } from "./workspaceDiagnosticsController";
@@ -90,9 +93,44 @@ async function activateWithLogger(
   stage("registration");
   const dialogs = registerExtensionUiDialogs(context, runtime);
   const conversation = registerPiSidebar(context, runtime, logger);
-  const sessions = new ConcurrentSessions(context, runtime, conversation, dialogs, writers, logger);
+  const slots = new InteractiveSessionSlots();
+  const sessions = new ConcurrentSessions(context, runtime, conversation, dialogs, writers, logger, slots);
+  const sidebarSessions = new SidebarSessions({
+    context,
+    primaryRuntime: runtime,
+    primary: conversation,
+    dialogs,
+    writers,
+    slots,
+    logger,
+    revealEditorSession: (sessionFile) => sessions.revealSession(sessionFile),
+    createConversation: (independentRuntime, resource, label) => {
+      const tracker = new WorkspaceChangeTracker();
+      try {
+        return new PiChatViewProvider(
+          context,
+          independentRuntime,
+          tracker,
+          conversation.backgroundAgents,
+          logger,
+          {
+            resource,
+            label,
+            reveal: async () => {
+              await vscode.commands.executeCommand("pi.chatView.focus");
+            },
+          },
+          conversation.draftStore,
+        );
+      } catch (error) {
+        tracker.dispose();
+        throw error;
+      }
+    },
+  });
+  context.subscriptions.push(sidebarSessions);
   shutdownSessions = async () => {
-    await Promise.allSettled([sessions.shutdown(), runtime.shutdown()]);
+    await Promise.allSettled([sidebarSessions.shutdown(), sessions.shutdown(), runtime.shutdown()]);
   };
   registerPiCompatibility(context, runtime);
   registerSettingsPanel(context, runtime);

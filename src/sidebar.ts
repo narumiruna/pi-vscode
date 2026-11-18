@@ -60,6 +60,7 @@ import {
   type WebviewMessage,
 } from "./sidebarHelpers";
 import { getSidebarHtml } from "./sidebarHtml";
+import type { SidebarSessions } from "./sidebarSessions";
 import {
   contextTranscriptAttachment,
   historySyncFailureState,
@@ -231,6 +232,7 @@ export class PiChatViewProvider
   private sessionCycleOrigin = "";
   private sessionCycleIdentity = "";
   private cyclingSession = false;
+  private sidebarSessions: SidebarSessions | undefined;
 
   public constructor(
     private readonly context: vscode.ExtensionContext,
@@ -330,7 +332,32 @@ export class PiChatViewProvider
     );
   }
 
+  public setSidebarSessions(sessions: SidebarSessions): void {
+    this.sidebarSessions = sessions;
+  }
+
+  public receiveSidebarMessage(message: unknown): Promise<void> {
+    return this.drafts.runMessage(message, () => this.handleMessage(message));
+  }
+
+  public refreshSidebarDraft(): void {
+    this.drafts.ready();
+  }
+
+  public get hasProtectedSidebarRecovery(): boolean {
+    return this.changeTracker.hasProtectedRecovery;
+  }
+
+  public connectSidebarSession(): Promise<void> {
+    return this.initializeRuntime();
+  }
+
   public resolveWebviewView(webviewView: ConversationView): void {
+    if (this.sidebarSessions) this.sidebarSessions.resolveWebviewView(webviewView);
+    else this.resolveConversationView(webviewView);
+  }
+
+  public resolveConversationView(webviewView: ConversationView, initialize = true): void {
     this.view = webviewView;
     this.webviewReady = false;
     this.drafts.beginView();
@@ -368,7 +395,7 @@ export class PiChatViewProvider
     });
     this.disposables.push(messageListener, viewListener);
     this.postState();
-    void this.initializeRuntime();
+    if (initialize) void this.initializeRuntime();
   }
 
   public dispose(): void {
@@ -397,8 +424,10 @@ export class PiChatViewProvider
     this.imageAssets.clear();
   }
 
-  public refreshView(): void {
-    if (!this.disposed) this.postState();
+  public refreshView(resetImageDelivery = false): void {
+    if (this.disposed) return;
+    if (resetImageDelivery) this.imageAssetDelivery.reset();
+    this.postState();
   }
 
   public checkpointContent(uri: vscode.Uri): string {
@@ -419,11 +448,17 @@ export class PiChatViewProvider
   }
 
   private async reveal(): Promise<void> {
+    this.sidebarSessions?.revealConversation(this);
     if (this.surface) await this.surface.reveal();
     else await vscode.commands.executeCommand(`${viewId}.focus`);
   }
 
   public async showSessions(): Promise<void> {
+    if (this.sidebarSessions) {
+      await vscode.commands.executeCommand(`${viewId}.focus`);
+      await this.sidebarSessions.showSessions();
+      return;
+    }
     await this.reveal();
     this.navigate(this.surface ? "showSessionDetail" : "showSessionsLayer");
   }
@@ -518,7 +553,14 @@ export class PiChatViewProvider
 
   private async handleMessage(message: unknown): Promise<void> {
     if (this.disposed) return;
-    if (this.surface && isRecord(message) && message.type === "draftSelect" && message.scope === "sessions") return;
+    if (
+      this.surface &&
+      !this.sidebarSessions &&
+      isRecord(message) &&
+      message.type === "draftSelect" &&
+      message.scope === "sessions"
+    )
+      return;
     if (!isWebviewMessage(message, maxImageBytes)) {
       return;
     }
@@ -986,7 +1028,11 @@ export class PiChatViewProvider
     )
       return;
     // More stays available for read-only display and terminal recovery, not for locked mutations.
-    if (!["details", "wordWrap", "returnTerminal"].includes(selected.action)) this.assertSettingsIdle();
+    if (
+      !["details", "wordWrap", "returnTerminal"].includes(selected.action) &&
+      !(this.sidebarSessions && selected.action === "resume")
+    )
+      this.assertSettingsIdle();
     if (selected.action === "details") this.postMessage({ type: "showConversationDetails" });
     else if (selected.action === "checkpoints") {
       if (this.isForegroundRequestActive()) throw new Error("Wait for Pi before restoring checkpoints.");
@@ -1275,6 +1321,14 @@ export class PiChatViewProvider
     if (/^\/vscode-pi-/i.test(rawText.trim())) throw new Error("Internal Pi controls must use their host action.");
     const command = parseSidebarSlashCommand(rawText);
     if (!command) return false;
+    if (this.sidebarSessions && !command.arguments && ["new", "resume"].includes(command.name)) {
+      if (this.attachments.summaries.length || this.preparedEditorRequest)
+        throw new Error("Remove attachments and cancel the prepared action before navigation.");
+      const navigated = await this.sidebarSessions.navigateFromComposer(command.name as "new" | "resume");
+      if (navigated) this.postMessage({ type: "clearInput", expectedText: rawText, expectedRevision: revision });
+      else this.postMessage({ type: "sendRejected" });
+      return true;
+    }
     if (command.arguments && command.name !== "compact")
       throw new Error(`/${command.name} does not accept arguments. Run it without arguments to open its controls.`);
     if (this.attachments.summaries.length) throw new Error("Remove attachments before running a slash command.");
@@ -1436,6 +1490,9 @@ export class PiChatViewProvider
       throw new Error("Direct shell requires an idle composer with no conflicting work.");
     const historyOrigin = this.historyWindow.mode === "earlier" ? this.submissionSessionIdentity() : undefined;
     const release = this.requestGate.acquire();
+    const sidebarRequestId = randomUUID();
+    let sidebarOutcome: "completed" | "failed" | "stopped" = "failed";
+    this.sidebarSessions?.requestStarted(this, sidebarRequestId);
     this.historySyncRevision += 1;
     this.historyAvailable = false;
     this.retryRequest = undefined;
@@ -1476,16 +1533,19 @@ export class PiChatViewProvider
         },
       );
       if (!result) {
+        sidebarOutcome = "stopped";
         this.status = "Shell not started";
         this.postMessage({ type: "sendRejected" });
         return;
       }
       status = result.cancelled ? "cancelled" : "completed";
+      sidebarOutcome = result.cancelled ? "stopped" : "completed";
       this.status = result.cancelled
         ? "Shell cancelled · Inspect effects"
         : `Shell finished · Exit ${result.exitCode ?? "unknown"}`;
       await this.persistMessages();
     } catch (error) {
+      sidebarOutcome = "failed";
       this.status = "Shell execution uncertain · Inspect effects; no automatic retry";
       await this.persistMessages();
       this.postNotice(
@@ -1504,6 +1564,12 @@ export class PiChatViewProvider
         this.foregroundCancellable = false;
         release();
         this.postState();
+        this.sidebarSessions?.requestFinished(
+          this,
+          sidebarRequestId,
+          sidebarOutcome,
+          submitted || sidebarOutcome === "failed",
+        );
       }
     }
   }
@@ -1548,6 +1614,9 @@ export class PiChatViewProvider
     this.historyAvailable = false;
     this.historyLoading = false;
     this.requestLifecycle.begin();
+    const sidebarRequestId = randomUUID();
+    let sidebarOutcome: "completed" | "failed" | "stopped" = "failed";
+    this.sidebarSessions?.requestStarted(this, sidebarRequestId);
     this.foregroundCancellable = true;
     this.postState();
     this.trackCurrentRequestChanges = false;
@@ -1659,6 +1728,7 @@ export class PiChatViewProvider
       synchronizingHistory = false;
       if (typeof response === "string") await onResponse?.(response);
       this.status = "Ready";
+      sidebarOutcome = "completed";
       this.postState();
       return typeof response === "string" ? response : "";
     } catch (error) {
@@ -1669,6 +1739,7 @@ export class PiChatViewProvider
         this.changes = this.changeTracker.finishRequest();
         this.trackCurrentRequestChanges = false;
       }
+      sidebarOutcome = this.requestLifecycle.wasCancelled ? "stopped" : "failed";
       const message = formatError(error);
       if (!this.requestLifecycle.canRetry) {
         this.retryRequest = undefined;
@@ -1726,6 +1797,12 @@ export class PiChatViewProvider
       await this.runtime.shutdownCompletion?.catch(() => {});
       releaseOperation();
       releaseRequest();
+      this.sidebarSessions?.requestFinished(
+        this,
+        sidebarRequestId,
+        sidebarOutcome,
+        responseCaptured || sidebarOutcome === "failed",
+      );
       this.postState();
     }
   }
@@ -1739,6 +1816,7 @@ export class PiChatViewProvider
   }
 
   private async runBackground(rawText: string, isolated: boolean, composerRevision: number): Promise<void> {
+    this.sidebarSessions?.assertComposerContext(this);
     if (this.preparedEditorRequest)
       throw new Error("Cancel the prepared editor action before starting background work.");
     const input = parseComposerInput(rawText);
@@ -1764,6 +1842,7 @@ export class PiChatViewProvider
       if (!confirmation) {
         return;
       }
+      this.sidebarSessions?.assertComposerContext(this);
       if (this.preparedEditorRequest)
         throw new Error("Cancel the prepared editor action before starting background work.");
       const submittedAttachmentIds = this.attachments.values.map((attachment) => attachment.id);
@@ -1800,6 +1879,10 @@ export class PiChatViewProvider
   }
 
   private async newSession(): Promise<void> {
+    if (this.sidebarSessions) {
+      await this.sidebarSessions.create();
+      return;
+    }
     if (this.isForegroundRequestActive()) {
       this.postMessage({ type: "newSessionRejected" });
       this.postNotice("Cancel or wait for the active request before starting a new session.", "warning");
@@ -2091,6 +2174,7 @@ export class PiChatViewProvider
   }
 
   public async quickSwitchSession(): Promise<void> {
+    if (this.sidebarSessions) return this.sidebarSessions.quickSwitch();
     await this.withSessionNavigation(async () => {
       const selected = await this.chooseCurrent(async (assertCurrent) => {
         const sessions = await this.discoverNavigationSessions();
@@ -2129,6 +2213,7 @@ export class PiChatViewProvider
   }
 
   public async cycleSession(direction: -1 | 1): Promise<void> {
+    if (this.sidebarSessions) return this.sidebarSessions.cycleSession(direction);
     await this.withSessionNavigation(async () => {
       const sessions = await this.chooseCurrent(() => this.discoverNavigationSessions());
       if (!sessions) return;
@@ -2168,6 +2253,10 @@ export class PiChatViewProvider
   }
 
   private async switchRecentSession(id: string): Promise<void> {
+    if (this.sidebarSessions) {
+      await this.sidebarSessions.select(id);
+      return;
+    }
     if (this.isForegroundRequestActive() || this.sessionNavigationGate.isPending) {
       this.postMessage({ type: "sessionSwitchRejected" });
       this.postNotice("Cancel or wait for the active request before switching sessions.", "warning");
@@ -2201,6 +2290,10 @@ export class PiChatViewProvider
   }
 
   private async resumeSession(): Promise<void> {
+    if (this.sidebarSessions) {
+      await this.sidebarSessions.resume();
+      return;
+    }
     if (this.isForegroundRequestActive()) {
       this.postNotice("Cancel or wait for the active request before switching sessions.", "warning");
       return;
@@ -2643,6 +2736,7 @@ export class PiChatViewProvider
   }
 
   private async refreshRecentSessions(post = true): Promise<void> {
+    if (this.sidebarSessions) return this.sidebarSessions.refresh();
     const revision = ++this.sessionRefreshRevision;
     const correlation = { operationId: this.logger.operation(), generation: this.runtime.clientGeneration };
     const runtime = this.runtime.currentState;
@@ -2855,6 +2949,8 @@ export class PiChatViewProvider
     ) {
       const binding = this.drafts.accepted(message.expectedRevision, message.expectedText);
       if (binding) message.draftBinding = binding;
+      if (!this.view && message.type === "clearInput")
+        this.sidebarSessions?.acceptComposerSubmission(this, message.expectedRevision, message.expectedText);
     }
     void this.view?.webview.postMessage(message);
   }

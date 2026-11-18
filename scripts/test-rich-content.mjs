@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { build } from "esbuild";
 import { chromium } from "playwright-core";
+import { browserPlatformArgs } from "./test-browser-platform.mjs";
 import { assertExtensionUi } from "./extension-ui-fixture.mjs";
 import { assertInterface } from "./interface-fixture.mjs";
 import { assertSessionsLayout } from "./sessions-layout-fixture.mjs";
@@ -15,6 +16,7 @@ import { assertComposerFileCompletion } from "./completion-fixture.mjs";
 import { assertThinkingBrowser } from "./thinking-fixture.mjs";
 import { assertPanelInteractions } from "./panel-interaction-fixture.mjs";
 import { assertConcurrentSessions } from "./concurrent-sessions-fixture.mjs";
+import { assertSidebarConcurrency } from "./sidebar-concurrency-fixture.mjs";
 import thinkingFixture from "./fixtures/thinking.cjs";
 
 const require = createRequire(import.meta.url);
@@ -44,7 +46,8 @@ await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 let browser;
 try {
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true, args: browserPlatformArgs() });
+  console.log("PI_SIDEBAR_CONCURRENCY_BROWSER_EVIDENCE", JSON.stringify(await assertSidebarConcurrency(browser, getSidebarHtml, renderSafeMarkdown, origin)));
   console.log(
     "PI_CONCURRENT_SESSIONS_BROWSER_EVIDENCE",
     JSON.stringify(await assertConcurrentSessions(browser, getSidebarHtml, renderSafeMarkdown, origin)),

@@ -3,13 +3,12 @@ import * as vscode from "vscode";
 import { WorkspaceChangeTracker } from "./changeTracker";
 import { ExclusiveOperationGate } from "./conversationController";
 import type { ExtensionUiDialogs } from "./extensionUiDialogs";
+import { InteractiveSessionSlots } from "./interactiveSessionSlots";
 import type { Logger } from "./logging";
 import { PiRuntimeManager } from "./piRuntime";
 import type { SessionWriters } from "./sessionWriters";
 import { PiChatViewProvider } from "./sidebar";
 import { requireTrustedFile } from "./workflowUi";
-
-const maxEditorSessions = 8;
 
 interface EditorSession {
   readonly panel: vscode.WebviewPanel;
@@ -17,6 +16,7 @@ interface EditorSession {
   readonly provider: PiChatViewProvider;
   readonly tracker: WorkspaceChangeTracker;
   readonly subscriptions: vscode.Disposable[];
+  readonly releaseSlot: () => void;
   closing?: Promise<void>;
   cleanupUnverified?: boolean;
 }
@@ -35,6 +35,7 @@ export class ConcurrentSessions implements vscode.Disposable {
     private readonly dialogs: ExtensionUiDialogs,
     private readonly writers: SessionWriters,
     private readonly logger: Logger,
+    private readonly slots = new InteractiveSessionSlots(),
   ) {
     context.subscriptions.push(
       this,
@@ -44,8 +45,10 @@ export class ConcurrentSessions implements vscode.Disposable {
 
   public async open(): Promise<void> {
     const release = this.creation.acquire();
+    let releaseSlot: (() => void) | undefined;
     try {
       this.assertAvailable();
+      releaseSlot = this.slots.acquire();
       const cwd = this.primaryRuntime.currentCwd;
       const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(cwd));
       if (folder?.uri.scheme !== "file") throw new Error("A file-backed workspace is required.");
@@ -87,10 +90,21 @@ export class ConcurrentSessions implements vscode.Disposable {
       let panel: vscode.WebviewPanel | undefined;
       let provider: PiChatViewProvider | undefined;
       const subscriptions: vscode.Disposable[] = [];
+      let session: EditorSession | undefined;
+      let cleanupUnverified = false;
+      subscriptions.push(
+        runtime.onEvent((event) => {
+          if (event.type === "runtime_warning" && event.warningCode === "cleanup-unverified") {
+            cleanupUnverified = true;
+            if (session) session.cleanupUnverified = true;
+          }
+        }),
+      );
       try {
         tracker.enableConcurrentSafety(root);
         const label = `Pi Session ${++this.sequence}`;
-        subscriptions.push(this.dialogs.addRuntime(runtime, label), this.primary.addCheckpointTracker(tracker));
+        subscriptions.push(this.dialogs.addRuntime(runtime, label));
+        subscriptions.push(this.primary.addCheckpointTracker(tracker));
         panel = vscode.window.createWebviewPanel("pi.concurrentSession", label, vscode.ViewColumn.Active, {
           enableScripts: true,
           retainContextWhenHidden: true,
@@ -106,18 +120,16 @@ export class ConcurrentSessions implements vscode.Disposable {
           { reveal: () => ownedPanel.reveal(), resource, label },
           this.primary.draftStore,
         );
-        const session: EditorSession = { panel, runtime, provider, tracker, subscriptions };
-        this.sessions.add(session);
+        const ownedSession: EditorSession = { panel, runtime, provider, tracker, subscriptions, releaseSlot };
+        session = ownedSession;
+        this.sessions.add(ownedSession);
+        releaseSlot = undefined;
         subscriptions.push(
           panel.onDidDispose(() => {
-            void this.close(session);
+            void this.close(ownedSession);
           }),
           panel.onDidChangeViewState(() => {
-            if (ownedPanel.visible) session.provider.refreshView();
-          }),
-          runtime.onEvent((event) => {
-            if (event.type === "runtime_warning" && event.warningCode === "cleanup-unverified")
-              session.cleanupUnverified = true;
+            if (ownedPanel.visible) ownedSession.provider.refreshView();
           }),
           runtime.onDidChangeState((state) => {
             const name = state.sessionName?.replace(/[\p{Cc}\p{Cf}]/gu, "").slice(0, 80);
@@ -126,25 +138,46 @@ export class ConcurrentSessions implements vscode.Disposable {
         );
         provider.resolveWebviewView(panel);
       } catch (error) {
-        provider?.dispose();
-        panel?.dispose();
-        for (const subscription of subscriptions) subscription.dispose();
-        await runtime.shutdown().catch(() => {});
-        tracker.dispose();
+        if (session) {
+          panel?.dispose();
+          await this.close(session);
+        } else {
+          provider?.dispose();
+          panel?.dispose();
+          await runtime.shutdown().catch(() => {
+            cleanupUnverified = true;
+          });
+          if (cleanupUnverified) releaseSlot = undefined;
+          for (const subscription of subscriptions) subscription.dispose();
+          tracker.dispose();
+          if (cleanupUnverified) this.warnCleanupUnverified();
+        }
         throw error;
       }
     } finally {
+      releaseSlot?.();
       release();
     }
+  }
+
+  public revealSession(sessionFile: string): boolean {
+    const session = [...this.sessions].find((entry) => entry.runtime.currentState.sessionFile === sessionFile);
+    if (!session) return false;
+    if (session.closing)
+      throw new Error("This session's previous writer has not stopped safely. Inspect cleanup warnings.");
+    session.panel.reveal();
+    return true;
   }
 
   private assertAvailable(): void {
     if (this.disposed) throw new Error("Pi sessions are closing.");
     requireTrustedFile();
-    if (this.sessions.size >= maxEditorSessions)
-      throw new Error(
-        "Close a Pi editor session before opening another. Unverified cleanup still uses a session slot.",
-      );
+  }
+
+  private warnCleanupUnverified(): void {
+    void vscode.window.showWarningMessage(
+      "Pi session cleanup could not be verified. Inspect remaining processes before conflicting work. Its session file remains blocked in this window.",
+    );
   }
 
   private close(session: EditorSession): Promise<void> {
@@ -158,11 +191,10 @@ export class ConcurrentSessions implements vscode.Disposable {
         .finally(() => {
           for (const subscription of session.subscriptions) subscription.dispose();
           session.tracker.dispose();
-          if (!session.cleanupUnverified) this.sessions.delete(session);
-          if (session.cleanupUnverified)
-            void vscode.window.showWarningMessage(
-              "Pi session cleanup could not be verified. Inspect remaining processes before conflicting work. Its session file remains blocked in this window.",
-            );
+          if (!session.cleanupUnverified) {
+            this.sessions.delete(session);
+            session.releaseSlot();
+          } else this.warnCleanupUnverified();
         });
     }
     return session.closing;

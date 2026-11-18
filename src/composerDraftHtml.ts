@@ -87,6 +87,13 @@ export function composerDraftHtml(): string {
         if (acceptedOrigin) { ownershipBlocked = false; moving = false; observed = -1; }
         return true;
       };
+      const setContextBlocked = value => {
+        const next = Boolean(value);
+        if (ownershipBlocked === next && !moving) return;
+        ownershipBlocked = next;
+        moving = false;
+        renderDraft(); updateSendState();
+      };
       const receive = message => {
         if (message.type === 'draftState') {
           if (typeof message.binding !== 'string') return;
@@ -133,7 +140,7 @@ export function composerDraftHtml(): string {
       input.addEventListener('keydown', flush, true);
       window.addEventListener('pagehide', flush);
       renderDraft();
-      return { changed, flush, receive, select, handoff, sendHandoff, matches, acceptReplacement, blocked: () => moving || ownershipBlocked };
+      return { changed, flush, receive, select, handoff, sendHandoff, matches, acceptReplacement, setContextBlocked, blocked: () => moving || ownershipBlocked };
     })();
   `;
 }

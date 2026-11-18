@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium } from "playwright-core";
+import { browserPlatformArgs } from "./test-browser-platform.mjs";
 
 const require = createRequire(import.meta.url);
 const { getSettingsHtml } = require("../out/settingsHtml.js");
@@ -54,7 +55,7 @@ await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 origin = `http://127.0.0.1:${server.address().port}`;
 let browser;
 try {
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true, args: browserPlatformArgs() });
   const page = await browser.newPage();
   const errors = [];
   const requests = [];

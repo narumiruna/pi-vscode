@@ -72,10 +72,10 @@ Queue drafts remain uncertain and checkpoint recovery remains conservative.
 Verify remaining work before another operation that can conflict.
 Prompts, source code, terminal text, and image payloads are written to Pi over stdin rather than process arguments.
 Pi provider authentication remains in Pi's credential store or provider environment variables.
-The sidebar and each editor runtime own a separate bridge on a random loopback TCP port in the same extension-host environment.
+Primary, each auxiliary Sidebar runtime, and each editor runtime own a separate bridge on a random loopback TCP port in the same extension-host environment.
 Each bridge request and event subscription requires that bridge's random token.
-Only the sidebar runtime publishes and clears bridge variables through the terminal environment collection for future integrated terminals.
-Editor runtimes pass their private bridge credentials only to their own Pi launches; panel creation and disposal do not replace or clear the sidebar's terminal environment.
+Only the stable Primary runtime publishes and clears bridge variables through the terminal environment collection for future integrated terminals.
+Auxiliary runtimes pass private bridge credentials only to their own Pi launches; their creation, selection, and disposal cannot replace or clear Primary's terminal environment.
 Independent background/worktree agents receive neither bridge credentials nor the bridge extension.
 Oversized or malformed bridge frames fail closed and terminate their socket.
 Session shutdown and subscription replacement mark outgoing callbacks inactive before destroying their sockets.
@@ -86,10 +86,90 @@ The non-secret `PI_VSCODE_BRIDGE_EXTENSION` variable identifies the bridge bundl
 Requests remain allowlisted and expose no arbitrary command execution or file mutation method.
 The bridge exposes bounded editor context, language-provider navigation metadata, file opening, notifications, and JSON-safe events from same-host VS Code extensions.
 
+## Concurrent Sidebar Sessions
+
+One Sidebar routes display and actions over retained per-runtime conversation controllers.
+Selecting live B while A runs changes presentation only, not A's RPC session, request, queue, agent lease, or pending input handles.
+Opening an unloaded saved session uses validated initial-session startup in a separate runtime, not A's RPC `switch_session` route.
+New Session and the Sessions composer similarly allocate a separate conversation.
+Rows, View all, native Switch Session, Previous/Next, and Resume Session use this registry.
+A saved file already owned by an editor runtime reveals that panel rather than acquiring a second writer.
+
+Renderer actions carry an opaque entry ID and view-binding generation.
+The host rejects newly received stale envelopes before asynchronous work; accepted work keeps its captured controller, client generation, request identity, and workspace checks.
+Send, Stop, queues, drafts, attachments, model/thinking pickers, history, and proposal callbacks cannot be retargeted to a later selection.
+An actual runtime session-file replacement with nonempty composer text sets a host-owned per-entry context block.
+First file assignment in a new entry is not a replacement.
+The block survives disconnects, selection, and renderer recreation; the renderer restores the legacy draft warning and Send guard from this metadata.
+Only a valid empty composer report from the current context clears a blocked draft; a late acceptance cannot erase it.
+Each entry has a host-owned `composerContext` counter alongside its last known session file.
+A known-file replacement advances it, even when the last reported composer is empty; first assignment and same-file reconnect do not.
+Composer reports require a valid nonnegative context counter no greater than the host's current value.
+Valid late nonempty reports retain text only as blocked; old-context empty reports and invalid contexts cannot change the composer.
+Sidebar Send, queue, and background messages require the current context, independent of cached text.
+During an in-place replacement, the renderer keeps a nonempty draft's previous context until the input is empty.
+This counter detects stale messages; it is not a secret or an extra permission.
+Accepted-submission bookkeeping reaches the registry even when its controller view is detached.
+It uses the same source-entry, expected-text, expected-revision, and context-block checks as visible acceptance.
+A recreated renderer can accept a clear without its old document token only with the host's empty composer snapshot at exactly the captured revision plus one and unchanged current text/revision.
+Legacy editor-panel draft-binding checks are unchanged.
+Direct Send, queue, and background submissions reject blocked text.
+Background launch through More also rechecks this context before and after approval.
+Across cold startup or launcher promotion, a recovery-binding change cannot discard a newer draft: acceptance must match the captured entry/text/revision and current input exactly.
+Inactive runtimes consume their own events; list updates expose bounded metadata rather than inactive transcript/image payloads on each token.
+Native input and approval UI identifies its source conversation.
+Selection does not answer, cancel, or transfer a request; Stop/close invalidates only that runtime's handles, including equal IDs in another runtime.
+Existing deadlines, late-response rejection, and the one-multiline-editor limit remain unchanged.
+
+Activity labels are host-owned current-window evidence: Idle, Running, Waiting for input, Completed, Failed, and Stopped.
+Completed requires owned request settlement, including queue reconciliation, not an assistant message end or a non-busy snapshot.
+It does not certify semantic success or file correctness.
+A handled tool error or automatic retry alone does not make a request Failed.
+Input waiting is distinct from an idle composer, and delivery/cleanup uncertainty remains a separate warning.
+
+Unread uses monotonic result and acknowledged revisions in host memory.
+A settled retained result or actionable failure diagnostic advances its owned request's revision once.
+Tokens, progress, list rendering, and row selection do not advance or acknowledge results.
+Acknowledgement requires the exact revision rendered in selected detail, a visible Sidebar, a loaded latest history window, and latest-output following.
+Hidden/list/earlier-history views and stale or cross-session acknowledgements cannot clear newer unread results.
+The renderer does not save an acknowledgement key while rendered history is loading.
+A shell result revision is published only after its final controller state, not with a cached preparation transcript.
+This marker is not durable history, a permission signal, or proof that work is safe to repeat.
+
+One fixed shared pool permits **one Primary runtime plus eight additional runtimes total across auxiliary Sidebar conversations and editor panels**.
+Retained idle sessions and cleanup-quarantined sessions count toward the additional eight.
+Admission requires trust, a file-backed matching canonical workspace, a writer reservation, and explicit **Open Session** shared-file confirmation.
+At capacity, creation is rejected without evicting active work, losing a draft, or changing selection.
+No worktree or credential isolation is added.
+Existing transcript, image, queue, attachment, and saved-discovery bounds remain in force; discovery retains at most 100 saved entries plus deduplicated live entries.
+
+Auxiliary **Close Session** confirms stopping its work and discarding unsent memory-only state without deleting saved Pi history.
+Cancellation leaves it unchanged; protected failed-restore data cannot be discarded to free capacity.
+Writer and slot release await bounded verified cleanup.
+Unverified cleanup retains writer/capacity quarantine and exclusive-workflow exclusion on the originating canonical launch root until reload.
+Display selection cannot clear that exclusion or transfer it to a later current root.
+Inspect and stop residual processes before reload; ordinary agent admission does not certify cleanup or checkpoint attribution.
+
+**Primary** labels the stable window-service owner, not current selection.
+Only Primary owns terminal environment publication/handoff/recovery, restart, annotation authority, existing restore/cache keys, editor actions, review/repair/debug, settings/authentication, transfer/sharing, and public bridge broadcast.
+Auxiliary Sidebar runtimes support ordinary controls but use the editor-runtime privileged-route policy.
+Their selection cannot acquire terminal recovery ownership, write Primary's persistence, publish/clear its environment, or obtain annotation credentials.
+UI omissions do not replace host rejection; global commands do not silently retarget with focus or selection.
+Ordinary shared agent leases remain independent; actual session/resource mutations, direct shell, Apply, import, and checkpoint restore retain their exclusive gates.
+Additional Sidebar checkpoint trackers use the existing overlap safeguards and retain protected recovery data.
+Opening an unadmitted Sessions launcher does not activate concurrent-safety mode or invalidate Primary checkpoints.
+Both trackers activate only after admission, before a competing prompt; failed activation releases the reservation without starting work.
+
+Activity, unread state, auxiliary transcripts, and auxiliary restore references stay memory-only.
+No additional persistent transcript keys, queue replay, durable unread history, or automatic auxiliary restore is added.
+Primary's existing restore/cache behavior and the one consent-gated draft store's schema and aggregate limits remain unchanged.
+Hiding or disposing the webview alone does not stop retained runtimes; extension deactivation shuts down owned runtimes.
+Offline unit, browser, and VS Code 1.146.0 native checks passed; see [current evidence and unverified targets](FEATURE_MATRIX.md#concurrent-sidebar-sessions).
+
 ## Concurrent Editor Sessions
 
 **Pi: New Concurrent Session** and the Pi view-title **+** require a trusted, file-backed workspace and explicit shared-file confirmation.
-At most eight additional native editor `WebviewPanel` sessions can run alongside the sidebar.
+Native editor `WebviewPanel` sessions share eight additional runtime slots with auxiliary Sidebar conversations alongside one Primary.
 Each panel owns an independent RPC runtime, transcript, composer draft, attachments, queue, model/thinking controls, and Stop.
 Workspace files, Pi credentials, configuration, resources, and session storage remain shared; these runtimes are not a sandbox.
 Hiding a panel or switching tabs does not stop its work.
@@ -112,7 +192,7 @@ Each editor runtime retains the original folder URI and canonical launch root.
 Startup, reconnect, and ordinary prompt dispatch reject a removed folder, changed owning-folder URI, or changed canonical root.
 These checks run again after asynchronous preparation; the first workspace folder is not a fallback for editor sessions.
 Unverified cleanup quarantines both the writer's reservations and its session slot until window reload, including after panel closure.
-The eight-session bound includes these quarantined closed sessions.
+The shared eight-additional-runtime bound includes retained idle sessions and these quarantined closed sessions.
 RPC cleanup uncertainty also retains exclusive workspace exclusion by the originating client's canonical launch root, not a later current workspace or the session-file directory.
 This exclusion survives lease release and panel disposal, including idle and failed-startup cleanup.
 Active and later ordinary agents are marked overlapped, and historical checkpoint attribution is invalidated.
@@ -122,14 +202,15 @@ Inspect and stop residual processes before reloading the window; no request is r
 This registry does not lock other windows or external Pi processes and is not a universal upstream cross-process session lock.
 It does not prove that detached descendants stopped.
 
-Editor-panel focus does not retarget existing global session commands, editor actions, review, or repair workflows from the sidebar.
-Panel **More…** omits sidebar-only transfer/sharing, authentication, review/repair/debug, compatibility, terminal handoff/recovery, and restart routes.
+Editor-panel focus does not retarget Sidebar navigation commands or Primary-owned global integrations.
+Panel **More…** omits Primary-only transfer/sharing, authentication, review/repair/debug, compatibility, terminal handoff/recovery, and restart routes.
 The runtime host separately rejects editor-session terminal handoff/return, restart, and annotation requests.
-Editor runtimes check the current terminal-ownership marker without caching it or acquiring sidebar recovery ownership.
-They can retry after the sidebar clears that marker; panel closure cannot release the sidebar's gate.
+Auxiliary runtimes check the current terminal-ownership marker without caching it or acquiring Primary recovery ownership.
+They can retry after Primary clears that marker; auxiliary closure cannot release Primary's gate.
 Per-panel native model and thinking pickers remain available under the existing host guards.
 Trust, project-resource approval, read-only enforcement, Preview/Apply, stale-content checks, and exclusive workflow gates remain required.
-Offline host regressions and two-document Chromium checks passed; see [concurrent-session validation](FEATURE_MATRIX.md#concurrent-interactive-editor-sessions).
+Earlier editor-session validation recorded passing offline host regressions and two-document Chromium checks; see [retained evidence](FEATURE_MATRIX.md#concurrent-interactive-editor-sessions).
+That evidence predates shared Sidebar admission and does not establish its final verification.
 A focused macOS VS Code 1.146.0 native check verified two editor panels and independent Stop with a deterministic RPC fixture and disposable profile.
 It did not use a live provider or install the extension.
 Complete native UI, remote, other-platform, reload, and live-provider behavior remain unverified for this change.
@@ -161,7 +242,8 @@ Each request can complete once.
 Duplicate IDs are rejected, and failed response writes are not retried.
 Stop, disconnect, disposal, session replacement, and observed session-identity changes invalidate pending handles before a replacement process can receive a reply.
 Each runtime admits at most 16 pending dialogs and remembers at most 4,096 IDs per generation; further requests fail closed until that generation ends.
-One singleton native dialog controller subscribes to the sidebar and editor runtimes without changing reply-origin binding.
+One singleton native dialog controller subscribes to Primary, auxiliary Sidebar, and editor runtimes without changing reply-origin binding.
+Native requests identify their source conversation; changing display selection does not cancel or transfer them.
 Removing a runtime subscription cancels only requests claimed from that runtime.
 Select lists are validated as a whole: at most 100 string options and 100,000 total characters.
 Malformed or oversized lists never become partial permission menus.
@@ -254,20 +336,26 @@ Pi extensions execute with the user's permissions and must be reviewed before in
 
 ## Foreground Resource and Session Controls
 
-Reload, fork, clone, navigation, restart, and terminal ownership share the foreground operation owner and exclusive canonical workspace operation gate with direct shell and Apply/import/restore.
+Actual RPC reload, fork, clone, tree navigation, session replacement, restart, and terminal ownership share the foreground operation owner and exclusive canonical workspace operation gate with direct shell and Apply/import/restore.
+Sidebar display selection is not an RPC session mutation and needs no exclusive workspace gate.
 Ordinary interactive requests use shared agent leases in that canonical workspace, permitting concurrent requests but excluding every exclusive gate holder.
 Exclusive operations cannot enter while an agent lease or another exclusive owner is active.
 Background tasks retain their existing exclusive workspace gate; they do not join the shared interactive leases.
 These gates serialize extension-owned conflicting workflows in this window, not other windows or external processes.
 
-Searchable switching, previous/next commands, and saved-session sidebar routes share the guarded runtime switch path.
-Discovery uses bounded same-workspace metadata from the active session directory, not arbitrary stores or full transcript search.
-Picker preparation and acceptance reject stale session/client/view lifecycle state; failed discovery cannot authorize a retained index.
-A selected saved session ID must still match its bounded header, and repeated file/header snapshots reject observed destination replacement before dispatch.
-The canonical operation gate excludes Apply, imports, restores, direct shell, and terminal handoff during RPC switching and authoritative runtime refresh.
-A verified cancellation keeps the current session; a thrown RPC result or failed authoritative refresh disconnects safely because the destination can already be active.
+Searchable switching, previous/next commands, and saved-session Sidebar routes select through the retained registry, including during another ordinary request.
+Discovery uses bounded same-workspace metadata from the selected saved session's directory or Primary's directory, not arbitrary stores or full transcript search.
+Live entries remain selectable outside the bounded saved subset.
+Picker acceptance rejects stale view bindings; failed discovery does not authorize an unvalidated destination.
+Cold saved startup retains bounded header/session identity, canonical destination, writer, workspace, trust, and launch-policy checks before spawning.
+It does not replace the source runtime or use its exclusive RPC switch path.
+
+Actual RPC switching still checks the selected saved ID and repeated file/header snapshots before dispatch.
+Its canonical operation gate excludes Apply, imports, restores, direct shell, terminal handoff, and active ordinary agent leases during switching and authoritative runtime refresh.
+A verified cancellation keeps that runtime's current session; a thrown RPC result or failed authoritative refresh disconnects its originating client because the destination can already be active.
 Neither outcome automatically repeats switching or sends a model request.
-Existing composer binding/recovery checks remain unchanged; extension status/widget UI still resets before dispatch, while the conversation workflow reset follows verified switching.
+Actual replacement resets that controller's extension status/widget UI and conversation workflow through the existing verified-transition rules.
+Display selection does not clear another controller's draft, attachments, history, status/widgets, or recovery state.
 
 - Controls reject busy sessions, queued instructions, active extension dialogs, untrusted/virtual workspaces, stale client generations, changed session/leaf identity, and canonical workspace mismatches.
   Approval callbacks revalidate the origin after asynchronous UI.
@@ -343,11 +431,11 @@ Workspace-root aliases are validated against their canonical root; nested symlin
 The host compares exact current lines with LF-normalized expected text, captures buffer versions before asynchronous validation, and rechecks versions, file identity, root bindings, trust, origin and clear/edit revisions before applying a replacement.
 External filesystem changes are not globally atomic with these checks.
 
-The sidebar bridge token alone does not authorize annotations.
-Each foreground sidebar RPC client receives a separate random `PI_VSCODE_ANNOTATION_TOKEN` in its launch environment only.
-Editor-session launches remove that credential, and their runtime host rejects annotation-origin and annotation requests.
+An ordinary bridge token alone does not authorize annotations.
+Only the Primary Sidebar RPC client receives a separate random `PI_VSCODE_ANNOTATION_TOKEN` in its launch environment.
+Auxiliary Sidebar and editor launches remove that credential, and their runtime host rejects annotation-origin and annotation requests.
 The terminal environment collection never receives that credential, terminal handoff explicitly removes it, and background launches remove inherited values.
-A private origin exchange also verifies the current live sidebar client, session ID and canonical cwd.
+A private origin exchange also verifies the current live Primary client, session ID and canonical cwd.
 Its opaque annotation origin changes on manual clear and session/resource/client resets.
 Callbacks capture this origin and transport liveness; cancelled, disconnected, replaced or expired work cannot restore cleared annotations.
 Annotation calls do not acquire the foreground request gate again, so an ordinary read-only question can annotate while retaining its request ownership.
@@ -399,7 +487,7 @@ Shell/custom-tool requests and process exits without settlement are non-restorab
 Capture is bounded to 10,000 entries / 20 MiB.
 History is memory-only, capped at 20 requests, 2 MiB per file side and 20 MiB retained before/after bytes; unresolved restore failures retain recovery data and may prevent new history from being retained.
 
-Opening a concurrent editor session enables conservative checkpoint invalidation for the sidebar and panel trackers.
+Opening an auxiliary Sidebar or editor session enables conservative checkpoint invalidation for Primary and additional conversation trackers.
 Overlapping agent leases invalidate current request attribution, including overlap detected before capture begins.
 Later workspace operations admitted under another owner invalidate historical restoration and previews, even if disk contents still match.
 Invalidation blocks restoration without deleting retained failed-restore snapshots.
@@ -422,6 +510,8 @@ This is a deliberate style-only change from the former nonce-only style policy, 
 Network connections, external images, frames, and object loads remain blocked.
 The Extension Host validates supported MIME, canonical Base64, decoded size, image header, and dimensions before delivery.
 The Webview independently checks the bounded one-shot payload protocol and constructs labels, image elements, and previews with DOM APIs rather than interpolating attachment values into HTML.
+A retained Sidebar controller resets its delivery record on selection because another conversation can evict its images from the shared renderer cache.
+Only referenced payloads still held in that controller's validated bounded host cache are resent; the image limits and renderer validation do not change.
 Raw Markdown HTML is escaped by the host parser.
 Link targets permit only HTTP, HTTPS, and mailto schemes without whitespace or control characters.
 Markdown images produce only their alt text.
@@ -839,14 +929,15 @@ Local shortcut names take precedence over duplicate runtime command names.
 Invalid local arguments fail instead of falling through to a model prompt.
 The case-insensitive `vscode-pi-*` namespace stays reserved for verified host controls.
 
-Local shortcuts reject attachments, active foreground/background startup work, queued instructions, pending extension dialogs, and prepared editor actions.
-Cold preparation rechecks disposal, view, working directory, idle state, and prepared-action identity before dispatch.
+Registry-routed `/new` and `/resume` reject attachments and prepared editor actions, but display selection does not require another conversation's ordinary request, queue, or dialog to finish.
+Other local shortcuts retain their originating session's foreground/background startup, queue, dialog, and idle guards.
+Cold mutation preparation rechecks disposal, view, working directory, idle state, and prepared-action identity before dispatch.
 Native picker acceptance retains session/client/view lifecycle checks.
 Resource insertion checks the submitted text, composer revision, and draft binding; it never sends the inserted command.
 A successful insertion releases only the exact accepted command's draft handoff, including after startup assigns a session.
-Cold `/new` and `/resume` allow at most two draft-binding changes for startup and the target session.
-A third binding change, a later navigation handoff, or rejection invalidates that pending origin exception.
-Other submissions keep the one-binding-change limit.
+Registry navigation binds creation or resume to its captured entry and view generation, not to whichever conversation is selected after an await.
+Actual runtime session transitions retain their bounded draft-handoff exceptions; a later unrelated navigation or rejection invalidates the pending origin.
+Accepted clearing remains limited to the captured originating binding, revision, and text.
 Cancellation or a rejected result releases pending submission without clearing a newer draft.
 Names, descriptions, and fixed resource-type labels enter the menu through DOM text properties, not HTML.
 
@@ -937,9 +1028,9 @@ Draft insertion and accepted-send clearing check the composer revision, and atta
 
 Text draft retention is off until the user accepts a workspace-specific non-secret storage notice.
 The versioned `pi.sidebar.drafts.v1` workspaceState key is separate from transcript storage and is not enrolled in Settings Sync.
-Sidebar and editor composers share one `SessionDraftStore`, its consent state, and its aggregate limits; no per-panel storage allowance is added.
+Primary, auxiliary Sidebar, and editor composers share one `SessionDraftStore`, its consent state, and its aggregate limits; no per-conversation storage allowance is added.
 Disable and discard all in any subscribed view disables retention across those views, invalidates pending consent and stale draft bindings, and clears retained records.
-Panel transcript and restore references remain memory-only; that does not exclude opted-in composer text from this shared store.
+Auxiliary Sidebar and panel transcript and restore references remain memory-only; that does not exclude opted-in composer text from this shared store.
 Allowlisted records contain only a hashed session-file owner (or the separate Sessions composer), text and an update timestamp.
 Limits are 50,000 characters per draft, 20 records, 250,000 aggregate characters and seven-day recovery expiry.
 Cleanup runs on the next activation/access; an offline workspace cannot perform scheduled deletion.

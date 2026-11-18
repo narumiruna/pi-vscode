@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { link, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { MockInstance } from "vitest";
 import type * as vscode from "vscode";
 import type { EditorAnnotations } from "../editorAnnotations";
-import { acquireOperation } from "../operationLocks";
+import type { ExtensionDialogRequest } from "../extensionDialogRequests";
+import { acquireAgentOperation, acquireOperation } from "../operationLocks";
 import type { PiRpcClientOptions, PiRpcEvent, PiRpcClient as RpcClient } from "../piRpcClient";
 import type { PiRuntimeOptions } from "../piRuntime";
 import type { PiRuntimeControl } from "../piRuntimeControl";
@@ -207,7 +208,11 @@ async function fixture(action: (f: RuntimeFixture) => Promise<void>): Promise<vo
   }
 }
 
-async function boundWorkspace(f: RuntimeFixture, alias = false) {
+async function boundWorkspace(
+  f: RuntimeFixture,
+  alias = false,
+  role: "editorSession" | "sidebarSession" = "editorSession",
+) {
   const target = path.join(f.root, "workspace-a");
   const other = path.join(f.root, "workspace-b");
   await Promise.all([mkdir(target), mkdir(other)]);
@@ -237,7 +242,7 @@ async function boundWorkspace(f: RuntimeFixture, alias = false) {
         : fallback,
   });
   const uri = folder.uri as unknown as vscode.Uri;
-  const options = { editorSession: true, editorWorkspace: { uri, root: target } };
+  const options = { [role]: true, editorWorkspace: { uri, root: target } };
   const editor = f.create(options);
   const exit = () => {
     const client = editor.internal.client;
@@ -569,91 +574,93 @@ test("startup rejects a canonical parent symlink alias owned by another runtime"
   });
 });
 
-test("editor startup and shutdown do not read or write the primary restore key or change terminal environment", async () => {
-  await fixture(async (f) => {
-    const primary = await f.session("primary");
-    const editor = f.create({ editorSession: true }, primary);
-    await editor.runtime.initializeControlOwnership();
-    await editor.runtime.initializeBridge();
-    await editor.runtime.ensureStarted();
-    const client = editor.internal.client as RpcClient;
-    assert.equal(clientInternals(client).options.sessionPath, undefined);
-    assert.equal(clientInternals(client).options.env?.PI_VSCODE_ANNOTATION_TOKEN, undefined);
-    assert.notEqual(editor.runtime.currentState.sessionFile, primary);
-    await editor.runtime.shutdown();
-    assert.equal(editor.reads.includes(restoreKey), false);
-    assert.equal(
-      editor.writes.some((write) => write.key === restoreKey),
-      false,
-    );
-    assert.equal(editor.saved.get(restoreKey), primary);
-    assert.deepEqual(editor.environmentChanges, []);
-    assert.deepEqual([...editor.environment], [["PRIMARY_BRIDGE", "unchanged"]]);
-    assert.equal(editor.collection.description, "Primary bridge environment");
-  });
-});
-
-test("editor startup cannot bypass the primary session's persisted terminal ownership", async () => {
-  await fixture(async (f) => {
-    const primary = await f.session("primary");
-    const editor = f.create({ editorSession: true }, primary);
-    const marker = { version: 1, root: f.root, sessionFile: primary, sessionId: "primary" };
-    editor.saved.set("pi.control.externalOwnership.v1", marker);
-    await editor.runtime.initializeControlOwnership();
-    assert.equal(editor.reads.length, 0, "Editor activation must not create a second terminal recovery owner");
-    await assert.rejects(editor.runtime.ensureStarted(), /terminal|uncertain/);
-    assert.equal(f.start.mock.calls.length, 0);
-    assert.equal(editor.internal.client, undefined);
-    assert.equal(editor.runtime.currentState.connected, false);
-    assert.equal(editor.reads.includes(restoreKey), false);
-    assert.deepEqual(editor.writes, []);
-    await editor.runtime.shutdown();
-    assert.equal(editor.saved.get("pi.control.externalOwnership.v1"), marker);
-    assert.equal(editor.saved.get(restoreKey), primary);
-  });
-});
-
-test("an editor observes ownership recovery without caching the sidebar marker or taking its gate", async () => {
-  await fixture(async (f) => {
-    const editor = f.create();
-    editor.saved.set("pi.control.externalOwnership.v1", { version: 1, root: f.root });
-    await assert.rejects(editor.runtime.ensureStarted(), /terminal/);
-    const releaseBefore = acquireOperation(f.root, "check marker observer");
-    releaseBefore();
-    editor.saved.delete("pi.control.externalOwnership.v1");
-    await editor.runtime.ensureStarted();
-    assert.equal(editor.runtime.currentState.connected, true);
-    const releaseAfter = acquireOperation(f.root, "check recovered editor");
-    releaseAfter();
-    assert.deepEqual(editor.writes, []);
-  });
-});
-
-for (const state of ["saved", "unsaved", "no-path"] as const) {
-  test(`editor restore uses only verified saved runtime memory (${state})`, async () => {
+for (const role of ["editorSession", "sidebarSession"] as const) {
+  test(`${role} startup and shutdown do not read or write primary restore or terminal environment`, async () => {
     await fixture(async (f) => {
       const primary = await f.session("primary");
-      const editor = f.create({ editorSession: true }, primary);
+      const editor = f.create({ [role]: true }, primary);
+      await editor.runtime.initializeControlOwnership();
+      await editor.runtime.initializeBridge();
       await editor.runtime.ensureStarted();
       const client = editor.internal.client as RpcClient;
-      const file = state === "saved" ? await f.session("editor") : path.join(f.root, "unsaved.jsonl");
-      f.transport(client).state = { sessionFile: state === "no-path" ? undefined : file, sessionId: "editor" };
-      await editor.internal.refreshState(false);
-      assert.equal(editor.runtime.currentState.sessionFile, state === "no-path" ? undefined : file);
-      await editor.internal.stopClient();
-      await editor.runtime.ensureStarted();
-      assert.equal(clientInternals(editor.internal.client).options.sessionPath, state === "saved" ? file : undefined);
-      const independent = f.create({ editorSession: true }, primary);
-      await independent.runtime.ensureStarted();
-      assert.equal(clientInternals(independent.internal.client).options.sessionPath, undefined);
+      assert.equal(clientInternals(client).options.sessionPath, undefined);
+      assert.equal(clientInternals(client).options.env?.PI_VSCODE_ANNOTATION_TOKEN, undefined);
+      assert.notEqual(editor.runtime.currentState.sessionFile, primary);
+      await editor.runtime.shutdown();
       assert.equal(editor.reads.includes(restoreKey), false);
       assert.equal(
         editor.writes.some((write) => write.key === restoreKey),
         false,
       );
       assert.equal(editor.saved.get(restoreKey), primary);
+      assert.deepEqual(editor.environmentChanges, []);
+      assert.deepEqual([...editor.environment], [["PRIMARY_BRIDGE", "unchanged"]]);
+      assert.equal(editor.collection.description, "Primary bridge environment");
     });
   });
+
+  test(`${role} startup cannot bypass the primary session's persisted terminal ownership`, async () => {
+    await fixture(async (f) => {
+      const primary = await f.session("primary");
+      const editor = f.create({ [role]: true }, primary);
+      const marker = { version: 1, root: f.root, sessionFile: primary, sessionId: "primary" };
+      editor.saved.set("pi.control.externalOwnership.v1", marker);
+      await editor.runtime.initializeControlOwnership();
+      assert.equal(editor.reads.length, 0, "Additional runtimes must not create a second terminal recovery owner");
+      await assert.rejects(editor.runtime.ensureStarted(), /terminal|uncertain/);
+      assert.equal(f.start.mock.calls.length, 0);
+      assert.equal(editor.internal.client, undefined);
+      assert.equal(editor.runtime.currentState.connected, false);
+      assert.equal(editor.reads.includes(restoreKey), false);
+      assert.deepEqual(editor.writes, []);
+      await editor.runtime.shutdown();
+      assert.equal(editor.saved.get("pi.control.externalOwnership.v1"), marker);
+      assert.equal(editor.saved.get(restoreKey), primary);
+    });
+  });
+
+  test(`${role} observes ownership recovery without caching the primary marker or taking its gate`, async () => {
+    await fixture(async (f) => {
+      const editor = f.create({ [role]: true });
+      editor.saved.set("pi.control.externalOwnership.v1", { version: 1, root: f.root });
+      await assert.rejects(editor.runtime.ensureStarted(), /terminal/);
+      const releaseBefore = acquireOperation(f.root, "check marker observer");
+      releaseBefore();
+      editor.saved.delete("pi.control.externalOwnership.v1");
+      await editor.runtime.ensureStarted();
+      assert.equal(editor.runtime.currentState.connected, true);
+      const releaseAfter = acquireOperation(f.root, "check recovered runtime");
+      releaseAfter();
+      assert.deepEqual(editor.writes, []);
+    });
+  });
+
+  for (const state of ["saved", "unsaved", "no-path"] as const) {
+    test(`${role} restore uses only verified saved runtime memory (${state})`, async () => {
+      await fixture(async (f) => {
+        const primary = await f.session("primary");
+        const editor = f.create({ [role]: true }, primary);
+        await editor.runtime.ensureStarted();
+        const client = editor.internal.client as RpcClient;
+        const file = state === "saved" ? await f.session("editor") : path.join(f.root, "unsaved.jsonl");
+        f.transport(client).state = { sessionFile: state === "no-path" ? undefined : file, sessionId: "editor" };
+        await editor.internal.refreshState(false);
+        assert.equal(editor.runtime.currentState.sessionFile, state === "no-path" ? undefined : file);
+        await editor.internal.stopClient();
+        await editor.runtime.ensureStarted();
+        assert.equal(clientInternals(editor.internal.client).options.sessionPath, state === "saved" ? file : undefined);
+        const independent = f.create({ [role]: true }, primary);
+        await independent.runtime.ensureStarted();
+        assert.equal(clientInternals(independent.internal.client).options.sessionPath, undefined);
+        assert.equal(editor.reads.includes(restoreKey), false);
+        assert.equal(
+          editor.writes.some((write) => write.key === restoreKey),
+          false,
+        );
+        assert.equal(editor.saved.get(restoreKey), primary);
+      });
+    });
+  }
 }
 
 test("primary runtime still restores and updates its own workspace key", async () => {
@@ -669,43 +676,45 @@ test("primary runtime still restores and updates its own workspace key", async (
   });
 });
 
-for (const operation of ["restartSessionProcess", "returnFromTerminal", "openInTerminal"] as const) {
-  test(`editor sessions reject ${operation} before delegating to sidebar controls`, async () => {
-    await fixture(async (f) => {
-      const editor = await f.launch(await f.session("editor"));
-      const delegate = vi.spyOn(editor.internal.control, operation).mockResolvedValue(true);
-      const before = editor.runtime.currentState;
-      await assert.rejects(editor.runtime[operation](), /editor session|sidebar/i);
-      assert.equal(delegate.mock.calls.length, 0);
-      assert.deepEqual(editor.runtime.currentState, before);
-      assert.deepEqual(editor.writes, []);
+for (const role of ["editorSession", "sidebarSession"] as const) {
+  for (const operation of ["restartSessionProcess", "returnFromTerminal", "openInTerminal"] as const) {
+    test(`${role} rejects ${operation} before delegating to primary controls`, async () => {
+      await fixture(async (f) => {
+        const editor = await f.launch(await f.session("editor"), { [role]: true });
+        const delegate = vi.spyOn(editor.internal.control, operation).mockResolvedValue(true);
+        const before = editor.runtime.currentState;
+        await assert.rejects(editor.runtime[operation](), /editor session|sidebar/i);
+        assert.equal(delegate.mock.calls.length, 0);
+        assert.deepEqual(editor.runtime.currentState, before);
+        assert.deepEqual(editor.writes, []);
+      });
     });
-  });
-}
+  }
 
-for (const method of ["annotationOrigin", "annotate"] as const) {
-  test(`editor sessions reject ${method} even with current launch credentials`, async () => {
-    await fixture(async (f) => {
-      const editor = await f.launch(await f.session("editor"));
-      const annotate = vi.spyOn(editor.internal.annotations, "annotate");
-      await assert.rejects(
-        editor.internal.annotationRequest(
-          method,
-          {
-            credential: editor.internal.annotationLaunch?.credential ?? "0".repeat(64),
-            origin: editor.internal.annotationScope,
-            sessionId: editor.runtime.currentState.sessionId,
-            cwd: f.root,
-            path: path.join(f.root, "source.ts"),
-            annotations: [],
-          },
-          () => false,
-        ),
-        /only.*sidebar/i,
-      );
-      assert.equal(annotate.mock.calls.length, 0);
+  for (const method of ["annotationOrigin", "annotate"] as const) {
+    test(`${role} rejects ${method} even with current launch credentials`, async () => {
+      await fixture(async (f) => {
+        const editor = await f.launch(await f.session("editor"), { [role]: true });
+        const annotate = vi.spyOn(editor.internal.annotations, "annotate");
+        await assert.rejects(
+          editor.internal.annotationRequest(
+            method,
+            {
+              credential: editor.internal.annotationLaunch?.credential ?? "0".repeat(64),
+              origin: editor.internal.annotationScope,
+              sessionId: editor.runtime.currentState.sessionId,
+              cwd: f.root,
+              path: path.join(f.root, "source.ts"),
+              annotations: [],
+            },
+            () => false,
+          ),
+          /only.*sidebar/i,
+        );
+        assert.equal(annotate.mock.calls.length, 0);
+      });
     });
-  });
+  }
 }
 
 test("switch to a sibling-owned session rejects before RPC or UI reset and preserves the source", async () => {
@@ -1456,6 +1465,257 @@ for (const phase of ["reservation", "client-start"] as const) {
       assert.equal(f.start.mock.calls.length, phase === "reservation" ? 0 : 1);
       assert.equal(f.stop.mock.calls.length, 1);
       assert.equal(await f.writers.reserve({}, file), file);
+    });
+  });
+}
+
+for (const saved of [false, true]) {
+  test(`cold auxiliary Sidebar startup (${saved ? "saved" : "fresh"}) preserves A's active agent lease`, async () => {
+    await fixture(async (f) => {
+      const firstFile = await f.session("primary");
+      const first = await f.launch(firstFile, { editorSession: false });
+      clientInternals(first.internal.client).emit({ type: "agent_start" });
+      clientInternals(first.internal.client).emit({ type: "queue_update", steering: ["A only"], followUp: [] });
+      const before = first.runtime.currentState;
+      const client = first.internal.client;
+      const file = saved ? await f.session("auxiliary") : undefined;
+      const auxiliary = f.create({
+        sidebarSession: true,
+        editorWorkspace: { uri: MockUri.file(f.root) as unknown as vscode.Uri, root: f.root },
+        ...(file ? { initialSession: { file, sessionId: "auxiliary" } } : {}),
+      });
+      const release = acquireAgentOperation(f.root, "A agent request", () => {});
+      try {
+        await auxiliary.runtime.ensureStarted();
+        assert.equal(clientInternals(auxiliary.internal.client).options.sessionPath, file);
+        assert.equal(auxiliary.runtime.currentState.connected, true);
+        assert.equal(f.start.mock.calls.length, 2);
+        assert.equal(f.switchSession.mock.calls.length, 0);
+        assert.equal(f.stop.mock.calls.length, 0);
+        assert.equal(first.internal.client, client);
+        assert.deepEqual(first.runtime.currentState, before);
+        assert.throws(() => acquireOperation(f.root, "Apply"), /A agent request/);
+        await assert.rejects(auxiliary.runtime.switchSession(firstFile, "primary"), /A agent request/);
+        assert.equal(f.switchSession.mock.calls.length, 0);
+        for (const sessionFile of [firstFile, auxiliary.runtime.currentState.sessionFile]) {
+          assert.ok(sessionFile);
+          await assert.rejects(f.writers.reserve({}, sessionFile), SessionInUseError);
+        }
+      } finally {
+        release();
+      }
+    });
+  });
+}
+
+for (const executable of ["", "pi"]) {
+  test(`initial saved identity mismatch never falls back (${executable || "bundled"})`, async () => {
+    await fixture(async (f) => {
+      mock.workspace.getConfiguration = () => ({
+        get: (key: string, fallback: unknown) => (key === "executablePath" ? executable : fallback),
+      });
+      const file = await f.session("replaced");
+      const auxiliary = f.create({ sidebarSession: true, initialSession: { file, sessionId: "selected" } });
+      await assert.rejects(auxiliary.runtime.ensureStarted(), /no longer matches the selected session/);
+      assert.equal(f.start.mock.calls.length, 0);
+      assert.equal(f.switchSession.mock.calls.length, 0);
+      assert.deepEqual(auxiliary.writes, []);
+      assert.equal(
+        auxiliary.events.some((event) => event.warningCode === "session-replaced"),
+        false,
+      );
+      assert.equal(await f.writers.reserve({}, file), file);
+    });
+  });
+}
+
+for (const invalid of ["missing", "foreign-cwd", "missing-id", "symlink", "hardlink", "writer"] as const) {
+  test(`initial saved session rejects ${invalid} before spawning`, async () => {
+    if (invalid === "symlink" && process.platform === "win32") return;
+    await fixture(async (f) => {
+      let file = await f.session("selected");
+      if (invalid === "missing") await rm(file);
+      if (invalid === "foreign-cwd" || invalid === "missing-id")
+        await writeFile(
+          file,
+          `${JSON.stringify({
+            type: "session",
+            ...(invalid === "missing-id" ? {} : { id: "selected" }),
+            cwd: invalid === "foreign-cwd" ? process.cwd() : f.root,
+          })}\n`,
+        );
+      if (invalid === "symlink") {
+        const alias = path.join(f.root, "alias.jsonl");
+        await symlink(file, alias);
+        file = alias;
+      }
+      if (invalid === "hardlink") await link(file, path.join(f.root, "linked.jsonl"));
+      if (invalid === "writer") await f.writers.reserve({}, file);
+      const auxiliary = f.create({ sidebarSession: true, initialSession: { file, sessionId: "selected" } });
+      await assert.rejects(auxiliary.runtime.ensureStarted());
+      assert.equal(f.start.mock.calls.length, 0);
+      assert.equal(f.switchSession.mock.calls.length, 0);
+      assert.equal(auxiliary.internal.client, undefined);
+      assert.deepEqual(auxiliary.writes, []);
+      assert.equal(
+        auxiliary.events.some((event) => event.warningCode === "session-replaced"),
+        false,
+      );
+    });
+  });
+}
+
+for (const phase of ["bridge", "writer"] as const) {
+  test(`initial saved session replacement during ${phase} preparation rejects its unchanged header ID`, async () => {
+    await fixture(async (f) => {
+      const file = await f.session("selected");
+      const auxiliary = f.create({ sidebarSession: true, initialSession: { file, sessionId: "selected" } });
+      const replace = async () => {
+        const replacement = path.join(f.root, "replacement.jsonl");
+        await writeFile(replacement, `${JSON.stringify({ type: "session", id: "selected", cwd: f.root })}\n`);
+        await rename(replacement, file);
+      };
+      if (phase === "bridge")
+        auxiliary.internal.bridgeEnvironment = async () => {
+          await replace();
+          return {};
+        };
+      else {
+        const reserve = f.writers.reserve.bind(f.writers);
+        vi.spyOn(f.writers, "reserve").mockImplementationOnce(async (owner, sessionFile, isCurrent) => {
+          const key = await reserve(owner, sessionFile, isCurrent);
+          await replace();
+          return key;
+        });
+      }
+      await assert.rejects(auxiliary.runtime.ensureStarted(), /changed before startup/);
+      assert.equal(f.start.mock.calls.length, 0);
+      assert.equal(auxiliary.internal.client, undefined);
+      assert.deepEqual(auxiliary.writes, []);
+      assert.equal(await f.writers.reserve({}, file), file);
+    });
+  });
+}
+
+for (const mismatch of ["sessionId", "sessionFile"] as const) {
+  test(`initial startup disconnects if RPC reports a different ${mismatch}`, async () => {
+    await fixture(async (f) => {
+      const file = await f.session("selected");
+      const auxiliary = f.create({ sidebarSession: true, initialSession: { file } });
+      const start = f.start.getMockImplementation();
+      assert.ok(start);
+      f.start.mockImplementationOnce(async function (this: RpcClient) {
+        await start.call(this);
+        f.transport(this).state[mismatch] = mismatch === "sessionId" ? "other" : await f.session("other");
+      });
+      await assert.rejects(auxiliary.runtime.ensureStarted(), /different destination session/);
+      assert.equal(f.start.mock.calls.length, 1);
+      assert.equal(f.stop.mock.calls.length, 1);
+      assert.equal(auxiliary.internal.client, undefined);
+      assert.deepEqual(auxiliary.writes, []);
+      assert.equal(await f.writers.reserve({}, file), file);
+    });
+  });
+}
+
+test("a concurrent request cannot bypass initial-session verification once its process is running", async () => {
+  await fixture(async (f) => {
+    const file = await f.session("selected");
+    const auxiliary = f.create({ sidebarSession: true, initialSession: { file, sessionId: "selected" } });
+    const reached = deferred();
+    const resume = deferred();
+    vi.spyOn(PiRpcClient.prototype, "getState").mockImplementationOnce(async () => {
+      reached.resolve();
+      await resume.promise;
+      return { sessionFile: file, sessionId: "replacement" };
+    });
+    vi.mocked(PiRpcClient.prototype.prompt).mockResolvedValue("handled");
+    const startup = auxiliary.runtime.ensureStarted();
+    const startupResult = Promise.allSettled([startup]);
+    await reached.promise;
+    const request = auxiliary.runtime.prompt("Do not send before verifying the selected session");
+    const requestResult = Promise.allSettled([request]);
+    try {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      assert.equal(vi.mocked(PiRpcClient.prototype.prompt).mock.calls.length, 0);
+    } finally {
+      resume.resolve();
+    }
+    assert.equal((await startupResult)[0]?.status, "rejected");
+    assert.equal((await requestResult)[0]?.status, "rejected");
+    assert.equal(f.start.mock.calls.length, 1);
+    assert.equal(vi.mocked(PiRpcClient.prototype.prompt).mock.calls.length, 0);
+  });
+});
+
+test("initial session is consumed after verified startup; later reconnect uses this runtime's current memory", async () => {
+  await fixture(async (f) => {
+    const first = await f.session("first");
+    const second = await f.session("second");
+    const auxiliary = f.create({ sidebarSession: true, initialSession: { file: first, sessionId: "first" } });
+    await auxiliary.runtime.ensureStarted();
+    await auxiliary.runtime.switchSession(second, "second");
+    await auxiliary.internal.stopClient();
+    await auxiliary.runtime.ensureStarted();
+    assert.equal(clientInternals(auxiliary.internal.client).options.sessionPath, second);
+    assert.equal(auxiliary.runtime.currentState.sessionId, "second");
+    assert.deepEqual(auxiliary.writes, []);
+    assert.equal(auxiliary.reads.includes(restoreKey), false);
+  });
+});
+
+for (const change of ["removed", "retargeted"] as const) {
+  test(`auxiliary Sidebar rejects its ${change} bound workspace without editor fallback`, async () => {
+    await fixture(async (f) => {
+      const { opened, other, otherFolder, linkType, uri, editor, exit } = await boundWorkspace(
+        f,
+        true,
+        "sidebarSession",
+      );
+      await editor.runtime.ensureStarted(uri);
+      exit();
+      if (change === "removed") mock.workspace.workspaceFolders = [otherFolder];
+      else {
+        await rm(opened);
+        await symlink(other, opened, linkType);
+      }
+      await assert.rejects(editor.runtime.ensureStarted(), /workspace changed/);
+      await assert.rejects(editor.runtime.prompt("Do not send elsewhere"), /workspace changed/);
+      assert.equal(f.start.mock.calls.length, 1);
+      assert.equal(vi.mocked(PiRpcClient.prototype.prompt).mock.calls.length, 0);
+    });
+  });
+}
+
+for (const ending of ["response", "expiry", "invalidation"] as const) {
+  test(`dialog ${ending} emits current runtime state after removing only its origin request`, async () => {
+    await fixture(async (f) => {
+      const first = await f.launch(await f.session("first"), { sidebarSession: true });
+      const second = await f.launch(await f.session("second"), { sidebarSession: true });
+      const pending: boolean[] = [];
+      first.runtime.onDidChangeState(() => pending.push(first.runtime.hasPendingExtensionDialogs));
+      const send = vi.spyOn(PiRpcClient.prototype, "sendExtensionUiResponse").mockImplementation(() => {});
+      const event: PiRpcEvent = {
+        type: "extension_ui_request",
+        id: "equal-id",
+        method: "input",
+        ...(ending === "expiry" ? { timeout: 5 } : {}),
+      };
+      clientInternals(first.internal.client).emit(event);
+      clientInternals(second.internal.client).emit({ ...event, timeout: undefined });
+      const request: ExtensionDialogRequest | undefined = first.runtime.claimExtensionUiRequest(event);
+      assert.ok(request);
+      assert.equal(first.runtime.hasPendingExtensionDialogs, true);
+      assert.equal(second.runtime.hasPendingExtensionDialogs, true);
+      if (ending === "response") request.respond({ value: "first only" });
+      if (ending === "invalidation") first.runtime.resetExtensionUi();
+      await vi.waitFor(() => assert.deepEqual(pending, [false]));
+      assert.equal(first.runtime.hasPendingExtensionDialogs, false);
+      assert.equal(second.runtime.hasPendingExtensionDialogs, true);
+      assert.equal(send.mock.calls.length, ending === "response" ? 1 : 0);
+      request.respond({ value: "late" });
+      assert.deepEqual(pending, [false]);
+      assert.equal(send.mock.calls.length, ending === "response" ? 1 : 0);
     });
   });
 }

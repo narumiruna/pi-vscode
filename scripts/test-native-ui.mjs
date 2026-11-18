@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { downloadAndUnzipVSCode } from "@vscode/test-electron";
 import { chromium } from "playwright-core";
+import { browserPlatformArgs } from "./test-browser-platform.mjs";
 import extensionUiFixture from "./fixtures/extension-ui.cjs";
 import { assertExtensionEditorDialogs } from "./editor-dialog-fixture.mjs";
 import toolFixture from "./fixtures/tool-activity.cjs";
@@ -20,6 +21,7 @@ import { assertDiscoveryWrap } from "./discovery-wrap-fixture.mjs";
 import { assertNativeConversationHistory, historyFixtureMessages } from "./history-fixture.mjs";
 import { assertSessionActions } from "./session-actions-fixture.mjs";
 import { assertNativeSessionSwitch, seedSessionSwitch } from "./session-switch-fixture.mjs";
+import { assertNativeSidebarConcurrency } from "./sidebar-concurrency-native-fixture.mjs";
 import { assertNativeDraftLocalCommands, assertNativeDraftRecovery } from "./draft-native-fixture.mjs";
 import { assertToolActivity } from "./tool-activity-fixture.mjs";
 import { assertNativeFileCompletion } from "./completion-native-fixture.mjs";
@@ -92,6 +94,7 @@ try {
   const openedWorkspace = workspaceAlias ? path.join(directory, "workspace-alias") : workspace;
   const userData = path.join(directory, "user");
   await mkdir(workspace);
+  await writeFile(path.join(directory, "sidebar-concurrency-enabled"), "enabled");
   if (selectionOnly) await writeFile(path.join(directory, "selection-first-open"), "selection");
   if (annotationsOnly) await writeFile(path.join(directory, "annotations-only"), "annotations");
   if (outputDiagnosticsOnly) await writeFile(path.join(directory, "output-diagnostics-only"), "output-diagnostics");
@@ -210,6 +213,7 @@ try {
     executable,
     [
       openedWorkspace,
+      ...browserPlatformArgs(),
       "--no-sandbox",
       "--disable-gpu",
       "--disable-updates",
@@ -276,7 +280,8 @@ try {
       }
     }, "Pi webview");
   const pick = async (text) => {
-    const input = page.locator(".quick-input-widget input[type=text]");
+    const widget = page.locator(".quick-input-widget:not(.quick-input-widget-closing):not([inert])");
+    const input = widget.locator("input[type=text]");
     await input.waitFor({ state: "visible" });
     const label = await input.getAttribute("aria-label");
     // A chained Quick Pick can transfer native focus while Playwright inserts text.
@@ -286,7 +291,7 @@ try {
       element.value = value;
       element.dispatchEvent(new Event("input", { bubbles: true }));
     }, text);
-    await page.locator(".quick-input-list .monaco-list-row").filter({ hasText: text }).first().click();
+    await widget.locator(".quick-input-list .monaco-list-row").filter({ hasText: text }).first().click();
     // Current VS Code can reuse the input without a hidden frame between chained Quick Picks.
     await until(
       () => page.evaluate(({ label, text }) => {
@@ -306,9 +311,14 @@ try {
     await assertNativeAnnotations({ page, directory, workspace, invoke, until, frame, pick });
   } else if (sessionSwitchOnly) {
     const pi = await frame();
+    const primaryRow = pi.locator('#recent-session-list .session-row[aria-current="page"]');
+    await until(async () => await primaryRow.isVisible() ||
+      await pi.locator("#runtime").getAttribute("data-connection") === "connected", "Primary detail or Sessions ready");
+    if (await primaryRow.isVisible()) await primaryRow.click();
     await until(async () => (await pi.locator("#runtime").getAttribute("data-connection")) === "connected",
       "session switch fixture runtime connected");
     await assertNativeSessionSwitch({ page, directory, workspace, invoke, until, frame });
+    await assertNativeSidebarConcurrency({ page, directory, workspace, invoke, until, frame });
   } else if (selectionOnly) {
     // No pi.openChat, view focus, or webview message may prepare this first-open command.
     for (const candidate of page.frames()) assert.equal(await candidate.locator("#add-context").count(), 0);
@@ -543,6 +553,10 @@ try {
   } else {
   // Start a session detail pane, then capture all five provider-backed attachment types.
   let pi = await frame();
+  const primaryRow = pi.locator('#recent-session-list .session-row[aria-current="page"]');
+  await until(async () => await primaryRow.isVisible() ||
+    await pi.locator("#runtime").getAttribute("data-connection") === "connected", "Primary detail or Sessions ready");
+  if (await primaryRow.isVisible()) await primaryRow.click();
   await until(async () => (await pi.locator("#runtime").getAttribute("data-connection")) === "connected" &&
     (await pi.locator("#status").textContent()) === "", "Pi runtime idle with reserved empty status");
   await assertComposerStatusContract(pi);
@@ -628,6 +642,8 @@ try {
   await invoke("source");
   console.log("PI_NATIVE_UI settings overflow, native controls, scopes, reset and no Pi side effects passed");
   // Native file controls are separate host dialogs. Passive opens and saves must not launch Pi.
+  const nativeAfterModelReset = JSON.parse(await readFile(path.join(workspace, ".pi/settings.json"), "utf8"));
+  delete nativeAfterModelReset.defaultModel;
   const nativeSettingsDone = await invoke("command", { command: "pi.openNativeSettings" }, false);
   await pick("Project Pi");
   for (const label of ["Steering mode", "Follow-up mode", "Startup thinking level", "Scoped model patterns"]) {
@@ -654,13 +670,13 @@ try {
   await pick("Reset selected override only");
   await page.getByRole("button", { name: "Save only", exact: true }).click();
   await nativeResetDone();
-  assert.deepEqual(JSON.parse(await readFile(path.join(workspace, ".pi/settings.json"), "utf8")), {});
+  assert.deepEqual(JSON.parse(await readFile(path.join(workspace, ".pi/settings.json"), "utf8")), nativeAfterModelReset);
   assert.equal((await invoke("nativeSettingsDirty")).dirty, true);
   const nativeBlockedDone = await invoke("command", { command: "pi.openNativeSettings" }, false);
   // Dirty native targets now fail during loading, before a scope picker, editable row, or Save approval exists.
   await nativeBlockedDone();
   await page.getByText("Native Pi operation did not complete.", { exact: false }).first().waitFor();
-  assert.deepEqual(JSON.parse(await readFile(path.join(workspace, ".pi/settings.json"), "utf8")), {}, "Dirty native editor, including workspace aliases, blocks disk writes");
+  assert.deepEqual(JSON.parse(await readFile(path.join(workspace, ".pi/settings.json"), "utf8")), nativeAfterModelReset, "Dirty native editor, including workspace aliases, blocks disk writes");
   const ordinarySave = await invoke("nativeSettingsSave");
   assert.equal(ordinarySave.saved, true);
   assert.deepEqual(JSON.parse(ordinarySave.text), { userDraft: "retained" });
@@ -724,7 +740,10 @@ try {
     );
     const complete = await invoke("command", { command: "pi.reviewChanges" }, false);
     await pick(label);
-    if (scope === "branch") await pick("base");
+    if (scope === "branch") {
+      await until(async () => (await page.locator(".quick-input-widget:not(.quick-input-widget-closing):not([inert])").innerText()).includes("Select base ref"), "branch review base picker");
+      await pick("base");
+    }
     await page
       .getByRole("button", { name: scope === "staged" ? "Send Staged Review" : "Send Review", exact: true })
       .click();
@@ -959,6 +978,8 @@ try {
   const prompts = (await readFile(path.join(directory, "prompts.jsonl"), "utf8")).trim().split("\n").map(JSON.parse);
   assert.equal(prompts.length, 7);
   assert.ok(prompts.every((prompt) => /read.only/i.test(prompt.message)));
+  // Reload opens Sessions; this workflow continues the retained Primary, not a new launcher session.
+  if (await pi.locator("#sessions").isVisible()) await pi.locator("#recent-session-list .current").click();
   await assertNativeFileCompletion({ pi, page, invoke, pick, until, directory, workspace });
   // Ordinary composer requests, unlike callback-owned review requests, accept both queue actions.
   await writeFile(path.join(directory, "interface-hold"), "hold");
@@ -1060,7 +1081,7 @@ try {
     await until(async () => !(await pi.locator("#conversation-details").evaluate((dialog) => dialog.open)), "details closed at native zoom");
     // Electron CDP clips iframe screenshots at incorrect coordinates under native zoom.
     // Review native DOM/styles in an isolated viewport; the geometry check above stays native.
-    const snapshotBrowser = await chromium.launch({ headless: true });
+    const snapshotBrowser = await chromium.launch({ headless: true, args: browserPlatformArgs() });
     try {
       const snapshot = await snapshotBrowser.newPage({
         viewport: await pi.evaluate(() => ({ width: innerWidth, height: innerHeight })),
@@ -1125,6 +1146,7 @@ try {
   await invoke("command", { command: "workbench.action.reloadWindow" }, false);
   await until(async () => { const next = await json("ready.json"); return next && next.boot !== previousBoot; }, "ownership-preserving window reload", 40_000);
   pi = await frame();
+  if (await pi.locator("#sessions").isVisible()) await pi.locator("#recent-session-list .current").click();
   await until(async () => (await pi.locator("body").innerText()).includes("Reconnect"), "blocked sidebar after terminal handoff");
   await delay(500);
   assert.equal((await readFile(path.join(directory, "pids.jsonl"), "utf8")).trim().split("\n").length, terminalPids.length, "EH reload must not start a second session writer");
@@ -1185,6 +1207,7 @@ try {
     40_000,
   );
   pi = await frame();
+  if (await pi.locator("#sessions").isVisible()) await pi.locator("#recent-session-list .current").click();
   await until(
     async () => (await pi.locator(".thinking-transcript").count()) === 2,
     "thinking restored from Pi after reconnect",
@@ -1203,6 +1226,7 @@ try {
       return next && next.boot !== boot;
     }, "text draft actual window reload", 40_000);
     const next = await frame();
+    if (await next.locator("#sessions").isVisible()) await next.locator("#recent-session-list .current").click();
     await until(async () => (await next.locator("#runtime").getAttribute("data-connection")) === "connected" &&
       (await next.locator("#status").textContent()) === "", "draft reload runtime idle");
     await assertComposerStatusContract(next);
@@ -1236,8 +1260,14 @@ try {
     }),
   );
   }
-  if (!process.argv.includes("transfer")) await assertExtensionEditorDialogs({ page, directory, invoke, until, frame });
+  if (!process.argv.includes("transfer")) {
+    pi = await frame();
+    if (await pi.locator("#sessions").isVisible()) await pi.locator("#recent-session-list .current").click();
+    await assertExtensionEditorDialogs({ page, directory, invoke, until, frame });
   }
+  }
+  if (!settingsOnly && !outputDiagnosticsOnly && !annotationsOnly && !selectionOnly && !sessionSwitchOnly && !process.argv.includes("transfer"))
+    await assertNativeSidebarConcurrency({ page, directory, workspace, invoke, until, frame });
   await invoke("finish", {}, false);
 } catch (error) {
   if (page) {

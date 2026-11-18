@@ -78,16 +78,45 @@ async function verifyNativeForm(): Promise<void> {
   let active = true;
   const form = new NativePiForm(runtime, () => active);
   let counter = 0;
-  const request = async (message: Record<string, unknown>) => {
+  const projectDir = path.join(root, ".pi");
+  const settleEditors = async () => {
+    let previous = "";
+    let stable = 0;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const documents = vscode.workspace.textDocuments.filter(
+        (document) =>
+          document.uri.scheme === "file" &&
+          [agentDir, projectDir].some((directory) => document.uri.fsPath.startsWith(`${directory}${path.sep}`)),
+      );
+      const ready = await Promise.all(
+        documents.map(
+          async (document) => !document.isDirty && document.getText() === (await readFile(document.uri.fsPath, "utf8")),
+        ),
+      );
+      const signature = JSON.stringify(documents.map((document) => [document.uri.toString(), document.version]));
+      stable = ready.every(Boolean) && signature === previous ? stable + 1 : 0;
+      previous = signature;
+      // A matching buffer can still have a queued file-watcher reload/version change.
+      if (stable >= 5) return;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    throw new Error("Native test editor buffers did not observe the completed file writes.");
+  };
+  const request = async (message: Record<string, unknown>): Promise<NativeFormSnapshot> => {
     const replies: Record<string, unknown>[] = [];
     const generation = message.type === "nativeLoad" ? form.supersede() : form.currentGeneration;
     await form.handle({ id: `native-check-${++counter}`, ...message }, generation, (reply) =>
       replies.push(reply as Record<string, unknown>),
     );
     assert.equal(replies.at(-1)?.ok, true, JSON.stringify(replies));
+    if (message.type !== "nativeLoad") {
+      // Preserve the production stale-editor checks: wait for VS Code's own reload,
+      // then explicitly read a fresh snapshot rather than replaying any write.
+      await settleEditors();
+      return request({ type: "nativeLoad", scope: message.scope });
+    }
     return replies.find((reply) => reply.type === "nativeSnapshot") as unknown as NativeFormSnapshot;
   };
-  const projectDir = path.join(root, ".pi");
   try {
     await assert.rejects(readFile(path.join(projectDir, "settings.json")), { code: "ENOENT" });
     await assert.rejects(readFile(path.join(projectDir, "mcp.json")), { code: "ENOENT" });
@@ -110,6 +139,8 @@ async function verifyNativeForm(): Promise<void> {
       }
       const opened = await vscode.workspace.openTextDocument(vscode.Uri.file(path.join(target, "settings.json")));
       assert.equal(opened.isDirty, false);
+      // A visible model receives the file reload before the next guarded form action.
+      await vscode.window.showTextDocument(opened);
       state = await request({ type: "nativeReset", scope, revision: state.revision, key: "defaultModel" });
       assert.equal(state.entries.find((entry) => entry.key === "defaultModel")?.hasOverride, false);
     }
