@@ -1,1 +1,1 @@
-node ./scripts/pre-commit.mjs
+sh ./scripts/pre-commit.sh
