@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.11.0
+
+### Minor Changes
+
+- 1fab7f6: Add Pi: New Concurrent Session and a Pi view-title plus action for up to eight independent native editor sessions alongside the sidebar.
+  Require explicit confirmation that sessions share workspace files without isolation.
+  Keep each panel's RPC process, transcript, composer draft, attachments, queue, model/thinking controls, and Stop independent.
+  Keep work running while hidden; close only that panel's runtime and retain saved Pi session files.
+  Do not automatically restore or restart editor panels after reload.
+  Preserve sidebar-only global workflows, terminal handoff/recovery, restart, and annotations, shared consent-gated draft recovery, and existing security and storage bounds.
+  Prevent duplicate in-window RPC session-file writers and retain the session slot and writer claim after unverified cleanup until window reload.
+  Conservatively disable checkpoint restoration after conflicting activity.
+  Keep workspace-root aliases and reconnect bound to the selected workspace, retain accepted queue recovery on prompt failure, and wait for all detached cleanup before releasing capacity.
+  Block exclusive workspace workflows after unverified RPC cleanup until window reload, while ordinary agents retain shared admission with unverified checkpoint attribution.
+  Keep distinct queued instruction and attachment snapshots during uncertain recovery, even when message text is identical.
+  Reject editor startup, reconnect, and ordinary prompts after the original workspace folder or canonical root changes.
+  Protect another view's retained draft from late send acknowledgements with shared memory-only writer ownership.
+- 859543d: Keep independent conversations running in one Sidebar while selecting live or saved sessions or creating new work.
+  Retain each conversation's transcript, draft, attachments, queue, model/thinking choice, Stop, and source-bound input dialogs.
+  Show host-owned activity and unread settled results that clear only after visible latest-following detail renders the exact result.
+  Share one fixed pool of eight additional runtimes across auxiliary Sidebar conversations and editor panels alongside one stable Primary.
+  Require explicit shared-file confirmation and provide non-destructive confirmed Close Session for auxiliary Sidebar entries.
+  Keep Primary-only global integrations, single-writer checks, exclusive mutation gates, checkpoint safeguards, cleanup quarantine, and existing consent-gated draft-store limits.
+  Keep auxiliary activity, unread state, transcripts, and restore references memory-only without automatic restoration or queue replay after reload.
+  Keep session rows usable after cancelled or rejected navigation, and resend retained image payloads when a conversation is selected.
+  Keep the latest selected-session scan and acknowledge results only after history loading and final shell publication.
+  Restore images after renderer readiness, initialize cold native session discovery, and route busy /new and /resume locally without queueing.
+  Preserve the host-owned stale draft-context guard for actual runtime session replacements, including view recreation and background submission.
+  Keep accepted-submission bookkeeping active after renderer disposal and clear restored accepted text only with exact host confirmation.
+  Bind composer reports and sends to their session context so late reports cannot move text into a replacement session.
+  Keep native cycle order after saved-session loading, preserve checkpoints during Sessions browsing, and run local settings/details before admission.
+  Reveal hidden Sidebar conversations after native selection and continue cycling past editor-owned conversations.
+- e1f9034: Update bundled Pi to 1.5.2 and refresh renderer and development dependencies.
+  Require VS Code 1.146.0 to match the updated API declarations.
+  Keep isolated helpers and direct-shell discovery restricted to verified Pi 1.3.0 and 1.5.2 contracts.
+
 ## 0.10.1
 
 ### Patch Changes
