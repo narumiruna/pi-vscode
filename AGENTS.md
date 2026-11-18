@@ -70,4 +70,4 @@
 
 - Do not commit images or binary files unless they are logos, icons, or assets required by the project.
 - Include a `.changeset/*.md` entry for release-worthy changes and leave version and changelog updates to the Changesets Version PR workflow.
-- Keep the Husky pre-commit check enabled; it runs `npm test` through `scripts/pre-commit.mjs`.
+- [UNREVIEWED] Keep the Husky pre-commit hook enabled for Biome checks, and do not run tests from the hook.
