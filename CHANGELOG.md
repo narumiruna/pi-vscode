@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.1
+
+### Patch Changes
+
+- f1bae0a: Show the `/skill:` command and its arguments instead of expanded XML in titles for unnamed saved sessions.
+
 ## 0.11.0
 
 ### Minor Changes
