@@ -102,6 +102,7 @@ Prepared read-only actions wait for idle Pi instead of entering the ordinary que
 
 The Sessions list fills the available space above the composer and scrolls when needed, rather than showing only three entries.
 Choose **View all** to search the discovered sessions in this workspace.
+If an unnamed saved session starts with a skill, its title shows the `/skill:` command and any arguments instead of the expanded instructions.
 
 Use **Pi: Switch Session** to search live and saved Sidebar sessions in the current workspace, or **Pi: Previous Session** / **Pi: Next Session** to cycle through them.
 Default shortcuts use **Ctrl+K**, then **Ctrl+Alt+Shift+S / Left / Right**; on macOS use **Cmd+K**, then **Cmd+Alt+Shift+S / Left / Right**.

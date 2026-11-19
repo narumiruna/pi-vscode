@@ -137,7 +137,7 @@ async function readSessionSummary(
       key: piSessionKey(sessionPath),
       path: sessionPath,
       sessionId: header.id.slice(0, 200),
-      title: normalizeTitle(sessionName ?? firstPrompt ?? "New conversation"),
+      title: normalizeTitle(sessionName ?? titleFromPrompt(firstPrompt ?? "")),
       updatedAt: Number.isFinite(stats.mtimeMs) ? stats.mtimeMs : fallbackUpdatedAt,
     };
   } catch {
@@ -300,8 +300,16 @@ function scanJsonString(value: string, start: number): string | undefined {
   return undefined;
 }
 
+function titleFromPrompt(prompt: string): string {
+  // Pi stores expanded /skill: commands as a leading block followed by optional user arguments.
+  const skill = /^<skill name="([^"]+)" location="[^"]+">\n[\s\S]*?\n<\/skill>(?:\n\n([\s\S]+))?$/.exec(prompt);
+  if (!skill) return parseAgentPrompt(prompt).request;
+  const [, name, args] = skill;
+  return args ? `/skill:${name} ${args}` : `/skill:${name}`;
+}
+
 function normalizeTitle(value: string): string {
-  const compact = parseAgentPrompt(value).request.replace(/\s+/g, " ").trim();
+  const compact = value.replace(/\s+/g, " ").trim();
   if (!compact) return "New conversation";
   return compact.length > maxTitleCharacters ? `${compact.slice(0, maxTitleCharacters - 1).trimEnd()}…` : compact;
 }

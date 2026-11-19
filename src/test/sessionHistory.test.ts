@@ -74,6 +74,62 @@ test("recent Pi sessions are workspace-scoped, newest-first, and use names befor
   }
 });
 
+test("recent Pi sessions use slash commands instead of expanded skill blocks as prompt titles", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-session-skill-titles-"));
+  const workspace = path.join(root, "workspace");
+  const sessions = path.join(root, "sessions");
+  await Promise.all([mkdir(workspace), mkdir(sessions)]);
+  try {
+    const skillBlock =
+      '<skill name="write-plans" location="/skills/write-plans/SKILL.md">\n' +
+      "References are relative to /skills/write-plans.\n\n# Internal instructions\n</skill>";
+    const request = `${skillBlock}\n\nDraft a plan\nfor the release`;
+    const cases = [
+      { id: "with-args", content: request, title: "/skill:write-plans Draft a plan for the release" },
+      {
+        id: "skill-only",
+        content: [{ type: "text", text: skillBlock }],
+        title: "/skill:write-plans",
+      },
+      {
+        id: "with-image",
+        content: [
+          { type: "text", text: request },
+          { type: "image", data: "a".repeat(300_000), mimeType: "image/png" },
+        ],
+        title: "/skill:write-plans Draft a plan for the release",
+      },
+      { id: "named", content: request, name: "Release planning", title: "Release planning" },
+      {
+        id: "literal-xml",
+        content: '<skill name="example">\nExample XML\n</skill>',
+        title: '<skill name="example"> Example XML </skill>',
+      },
+    ];
+    await Promise.all(
+      cases.map(({ id, content, name }) =>
+        writeFile(
+          path.join(sessions, `${id}.jsonl`),
+          session([
+            { type: "session", version: 3, id, cwd: workspace },
+            { type: "message", id: "1", parentId: null, message: { role: "user", content } },
+            ...(name ? [{ type: "session_info", id: "2", parentId: "1", name }] : []),
+          ]),
+        ),
+      ),
+    );
+
+    const result = await listRecentPiSessions(path.join(sessions, "with-args.jsonl"), workspace);
+    assert.ok(result);
+    assert.deepEqual(
+      new Map(result.map(({ sessionId, title }) => [sessionId, title])),
+      new Map(cases.map(({ id, title }) => [id, title])),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("recent Pi sessions rank every directory entry before capping metadata reads", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "pi-session-order-"));
   const workspace = path.join(root, "workspace");
