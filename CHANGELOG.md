@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.2
+
+### Patch Changes
+
+- db7fa5c: Remove the duplicate π icon from Pi reply headings and keep the Pi label.
+
 ## 0.11.1
 
 ### Patch Changes
