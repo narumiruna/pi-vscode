@@ -274,7 +274,14 @@ export async function assertDiscoveryWrapBrowser(browser, getSidebarHtml, render
     assert.equal(await wrapped(), !before, "the fixed host reply toggles local display state");
   };
   const evidence = await assertDiscoveryWrap(page, toggleWrapping);
-  const heading = page.locator("#messages > article > h2.role").nth(1);
+  const piHeading = (position) => page.getByRole("heading", { name: `Pi message ${position}`, exact: true, level: 2 });
+  const assertPiHeading = async (heading) => {
+    assert.equal(await heading.isVisible(), true);
+    assert.equal(await heading.innerText(), "Pi");
+    assert.equal(await heading.locator(".role-icon").count(), 0);
+  };
+  const heading = piHeading(2);
+  await assertPiHeading(heading);
   const headingId = await heading.getAttribute("id");
   await heading.evaluate((node) => {
     window.retainedHeading = node;
@@ -289,6 +296,7 @@ export async function assertDiscoveryWrapBrowser(browser, getSidebarHtml, render
     await heading.evaluate((node) => node === window.retainedHeading && document.activeElement === node),
     true,
   );
+  await assertPiHeading(heading);
   // Adding an earlier message forces structural history replacement, retaining the existing identity.
   await state({ messages: [{ id: "earlier", role: "user", html: "<p>Earlier turn.</p>" }, ...messages] });
   const retained = page.locator(`[id="${headingId}"]`);
@@ -297,7 +305,7 @@ export async function assertDiscoveryWrapBrowser(browser, getSidebarHtml, render
     await retained.evaluate((node) => node === window.retainedHeading && document.activeElement === node),
     true,
   );
-  assert.equal(await retained.getAttribute("aria-label"), "Pi message 3");
+  await assertPiHeading(piHeading(3).and(retained));
   assert.equal(await page.locator(".thinking-transcript").evaluate((node) => node.open), false);
   await state();
   const headerEvidence = await assertResponsiveHeader(page, state, post);

@@ -24,7 +24,9 @@ Run **Pi: Modify Selection (Preview)**, describe the change in the Sidebar compo
 Choose **Choose Hunks** if needed, then **Preview** to open the native diff editor.
 **Apply** becomes available after preview; changing the hunk selection requires another preview.
 
-These screenshots use the current sidebar renderer with offline sample data. They do not show a live provider response or the native diff editor.
+Pi replies have a `Pi` heading with no icon.
+These screenshots use the current sidebar renderer with offline sample data.
+They do not show a live provider response or the native diff editor.
 
 ## Requirements
 
