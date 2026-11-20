@@ -121,18 +121,14 @@ test("message headings retain locally generated identity and focus through strea
   assert.equal(heading.tagName, "h2");
   assert.match(heading.id, /^pi-message-heading-\d+$/);
   assert.equal(heading.attributes["aria-label"], "Pi message 1");
-  const assertDecorativeMark = () => {
-    assert.equal(heading.children.length, 2);
-    const mark = heading.children[0];
-    assert.equal(mark?.tagName, "span");
-    assert.equal(mark.className, "role-icon");
-    assert.equal(mark.attributes["aria-hidden"], "true");
-    assert.equal(mark.textContent, "π");
-    assert.equal(heading.children[1]?.textContent, "Pi");
+  const assertPiLabel = () => {
+    assert.deepEqual(
+      heading.children.map((child) => child.textContent),
+      ["Pi"],
+    );
   };
-  assertDecorativeMark();
-  assert.doesNotMatch(html(), /\.assistant \.role::before/);
-  assert.match(html(), /\.assistant \.role-icon \{ display: grid; place-items: center; width: 18px; height: 18px/);
+  assertPiLabel();
+  assert.doesNotMatch(html(), /\.role-icon|\.assistant \.role::before/);
   assert.equal(messagesElement.children[0]?.attributes["aria-labelledby"], heading.id);
   heading.focus();
   render([{ ...answer, html: "<p>Answer delta</p>" }]);
@@ -141,7 +137,7 @@ test("message headings retain locally generated identity and focus through strea
   render([{ id: "user", role: "user", html: "<p>Earlier</p>" }, answer]);
   assert.equal(messagesElement.children[1]?.children[0], heading);
   assert.equal(heading.attributes["aria-label"], "Pi message 2");
-  assertDecorativeMark();
+  assertPiLabel();
   const userHeading = messagesElement.children[0]?.children[0];
   assert.equal(userHeading?.children.length, 1);
   assert.equal(userHeading.children[0]?.textContent, "You");

@@ -358,6 +358,7 @@ Earlier web-remote client IndexedDB evidence predates this relocation; remote co
 ### Discoverable file context and accessible messages
 
 Passive canonical workspace metadata only; capture still requires selection and explicit Send.
+Reply headings show only `Pi` and retain numbered accessible names and focus during streaming and history updates.
 Earlier Orca evidence applies to the previous layout; this relocation needs separate screen-reader validation.
 Automated accessibility assertions are not audible or human-usability checks.
 
