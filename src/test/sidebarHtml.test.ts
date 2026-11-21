@@ -1592,6 +1592,7 @@ class SidebarTestElement {
   id = "";
   dataset: Record<string, string> = {};
   "aria-current"?: string;
+  "aria-hidden"?: string;
   "aria-expanded"?: string;
   "aria-describedby"?: string;
   classes = new Set<string>();
@@ -1649,8 +1650,13 @@ class SidebarTestElement {
   replaceChildren(...elements: SidebarTestElement[]): void {
     this.children = [...elements];
   }
-  querySelector(): { textContent: string } {
-    return { textContent: "" };
+  querySelector(selector: string): SidebarTestElement | undefined {
+    if (selector === ".action-title" || selector === ".action-description") return new SidebarTestElement();
+    if (selector === '[aria-current="page"]') {
+      return this.children.find((child) => child["aria-current"] === "page");
+    }
+    assert.match(selector, /^\.[\w-]+$/);
+    return this.children.find((child) => child.classList.contains(selector.slice(1)));
   }
   querySelectorAll(): never {
     throw new Error("Unexpected conversation descendant search");
@@ -2307,6 +2313,58 @@ test("hidden expanded Sessions retain search and reveal fresh membership, empty 
   assert.equal(all.children.length, 0);
   assert.equal(sidebar.element("recent-session-list").children.length, 0);
   assert.equal(sidebar.element("no-sessions").hidden, false);
+});
+
+test("Sidebar status icons precede titles and update without replacing the focused row", () => {
+  const sidebar = createSidebarScriptHarness();
+  const binding = { entryId: "launcher", bindingGeneration: 1, composer: { text: "", revision: 0 }, view: "sessions" };
+  sidebar.run(`sidebar = ${JSON.stringify(binding)}`);
+  const sessions = [
+    { id: "a", title: "Session A", updatedAt: Date.now(), current: true, activity: "running" },
+    { id: "b", title: "Session B", updatedAt: Date.now(), activity: "constructor", unread: true },
+    { id: "c", title: "Saved session", updatedAt: Date.now() },
+  ];
+  const update = () => sidebar.receive({ type: "sidebarSessions", sidebar: binding, sessions });
+  update();
+
+  const recent = sidebar.element("recent-session-list");
+  const all = sidebar.element("all-session-list");
+  for (const list of [recent, all]) {
+    const row = list.children[0];
+    const icon = row?.children[0];
+    assert.ok(row && icon);
+    assert.equal(icon.className, "session-row-activity");
+    assert.equal(icon["aria-hidden"], "true");
+    assert.equal(icon.dataset.activity, "running");
+    assert.equal(icon.textContent, "");
+    assert.equal(row.children[1]?.textContent, "Session A");
+    assert.equal(row.title, "Session A — Running");
+    assert.equal(row.querySelector(".session-row-status")?.textContent, "Running");
+    assert.equal(row.querySelector(".session-row-time")?.textContent, "now");
+    assert.equal(row["aria-current"], "page");
+    for (const saved of list.children.slice(1)) {
+      assert.equal(saved.children[0]?.dataset.activity, "idle");
+      assert.equal(saved.querySelector(".session-row-status")?.textContent, "Idle");
+    }
+  }
+
+  const row = recent.children[0];
+  const icon = row?.children[0];
+  const session = sessions[0];
+  assert.ok(row && icon && session);
+  row.focus();
+  session.activity = "completed";
+  update();
+
+  assert.equal(recent.children[0], row);
+  assert.equal(row.children[0], icon);
+  assert.equal(sidebar.run("document.activeElement === recentSessionList.children[0]"), true);
+  assert.equal(icon.dataset.activity, "completed");
+  assert.equal(row.title, "Session A — Completed");
+  assert.equal(row.querySelector(".session-row-status")?.textContent, "Completed");
+  assert.equal(row.querySelector(".session-unread-dot")?.hidden, true);
+  assert.equal(recent.children[1]?.querySelector(".session-unread-dot")?.hidden, false);
+  assert.equal(recent.children[1]?.querySelector(".session-row-unread")?.hidden, false);
 });
 
 test("hidden streaming state retains session list nodes without reconstructing rows", () => {
