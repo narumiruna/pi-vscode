@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.3
+
+### Patch Changes
+
+- 9f9c58c: Show status icons before session titles in the Pi Sidebar.
+  The Running ring rotates unless reduced motion is enabled.
+  Keep status names in row tooltips and available to screen readers.
+
 ## 0.11.2
 
 ### Patch Changes
