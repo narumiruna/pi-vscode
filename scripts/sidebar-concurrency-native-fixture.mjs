@@ -156,9 +156,11 @@ export async function assertNativeSidebarConcurrency(options) {
     await until(() => pi.locator("#sessions").isVisible(), "Sessions shows background result");
     const bRow = pi.locator(`#recent-session-list .session-row[data-session-id="${bEntry}"]`);
     const aRow = pi.locator(`#recent-session-list .session-row[data-session-id="${aEntry}"]`);
-    await until(async () => await bRow.locator(".session-row-activity").textContent() === "Completed" &&
+    const completedUnread = bRow.and(pi.getByRole("button", { name: /Completed.*Unread result/ }));
+    await until(async () => await completedUnread.locator('.session-row-activity[data-activity="completed"]').isVisible() &&
       await bRow.locator(".session-unread-dot").isVisible(), "hidden B completed result stays unread");
-    assert.equal(await aRow.locator(".session-row-activity").textContent(), "Running");
+    const running = aRow.and(pi.getByRole("button", { name: /Running/ }));
+    assert.equal(await running.locator('.session-row-activity[data-activity="running"]').isVisible(), true);
     await page.screenshot({ path: captures[1] });
     assert.notEqual(await pi.locator("#input").inputValue(), aDraft, "Sessions launcher does not inherit A draft");
     await choose(b);

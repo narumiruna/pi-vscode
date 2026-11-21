@@ -166,14 +166,21 @@ Closing or hiding the Sidebar view does not close its retained sessions.
 If import or a branch action replaces the actual runtime session behind a nonempty draft, the text stays blocked until you verify the session and clear it.
 This guard stays with its conversation across selection and renderer recreation; ordinary selection and first startup do not create a false block.
 
-| Sessions status | Meaning in this window |
-| --- | --- |
-| Idle | No owned request outcome is known; saved history does not imply success. |
-| Running | Accepted startup/submission, request, tools, retry, compaction, queue draining, or settlement remains active. |
-| Waiting for input | A live input, selection, editor, or approval request needs a response from this conversation. |
-| Completed | The request settled successfully, including queue reconciliation; its answer and file changes are not certified. |
-| Failed | Startup/request failed or an unexpected disconnect prevented settlement. |
-| Stopped | Explicit cancellation settled. |
+Recent Sessions and View all show a status icon before each title.
+Hover over the row to read the status name, or use a screen reader to hear it.
+
+| Sessions status | Icon in standard themes | Meaning in this window |
+| --- | --- | --- |
+| Idle | Gray hollow circle | No owned request outcome is known; saved history does not imply success. |
+| Running | Green ring with a gap | Accepted startup/submission, request, tools, retry, compaction, queue draining, or settlement remains active. |
+| Waiting for input | Yellow exclamation mark | A live input, selection, editor, or approval request needs a response from this conversation. |
+| Completed | Green check mark | The request settled successfully, including queue reconciliation; its answer and file changes are not certified. |
+| Failed | Red cross | Startup/request failed or an unexpected disconnect prevented settlement. |
+| Stopped | Gray square | Explicit cancellation settled. |
+
+Only the **Running** ring rotates.
+With reduced motion enabled, it keeps its gap but does not rotate.
+The separate **Unread result** dot appears next to the time.
 
 Connection, delivery, and cleanup warnings remain separate from these activity labels.
 Native input and approval dialogs identify their source conversation, including when another conversation is displayed.

@@ -97,7 +97,28 @@ export function getSidebarHtml(
     button.session-row.current { background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-hoverBackground)); color: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground)); }
     .session-row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .session-row-time { flex: 0 0 auto; color: var(--vscode-descriptionForeground); font-size: .82em; font-variant-numeric: tabular-nums; }
-    .session-row-activity { flex: 0 0 auto; font-size: .82em; }
+    .session-row-activity { position: relative; display: grid; place-items: center; width: 14px; height: 14px; flex: 0 0 14px; color: var(--vscode-descriptionForeground, inherit); }
+    .session-row-activity::before, .session-row-activity::after { box-sizing: border-box; }
+    .session-row-activity:is([data-activity="idle"], [data-activity="running"])::before { content: ''; width: 12px; height: 12px; border: 2px solid currentColor; border-radius: 50%; }
+    .session-row-activity[data-activity="running"]::before { border-right-color: transparent; }
+    .session-row-activity:is([data-activity="running"], [data-activity="completed"]) { color: var(--vscode-testing-iconPassed, inherit); }
+    .session-row-activity[data-activity="waiting"] { color: var(--vscode-editorWarning-foreground, inherit); }
+    .session-row-activity[data-activity="waiting"]::before, .session-row-activity[data-activity="waiting"]::after { content: ''; position: absolute; width: 2px; border-left: 2px solid; }
+    .session-row-activity[data-activity="waiting"]::before { top: 1px; height: 8px; }
+    .session-row-activity[data-activity="waiting"]::after { bottom: 1px; height: 2px; }
+    .session-row-activity[data-activity="completed"]::before { content: ''; width: 7px; height: 12px; border-right: 2px solid; border-bottom: 2px solid; transform: translateY(-1px) rotate(45deg); }
+    .session-row-activity[data-activity="failed"] { color: var(--vscode-errorForeground, inherit); }
+    .session-row-activity[data-activity="failed"]::before, .session-row-activity[data-activity="failed"]::after { content: ''; grid-area: 1 / 1; width: 12px; border-top: 2px solid; transform: rotate(45deg); }
+    .session-row-activity[data-activity="failed"]::after { transform: rotate(-45deg); }
+    .session-row-activity[data-activity="stopped"]::before { content: ''; width: 8px; height: 8px; border: 4px solid; }
+    .vscode-high-contrast .session-row-activity[data-activity], .vscode-high-contrast-light .session-row-activity[data-activity] { color: inherit; }
+    @media (forced-colors: active) {
+      .session-row .session-row-activity[data-activity] { forced-color-adjust: none; color: ButtonText; }
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      .session-row-activity[data-activity="running"]::before { animation: session-activity-spin 1s linear infinite; }
+    }
+    @keyframes session-activity-spin { to { transform: rotate(1turn); } }
     .session-unread-dot { width: 7px; height: 7px; flex: 0 0 auto; border: 1px solid currentColor; border-radius: 50%; background: currentColor; }
     button.session-row.current .session-row-time { color: inherit; opacity: .72; }
     #view-all-sessions { flex-shrink: 0; align-self: flex-start; min-height: 24px; margin-top: 2px; padding: 1px 7px; color: var(--vscode-descriptionForeground); font-size: .82em; }
@@ -1530,6 +1551,10 @@ export function getSidebarHtml(
       return button;
     }
 
+    const sessionActivityLabels = {
+      idle: 'Idle', running: 'Running', waiting: 'Waiting for input', completed: 'Completed', failed: 'Failed', stopped: 'Stopped',
+    };
+
     function updateConcurrentSessionRows(list, sessions) {
       const focused = list.contains(document.activeElement) ? document.activeElement : undefined;
       const retained = new Map(Array.from(list.children, button => [button.dataset.sessionId, button]));
@@ -1540,29 +1565,36 @@ export function getSidebarHtml(
           button = createSessionRow(session);
           const activity = document.createElement('span');
           activity.className = 'session-row-activity';
+          activity.setAttribute('aria-hidden', 'true');
+          const status = document.createElement('span');
+          status.className = 'sr-only session-row-status';
           const dot = document.createElement('span');
           dot.className = 'session-unread-dot';
           dot.setAttribute('aria-hidden', 'true');
           const unread = document.createElement('span');
           unread.className = 'sr-only session-row-unread';
           unread.textContent = 'Unread result';
-          button.insertBefore(activity, button.lastChild);
+          button.insertBefore(status, button.children[1]);
+          button.insertBefore(activity, button.children[0]);
           button.append(dot, unread);
         }
         retained.delete(session.id);
         button.classList.toggle('current', Boolean(session.current));
         if (session.current) button.setAttribute('aria-current', 'page');
         else button.removeAttribute('aria-current');
-        button.title = session.title;
+        const key = typeof session.activity === 'string' && Object.hasOwn(sessionActivityLabels, session.activity)
+          ? session.activity : 'idle';
+        const label = sessionActivityLabels[key];
+        button.title = session.title + ' — ' + label;
         const title = button.querySelector('.session-row-title');
         if (title.textContent !== session.title) title.textContent = session.title;
         const time = button.querySelector('.session-row-time');
         const age = formatSessionAge(session.updatedAt);
         if (time.textContent !== age) time.textContent = age;
-        const labels = { idle: 'Idle', running: 'Running', waiting: 'Waiting for input', completed: 'Completed', failed: 'Failed', stopped: 'Stopped' };
         const activity = button.querySelector('.session-row-activity');
-        const label = labels[session.activity] || 'Idle';
-        if (activity.textContent !== label) activity.textContent = label;
+        if (activity.dataset.activity !== key) activity.dataset.activity = key;
+        const status = button.querySelector('.session-row-status');
+        if (status.textContent !== label) status.textContent = label;
         button.querySelector('.session-unread-dot').hidden = !session.unread;
         button.querySelector('.session-row-unread').hidden = !session.unread;
         button.disabled = Boolean(sessionSwitchPending);

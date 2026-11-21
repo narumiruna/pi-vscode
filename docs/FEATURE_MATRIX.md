@@ -40,7 +40,7 @@ Persistent Pi session files and exact legacy global bridge cleanup paths are unc
 | Quick session switching | Sidebar-native Quick Pick, View all and previous/next commands select retained live or validated cold saved sessions during ordinary work; bounded discovery and stable cycling | [Current routing and validation](#concurrent-sidebar-sessions). |
 | Concurrent Sidebar requests | One Sidebar over independent retained controllers; A and B can run ordinary requests without stopping each other | [Behavior and current validation](#concurrent-sidebar-sessions). |
 | New/resumed Sidebar conversation during work | New Session, Resume Session and the Sessions composer admit a separate runtime rather than replacing A | [Admission and mutation boundaries](#concurrent-sidebar-sessions). |
-| Sessions activity | Host-owned Idle, Running, Waiting for input, Completed, Failed and Stopped outcomes, separate from cleanup/delivery warnings | [Activity semantics](#concurrent-sidebar-sessions). |
+| Sessions activity | Leading icons for host-owned Idle, Running, Waiting for input, Completed, Failed, and Stopped, separate from cleanup and delivery warnings | [Activity semantics](#concurrent-sidebar-sessions) and [icon legend](USER_GUIDE.md#concurrent-sidebar-sessions). |
 | Unread Sidebar results | Per-result revisions clear only after visible latest-following detail renders the exact result, not on selection | [Unread semantics](#concurrent-sidebar-sessions). |
 | Concurrent interactive editor sessions | Pi: New Concurrent Session and Pi view-title +; editor panels share the eight additional runtime slots with auxiliary Sidebar entries alongside one Primary | [Concurrency contract and earlier validation](#concurrent-interactive-editor-sessions). |
 | Sidebar slash commands | Disconnected local suggestions; session, model, thinking and settings shortcuts; explicit command/skill discovery with typed resource labels and revision-bound insertion | [Slash command behavior and checks](#sidebar-slash-commands). |
@@ -165,6 +165,13 @@ Native input/approval dialogs identify their source conversation and remain sour
 | Failed | Startup/request failure or unexpected disconnect prevented settlement. |
 | Stopped | Explicit cancellation settled. |
 
+Recent Sessions and View all place the status icon before the title.
+Only Running rotates, and it stays static with reduced motion enabled.
+The status name remains in the row tooltip and accessible name.
+To check spoken output, use two fixture sessions with different states, one unread, in an isolated VS Code profile with a desktop screen reader.
+Focus each row with the keyboard and confirm that it announces the title, status, and any unread result without confusing repetition.
+Browser checks cover accessible names, not speech on specific screen-reader and platform combinations.
+The unread dot remains separate from the status icon.
 Connection, delivery uncertainty, and cleanup warnings remain distinct from these labels.
 A settled retained result or actionable failure diagnostic advances one host-memory result revision per owned request.
 Token/progress updates, list refreshes, and row selection do not advance it.

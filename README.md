@@ -137,7 +137,10 @@ Local `/settings`, `/extension-settings`, and `/session` commands do not allocat
 Opening Sessions alone preserves Primary checkpoints; admitted shared sessions still activate concurrent-safety checks.
 Native input and approval dialogs identify their source conversation; changing the displayed conversation does not answer or transfer them.
 
-Sessions rows show **Idle**, **Running**, **Waiting for input**, **Completed**, **Failed**, or **Stopped**.
+A status icon appears before each title in Recent Sessions and View all.
+The green **Running** ring rotates unless reduced motion is enabled.
+Hover over a row to see the status name, or use a screen reader to hear it.
+See the [status icon legend](docs/USER_GUIDE.md#concurrent-sidebar-sessions) for all six states.
 An **Unread result** marker clears only after that result is rendered in visible conversation detail while following the latest output.
 Row selection alone, Sessions view, a hidden Sidebar, or earlier history does not acknowledge it.
 History loading must finish, and a shell result must be in the published transcript before its result revision can be acknowledged.

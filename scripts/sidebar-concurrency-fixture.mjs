@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 // One real Sidebar document with deterministic host snapshots, not a live provider.
 export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSafeMarkdown, origin) {
@@ -34,7 +36,8 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
   let resultRevision = 0;
   let rows = activities.map((activity, index) => ({
     id: index === 0 ? a : index === 1 ? b : String(index).repeat(24),
-    title: index === 0 ? "Session A" : index === 1 ? "Session B" : `Session ${index + 1}`,
+    title: index === 0 ? "Session A" : index === 1 ? "Session B" : `Session ${index + 1}`
+      + (activity === "idle" ? " with a saved title long enough to truncate in the narrow Sidebar" : ""),
     updatedAt: Date.now() - index * 60000,
     current: index === 0,
     activity,
@@ -221,10 +224,7 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
     assert.equal(await page.locator("#send").isEnabled(), true, "a fresh lazy session can submit before connection");
     await page.locator("#send").click();
     assert.equal((await posted(page, "sendNewSession")).at(-1).entryId, launcher, "cold Send dispatches to its launcher owner");
-    assert.deepEqual(
-      await page.locator("#recent-session-list .session-row-activity").allTextContents(),
-      ["Running", "Waiting for input", "Completed", "Failed", "Stopped", "Idle"],
-    );
+    const activityCaptures = await assertSessionStatusIcons(page, rows);
     const unread = page.locator("#recent-session-list .session-row").nth(2);
     assert.equal(await unread.locator(".session-unread-dot").isVisible(), true);
     assert.match(await unread.getAttribute("class"), /session-row/);
@@ -241,7 +241,8 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
       true,
       "background progress must keep the same focused button",
     );
-    assert.equal(await page.locator("#recent-session-list .session-row-activity").nth(1).textContent(), "Completed");
+    const completedB = page.locator("#recent-session-list").getByRole("button", { name: /^Session B Completed.*Unread result$/ });
+    assert.ok(await completedB.locator('.session-row-activity[data-activity="completed"]').isVisible());
     // The binding stays unchanged after cancel, capacity rejection, or editor reveal.
     const savedRow = page.locator("#recent-session-list .session-row").nth(2);
     await savedRow.click();
@@ -472,7 +473,8 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
     return {
       documents: 1,
       switchedEntries: 8,
-      activityLabels: activities.length,
+      activityIcons: activities.length,
+      activityCaptures,
       independentStops: 2,
       originBoundDelayedImage: true,
       draftsAndReadingAnchorPreserved: true,
@@ -493,6 +495,95 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
   } finally {
     await context.close();
   }
+}
+
+async function assertSessionStatusIcons(page, rows) {
+  const labels = ["Running", "Waiting for input", "Completed", "Failed", "Stopped", "Idle"];
+  const recent = page.locator("#recent-session-list");
+  const all = page.locator("#all-session-list");
+  const viewport = page.viewportSize();
+  const captures = [];
+  await page.setViewportSize({ width: 280, height: viewport.height });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+
+  async function checkList(list, spinning) {
+    assert.ok(await list.isVisible());
+    assert.deepEqual(await list.locator(".session-row-activity").evaluateAll((icons) =>
+      icons.map((icon) => ({
+        key: icon.dataset.activity,
+        first: icon === icon.parentElement.firstElementChild,
+        decorative: icon.getAttribute("aria-hidden"),
+        animation: getComputedStyle(icon, "::before").animationName,
+        visible: icon.getBoundingClientRect().width > 0,
+      }))), rows.map(({ activity }) => ({
+      key: activity,
+      first: true,
+      decorative: "true",
+      animation: spinning && activity === "running" ? "session-activity-spin" : "none",
+      visible: true,
+    })));
+    for (const [index, { title, unread }] of rows.entries()) {
+      const label = labels[index];
+      const row = list.locator(".session-row").nth(index);
+      assert.equal(await row.getAttribute("title"), `${title} — ${label}`);
+      const time = await row.locator(".session-row-time").textContent();
+      const name = [title, label, time, unread && "Unread result"].filter(Boolean).join(" ");
+      assert.equal(await list.getByRole("button", { name, exact: true }).count(), 1);
+      assert.equal(await row.locator(".session-row-status").evaluate((status) => getComputedStyle(status).clipPath),
+        "inset(50%)", "the status label is visually hidden");
+    }
+    assert.ok(await list.locator(".session-row-title").last().evaluate((title) => {
+      return title.scrollWidth > title.clientWidth && getComputedStyle(title).textOverflow === "ellipsis";
+    }));
+  }
+
+  const palettes = [
+    ["vscode-dark", "#181818", "#cccccc", "#073656", "#ffffff", "#a7a7a7", "#73c991", "#cca700", "#f48771"],
+    ["vscode-light", "#f8f8f8", "#333333", "#dbeafe", "#111111", "#616161", "#167244", "#795600", "#b81919"],
+    ["vscode-high-contrast", "#000000", "#ffffff", "#000000", "#ffffff", "#808080", "#73c991", "#cca700", "#f48771"],
+  ];
+  const tokens = [
+    "--vscode-sideBar-background", "--vscode-foreground", "--vscode-list-activeSelectionBackground",
+    "--vscode-list-activeSelectionForeground", "--vscode-descriptionForeground", "--vscode-testing-iconPassed",
+    "--vscode-editorWarning-foreground", "--vscode-errorForeground",
+  ];
+  for (const [theme, ...colors] of palettes) {
+    await page.evaluate(({ theme, colors, tokens }) => {
+      document.body.classList.add(theme);
+      tokens.forEach((token, index) => document.body.style.setProperty(token, colors[index]));
+    }, { theme, colors, tokens });
+    await checkList(recent, true);
+    const running = recent.locator('[data-activity="running"]');
+    assert.ok(await running.evaluate((icon) => {
+      const style = getComputedStyle(icon, "::before");
+      return style.borderRightColor === "rgba(0, 0, 0, 0)" && style.borderTopColor !== style.borderRightColor;
+    }));
+    const expected = { "vscode-dark": "rgb(115, 201, 145)", "vscode-light": "rgb(22, 114, 68)",
+      "vscode-high-contrast": "rgb(255, 255, 255)" };
+    assert.equal(await running.evaluate((icon) => getComputedStyle(icon).color), expected[theme]);
+    if (theme !== "vscode-light") {
+      const output = path.join(tmpdir(), `pi-session-icons-${theme}.png`);
+      await recent.screenshot({ path: output, animations: "disabled" });
+      captures.push(output);
+    }
+    await page.evaluate(({ theme, tokens }) => {
+      document.body.classList.remove(theme);
+      tokens.forEach((token) => document.body.style.removeProperty(token));
+    }, { theme, tokens });
+  }
+
+  await page.locator("#view-all-sessions").click();
+  await checkList(all, true);
+  await page.emulateMedia({ reducedMotion: "reduce", forcedColors: "active" });
+  await checkList(all, false);
+  assert.equal(await all.locator('[data-activity="running"]').evaluate((icon) =>
+    getComputedStyle(icon, "::before").borderRightColor), "rgba(0, 0, 0, 0)",
+  "the Running gap survives reduced motion and forced colors");
+  await page.locator("#back-to-sessions").click();
+  await checkList(recent, false);
+  await page.emulateMedia({ reducedMotion: null, forcedColors: null });
+  await page.setViewportSize(viewport);
+  return captures;
 }
 
 async function post(page, data) {
