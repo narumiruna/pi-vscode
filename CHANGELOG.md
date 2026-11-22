@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.3
+
+### Patch Changes
+
+- 5971bbb: Keep the Extension Host responsive while Pi captures the workspace checkpoint for an ordinary request.
+  Stop now cancels a pending capture before any prompt is sent.
+- 48d9add: Refresh saved sessions in the background and verify large request checkpoints without blocking the Extension Host.
+  Return cached inline completions immediately and narrow file searches before the result limit.
+  Reuse eligible history windows, load Mermaid on demand, and keep unchanged code and diagram blocks in place during streaming.
+- 9f9c58c: Show status icons before session titles in the Pi Sidebar.
+  The Running ring rotates unless reduced motion is enabled.
+  Keep status names in row tooltips and available to screen readers.
+- 0fd6fbf: Update only the active reply during text streaming in the Pi Sidebar and editor conversations.
+  Keep earlier messages in place to reduce repeated rendering and large Webview updates.
+
 ## 0.11.2
 
 ### Patch Changes
