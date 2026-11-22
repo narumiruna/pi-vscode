@@ -153,7 +153,8 @@ Native Chat history is separate from the Pi sidebar session.
 
 Choose **New Worktree in New Window** in the Pi Sidebar title’s **⋯** menu, or run **Pi: New Worktree in New Window** from the Command Palette.
 Use a trusted, local VS Code desktop workspace with the built-in Git extension enabled and a repository visible in Source Control.
-If VS Code finds more than one repository inside the workspace, choose the source repository.
+You can open a subfolder of a repository if VS Code associates that folder with the repository in Source Control.
+If more than one repository is available for the open folders, choose the source repository.
 Pi makes a new branch with a generated `pi/worktree-…` name from the selected repository’s current commit and opens the worktree in a new window.
 You do not enter a branch name or path; the Git extension chooses the worktree location.
 

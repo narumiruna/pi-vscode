@@ -48,6 +48,7 @@ function fixture() {
       // The real VS Code API returns new wrappers for each read.
       return scan.map((repository) => ({ ...repository }));
     },
+    getRepository: (_uri: MockUri): (typeof scan)[number] | null => null,
   };
   const git = {
     enabled: true,
@@ -109,6 +110,44 @@ test("creates a named worktree at the resolved HEAD and opens the exact returned
   assert.deepEqual(errors, []);
   await run();
   assert.notEqual(createOptions[1]?.branch, branch);
+});
+
+test("uses a parent repository recognized by VS Code when only its subfolders are open", async () => {
+  const { folders, primary, scan, api, run, createOptions, windows, errors } = fixture();
+  const app = MockUri.file(path.join(primary.rootUri.fsPath, "packages", "app"));
+  const lib = MockUri.file(path.join(primary.rootUri.fsPath, "packages", "lib"));
+  folders.splice(0, folders.length, { uri: app }, { uri: lib });
+  scan.push({ ...primary, rootUri: MockUri.file(`${primary.rootUri.fsPath}-neighbor`) });
+  api.getRepository = (uri) => (uri === app || uri === lib ? { ...primary } : null);
+  primary.getCommit = async () => {
+    folders.reverse();
+    return { hash };
+  };
+
+  await run();
+  assert.equal(createOptions[0]?.commitish, hash);
+  assert.equal(createOptions.length, 1);
+  assert.equal(windows.length, 1);
+  assert.deepEqual(errors, []);
+});
+
+test("does not create a parent worktree if the selected folder changes Git association during HEAD lookup", async () => {
+  const { folders, primary, scan, api, run, createOptions, windows, errors } = fixture();
+  const app = MockUri.file(path.join(primary.rootUri.fsPath, "packages", "app"));
+  const lib = MockUri.file(path.join(primary.rootUri.fsPath, "packages", "lib"));
+  folders.splice(0, folders.length, { uri: app }, { uri: lib });
+  const nested = { ...primary, rootUri: app };
+  api.getRepository = () => primary;
+  primary.getCommit = async () => {
+    scan.push(nested);
+    api.getRepository = (uri) => (uri === app ? nested : primary);
+    return { hash };
+  };
+
+  await run();
+  assert.match(errors[0] ?? "", /repository is no longer available/);
+  assert.equal(createOptions.length, 0);
+  assert.equal(windows.length, 0);
 });
 
 test("selects the requested Git source, or leaves the workspace untouched on cancel", async () => {

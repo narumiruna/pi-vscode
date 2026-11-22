@@ -12,12 +12,15 @@ interface GitRepository {
   createWorktree(options: { branch: string; commitish: string; noTrack: boolean }): Promise<string>;
 }
 
+interface GitApi {
+  readonly state: "uninitialized" | "initialized";
+  readonly repositories: readonly GitRepository[];
+  getRepository(uri: vscode.Uri): GitRepository | null;
+}
+
 interface GitExtension {
   readonly enabled: boolean;
-  getAPI(version: 1): {
-    readonly state: "uninitialized" | "initialized";
-    readonly repositories: readonly GitRepository[];
-  };
+  getAPI(version: 1): GitApi;
 }
 
 function assertLocalWorkspace(): void {
@@ -31,10 +34,21 @@ function assertLocalWorkspace(): void {
   }
 }
 
-function sourceFolder(repository: GitRepository): vscode.WorkspaceFolder | undefined {
-  if (repository.isUsingVirtualFileSystem || repository.rootUri.scheme !== "file") return undefined;
-  const folder = vscode.workspace.getWorkspaceFolder(repository.rootUri);
-  return folder?.uri.scheme === "file" ? folder : undefined;
+function sourceFolder(
+  api: GitApi,
+  repository: GitRepository,
+  expectedFolder?: string,
+): vscode.WorkspaceFolder | undefined {
+  const { rootUri } = repository;
+  if (repository.isUsingVirtualFileSystem || rootUri.scheme !== "file") return undefined;
+  const matches = (folder: vscode.WorkspaceFolder) =>
+    folder.uri.scheme === "file" && (expectedFolder === undefined || folder.uri.toString() === expectedFolder);
+  const containingFolder = vscode.workspace.getWorkspaceFolder(rootUri);
+  if (containingFolder && matches(containingFolder)) return containingFolder;
+  const root = rootUri.toString();
+  return vscode.workspace.workspaceFolders?.find(
+    (folder) => matches(folder) && api.getRepository(folder.uri)?.rootUri.toString() === root,
+  );
 }
 
 export function registerWorktreeCommand(context: vscode.ExtensionContext): void {
@@ -57,7 +71,7 @@ async function createAndOpenWorktree(): Promise<void> {
   const api = git.getAPI(1);
   assertLocalWorkspace();
   const sources = api.repositories.flatMap((repository) => {
-    const folder = sourceFolder(repository);
+    const folder = sourceFolder(api, repository);
     if (!folder) return [];
     const { rootUri } = repository;
     return [{ label: path.basename(rootUri.fsPath) || folder.name, description: rootUri.fsPath, rootUri, folder }];
@@ -81,7 +95,7 @@ async function createAndOpenWorktree(): Promise<void> {
     assertLocalWorkspace();
     const repository = git.enabled
       ? api.repositories.find(
-          (entry) => entry.rootUri.toString() === root && sourceFolder(entry)?.uri.toString() === folder,
+          (entry) => entry.rootUri.toString() === root && sourceFolder(api, entry, folder) !== undefined,
         )
       : undefined;
     if (!repository) throw new Error("The selected Git repository is no longer available in this workspace.");
