@@ -329,6 +329,79 @@ test("one Sidebar view runs A/B concurrently and opens fresh C while both remain
   });
 });
 
+test("streaming renders and sends only the assistant tail and retains inactive updates", async () => {
+  await fixture(async (f) => {
+    await f.send(f.a, "request A");
+    const renderer = vi.spyOn(f.primary.markdownRenderer, "renderBatch");
+    const client = f.clients.get(f.a.runtime);
+    const history = vi.spyOn(client, "getMessages");
+    const formula = "$\\frac{1}{2}+\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}$";
+    f.primary.messages = Array.from({ length: 99 }, (_, index) => ({
+      id: `old-${index}`,
+      role: "assistant",
+      content: `Derivation ${index}. ${`${formula} then `.repeat(8)}`,
+    }));
+    const delta = (text: string) =>
+      client.emit({
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: text },
+      });
+    client.emit({ type: "message_start", message: { role: "assistant", timestamp: 100 } });
+    delta("First");
+    await vi.waitFor(() => assert.equal(f.latest().messages.at(-1)?.content, "First"));
+    const first = f.latest();
+    const origin = f.binding();
+    assert.equal(first.messages.length, 100);
+    renderer.mockClear();
+    const posted = f.view.webview.messages.length;
+    delta(" streamed");
+    delta(" tail");
+    await vi.waitFor(() => assert.equal(f.view.webview.messages.at(-1)?.type, "transcriptTailPatch"));
+    const patch = f.view.webview.messages.at(-1);
+    assert.deepEqual(renderer.mock.calls, [[["First streamed tail"]]]);
+    assert.equal(patch.baseRevision, first.transcriptRevision);
+    assert.deepEqual(patch.sidebar, { entryId: f.a.id, bindingGeneration: origin.bindingGeneration });
+    assert.equal(patch.id, first.messages.at(-1).id);
+    assert.equal(f.view.webview.messages.length, posted + 1);
+    assert.ok(Buffer.byteLength(JSON.stringify(patch)) < 512);
+    assert.ok(Buffer.byteLength(JSON.stringify(first)) > 2_000_000);
+
+    const b = await f.open();
+    const bPosts = f.view.webview.messages.length;
+    delta(" while inactive");
+    await vi.waitFor(() => assert.equal(f.a.state.messages.at(-1).content, "First streamed tail while inactive"));
+    assert.equal(
+      f.view.webview.messages.slice(bPosts).some((message: any) => message.type === "transcriptTailPatch"),
+      false,
+    );
+    f.dispatch({ type: "refreshTranscript" }, origin);
+    assert.equal(f.latest().sidebar.entryId, b.id, "a stale recovery must not select A");
+    f.dispatch({ type: "switchRecentSession", id: f.a.id });
+    await vi.waitFor(() => assert.equal(f.latest().sidebar.entryId, f.a.id));
+    const switched = f.latest();
+    assert.equal(switched.messages.at(-1).content, "First streamed tail while inactive");
+    assert.deepEqual(switched.messages.slice(0, -1), first.messages.slice(0, -1));
+
+    f.dispatch({ type: "refreshTranscript" });
+    await vi.waitFor(() => assert.ok(f.latest().transcriptRevision > switched.transcriptRevision));
+    assert.deepEqual(f.latest().messages, switched.messages);
+    assert.equal(history.mock.calls.length, 0, "recovery must not read Pi history");
+
+    client.emit({
+      type: "extension_ui_request",
+      method: "setStatus",
+      id: "status",
+      statusKey: "phase",
+      statusText: "Mixed update",
+    });
+    delta(" plus status");
+    await vi.waitFor(() =>
+      assert.equal(f.latest().messages.at(-1)?.content, "First streamed tail while inactive plus status"),
+    );
+    assert.equal(f.view.webview.messages.at(-1).type, "state");
+  });
+});
+
 test("source envelopes reject stale sends and Stop; a late A acceptance cannot clear B's composer", async () => {
   await fixture(async (f) => {
     const acceptance = deferred<string>();

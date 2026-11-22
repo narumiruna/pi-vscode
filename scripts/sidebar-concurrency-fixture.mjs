@@ -68,6 +68,7 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
     const sessionsView = options.view === undefined ? id === launcher : options.view === "sessions";
     const snapshot = {
       type: "state",
+      transcriptRevision: options.transcriptRevision,
       sidebar: {
         entryId: id,
         bindingGeneration: generation,
@@ -466,6 +467,7 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
         assert.equal(all[index - 1].bindingGeneration, message.bindingGeneration);
       }
     }
+    const transcriptPatch = await assertTranscriptPatch(page, state, a, b);
     assert.deepEqual(await page.evaluate(() => window.sidebarViolations), []);
     assert.deepEqual(errors, []);
     assert.deepEqual(consoleErrors, []);
@@ -487,6 +489,7 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
       reconstructedComposerAcceptance: true,
       lateComposerContextGuard: true,
       visibilityAndLatestAcknowledgement: true,
+      transcriptPatch,
       cspViolations: 0,
       pageErrors: 0,
       consoleErrors: 0,
@@ -495,6 +498,55 @@ export async function assertSidebarConcurrency(browser, getSidebarHtml, renderSa
   } finally {
     await context.close();
   }
+}
+
+async function assertTranscriptPatch(page, state, a, b) {
+  const stable = { id: "fixed", role: "user", html: "<p>needle</p>" + "<p>Earlier text.</p>".repeat(80) };
+  const current = { id: "active", role: "assistant", content: "Original reply", html: "<p>Original reply</p>" };
+  const messages = [stable, current];
+  const snapshot = await state(a, { rebind: true, busy: true, transcriptRevision: 10, messages });
+  const { entryId, bindingGeneration } = snapshot.sidebar;
+  const patch = (baseRevision, content, html = `<p>${content}</p>`) => post(page, {
+    type: "transcriptTailPatch", baseRevision, id: current.id, content, html,
+    sidebar: { entryId, bindingGeneration },
+  });
+  const scroller = page.locator("#conversation");
+  const search = page.locator("#history-search-input");
+  await page.locator("#history-search-open").click();
+  await search.fill("needle");
+  await scroller.evaluate((element) => { element.scrollTop = 100; });
+  await frames(page);
+  await page.evaluate(() => {
+    window.stableTranscriptNode = document.querySelector("#messages article:first-child .content p");
+  });
+  await patch(10, "New needle reply", '<p onclick="window.patchExecuted=true">New needle reply</p>');
+  await frames(page);
+  assert.match(await page.locator("#history-search-count").innerText(), /1 of 2/);
+  assert.equal(await search.evaluate((element) => document.activeElement === element), true);
+  assert.equal(await scroller.evaluate((element) => element.scrollTop), 100);
+  assert.match(await page.locator("#jump-to-latest").innerText(), /New output/);
+  assert.equal(await page.locator("#messages .content [onclick]").count(), 0);
+  assert.equal(await page.evaluate(() =>
+    window.stableTranscriptNode === document.querySelector("#messages article:first-child .content p")), true);
+
+  await patch(10, "Duplicate must not render");
+  await patch(13, "Gap must not render");
+  await patch(14, "Only one recovery request while waiting");
+  assert.doesNotMatch(await page.locator("#messages").innerText(), /must not render|Only one recovery/);
+  assert.deepEqual(await posted(page, "refreshTranscript"), [{
+    type: "refreshTranscript", entryId, bindingGeneration, composerContext: snapshot.sidebar.composerContext,
+  }]);
+  const recovered = { ...current, content: "Recovered", html: "<p>Recovered</p>" };
+  await state(a, { busy: true, transcriptRevision: 15, messages: [stable, recovered] });
+  await patch(15, "After recovery");
+  assert.match(await page.locator("#messages").innerText(), /After recovery/);
+  await post(page, snapshot);
+  assert.match(await page.locator("#messages").innerText(), /After recovery/, "an older snapshot cannot undo a patch");
+  await state(b, { busy: true, transcriptRevision: 1 });
+  await patch(16, "Stale A must not reach B");
+  assert.doesNotMatch(await page.locator("#messages").innerText(), /Stale A/);
+  assert.equal((await posted(page, "refreshTranscript")).length, 1);
+  return "tail-only DOM update, search, scroll, sanitization, stale binding, duplicate, gap, recovery";
 }
 
 async function assertSessionStatusIcons(page, rows) {

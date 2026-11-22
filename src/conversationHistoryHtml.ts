@@ -141,6 +141,10 @@ export function conversationHistoryScript(): string {
       return {
         bind(callbacks) { hooks = { ...hooks, ...callbacks }; }, open, latest,
         isEarlier() { return state.history?.mode === 'earlier'; },
+        onTailChanged(message) {
+          lastContent[lastContent.length - 1] = [message.id, message.html];
+          if (!bar.hidden && field.value) rebuild();
+        },
         beforeRender(next) {
           const nextSession = JSON.stringify([next.runtime?.sessionFile, next.runtime?.sessionId]);
           if (session !== undefined && nextSession !== session) {

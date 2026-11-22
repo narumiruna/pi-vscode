@@ -299,19 +299,32 @@ const onLine = (line) => {
       emit({ type: "agent_start" });
       emit({ type: "message_end", message: user });
       const inputFile = path.join(directory, `sidebar-input-${token}`);
+      const deltaFile = path.join(directory, `sidebar-delta-${token}`);
       let inputSent = false;
+      let assistantTimestamp;
+      const startAssistant = () => {
+        if (assistantTimestamp !== undefined) return;
+        assistantTimestamp = Date.now();
+        emit({ type: "message_start", message: { role: "assistant", content: [], timestamp: assistantTimestamp } });
+      };
       heldTimer = setInterval(() => {
         if (!inputSent && fs.existsSync(inputFile)) {
           inputSent = true;
           fs.rmSync(inputFile, { force: true });
           emit({ type: "extension_ui_request", id: `sidebar-input-${token}`, method: "input", title: "B input while A is selected" });
         }
+        if (fs.existsSync(deltaFile)) {
+          const delta = fs.readFileSync(deltaFile, "utf8");
+          fs.rmSync(deltaFile, { force: true });
+          startAssistant();
+          emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta } });
+        }
         if (!fs.existsSync(releaseFile)) return;
         clearInterval(heldTimer);
         fs.rmSync(releaseFile, { force: true });
-        const assistant = { role: "assistant", content: [{ type: "text", text: text.slice(text.indexOf("\n") + 1) }], stopReason: "stop", timestamp: Date.now() };
+        startAssistant();
+        const assistant = { role: "assistant", content: [{ type: "text", text: text.slice(text.indexOf("\n") + 1) }], stopReason: "stop", timestamp: assistantTimestamp };
         append(assistant);
-        emit({ type: "message_start", message: { role: "assistant", content: [], timestamp: assistant.timestamp } });
         emit({ type: "message_end", message: assistant });
         emit({ type: "agent_end", messages });
         emit({ type: "agent_settled" });
