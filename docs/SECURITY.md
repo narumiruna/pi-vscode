@@ -485,6 +485,12 @@ This is conservative coverage, not proof of every external writer's identity.
 Dirty buffers, unsupported files, creations/deletions and ambiguous attribution are excluded.
 Shell/custom-tool requests and process exits without settlement are non-restorable.
 Capture is bounded to 10,000 entries / 20 MiB.
+A bounded directory check selects a small batch scan or sends the scan to one reusable workspace Extension Host worker.
+The worker reads only the leased workspace and receives no prompt, model credentials, or editor buffer text from the host.
+The host excludes files affected by editor changes observed during capture and commits only a complete snapshot.
+After asynchronous preparation, the host rechecks trust, workspace identity, client generation, session, and cancellation before it sends the prompt.
+Stop before dispatch cancels preparation without sending a prompt or aborting the idle Pi client.
+A capture failure discards partial results; it does not trigger a synchronous fallback, bypass protection, or replay the prompt.
 History is memory-only, capped at 20 requests, 2 MiB per file side and 20 MiB retained before/after bytes; unresolved restore failures retain recovery data and may prevent new history from being retained.
 
 Opening an auxiliary Sidebar or editor session enables conservative checkpoint invalidation for Primary and additional conversation trackers.

@@ -511,7 +511,10 @@ Two attempts, one source file; no private Test Explorer API.
 
 ### Request checkpoints
 
-Implementation: `checkpointHistory.ts`, `changeTracker.ts`; immediate-write subprocess boundary and stale/dirty/dependency tests.
+Implementation: `checkpointCapture.ts`, `checkpointCaptureHost.ts`, `checkpointWorker.ts`, `changeTracker.ts`, and `checkpointHistory.ts`.
+Small workspaces use bounded batches; larger workspaces share one capture worker per Extension Host.
+Stop cancels capture before prompt dispatch without aborting an idle Pi client.
+Offline tests cover capture limits, editor changes, concurrent ownership, worker failure, and Stop followed by a successful request.
 Memory-only; no creations/deletions/shell rollback.
 Concurrent-session safety invalidates current attribution on overlapping agent leases and historical restoration on later operations from another owner.
 Invalidation retains failed-restore snapshots under the existing storage and lifecycle limits; it does not establish attribution for external writers.

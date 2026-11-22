@@ -1266,8 +1266,38 @@ try {
     await assertExtensionEditorDialogs({ page, directory, invoke, until, frame });
   }
   }
-  if (!settingsOnly && !outputDiagnosticsOnly && !annotationsOnly && !selectionOnly && !sessionSwitchOnly && !process.argv.includes("transfer"))
+  if (!settingsOnly && !outputDiagnosticsOnly && !annotationsOnly && !selectionOnly && !sessionSwitchOnly && !process.argv.includes("transfer")) {
     await assertNativeSidebarConcurrency({ page, directory, workspace, invoke, until, frame });
+    const checkpointFiles = path.join(workspace, "checkpoint-worker-files");
+    await mkdir(checkpointFiles);
+    try {
+      await Promise.all(Array.from({ length: 140 }, (_, index) => writeFile(path.join(checkpointFiles, `${index}.txt`), "checkpoint fixture\n")));
+      await invoke("holdCheckpointCaptureOnce");
+      const pi = await frame();
+      const composer = pi.locator("#input");
+      const sent = "Native checkpoint cancelled before dispatch";
+      const later = "Native checkpoint request after cancellation";
+      const prompts = () => readFile(path.join(directory, "prompts.jsonl"), "utf8");
+      const before = await prompts();
+      await composer.fill(sent);
+      await pi.locator("#send").click();
+      await until(async () => (await readFile(path.join(directory, "checkpoint-capture-entered"), "utf8").catch(() => "")) !== "", "worker capture entered");
+      assert.equal(await prompts(), before);
+      await pi.locator("#cancel").click();
+      await pi.locator("#cancel").waitFor({ state: "hidden" });
+      assert.equal(await prompts(), before, "Stop before dispatch must not send the held prompt");
+      await respond("Native checkpoint worker result");
+      await composer.fill(later);
+      await pi.locator("#send").click();
+      await until(async () => (await pi.locator("#messages").innerText()).includes("Native checkpoint worker result") &&
+        !(await pi.locator("#cancel").isVisible()), "later request completes through the real worker");
+      assert.doesNotMatch(await prompts(), /Native checkpoint cancelled before dispatch/);
+      assert.match(await prompts(), /Native checkpoint request after cancellation/);
+      console.log("PI_NATIVE_CHECKPOINT_CAPTURE", "Stop did not send a prompt; the next request completed with the real worker");
+    } finally {
+      await rm(checkpointFiles, { recursive: true, force: true });
+    }
+  }
   await invoke("finish", {}, false);
 } catch (error) {
   if (page) {

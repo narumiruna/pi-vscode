@@ -1170,9 +1170,12 @@ test("Sessions-layer submission snapshots attachments and holds the request gate
     const ordinaryPrompt = runtime.prompt;
     let trackerStarts = 0;
     const trackerFinishes: string[] = [];
-    internal.changeTracker.startRequest = () => {
-      trackerStarts += 1;
-    };
+    internal.changeTracker.prepareRequest = async () => ({
+      commit: () => {
+        trackerStarts += 1;
+      },
+      dispose() {},
+    });
     internal.changeTracker.finishRequest = (status = "completed") => {
       trackerFinishes.push(status);
       return [];
@@ -1182,9 +1185,9 @@ test("Sessions-layer submission snapshots attachments and holds the request gate
       _resource: unknown,
       _images: unknown,
       onAccepted?: () => void,
-      beforeSubmit?: () => void,
+      beforeSubmit?: () => void | Promise<() => void>,
     ) => {
-      beforeSubmit?.();
+      (await beforeSubmit?.())?.();
       onAccepted?.();
       return { disposition: "handled" };
     };
@@ -1246,9 +1249,9 @@ test("Sessions-layer submission snapshots attachments and holds the request gate
         _resource: unknown,
         _images: unknown,
         onAccepted?: () => void,
-        beforeSubmit?: () => void,
+        beforeSubmit?: () => void | Promise<() => void>,
       ) => {
-        beforeSubmit?.();
+        (await beforeSubmit?.())?.();
         onAccepted?.();
         internal.requestLifecycle.cancel();
         return { disposition: "handled" };

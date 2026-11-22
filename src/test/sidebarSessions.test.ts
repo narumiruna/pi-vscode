@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtemp, readFile, realpath, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { installVscodeMock, MockUri } from "./vscodeMock";
@@ -326,6 +326,105 @@ test("one Sidebar view runs A/B concurrently and opens fresh C while both remain
     assert.ok(!f.latest().messages.some((message: any) => message.content.includes("answer unique A")));
     assert.equal(f.clients.get(f.a.runtime).prompts.length, 1);
     assert.equal(f.clients.get(b.runtime).prompts.length, 1);
+  });
+});
+
+test.each(["stop", "client replacement", "worker failure", "disposal"])(
+  "%s before dispatch releases capture and the foreground lease without writing a prompt",
+  async (mode) => {
+    await fixture(async (f) => {
+      const { hasOperation } = require("../operationLocks") as typeof import("../operationLocks");
+      const stopOld = vi.spyOn(f.runtime, "abort");
+      const entered = deferred<AbortSignal>();
+      const failed = deferred<void>();
+      const capture = vi
+        .spyOn(f.primary.changeTracker as InstanceType<typeof WorkspaceChangeTracker>, "prepareRequest")
+        .mockImplementation(async (_root: string, _session: string, signal: AbortSignal) => {
+          entered.resolve(signal);
+          await new Promise<void>((_resolve, reject) => {
+            signal.addEventListener("abort", () => reject(new Error("Pi request was cancelled.")), { once: true });
+            void failed.promise.then(() => reject(new Error("Checkpoint worker stopped before capture completed.")));
+          });
+          throw new Error("Unreachable capture fixture");
+        });
+      const client = f.clients.get(f.a.runtime);
+      try {
+        f.compose("must not dispatch");
+        f.dispatch({ type: "send", text: "must not dispatch", revision: 1 });
+        const signal = await entered.promise;
+        assert.ok(hasOperation(f.root));
+        if (mode === "stop") f.dispatch({ type: "cancel" });
+        if (mode === "client replacement") client.emit({ type: "process_exit", expected: true });
+        if (mode === "worker failure") failed.resolve();
+        if (mode === "disposal") f.primary.dispose();
+        await vi.waitFor(() => assert.equal(hasOperation(f.root), false));
+        assert.equal(signal.aborted, mode !== "worker failure");
+        assert.deepEqual(client.prompts, []);
+        assert.equal(stopOld.mock.calls.length, 0, "an idle client must not receive abort");
+      } finally {
+        capture.mockRestore();
+      }
+      if (mode === "stop") {
+        await f.send(f.a, "later prompt", 2);
+        assert.equal(client.prompts.length, 1);
+        await f.complete(f.a, "later result");
+      }
+    });
+  },
+);
+
+test("a workspace exchanged at the same path cannot dispatch a prepared capture", async () => {
+  await fixture(async (f) => {
+    const moved = `${f.root}-old`;
+    const commit = vi.fn();
+    const capture = vi
+      .spyOn(f.primary.changeTracker as InstanceType<typeof WorkspaceChangeTracker>, "prepareRequest")
+      .mockImplementation(async () => {
+        await rename(f.root, moved);
+        await mkdir(f.root);
+        return { commit, dispose() {} };
+      });
+    try {
+      f.compose("do not send to replacement", 1);
+      f.dispatch({ type: "send", text: "do not send to replacement", revision: 1 });
+      await vi.waitFor(() => assert.match(f.latest().status, /Request failed/));
+      assert.deepEqual(f.clients.get(f.a.runtime).prompts, []);
+      assert.equal(commit.mock.calls.length, 0);
+    } finally {
+      capture.mockRestore();
+      await rm(f.root, { recursive: true, force: true });
+      await rename(moved, f.root);
+    }
+  });
+});
+
+test("a sibling admitted during capture invalidates the new checkpoint before dispatch", async () => {
+  await fixture(async (f) => {
+    const { acquireAgentOperation } = require("../operationLocks") as typeof import("../operationLocks");
+    const entered = deferred<void>();
+    const resume = deferred<void>();
+    const commit = vi.fn();
+    const capture = vi
+      .spyOn(f.primary.changeTracker as InstanceType<typeof WorkspaceChangeTracker>, "prepareRequest")
+      .mockImplementation(async () => {
+        entered.resolve();
+        await resume.promise;
+        return { commit, dispose() {} };
+      });
+    let release = () => {};
+    try {
+      const accepted = f.send(f.a, "overlapping capture");
+      await entered.promise;
+      release = acquireAgentOperation(f.root, "sibling fixture", () => {});
+      resume.resolve();
+      await accepted;
+      assert.deepEqual(commit.mock.calls, [[true]]);
+      await f.complete(f.a, "result");
+    } finally {
+      resume.resolve();
+      release();
+      capture.mockRestore();
+    }
   });
 });
 
@@ -1624,7 +1723,7 @@ test("R13 browsing Sessions preserves Primary's restorable checkpoint without en
     const file = path.join(f.root, "checkpoint.txt");
     await writeFile(file, "before browsing\n");
     const tracker = f.primary.changeTracker;
-    tracker.startRequest(f.root, f.runtime.currentState.sessionId);
+    await tracker.startRequest(f.root, f.runtime.currentState.sessionId);
     tracker.captureToolEvent({
       type: "tool_execution_start",
       toolName: "write",
