@@ -41,6 +41,10 @@ test("literal at signs, email, shell, slash commands, IME, absolute paths and tr
     "@/etc/passwd",
     "@C:\\file",
     "@a\0b",
+    '@"literal*star"',
+    '@"literal?question"',
+    '@"literal[range]"',
+    '@"literal{alternatives}"',
     "@" + "x".repeat(257),
   ])
     assert.equal(token(text), undefined, text);
@@ -208,6 +212,63 @@ test("discovery has fixed bounds, configured exclusions, deterministic ordering 
     await f.select(result, "00000000-0000-4000-8000-000000000000");
     assert.equal(f.attachments.values.length, 0);
     assert.ok(f.posted.some((item) => item.type === "fileCompletionFailed"));
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("nonempty discovery sends a literal relative-path filter before the cap", async () => {
+  const f = await fixture();
+  try {
+    const narrowed = await f.add("top/preA/B,(c)!/deep/file.ts");
+    const decoy = await f.add("top/preA/Bx(c)!/deep/file.ts");
+    const expected = "{**/*[Aa]/[Bb][,]([Cc])!*,**/*[Aa]/[Bb][,]([Cc])!*/**}";
+    f.vscode.workspace.findFiles = async (include: { pattern: string }, exclude: string, max: number) => {
+      assert.equal(include.pattern, expected);
+      assert.match(exclude, /node_modules/);
+      assert.equal(max, 2_000);
+      // Even when the native side returns an extra result, the literal host check is authoritative.
+      return [narrowed, decoy];
+    };
+    const result = await f.query('@"a/b,(c)!"');
+    assert.deepEqual(
+      result.candidates.map((item: { path: string }) => item.path),
+      ["top/preA/B,(c)!/deep/file.ts"],
+    );
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("Unicode filename and directory searches share one discovery budget and cancellation token", async () => {
+  const f = await fixture();
+  try {
+    const file = await f.add("top/ÉK𐐀İ.txt");
+    const descendant = await f.add("ÉK𐐀İ/dir/child.txt");
+    const searches: { pattern: string; max: number; cancellation: unknown }[] = [];
+    f.vscode.workspace.findFiles = async (
+      include: { pattern: string },
+      _exclude: string,
+      max: number,
+      cancellation: unknown,
+    ) => {
+      searches.push({ pattern: include.pattern, max, cancellation });
+      return searches.length === 1 ? [file] : [descendant];
+    };
+    const result = await f.query("@éK𐐨İ");
+    const expected = "**/*{é,É}{[Kk],K}{𐐨,𐐀}{[Ii]̇,İ}*";
+    assert.deepEqual(
+      searches.map(({ pattern, max }) => [pattern, max]),
+      [
+        [expected, 2_000],
+        [`${expected}/**`, 1_999],
+      ],
+    );
+    assert.equal(searches[0]?.cancellation, searches[1]?.cancellation);
+    assert.deepEqual(
+      result.candidates.map((item: { path: string }) => item.path),
+      ["top/ÉK𐐀İ.txt", "ÉK𐐀İ/dir/child.txt"],
+    );
   } finally {
     await f.cleanup();
   }

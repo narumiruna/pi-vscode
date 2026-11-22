@@ -167,6 +167,7 @@ If import or a branch action replaces the actual runtime session behind a nonemp
 This guard stays with its conversation across selection and renderer recreation; ordinary selection and first startup do not create a false block.
 
 Recent Sessions and View all show a status icon before each title.
+The saved-session list refreshes in the background after responses complete.
 Hover over the row to read the status name, or use a screen reader to hear it.
 
 | Sessions status | Icon in standard themes | Meaning in this window |
@@ -357,6 +358,8 @@ An uncertain authoritative runtime refresh disconnects only its originating runt
   Search excludes thinking, tool details, and images.
   Use **Previous/Next** or Enter/Shift+Enter; Escape closes search and returns focus to the icon.
 - The header's **Earlier history** clock icon replaces the bounded window; its **Latest history** down-to-line icon returns to the current tail and is disabled when that window is already latest.
+  Some text-only windows are reused in memory until the conversation changes or you refresh.
+  Pi still transfers the full active branch when the extension needs to fetch history.
   Loading, earlier-window position and truncation remain visible when relevant, even with search closed.
   Absent or unavailable history alone adds no header strip, including in an empty conversation.
   Actual failures keep the composer status, notices, diagnostics and guarded recovery controls.
@@ -497,6 +500,9 @@ The separate **Pi: Inline Edit (Preview)**, diagnostic Quick Fix, and next-edit 
 
 Automatic inline completions are disabled by default.
 Enable `pi.inlineCompletions.enabled` to request them after a typing pause.
+A matching cached result can appear immediately without another request.
+Otherwise, the completion reads a bounded range around the cursor for the prompt.
+When the eligibility check cannot determine the trimmed line-prefix length from those ranges, it checks the whitespace at the edges separately.
 
 ### Temporary passage annotations
 
@@ -658,7 +664,9 @@ Prompt markers now use `PI_VSCODE_*`; old markers remain plain transcript text.
 
 File completion is local and requires a trusted, file-backed workspace matching the active Pi working directory.
 It does not start Pi or send a model request.
-Discovery checks at most 2,000 names, sorts up to 30 matching results, and has a two-second deadline.
+A nonempty query narrows the VS Code search before its 2,000-path limit.
+The extension rechecks the returned paths and shows up to 30 sorted matches within a two-second deadline.
+For some Unicode case variants, such as Greek sigma, the native search can count paths toward its limit that the final check does not show.
 Queries allow 256 characters; candidate paths allow 1,024.
 Search uses enabled `files.exclude` and `search.exclude` patterns plus `.git`, `node_modules`, `out`, `dist`, `build`, `coverage`, `.next`, `.cache`, and `vendor` directories.
 It does not read `.gitignore`; add private or ignored paths to those VS Code exclusions.

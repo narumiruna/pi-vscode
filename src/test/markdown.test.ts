@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { MarkdownRenderer, renderSafeMarkdown, safeMarkdownUrl } from "../markdown";
+import { completedFenceBoundary } from "../webview/markdownBoundary";
 
 const render = renderSafeMarkdown;
 
@@ -90,7 +91,7 @@ test("inline code is literal and known code languages are highlighted", () => {
   assert.match(html, /&lt;/);
   assert.equal(
     render("```unknown\n<img onerror=x>\n```"),
-    '<pre><code class="language-unknown">&lt;img onerror=x&gt;</code></pre>',
+    `<pre><code class="language-unknown">&lt;img onerror=x&gt;</code></pre>${completedFenceBoundary}`,
   );
 });
 test("empty assistant turns stay invisible and blank lines add no visible artifacts", () => {
@@ -104,8 +105,8 @@ test("empty assistant turns stay invisible and blank lines add no visible artifa
 test("complete and streaming code fences preserve meaningful whitespace", () => {
   const code = "line one\n\n  line two";
   const expected = `<pre><code class="language-unknown">${code}</code></pre>`;
-  assert.equal(render("```unknown\n" + code + "\n```\n\n"), expected);
-  assert.equal(render("```unknown\n" + code), expected);
+  assert.equal(render(`\`\`\`unknown\n${code}\n\`\`\`\n\n`), expected + completedFenceBoundary);
+  assert.equal(render(`\`\`\`unknown\n${code}`), expected);
 });
 test("all four math delimiters render with accessible MathML and bounded KaTeX", () => {
   for (const value of [
@@ -374,7 +375,29 @@ test("prices with punctuation boundaries retain later Markdown during streaming"
 
 test("only closed Mermaid fences are marked for diagram rendering", () => {
   const source = "flowchart LR\nA-->B";
-  assert.match(render("```mermaid\n" + source + "\n```"), /class="mermaid-source"/);
-  assert.doesNotMatch(render("```mermaid\n" + source), /class="mermaid-source"/);
-  assert.doesNotMatch(render("```text\n" + source + "\n```"), /class="mermaid-source"/);
+  for (const closer of ["```", "````", "  ```\t"]) {
+    const html = render(`\`\`\`mermaid\n${source}\n${closer}`);
+    assert.match(html, /class="mermaid-source"/);
+    assert.ok(html.endsWith(completedFenceBoundary));
+  }
+  for (const closer of ["", "``", "~~~", "``` text", "```\u00a0", "    ```"]) {
+    const html = render(`\`\`\`mermaid\n${source}\n${closer}`);
+    assert.doesNotMatch(html, /class="mermaid-source"/);
+    assert.ok(!html.includes(completedFenceBoundary));
+  }
+  assert.doesNotMatch(render(`\`\`\`text\n${source}\n\`\`\``), /class="mermaid-source"/);
+});
+
+test("only complete top-level fenced blocks provide a retention boundary", () => {
+  assert.ok(render("~~~ts\r\nconst x=1\r\n~~~~\r\n").endsWith(completedFenceBoundary));
+  assert.ok(!render("> ```ts\n> const x=1\n> ```").includes(completedFenceBoundary));
+  assert.ok(!render("- List item\n  ```ts\n  const x=1\n  ```").includes(completedFenceBoundary));
+  assert.ok(!render("    ```ts\n    const x=1\n    ```").includes(completedFenceBoundary));
+  assert.ok(!render(completedFenceBoundary).includes(completedFenceBoundary), "raw HTML cannot emit a boundary");
+  const code = "```ts\nconst x=1\n```";
+  const source = `[Docs][ref]\n\n${code}\n\nTail`;
+  const prefix = render(source).split(completedFenceBoundary)[0];
+  assert.ok(render(`${source} text`).startsWith(prefix + completedFenceBoundary));
+  assert.ok(!render(`${source}\n\n[ref]: https://example.com`).startsWith(prefix + completedFenceBoundary));
+  assert.notEqual(render(code.replace("x=1", "x=2")), render(code));
 });

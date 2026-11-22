@@ -74,7 +74,7 @@ Persistent Pi session files and exact legacy global bridge cleanup paths are unc
 | Codex edit and preview changes | Editor actions use the stable Primary Pi Chat session, create proposal cards, generate virtual-document diffs, and require Preview before Apply | Implemented in `src/editorActions.ts` and `src/sidebar.ts`. |
 | Codex cloud delegation | Independent background and detached-worktree Pi agents with streamed tracking | Local equivalent implemented; OpenAI-hosted Codex Cloud remains an OpenAI service dependency. |
 | Codex cloud task review locally | Inspect actual isolated-task results and explicitly import selected files into the originating worktree | [Task import evidence and limits](#codex-cloud-task-review-locally). |
-| GitHub Copilot inline completion | Manual or opt-in automatic VS Code ghost-text completion | Implemented with cancellation, debounce, cache, and bounded context. |
+| GitHub Copilot inline completion | Manual or opt-in automatic VS Code ghost-text completion | Cache hits skip the typing delay; misses read bounded editor context after the delay. |
 | GitHub Copilot next edit suggestion | `Pi: Suggest Next Edit` predicts one focused whole-file change and opens a diff preview | Implemented local equivalent; Copilot's proprietary ranking model is a GitHub service dependency. |
 | Copilot Chat conversational assistance | Dedicated Pi view plus native `@pi` Chat participant and slash commands | Implemented. |
 | Copilot inline chat | `Pi: Inline Edit` targets the selection or current line, routes into persistent Pi Chat, preserves follow-up context, and previews edits | `Ctrl/Cmd+I` runs Quick Fix (`pi.quickFix`), with an Inline Edit fallback only when no relevant diagnostic exists. |
@@ -166,6 +166,7 @@ Native input/approval dialogs identify their source conversation and remain sour
 | Stopped | Explicit cancellation settled. |
 
 Recent Sessions and View all place the status icon before the title.
+Automatic saved-session scans run after the request releases its lease and coalesce concurrent completions.
 Only Running rotates, and it stays static with reduced motion enabled.
 The status name remains in the row tooltip and accessible name.
 To check spoken output, use two fixture sessions with different states, one unread, in an isolated VS Code profile with a desktop screen reader.
@@ -380,6 +381,10 @@ No saved configuration is added.
 Implementation: `conversationHistory.ts`, `conversationHistoryHtml.ts`; at most 100 messages / 250,000 shared text/thinking characters and 1,000 match ranges.
 Persistent Pi RPC single lines allow 64 MiB instead of 5 MiB, with unchanged LF framing, decoded UTF-8 byte counting and CRLF handling; larger frames are rejected.
 Public `get_messages` still returns the full active branch without pagination, JSONL reads or model calls.
+Initial load and settlement still use the full response.
+Repeat navigation can reuse up to three prepared display windows of an unchanged text-only snapshot within the in-memory budget.
+One visibility and message-count pass supplies all prepared windows.
+A cache miss, new session or work, process replacement, or explicit Refresh requires an authoritative fetch.
 Full-response decoding and synchronous JSON parsing can still increase memory use and pause the Extension Host.
 Locally typed frame-too-large errors produce an allowlisted Output category and a fixed Sidebar notice, without raw frame, error or path data.
 The first fatal decoder failure stops decoding and releases retained input; the client ignores later stdout while bounded cleanup completes.
@@ -497,6 +502,8 @@ No automatic rebase.
 Implementation: `composerFileToken.ts`, `sidebarFileCompletion.ts`, `sidebarAttachments.ts`, `composerFileCompletionHtml.ts`; parser/protocol/host regressions and browser fixtures.
 Native UI fixtures cover dirty snapshots, inspection, failed capture, path insertion and explicit single Send; minimum/current Linux native, workspace-alias and packaged fixtures pass; see [Native parity validation](NATIVE_PARITY_VALIDATION.md).
 Search is bounded to configured VS Code exclusions and common generated directories, not `.gitignore`.
+VS Code narrows nonempty queries before returning up to 2,000 paths; the host rechecks the literal match before showing up to 30 validated results.
+Context-sensitive case variants, such as Greek sigma, can consume places in the native cap without matching the final literal check.
 No Pi API or model request is used for completion.
 
 ### Context inspection
@@ -512,7 +519,9 @@ Two attempts, one source file; no private Test Explorer API.
 ### Request checkpoints
 
 Implementation: `checkpointCapture.ts`, `checkpointCaptureHost.ts`, `checkpointWorker.ts`, `changeTracker.ts`, and `checkpointHistory.ts`.
-Small workspaces use bounded batches; larger workspaces share one capture worker per Extension Host.
+Small workspaces use bounded batches for capture and settlement; larger workspaces share one checkpoint worker per Extension Host.
+The request keeps its workspace lease until settlement completes or is discarded.
+A second bounded check of matched files determines whether the inline Revert action is available; stale matches stay available for inspection.
 Stop cancels capture before prompt dispatch without aborting an idle Pi client.
 Offline tests cover capture limits, editor changes, concurrent ownership, worker failure, and Stop followed by a successful request.
 Memory-only; no creations/deletions/shell rollback.
@@ -624,7 +633,9 @@ Minimum/current Linux native, workspace-alias and packaged fixtures pass, includ
 ### Rich panel responses
 
 Implementation: `markdown.ts`, `webview/richContent.mts`; renderer tests, headless CSP/lifecycle/layout checks, and VS Code 1.106.0 native UI fixtures.
-Bundled assets, bounded rendering, source fallback; no raw HTML, full TeX documents, arbitrary Mermaid configuration, or terminal-renderer parity.
+Mermaid is a bundled asset loaded on first eligible use; failed loading leaves the source visible.
+Unchanged completed code and diagram nodes can survive streaming text updates; otherwise, the Webview sanitizes and replaces the entire message.
+Rendering remains bounded, with no raw HTML, full TeX documents, arbitrary Mermaid configuration, or terminal-renderer parity.
 
 ### Codex side-by-side chat panel
 

@@ -79,6 +79,8 @@ export class SidebarSessions implements vscode.Disposable {
   private sequence = 0;
   private summaries: PiSessionSummary[] = [];
   private refreshSequence = 0;
+  private autoRefreshPending = false;
+  private autoRefreshRunning = false;
   private cycle: readonly string[] = [];
   private editorCycleId: string | undefined;
   private listSignature = "";
@@ -887,6 +889,7 @@ export class SidebarSessions implements vscode.Disposable {
   }
 
   public async refresh(): Promise<void> {
+    if (this.disposed) return;
     const sequence = ++this.refreshSequence;
     const owner = this.selected.runtime.currentState.sessionFile ? this.selected : this.primary;
     const file = owner.runtime.currentState.sessionFile;
@@ -929,7 +932,32 @@ export class SidebarSessions implements vscode.Disposable {
     }
     this.publishList();
     this.publish();
-    void this.refresh();
+    this.scheduleSavedSessionRefresh();
+  }
+
+  private scheduleSavedSessionRefresh(): void {
+    if (this.disposed) return;
+    this.autoRefreshPending = true;
+    if (this.autoRefreshRunning) return;
+    this.autoRefreshRunning = true;
+    setImmediate(() => {
+      void this.runSavedSessionRefresh();
+    });
+  }
+
+  private async runSavedSessionRefresh(): Promise<void> {
+    try {
+      while (this.autoRefreshPending && !this.disposed) {
+        this.autoRefreshPending = false;
+        try {
+          await this.refresh();
+        } catch {
+          this.services.logger.record("warn", "history-refresh", { result: "failed" });
+        }
+      }
+    } finally {
+      this.autoRefreshRunning = false;
+    }
   }
 
   private find(controller: PiChatViewProvider): Entry | undefined {

@@ -491,6 +491,11 @@ The host excludes files affected by editor changes observed during capture and c
 After asynchronous preparation, the host rechecks trust, workspace identity, client generation, session, and cancellation before it sends the prompt.
 Stop before dispatch cancels preparation without sending a prompt or aborting the idle Pi client.
 A capture failure discards partial results; it does not trigger a synchronous fallback, bypass protection, or replay the prompt.
+Settlement compares every captured path in bounded batches and keeps the original before-images on the host.
+The request keeps its workspace lease while the host checks ownership, dirty buffers, and concurrent invalidation before publishing results.
+Only matching changed files receive a second bounded comparison before the inline Revert button is enabled.
+If a match is now stale, its captured change remains available for inspection, but the inline Revert button stays disabled.
+The host checks the selected file before showing a revert confirmation and again before writing; external files can still change between checks.
 History is memory-only, capped at 20 requests, 2 MiB per file side and 20 MiB retained before/after bytes; unresolved restore failures retain recovery data and may prevent new history from being retained.
 
 Opening an auxiliary Sidebar or editor session enables conservative checkpoint invalidation for Primary and additional conversation trackers.
@@ -524,11 +529,15 @@ Markdown images produce only their alt text.
 Browser DOMPurify sanitization is a second boundary before message HTML insertion, retaining the MathML needed for accessible math but removing active elements and event handlers.
 Text-only transcript patches use the same Markdown renderer and browser sanitizer as full snapshots.
 The Webview applies them only to the current assistant tail under the current transcript revision and, in the Sidebar, the current entry binding.
+It keeps a completed prefix only when the new full host render has an identical prefix through a completed fence boundary.
+The rest is inserted from a sanitized DOM fragment; a changed boundary falls back to full sanitized replacement.
 A missing update requests an in-memory snapshot under the existing view binding, not a Pi history fetch or request replay.
 
 KaTeX uses `trust: false`, strict errors, 4,000 source characters per formula, 50 formulas per message, 200 macro expansions, and a 10em size limit.
 Resource-loading and HTML extension commands fall back to source.
 Mermaid accepts only bounded flowcharts and sequence diagrams with complete fences.
+The first eligible diagram loads the bundled script using the resource URI and nonce from the bootstrap script.
+Message content cannot change that URI, and a failed load is not retried in that Webview.
 Before parsing, it rejects configuration directives, front matter, user CSS, HTML, image shapes, external URL syntax, and callbacks.
 Mermaid strict mode and a second SVG sanitization pass remove links, images, foreign objects, animation elements, event handlers, and non-fragment URL references.
 No diagram binding callbacks run.
@@ -901,7 +910,8 @@ Add sensitive paths to the supported exclusions; filenames can otherwise appear 
 Queries and results are not logged or persisted.
 
 Each query carries a bounded ID, composer revision, full draft, cursor and parsed token range.
-The host keeps at most 30 random candidate IDs from up to 2,000 discovered names, sorts paths, and cancels discovery after two seconds.
+VS Code narrows a nonempty query before the 2,000-path cap.
+The host rechecks literal path matches, keeps at most 30 random candidate IDs, sorts paths, and cancels discovery after two seconds.
 Queries permit 256 characters and paths 1,024 characters.
 Input, cursor, selection, composition, navigation and session changes invalidate old results.
 Selecting a candidate is single-use and expires after 30 seconds.
@@ -1067,7 +1077,10 @@ Storage failures are reported and can leave older persisted bytes; do not rely o
 
 Conversation history navigation uses only public `get_messages` while the existing idle/session ownership checks permit it.
 Each request is generation/session/client-bound; new work, resource/branch transitions and process replacement invalidate stale results.
-Each request obtains a full active-branch response under the 64 MiB persistent RPC frame bound, then retains a replacement window of at most 100 messages and 250,000 shared content/thinking characters.
+On a cache miss, initial load, explicit refresh, or request settlement, the host obtains a full active-branch response under the 64 MiB persistent RPC frame bound.
+Each replacement window has at most 100 messages and 250,000 shared content/thinking characters.
+Repeat navigation can reuse up to three display windows within a 1,500,000-byte estimated budget per controller.
+This cache holds neither raw RPC responses nor image payloads.
 Public `get_messages` has no pagination; full-response decoding and synchronous JSON parsing can still increase memory use and pause the Extension Host.
 History synchronization failures preserve existing session references and files, without automatic new-session fallback or request replay.
 Earlier windows do not replace the persisted latest cache.

@@ -2,16 +2,22 @@ import { parentPort } from "node:worker_threads";
 import {
   type CaptureRecord,
   captureRecordBytes,
+  checkpointReader,
+  compareCheckpoint,
   maxCaptureBatchBytes,
   maxCaptureBatchEntries,
+  type SettlementChange,
+  type SettlementEntry,
   scanCheckpoint,
 } from "./checkpointCapture";
 
 export type CaptureCommand =
   | { type: "start"; id: number; root: string; dirty: string[] }
+  | { type: "compare"; id: number; root: string; entries: SettlementEntry[] }
   | { type: "ack" | "cancel"; id: number };
 export type CaptureReply =
   | { type: "batch"; id: number; records: CaptureRecord[]; done: boolean }
+  | { type: "settled"; id: number; changes: SettlementChange[] }
   | { type: "cancelled" | "failed"; id: number };
 
 const port = parentPort;
@@ -20,12 +26,22 @@ let active: { id: number; scan: ReturnType<typeof scanCheckpoint>; held?: Captur
 port.on("message", (command: CaptureCommand) => {
   const { id } = command;
   if (command.type === "start" && !active) active = { id, scan: scanCheckpoint(command.root, new Set(command.dirty)) };
-  if (active?.id !== id) return;
-  if (command.type === "cancel") {
+  if (command.type === "compare" && !active) {
+    const read = checkpointReader(command.root);
+    const changes: SettlementChange[] = [];
+    for (const entry of command.entries) {
+      const change = compareCheckpoint(read, entry);
+      if (change) changes.push(change);
+    }
+    port.postMessage({ type: "settled", id, changes } satisfies CaptureReply);
+    return;
+  }
+  if (command.type === "cancel" && (!active || active.id === id)) {
     active = undefined;
     port.postMessage({ type: "cancelled", id } satisfies CaptureReply);
     return;
   }
+  if (active?.id !== id) return;
   try {
     const records: CaptureRecord[] = [];
     let bytes = 0;

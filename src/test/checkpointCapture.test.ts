@@ -113,7 +113,7 @@ test("editor changes between capture and commit exclude that file without losing
           await writeFile(path.join(root, name), "after");
         }
         assert.deepEqual(
-          tracker.finishRequest().map((change) => change.label),
+          (await tracker.finishRequest())?.map((change) => change.label),
           ["unaffected"],
         );
       } finally {

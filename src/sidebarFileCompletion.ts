@@ -62,6 +62,58 @@ function completionExclusionGlob(patterns: readonly string[]): string {
   return `{${flattened.join(",")}}`;
 }
 
+let unicodeVariants: Promise<Map<string, string[]>> | undefined;
+
+async function loadUnicodeVariants(): Promise<Map<string, string[]>> {
+  const variants = new Map<string, string[]>();
+  // Use the host's Unicode data, including inverse mappings that toUpperCase misses (e.g. ẞ → ß).
+  // Yield between planes so the first cased Unicode query does not block the Extension Host.
+  for (let plane = 0; plane <= 16; plane++) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    for (let code = plane * 0x10000; code < (plane + 1) * 0x10000; code++) {
+      const character = String.fromCodePoint(code);
+      const lower = character.toLowerCase();
+      if (lower === character || lower.charCodeAt(0) < 128) continue;
+      const existing = variants.get(lower);
+      if (existing) existing.push(character);
+      else variants.set(lower, [character]);
+    }
+  }
+  return variants;
+}
+
+async function completionIncludes(lowerQuery: string): Promise<string[]> {
+  if (!lowerQuery) return ["**/*"];
+  if (lowerQuery.includes("//")) return [];
+  const characters = [...lowerQuery];
+  let unicode: Map<string, string[]> | undefined;
+  if (characters.some((character) => character.charCodeAt(0) >= 128 && /\p{Lowercase}/u.test(character))) {
+    unicodeVariants ??= loadUnicodeVariants();
+    unicode = await unicodeVariants;
+  }
+  let pattern = "**/*";
+  for (const [index, character] of characters.entries()) {
+    if (character === "\u0307" && characters[index - 1] === "i") continue; // Included with the i below.
+    if (character === "i" && characters[index + 1] === "\u0307") pattern += "{[Ii]\u0307,İ}";
+    else if (character === "i" && index === characters.length - 1) pattern += "{[Ii],İ}";
+    else if (character === "\u0307" && index === 0) pattern += "{\u0307,İ}";
+    else if (character === "k") pattern += "{[Kk],K}";
+    else if (character >= "a" && character <= "z") pattern += `[${character.toUpperCase()}${character}]`;
+    else if (character === ",")
+      pattern += "[,]"; // A quoted comma must not delimit a glob alternative.
+    else {
+      // Σ can also lowercase to ς at the end of a word. The final path check handles that context.
+      const variants = character === "ς" ? ["Σ"] : unicode?.get(character);
+      pattern += variants ? `{${character},${variants.join(",")}}` : character;
+    }
+  }
+  if (lowerQuery.endsWith("/")) return [`${pattern}**`];
+  const file = `${pattern}*`;
+  const descendant = `${file}/**`;
+  // Native search does not handle adjacent multibyte bracket classes or nested brace alternatives.
+  return pattern.includes("{") ? [file, descendant] : [`{${file},${descendant}}`];
+}
+
 export interface CompletionCandidate {
   readonly id: string;
   readonly path: string;
@@ -239,24 +291,32 @@ export class SidebarFileCompletion {
             excludes.push(pattern);
           }
         }
-        if (active.source.token.isCancellationRequested) throw new Error("Cancelled");
-        const found = await vscode.workspace.findFiles(
-          new vscode.RelativePattern(folder, "**/*"),
-          completionExclusionGlob(excludes),
-          fileCompletionLimits.discovered,
-          active.source.token,
-        );
+        const exclude = completionExclusionGlob(excludes);
+        const lowerQuery = request.token.query.toLowerCase();
         const paths = new Map<string, vscode.Uri>();
-        for (const uri of found.slice(0, fileCompletionLimits.discovered)) {
-          if (uri.scheme !== "file") continue;
-          const relative = path.relative(folder.uri.fsPath, uri.fsPath).split(path.sep).join("/");
-          if (
-            relative.length <= fileCompletionLimits.path &&
-            safeRelativePath(relative) &&
-            !/[\p{Cc}\u202a-\u202e\u2066-\u2069]/u.test(relative) &&
-            relative.toLowerCase().includes(request.token.query.toLowerCase())
-          )
-            paths.set(relative, uri);
+        let remaining: number = fileCompletionLimits.discovered;
+        for (const include of await completionIncludes(lowerQuery)) {
+          if (active.source.token.isCancellationRequested) throw new Error("Cancelled");
+          const found = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(folder, include),
+            exclude,
+            remaining,
+            active.source.token,
+          );
+          if (active.source.token.isCancellationRequested) throw new Error("Cancelled");
+          for (const uri of found.slice(0, remaining)) {
+            if (uri.scheme !== "file") continue;
+            const relative = path.relative(folder.uri.fsPath, uri.fsPath).split(path.sep).join("/");
+            if (
+              relative.length <= fileCompletionLimits.path &&
+              safeRelativePath(relative) &&
+              !/[\p{Cc}\u202a-\u202e\u2066-\u2069]/u.test(relative) &&
+              relative.toLowerCase().includes(lowerQuery)
+            )
+              paths.set(relative, uri);
+          }
+          remaining -= found.length;
+          if (remaining <= 0) break;
         }
         const candidates: CompletionCandidate[] = [];
         for (const relative of [...paths.keys()].sort()) {
@@ -294,13 +354,14 @@ export class SidebarFileCompletion {
       });
     } catch {
       if (this.active === active) {
-        this.options.post({
-          type: "fileCompletionResults",
-          id: request.id,
-          revision: request.revision,
-          token: request.token,
-          candidates: [],
-        });
+        if (active.session === this.options.session())
+          this.options.post({
+            type: "fileCompletionResults",
+            id: request.id,
+            revision: request.revision,
+            token: request.token,
+            candidates: [],
+          });
         this.cancel();
       }
     } finally {

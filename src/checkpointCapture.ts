@@ -16,6 +16,15 @@ export interface CaptureEntry {
 }
 export type CaptureListing = ReadonlyMap<string, readonly CaptureEntry[]>;
 export type CaptureRecord = { readonly path: string; readonly before: string } | { readonly exclusion: string };
+export type SettlementEntry = { readonly path: string; readonly before: string; readonly expected?: string };
+export type SettlementChange = { readonly path: string; readonly matched: boolean };
+export const maxSettlementBatchBytes = 2 * maxCheckpointFile + 16 * 1024;
+
+export function settlementEntryBytes(entry: SettlementEntry): number {
+  return (
+    128 + Buffer.byteLength(entry.path) + Buffer.byteLength(entry.before) + Buffer.byteLength(entry.expected ?? "")
+  );
+}
 
 export const skipCaptureDirectory = (name: string): boolean => excluded.has(name);
 export const checkpointPathKey = (absolute: string): string =>
@@ -30,14 +39,20 @@ function canonical(absolute: string): boolean {
   return realpathSync(absolute) === absolute;
 }
 
-export function* scanCheckpoint(
-  root: string,
-  dirty: ReadonlySet<string>,
-  listing?: CaptureListing,
-): Generator<CaptureRecord | undefined> {
+export function compareCheckpoint(
+  read: ReturnType<typeof checkpointReader>,
+  entry: SettlementEntry,
+): SettlementChange | undefined {
+  // Text can have a UTF-8 BOM that is stripped by the decoder.
+  const maxBytes = Math.max(Buffer.byteLength(entry.before), Buffer.byteLength(entry.expected ?? "")) + 3;
+  const after = read(entry.path, maxBytes);
+  if (after !== entry.before) return { path: entry.path, matched: after !== undefined && after === entry.expected };
+}
+
+export function checkpointReader(root: string): (relative: string, maxBytes?: number) => string | undefined {
   const decoder = new TextDecoder("utf-8", { fatal: true });
   let scratch = Buffer.alloc(0);
-  const read = (relative: string): string | undefined => {
+  return (relative, maxBytes = maxCheckpointFile) => {
     try {
       if (!safeRelativePath(relative)) return undefined;
       const target = path.join(root, relative);
@@ -48,7 +63,7 @@ export function* scanCheckpoint(
       const fd = openSync(target, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       try {
         const stat = fstatSync(fd);
-        if (!stat.isFile() || stat.nlink !== 1 || stat.size > maxCheckpointFile) return undefined;
+        if (!stat.isFile() || stat.nlink !== 1 || stat.size > Math.min(maxBytes, maxCheckpointFile)) return undefined;
         if (scratch.length < stat.size + 1) scratch = Buffer.allocUnsafe(stat.size + 1);
         const count = readSync(fd, scratch, 0, stat.size + 1, 0);
         const after = fstatSync(fd);
@@ -62,6 +77,14 @@ export function* scanCheckpoint(
       return undefined;
     }
   };
+}
+
+export function* scanCheckpoint(
+  root: string,
+  dirty: ReadonlySet<string>,
+  listing?: CaptureListing,
+): Generator<CaptureRecord | undefined> {
+  const read = checkpointReader(root);
   let bytes = 0;
   let visited = 0;
   const pending = [""];

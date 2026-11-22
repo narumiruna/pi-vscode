@@ -138,6 +138,7 @@ Opening Sessions alone preserves Primary checkpoints; admitted shared sessions s
 Native input and approval dialogs identify their source conversation; changing the displayed conversation does not answer or transfer them.
 
 A status icon appears before each title in Recent Sessions and View all.
+After a request completes, the saved-session list refreshes in the background without delaying the reply or the next request.
 The green **Running** ring rotates unless reduced motion is enabled.
 Hover over a row to see the status name, or use a screen reader to hear it.
 See the [status icon legend](docs/USER_GUIDE.md#concurrent-sidebar-sessions) for all six states.
@@ -185,6 +186,8 @@ Terminal handoff/recovery, confirmed restart, and temporary annotations remain P
 Ordinary requests can overlap, but direct shell, session/resource controls, Apply, import, and checkpoint restore keep their exclusive workspace gates.
 Concurrent activity can make checkpoint restoration unavailable.
 If you select **Stop** while Pi prepares the workspace checkpoint, the extension cancels the request before it sends the prompt.
+After Pi responds, large checkpoints use the same background worker to verify file changes before the request releases its workspace lease.
+The extension rechecks matched files before offering to revert them.
 
 Editor panels do not automatically restore or restart after window reload.
 After a panel closes and writer cleanup is verified, resume its saved session through the sidebar.
@@ -210,9 +213,12 @@ See the [validation coverage](docs/FEATURE_MATRIX.md#concurrent-interactive-edit
 
 See [workflow instructions and limits](docs/USER_GUIDE.md#focused-workflows) and the [feature matrix](docs/FEATURE_MATRIX.md).
 Responses support Markdown, highlighted code, math, and supported Mermaid diagrams with bundled rendering assets.
+Mermaid loads only when a supported diagram is ready to render.
+During streaming, unchanged completed code and diagram blocks can stay in place.
 Tool calls appear in conversation order between responses, each collapsed by default.
 Expand a call to inspect its input, output, and status.
 History navigation keeps responses accessible when tool calls reach a window limit.
+Recent text-only history windows can be reused in memory; initial load, refresh, and request completion still fetch the full active branch from Pi.
 
 The **Primary** Sidebar agent can add [temporary passage annotations](docs/USER_GUIDE.md#temporary-passage-annotations): whole-line highlights, literal hovers and read-only native comments below the marked code or text. Comments start collapsed by default. Set `pi.annotations.initialState` to `expanded` in **VS Code Settings → Pi → Editor → Annotation initial state** to expand newly created or replaced annotations; existing threads and user state on redraw are unchanged. VS Code may open the Comments panel and change editor layout or scroll position; source files remain unchanged. Use **Pi: Clear Annotations** to remove them.
 

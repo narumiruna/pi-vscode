@@ -36,6 +36,7 @@ interface RichContentAssets {
   readonly source: string;
   readonly script: string;
   readonly style: string;
+  readonly mermaidScript?: string;
 }
 
 export function getSidebarHtml(
@@ -408,7 +409,7 @@ export function getSidebarHtml(
     <div class="preview-header"><span id="preview-label"></span><button id="preview-close" class="secondary" type="button" aria-label="Close image preview">Close</button></div>
     <img id="preview-image" alt="">
   </dialog>
-  ${assets ? `<script nonce="${nonce}" src="${assets.script}"></script>` : ""}
+  ${assets ? `<script nonce="${nonce}" src="${assets.script}"${assets.mermaidScript ? ` data-mermaid-script="${assets.mermaidScript}"` : ""}></script>` : ""}
   <script nonce="${nonce}">
     const vscodeApi = acquireVsCodeApi();
     let sidebar;
@@ -772,11 +773,11 @@ export function getSidebarHtml(
       }
     }
 
-    function setMessageContent(content, html) {
+    function setMessageContent(content, html, previousHtml) {
       const envelope = captureSidebarEnvelope();
       if (window.piRichContent) window.piRichContent.setContent(content, html, () => {
         if (sameSidebarEnvelope(envelope) && conversationPinnedToBottom) scrollConversationToBottom();
-      });
+      }, previousHtml);
       else content.innerHTML = html;
     }
     document.addEventListener('pi-rich-resize', () => {
@@ -1886,14 +1887,14 @@ export function getSidebarHtml(
         return;
       }
       transcriptRevision += 1;
-      const htmlChanged = message.html !== transcriptTail.html;
+      const previousHtml = transcriptTail.html;
       transcriptTail = { ...transcriptTail, content: message.content, html: message.html };
-      if (!htmlChanged) return;
+      if (message.html === previousHtml) return;
       transcriptSignatures[transcriptSignatures.length - 1] = transcriptSignature(transcriptTail);
       renderedMessageHtml[renderedMessageHtml.length - 1] = message.html;
       wrapper.renderedHtml = message.html;
       const readingTop = conversationElement.scrollTop;
-      setMessageContent(wrapper.children[1], message.html);
+      setMessageContent(wrapper.children[1], message.html, previousHtml);
       conversationHistory.onTailChanged(transcriptTail);
       if (conversationPinnedToBottom) scrollConversationToBottom();
       else {

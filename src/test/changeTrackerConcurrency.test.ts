@@ -35,7 +35,8 @@ function write(tracker: WorkspaceChangeTracker, root: string, content: string, n
 async function checkpoint(tracker: WorkspaceChangeTracker, root: string, content: string, session = "session") {
   await tracker.startRequest(root, session);
   write(tracker, root, content);
-  const changes = tracker.finishRequest();
+  const changes = await tracker.finishRequest();
+  assert.ok(changes);
   assert.equal(changes.length, 1);
   const change = changes[0];
   assert.ok(change);
@@ -80,8 +81,8 @@ test("overlapping agent requests exclude both captures and invalidate prior hist
     if (overlapped[1]) f.second.invalidateConcurrentRequest();
     write(f.first, f.root, "first result");
     write(f.second, f.root, "second result", "other");
-    assert.deepEqual(f.first.finishRequest(), []);
-    assert.deepEqual(f.second.finishRequest(), []);
+    assert.deepEqual(await f.first.finishRequest(), []);
+    assert.deepEqual(await f.second.finishRequest(), []);
     for (const tracker of [f.first, f.second]) {
       const record = latestCheckpoint(tracker);
       assert.deepEqual(record.files, []);
@@ -114,7 +115,7 @@ test("overlap known before capture invalidates completed checkpoints and can be 
     f.first.invalidateConcurrentRequest();
     f.first.invalidateConcurrentRequest();
     write(f.first, f.root, "overlapped result");
-    assert.deepEqual(f.first.finishRequest(), []);
+    assert.deepEqual(await f.first.finishRequest(), []);
     const record = latestCheckpoint(f.first);
     assert.equal(record.exclusions.filter((reason) => reason.startsWith("Concurrent workspace writers:")).length, 1);
     const fresh = await checkpoint(f.first, f.root, "later independent result");
@@ -134,7 +135,7 @@ test("concurrent-writer exclusion remains explicit when other exclusions have re
     }
     f.first.invalidateConcurrentRequest();
     write(f.first, f.root, "result");
-    assert.deepEqual(f.first.finishRequest(), []);
+    assert.deepEqual(await f.first.finishRequest(), []);
     const exclusions = latestCheckpoint(f.first).exclusions;
     assert.equal(exclusions.length, 1_000);
     assert.match(exclusions[0] ?? "", /^Concurrent workspace writers:/);
@@ -161,7 +162,7 @@ test("sequential sibling agent admission invalidates old attribution even if fin
     await f.second.startRequest(f.root, "second");
     write(f.second, f.root, "temporary sibling result");
     write(f.second, f.root, "first result");
-    assert.deepEqual(f.second.finishRequest(), []);
+    assert.deepEqual(await f.second.finishRequest(), []);
     releaseSecond();
     assert.equal(overlaps, 0, "these requests did not overlap");
     assert.throws(() => f.first.revert(prior.id), /historical checkpoint attribution is unverified/);

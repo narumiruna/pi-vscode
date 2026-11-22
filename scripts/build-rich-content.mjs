@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { build } from "esbuild";
 
@@ -16,6 +16,8 @@ await cp("resources/settings.css", "out/settings/settings.css");
 
 const output = "out/rich-content";
 await mkdir(output, { recursive: true });
+// Mermaid's linked notices now belong to its separate bundle.
+await rm(`${output}/rich-content.js.LEGAL.txt`, { force: true });
 await build({
   entryPoints: ["src/markdown.ts"],
   outfile: "out/markdown.js",
@@ -26,8 +28,11 @@ await build({
   legalComments: "linked",
 });
 await build({
-  entryPoints: ["src/webview/richContent.mts"],
-  outfile: `${output}/rich-content.js`,
+  entryPoints: {
+    "rich-content": "src/webview/richContent.mts",
+    mermaid: "src/webview/mermaid.mts",
+  },
+  outdir: output,
   bundle: true,
   platform: "browser",
   format: "iife",

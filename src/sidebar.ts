@@ -6,6 +6,7 @@ import path from "node:path";
 import * as vscode from "vscode";
 import { BackgroundAgentManager } from "./backgroundAgents";
 import { type TrackedFileChange, WorkspaceChangeTracker } from "./changeTracker";
+import type { RequestCheckpoint } from "./checkpointHistory";
 import {
   ConversationRequestGate,
   ConversationRequestLifecycle,
@@ -20,6 +21,8 @@ import {
   shouldTrackConversationChanges,
 } from "./conversationController";
 import {
+  type ConversationHistoryPage,
+  ConversationHistoryPages,
   type ConversationHistoryWindow,
   emptyConversationHistory,
   historyRequestIsCurrent,
@@ -50,6 +53,7 @@ import {
   convertPiMessages,
   extractToolText,
   formatError,
+  indexTextHistory,
   isRecord,
   isWebviewMessage,
   modelSupportsImages,
@@ -57,6 +61,7 @@ import {
   safeJson,
   shouldPostActionErrorNotice,
   stringValue,
+  type TextHistoryIndex,
   toolOperationSummary,
   type WebviewMessage,
 } from "./sidebarHelpers";
@@ -204,6 +209,8 @@ export class PiChatViewProvider
   private readonly requestLifecycle = new ConversationRequestLifecycle();
   private status = "Ready";
   private trackCurrentRequestChanges = false;
+  private checkpointSettlement: Promise<void> | undefined;
+  private checkpointOwner: (() => boolean) | undefined;
   private readonly currentRequestSideEffects = new ConversationSideEffectTracker(this.requestLifecycle);
   private historyRecoveryAvailable = false;
   private retryRequest:
@@ -220,6 +227,7 @@ export class PiChatViewProvider
   private assistantStream: SidebarAssistantStream | undefined;
   private streamSessionIdentity: string;
   private historySyncRevision = 0;
+  private readonly historyPages = new ConversationHistoryPages();
   private historyWindow: ConversationHistoryWindow = emptyConversationHistory();
   private historyAvailable = false;
   private historyLoading = false;
@@ -326,7 +334,7 @@ export class PiChatViewProvider
             this.messages = this.messages.filter((message) => message.id !== this.assistantStream?.id);
           this.assistantStream = undefined;
           this.clearToolMessages();
-          this.historySyncRevision += 1;
+          this.invalidateHistory();
           this.historyWindow = emptyConversationHistory();
           this.historyAvailable = false;
           this.historyLoading = false;
@@ -379,6 +387,7 @@ export class PiChatViewProvider
       {
         source: webviewView.webview.cspSource,
         script: webviewView.webview.asWebviewUri(vscode.Uri.joinPath(assets, "rich-content.js")).toString(),
+        mermaidScript: webviewView.webview.asWebviewUri(vscode.Uri.joinPath(assets, "mermaid.js")).toString(),
         style: webviewView.webview.asWebviewUri(vscode.Uri.joinPath(assets, "rich-content.css")).toString(),
       },
       Boolean(this.surface),
@@ -408,7 +417,8 @@ export class PiChatViewProvider
   public dispose(): void {
     this.disposed = true;
     this.pendingDispatch?.abort();
-    this.historySyncRevision += 1;
+    this.changeTracker.cancelPendingSettlement();
+    this.invalidateHistory();
     this.sessionRefreshRevision += 1;
     this.sessionCycle = [];
     this.clearToolMessages();
@@ -703,7 +713,13 @@ export class PiChatViewProvider
           break;
         case "historyWindow":
           if (message.generation !== this.historySyncRevision || !this.canBrowseHistory()) return;
-          await this.syncMessagesFromPi(false, message.direction === "earlier" ? this.historyWindow.start : undefined);
+          await this.syncMessagesFromPi(
+            false,
+            message.direction === "earlier" ? this.historyWindow.start : undefined,
+            "history-refresh",
+            false,
+            true,
+          );
           break;
         case "refreshHistory":
           await this.refreshHistory();
@@ -1506,7 +1522,7 @@ export class PiChatViewProvider
     const sidebarRequestId = randomUUID();
     let sidebarOutcome: "completed" | "failed" | "stopped" = "failed";
     this.sidebarSessions?.requestStarted(this, sidebarRequestId);
-    this.historySyncRevision += 1;
+    this.invalidateHistory();
     this.historyAvailable = false;
     this.retryRequest = undefined;
     this.foregroundCancellable = true;
@@ -1623,7 +1639,7 @@ export class PiChatViewProvider
     const behavior = conversationRequestBehavior(origin);
     const retryable = behavior.retryable;
     const releaseRequest = requestGateAlreadyHeld ? () => {} : this.requestGate.acquire();
-    this.historySyncRevision += 1;
+    this.invalidateHistory();
     this.historyAvailable = false;
     this.historyLoading = false;
     this.requestLifecycle.begin();
@@ -1750,6 +1766,22 @@ export class PiChatViewProvider
             if (preparedCheckpoint) {
               preparedCheckpoint.commit(overlapped);
               this.trackCurrentRequestChanges = true;
+              const capturedSession = this.runtime.currentState;
+              this.checkpointOwner = () => {
+                try {
+                  return (
+                    !this.disposed &&
+                    vscode.workspace.isTrusted &&
+                    this.requestGate.isPending &&
+                    this.runtime.clientGeneration === generation &&
+                    !runtimeSessionIdentityChanged(capturedSession, this.runtime.currentState) &&
+                    this.runtime.currentCwd === cwd &&
+                    realpathSync(cwd) === root
+                  );
+                } catch {
+                  return false;
+                }
+              };
             }
             clearDispatchWatchers();
             this.pendingDispatch = undefined;
@@ -1771,13 +1803,9 @@ export class PiChatViewProvider
       responseCaptured = true;
       this.requestLifecycle.completeExecution();
       this.retryRequest = undefined;
-      if (typeof response !== "string" && this.trackCurrentRequestChanges) {
-        this.changes = this.changeTracker.finishRequest("completed");
-        this.trackCurrentRequestChanges = false;
-      }
+      await this.finishCheckpoint("completed");
       synchronizingHistory = true;
       await this.syncMessagesFromPi(false, undefined, "history-refresh", true);
-      await this.refreshRecentSessions(false);
       synchronizingHistory = false;
       if (typeof response === "string") await onResponse?.(response);
       this.status = "Ready";
@@ -1788,10 +1816,7 @@ export class PiChatViewProvider
       if (this.currentRequestSideEffects.mayHaveSideEffects) {
         this.requestLifecycle.completeExecution();
       }
-      if (this.trackCurrentRequestChanges) {
-        this.changes = this.changeTracker.finishRequest();
-        this.trackCurrentRequestChanges = false;
-      }
+      await this.finishCheckpoint(this.requestLifecycle.wasCancelled ? "cancelled" : "completed");
       sidebarOutcome = this.requestLifecycle.wasCancelled ? "stopped" : "failed";
       const message = formatError(error);
       if (!this.requestLifecycle.canRetry) {
@@ -1851,16 +1876,43 @@ export class PiChatViewProvider
       preparedCheckpoint?.dispose();
       clearDispatchWatchers();
       await this.runtime.shutdownCompletion?.catch(() => {});
+      await this.checkpointSettlement;
+      this.checkpointSettlement = undefined;
+      this.checkpointOwner = undefined;
       releaseOperation();
       releaseRequest();
-      this.sidebarSessions?.requestFinished(
-        this,
-        sidebarRequestId,
-        sidebarOutcome,
-        responseCaptured || sidebarOutcome === "failed",
-      );
+      if (this.sidebarSessions) {
+        this.sidebarSessions.requestFinished(
+          this,
+          sidebarRequestId,
+          sidebarOutcome,
+          responseCaptured || sidebarOutcome === "failed",
+        );
+      } else if (sidebarOutcome === "completed" && !this.disposed) {
+        void this.refreshRecentSessions();
+      }
       this.postState();
     }
+  }
+
+  private async finishCheckpoint(status: RequestCheckpoint["status"]): Promise<void> {
+    if (status === "process-exit" && this.checkpointSettlement) {
+      await this.changeTracker.finishRequest(status).catch(() => {});
+    }
+    if (this.trackCurrentRequestChanges && !this.checkpointSettlement) {
+      const owner = this.checkpointOwner;
+      this.trackCurrentRequestChanges = false;
+      const current = () => this.checkpointOwner === owner && owner?.() === true;
+      this.checkpointSettlement = this.changeTracker
+        .finishRequest(status, current)
+        .then((changes) => {
+          if (changes && current()) this.changes = changes;
+        })
+        .catch((error) => {
+          this.logFailure("sidebar-action", error, true);
+        });
+    }
+    await this.checkpointSettlement;
   }
 
   private isForegroundRequestActive(): boolean {
@@ -2019,11 +2071,12 @@ export class PiChatViewProvider
   }
 
   private async resetConversation(status: string, preserveAttachments = false): Promise<void> {
-    this.historySyncRevision += 1;
+    this.invalidateHistory();
     this.historyWindow = emptyConversationHistory();
     this.historyAvailable = false;
     this.historyLoading = false;
     this.changeTracker.resetSession();
+    this.checkpointOwner = undefined;
     this.queuedTranscriptPresentations.clear();
     this.assistantStream = undefined;
     this.messages = [];
@@ -2160,6 +2213,7 @@ export class PiChatViewProvider
     const release = this.requestGate.acquire();
     this.postState();
     try {
+      this.changeTracker.checkRestore(id);
       const confirmation = await vscode.window.showWarningMessage(
         `Revert Pi's change to ${change.label}?`,
         { modal: true },
@@ -2423,6 +2477,21 @@ export class PiChatViewProvider
   private handleRuntimeEvent(event: PiRpcEvent): void {
     if (event.type === "process_exit") this.pendingDispatch?.abort();
     if (
+      [
+        "message_end",
+        "shell_execution",
+        "compaction_start",
+        "compaction_end",
+        "queue_instruction_delivered",
+        "auto_retry_start",
+        "session_imported",
+      ].includes(event.type)
+    ) {
+      this.invalidateHistory();
+      this.historyLoading = false;
+      this.historyAvailable = false;
+    }
+    if (
       event.type === "process_exit" ||
       event.type === "session_imported" ||
       event.type === "resources_reloaded" ||
@@ -2445,7 +2514,7 @@ export class PiChatViewProvider
       this.clearToolMessages();
       this.retryRequest = undefined;
       this.assistantStream = undefined;
-      this.historySyncRevision += 1;
+      this.invalidateHistory();
       this.historyLoading = false;
       this.historyAvailable = false;
     } else if (
@@ -2485,13 +2554,13 @@ export class PiChatViewProvider
         }
       }
     } else if (event.type === "agent_start") {
-      this.historySyncRevision += 1;
+      this.invalidateHistory();
       this.historyLoading = false;
       this.historyAvailable = false;
       this.status = "Pi is working…";
     } else if (event.type === "message_start") {
       const message = isRecord(event.message) ? event.message : undefined;
-      this.historySyncRevision += 1;
+      this.invalidateHistory();
       this.historyLoading = false;
       this.historyAvailable = false;
       this.assistantStream = message?.role === "assistant" ? this.createAssistantStream(message) : undefined;
@@ -2547,28 +2616,23 @@ export class PiChatViewProvider
       this.status = "Retrying Pi request…";
     } else if (event.type === "agent_settled") {
       this.status = this.requestLifecycle.wasCancelled ? "Cancelling Pi request…" : "Finishing Pi response…";
+      this.foregroundCancellable = false;
       this.assistantStream = undefined;
       this.queuedTranscriptPresentations.clear();
-      if (this.trackCurrentRequestChanges) {
-        this.changes = this.changeTracker.finishRequest(this.requestLifecycle.wasCancelled ? "cancelled" : "completed");
-        this.trackCurrentRequestChanges = false;
-      }
+      void this.finishCheckpoint(this.requestLifecycle.wasCancelled ? "cancelled" : "completed");
     } else if (event.type === "extension_ui_reset") {
       this.extensionUi.clear();
-      this.historySyncRevision += 1;
+      this.invalidateHistory();
       this.historyLoading = false;
       this.historyAvailable = false;
     } else if (event.type === "process_exit") {
       this.extensionUi.clear();
-      this.historySyncRevision += 1;
+      this.invalidateHistory();
       this.historyLoading = false;
       this.historyAvailable = false;
       this.assistantStream = undefined;
       this.queuedTranscriptPresentations.clear();
-      if (this.trackCurrentRequestChanges) {
-        this.changes = this.changeTracker.finishRequest("process-exit");
-        this.trackCurrentRequestChanges = false;
-      }
+      void this.finishCheckpoint("process-exit");
       this.status = "Disconnected · Reconnect available";
     } else if (event.type === "runtime_warning" || event.type === "protocol_error") {
       // Runtime records diagnostics even when this view is closed; do not log them again here.
@@ -2705,7 +2769,9 @@ export class PiChatViewProvider
     historyBefore?: number,
     event: "history-load" | "history-refresh" | "history-compaction" = "history-refresh",
     operationCompleted = false,
+    browsing = false,
   ): Promise<void> {
+    if (!browsing) this.historyPages.clear();
     const operationId = this.logger.operation();
     const generation = this.runtime.clientGeneration;
     const failed = (error: unknown) =>
@@ -2734,7 +2800,8 @@ export class PiChatViewProvider
       throw error;
     }
     const revision = ++this.historySyncRevision;
-    const session = JSON.stringify([this.runtime.currentState.sessionFile, this.runtime.currentState.sessionId]);
+    const session = this.submissionSessionIdentity();
+    this.historyPages.bind(JSON.stringify([generation, session]));
     const current = () =>
       !this.disposed &&
       generation === this.runtime.clientGeneration &&
@@ -2742,33 +2809,43 @@ export class PiChatViewProvider
         { generation: revision, session },
         {
           generation: this.historySyncRevision,
-          session: JSON.stringify([this.runtime.currentState.sessionFile, this.runtime.currentState.sessionId]),
+          session: this.submissionSessionIdentity(),
           busy: verifiedImport ? this.requestGate.isPending : this.runtime.currentState.busy,
         },
       );
     this.historyLoading = true;
     this.postState();
     try {
-      const values = await this.runtime.getMessages();
-      if (!current()) {
-        discarded();
-        return;
+      let page = browsing ? this.historyPages.get(historyBefore, (id) => this.imageAssets.has(id)) : undefined;
+      const fetched = page === undefined;
+      if (!page) {
+        this.historyPages.clear();
+        const values = await this.runtime.getMessages();
+        if (!current()) {
+          discarded();
+          return;
+        }
+        const textHistory = indexTextHistory(values);
+        const convertPage = (before?: number) => this.historyPage(values, before, textHistory);
+        page = convertPage(historyBefore);
+        if (textHistory) {
+          if (page.window.start > 0) {
+            const earlier = convertPage(page.window.start);
+            if (historyBefore === undefined && earlier.window.start > 0 && earlier.window.start < page.window.start) {
+              this.historyPages.remember(earlier.window.start, convertPage(earlier.window.start));
+            }
+            this.historyPages.remember(page.window.start, earlier);
+          }
+          if (browsing && historyBefore !== undefined) this.historyPages.remember(undefined, convertPage());
+          this.historyPages.remember(historyBefore, page);
+        }
       }
-      const messages = convertPiMessages(values, {
-        imageAssets: this.imageAssets,
-        knownMessages: this.messages,
-        maxMessages,
-        maxCharacters: maxStoredCharacters,
-        historyBefore,
-        onHistoryWindow: (window) => {
-          this.historyWindow = window;
-        },
-      });
+      this.historyWindow = page.window;
       this.historyAvailable = true;
-      if (messages.length > 0 || this.runtime.currentState.sessionId) {
-        this.messages = limitSidebarMessages(messages, maxMessages, maxStoredCharacters);
-        // Older-window browsing must not replace the persisted latest-window cache.
-        if (historyBefore === undefined) await this.persistMessages({ operationId, generation });
+      if (page.messages.length > 0 || this.runtime.currentState.sessionId) {
+        this.messages = limitSidebarMessages(page.messages, maxMessages, maxStoredCharacters);
+        // Older windows and cached navigation must not replace the persisted latest-window cache.
+        if (fetched && historyBefore === undefined) await this.persistMessages({ operationId, generation });
       }
       if (!current()) {
         discarded();
@@ -2796,12 +2873,39 @@ export class PiChatViewProvider
     }
   }
 
+  private historyPage(
+    values: readonly unknown[],
+    before?: number,
+    textHistory?: TextHistoryIndex,
+  ): ConversationHistoryPage {
+    let window = emptyConversationHistory();
+    const messages = convertPiMessages(values, {
+      imageAssets: this.imageAssets,
+      knownMessages: this.messages,
+      maxMessages,
+      maxCharacters: maxStoredCharacters,
+      historyBefore: before,
+      textHistory,
+      onHistoryWindow: (value) => {
+        window = value;
+      },
+    });
+    return { window, messages };
+  }
+
+  private invalidateHistory(): void {
+    this.historySyncRevision += 1;
+    this.historyPages.clear();
+  }
+
   private async refreshRecentSessions(post = true): Promise<void> {
+    if (this.disposed) return;
     if (this.sidebarSessions) return this.sidebarSessions.refresh();
     const revision = ++this.sessionRefreshRevision;
     const correlation = { operationId: this.logger.operation(), generation: this.runtime.clientGeneration };
     const runtime = this.runtime.currentState;
     const activeSessionFile = runtime.sessionFile;
+    const cwd = this.runtime.currentCwd;
     if (!activeSessionFile) {
       this.recentSessions = [];
       if (post) this.postState();
@@ -2809,10 +2913,11 @@ export class PiChatViewProvider
     }
 
     try {
-      const sessions = await listRecentPiSessions(activeSessionFile, this.runtime.currentCwd);
+      const sessions = await listRecentPiSessions(activeSessionFile, cwd);
       if (
         revision !== this.sessionRefreshRevision ||
         correlation.generation !== this.runtime.clientGeneration ||
+        cwd !== this.runtime.currentCwd ||
         activeSessionFile !== this.runtime.currentState.sessionFile
       ) {
         this.logger.record("debug", "history-stale", { ...correlation, result: "discarded" });
@@ -2835,6 +2940,7 @@ export class PiChatViewProvider
       if (
         revision !== this.sessionRefreshRevision ||
         correlation.generation !== this.runtime.clientGeneration ||
+        cwd !== this.runtime.currentCwd ||
         activeSessionFile !== this.runtime.currentState.sessionFile
       ) {
         this.logger.record("debug", "history-stale", { ...correlation, result: "discarded" });

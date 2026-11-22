@@ -7,12 +7,18 @@ import {
   openSync,
   readSync,
   realpathSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
 import * as vscode from "vscode";
-import { checkpointPathKey, maxCheckpointFile as maxFile } from "./checkpointCapture";
-import { captureCheckpoint } from "./checkpointCaptureHost";
+import {
+  checkpointPathKey,
+  maxCheckpointFile as maxFile,
+  type SettlementChange,
+  type SettlementEntry,
+} from "./checkpointCapture";
+import { captureCheckpoint, settleCheckpoint } from "./checkpointCaptureHost";
 import { CheckpointHistory, expectedToolText, type RequestCheckpoint } from "./checkpointHistory";
 import { decodeText, safeRelativePath } from "./gitSnapshots";
 import { acquireOperation, observeOperations } from "./operationLocks";
@@ -48,6 +54,7 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
   private current:
     | {
         cwd: string;
+        rootIdentity: { dev: bigint; ino: bigint };
         sessionId: string;
         startedAt: number;
         files: Map<string, StartFile>;
@@ -58,6 +65,14 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
     | undefined;
   private latest: RequestCheckpoint | undefined;
   private capture: AbortController | undefined;
+  private settlement:
+    | {
+        controller: AbortController;
+        status: RequestCheckpoint["status"];
+        invalidated: boolean;
+        result: Promise<TrackedFileChange[] | undefined>;
+      }
+    | undefined;
 
   public get hasProtectedRecovery(): boolean {
     return this.history.values.some((record) => record.restoreFailed);
@@ -77,6 +92,7 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
 
   /** Retain recovery snapshots, but do not restore their unverified historical attribution. */
   public invalidateCheckpoints(): void {
+    if (this.settlement) this.settlement.invalidated = true;
     for (const record of this.history.values) this.invalidatedCheckpoints.add(record);
     this.previews.clear();
     this.changesEmitter.fire();
@@ -92,48 +108,24 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
   }
 
   public async prepareRequest(root: string, sessionId: string, requestSignal: AbortSignal) {
-    if (this.capture) throw new Error("A checkpoint capture is already pending.");
+    if (this.capture || this.current) throw new Error("A checkpoint request is already pending.");
+    const { dev, ino } = statSync(root, { bigint: true });
+    const rootIdentity = { dev, ino };
     const controller = new AbortController();
     this.capture = controller;
     const signal = AbortSignal.any([controller.signal, requestSignal]);
     const files = new Map<string, StartFile>();
     const exclusions: string[] = [];
     let expectedBytes = 0;
-    const ineligible = new Set<string>();
+    const editorChanges = observeEditorChanges(root);
     const names = new Map<string, string>();
-    let ambiguousBuffer = false;
-    const exclude = (doc: vscode.TextDocument) => {
-      if (doc.uri.scheme !== "file") return;
-      let absolute: string;
-      try {
-        absolute = realpathSync(doc.uri.fsPath);
-      } catch {
-        absolute = path.resolve(doc.uri.fsPath);
-      }
-      const key = checkpointPathKey(absolute);
-      const relative = path.relative(checkpointPathKey(root), key);
-      if (!relative || path.isAbsolute(relative) || relative.startsWith(`..${path.sep}`) || relative === "..") return;
-      if (ineligible.size >= 10_000 && !ineligible.has(key)) {
-        ambiguousBuffer = true;
-        return;
-      }
-      ineligible.add(key);
-    };
-    const listeners = [
-      vscode.workspace.onDidOpenTextDocument((doc) => {
-        if (doc.isDirty) exclude(doc);
-      }),
-      vscode.workspace.onDidChangeTextDocument(({ document, contentChanges }) => {
-        if (document.isDirty || contentChanges.length) exclude(document);
-      }),
-    ];
     const dispose = () => {
-      for (const listener of listeners) listener.dispose();
+      editorChanges.dispose();
       if (this.capture === controller) this.capture = undefined;
     };
     try {
-      for (const doc of vscode.workspace.textDocuments) if (doc.isDirty) exclude(doc);
-      await captureCheckpoint(root, new Set(ineligible), signal, (record) => {
+      editorChanges.collectDirty();
+      await captureCheckpoint(root, new Set(editorChanges.paths), signal, (record) => {
         if ("exclusion" in record) exclusions.push(record.exclusion);
         else {
           const { path: name, before } = record;
@@ -146,8 +138,9 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
         dispose,
         commit: (overlapped: boolean) => {
           if (signal.aborted || this.capture !== controller) throw new Error("Pi request was cancelled.");
-          if (ambiguousBuffer) throw new Error("Too many editor changes during checkpoint capture.");
-          for (const key of ineligible) {
+          if (!sameWorkspaceRoot(root, rootIdentity)) throw new Error("Workspace changed during checkpoint capture.");
+          if (editorChanges.ambiguous) throw new Error("Too many editor changes during checkpoint capture.");
+          for (const key of editorChanges.paths) {
             const name = names.get(key);
             const file = name === undefined ? undefined : files.get(name);
             if (name === undefined || !file) continue;
@@ -159,6 +152,7 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
           this.previews.clear();
           this.current = {
             cwd: root,
+            rootIdentity,
             sessionId,
             startedAt: Date.now(),
             files,
@@ -208,7 +202,7 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
 
   public captureToolEvent(event: PiRpcEvent): void {
     const request = this.current;
-    if (!request) return;
+    if (!request || this.settlement) return;
     const tool = String(event.toolName ?? "");
     if (
       ![
@@ -261,30 +255,123 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
     }
   }
 
-  public finishRequest(status: RequestCheckpoint["status"] = "completed"): TrackedFileChange[] {
+  /** One complete comparison per request. Undefined means the originating request no longer owns the result. */
+  public finishRequest(
+    status: RequestCheckpoint["status"] = "completed",
+    canPublish: () => boolean = () => true,
+  ): Promise<TrackedFileChange[] | undefined> {
+    if (this.settlement) {
+      if (status === "process-exit") this.settlement.status = status;
+      return this.settlement.result;
+    }
     const request = this.current;
-    if (!request) return this.changes;
-    this.current = undefined;
+    if (!request) return Promise.resolve(undefined);
+    const changed: SettlementChange[] = [];
+    const editorChanges = observeEditorChanges(request.cwd);
+    editorChanges.collectDirty();
+    const controller = new AbortController();
+    const settlement: NonNullable<WorkspaceChangeTracker["settlement"]> = {
+      controller,
+      status,
+      invalidated: false,
+      result: settleCheckpoint(
+        request.cwd,
+        request.files.size,
+        settlementEntries(request.files),
+        controller.signal,
+        (change) => changed.push(change),
+      )
+        .then(
+          () => true,
+          () => false,
+        )
+        .then(async (compared) => {
+          const stale = new Set<string>();
+          let rechecked = false;
+          if (
+            compared &&
+            !controller.signal.aborted &&
+            !request.unprovenEffects &&
+            !settlement.invalidated &&
+            settlement.status !== "process-exit"
+          ) {
+            // Check only the files that could be offered for restore, after the full comparison ends.
+            const entries: SettlementEntry[] = [];
+            for (const { path, matched } of changed) {
+              const file = request.files.get(path);
+              if (matched && file) entries.push({ path, before: file.expected });
+            }
+            if (entries.length) {
+              rechecked = await settleCheckpoint(
+                request.cwd,
+                entries.length,
+                entries.values(),
+                controller.signal,
+                ({ path }) => stale.add(path),
+              ).then(
+                () => true,
+                () => false,
+              );
+            }
+          }
+          if (controller.signal.aborted || !canPublish() || !sameWorkspaceRoot(request.cwd, request.rootIdentity))
+            return undefined;
+          editorChanges.collectDirty();
+          return this.publishSettlement(
+            request,
+            settlement.status,
+            settlement.invalidated,
+            editorChanges,
+            compared ? changed : undefined,
+            (name) => rechecked && !stale.has(name),
+          );
+        })
+        .finally(() => {
+          editorChanges.dispose();
+          if (this.settlement === settlement) {
+            this.current = undefined;
+            this.settlement = undefined;
+          }
+        }),
+    };
+    this.settlement = settlement;
+    return settlement.result;
+  }
+
+  private publishSettlement(
+    request: NonNullable<WorkspaceChangeTracker["current"]>,
+    status: RequestCheckpoint["status"],
+    invalidated: boolean,
+    editorChanges: ReturnType<typeof observeEditorChanges>,
+    changed: SettlementChange[] | undefined,
+    canRevert: (name: string) => boolean,
+  ): TrackedFileChange[] {
     if (status === "process-exit") {
       request.unprovenEffects = true;
       request.exclusions.push("Process exited without settlement: final tool/descendant attribution is unverified.");
     }
+    if (invalidated && !request.unprovenEffects) {
+      request.unprovenEffects = true;
+      request.exclusions.unshift(invalidatedCheckpointExclusion);
+    }
+    if (editorChanges.ambiguous)
+      request.exclusions.unshift("Too many editor changes during settlement: restore coverage unavailable.");
+    if (!changed) request.exclusions.unshift("Checkpoint settlement failed: restore coverage unavailable.");
     const files: RequestCheckpoint["files"] = [];
-    for (const [name, capture] of request.files) {
-      const after = readCovered(request.cwd, name);
-      if (after === capture.before) continue;
+    for (const { path: name, matched } of changed ?? []) {
+      const capture = request.files.get(name);
+      if (!capture) continue;
       if (
-        !capture.announced ||
-        capture.unsupported ||
+        !matched ||
         request.unprovenEffects ||
-        dirty(path.join(request.cwd, name)) ||
-        after === undefined ||
-        after !== capture.expected
+        editorChanges.ambiguous ||
+        editorChanges.paths.has(checkpointPathKey(path.join(request.cwd, name)))
       ) {
-        request.exclusions.push(
-          `${name}: uncertain attribution, unsupported tool, deletion, shell effect, dirty buffer, or stale content`,
-        );
-      } else files.push({ path: name, before: capture.before, after });
+        if (request.exclusions.length < 1000)
+          request.exclusions.push(
+            `${name}: uncertain attribution, unsupported tool, deletion, shell effect, dirty buffer, or stale content`,
+          );
+      } else files.push({ path: name, before: capture.before, after: capture.expected });
     }
     if (request.unprovenEffects)
       request.exclusions.push("Shell/custom/unfinished effects: historical restore unavailable for all affected files");
@@ -297,32 +384,41 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
       files,
       exclusions: request.exclusions.slice(0, 1000),
     });
-    return this.changes;
+    return this.listChanges(canRevert);
   }
 
   public get changes(): TrackedFileChange[] {
+    return this.listChanges();
+  }
+  private listChanges(canRevert?: (name: string) => boolean): TrackedFileChange[] {
     const record = this.latest;
-    return record
-      ? record.files
-          .filter((file) => !file.reverted)
-          .map((file) => {
-            let canRevert = true;
-            try {
-              this.preflight(record, [file.path]);
-            } catch {
-              canRevert = false;
-            }
-            return {
-              id: `${record.id}:${file.path}`,
-              uri: vscode.Uri.file(path.join(record.repository, file.path)).toString(),
-              label: file.path,
-              created: false,
-              deleted: false,
-              canRevert,
-              canPreview: true,
-            };
-          })
-      : [];
+    if (!record) return [];
+    const check =
+      canRevert ??
+      ((name: string) => {
+        try {
+          this.preflight(record, [name]);
+          return true;
+        } catch {
+          return false;
+        }
+      });
+    return record.files
+      .filter((file) => !file.reverted)
+      .map((file) => ({
+        id: `${record.id}:${file.path}`,
+        uri: vscode.Uri.file(path.join(record.repository, file.path)).toString(),
+        label: file.path,
+        created: false,
+        deleted: false,
+        canRevert: check(file.path),
+        canPreview: true,
+      }));
+  }
+  public checkRestore(id: string): void {
+    requireTrustedFile();
+    const { record, name } = this.resolve(id);
+    this.preflight(record, [name]);
   }
   public async review(id: string): Promise<void> {
     const { record, name } = this.resolve(id);
@@ -458,8 +554,14 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
   public provideTextDocumentContent(uri: vscode.Uri): string {
     return this.lookupPreview(uri) ?? "Checkpoint preview expired.";
   }
+  public cancelPendingSettlement(): void {
+    this.settlement?.controller.abort();
+  }
+
   public resetSession(): void {
     this.capture?.abort();
+    this.cancelPendingSettlement();
+    this.settlement = undefined;
     this.current = undefined;
     this.latest = undefined;
     this.history.clear();
@@ -471,6 +573,58 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
     this.operationObserver = undefined;
     this.resetSession();
   }
+}
+function sameWorkspaceRoot(root: string, identity: { dev: bigint; ino: bigint }): boolean {
+  try {
+    if (realpathSync(root) !== root) return false;
+    const current = statSync(root, { bigint: true });
+    return current.isDirectory() && current.dev === identity.dev && current.ino === identity.ino;
+  } catch {
+    return false;
+  }
+}
+function observeEditorChanges(root: string) {
+  const paths = new Set<string>();
+  let ambiguous = false;
+  const rootKey = checkpointPathKey(root);
+  const exclude = (doc: vscode.TextDocument) => {
+    if (doc.uri.scheme !== "file" || ambiguous) return;
+    let absolute: string;
+    try {
+      absolute = realpathSync(doc.uri.fsPath);
+    } catch {
+      absolute = path.resolve(doc.uri.fsPath);
+    }
+    const key = checkpointPathKey(absolute);
+    const relative = path.relative(rootKey, key);
+    if (!relative || path.isAbsolute(relative) || relative.startsWith(`..${path.sep}`) || relative === "..") return;
+    if (paths.size >= 10_000 && !paths.has(key)) ambiguous = true;
+    else paths.add(key);
+  };
+  const listeners = [
+    vscode.workspace.onDidOpenTextDocument((doc) => {
+      if (doc.isDirty) exclude(doc);
+    }),
+    vscode.workspace.onDidChangeTextDocument(({ document, contentChanges }) => {
+      if (document.isDirty || contentChanges.length) exclude(document);
+    }),
+  ];
+  return {
+    paths,
+    get ambiguous() {
+      return ambiguous;
+    },
+    collectDirty: () => {
+      for (const doc of vscode.workspace.textDocuments) if (doc.isDirty) exclude(doc);
+    },
+    dispose: () => {
+      for (const listener of listeners) listener.dispose();
+    },
+  };
+}
+function* settlementEntries(files: Map<string, StartFile>): Generator<SettlementEntry> {
+  for (const [path, file] of files)
+    yield { path, before: file.before, expected: file.announced && !file.unsupported ? file.expected : undefined };
 }
 function dirty(absolute: string): boolean {
   return isDirtyFile(absolute);
