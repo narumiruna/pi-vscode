@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.12.0
+
+### Minor Changes
+
+- 79ed145: Add **Pi: New Worktree in New Window** to the Pi Sidebar and Command Palette.
+  In a trusted local Git workspace, Pi generates a branch name, creates a worktree through VS Code’s built-in Git extension, and opens it in a separate window without switching the original workspace.
+
+### Patch Changes
+
+- 5352eef: Open new and saved Sidebar sessions without the shared-file confirmation dialog.
+  Sessions still share workspace files, and opening a separate editor-tab session still asks for confirmation.
+
 ## 0.11.3
 
 ### Patch Changes
