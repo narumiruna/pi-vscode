@@ -103,6 +103,12 @@ Composer completion fixtures cover attachment capture, path-only insertion, fail
 
 Thinking fixtures check thinking-only and redacted responses, disclosure keyboard access, live focus and scroll preservation, and authoritative history replacement without a provider.
 
+Transcript patch fixtures cover text-only streaming in a 100-message window and verify that each eligible update renders only the active reply.
+They check byte size, inactive-session retention, reading position, search, sanitization, and recovery after a missing update.
+A patch requires the current transcript revision, message ID, and, in the shared Sidebar, the current entry binding.
+The host sends a full snapshot when the transcript structure or other view state changes.
+Resynchronization sends the current in-memory snapshot without fetching Pi history or replaying the request.
+
 Direct-shell fixtures check explicit composer guards, context labels, inert cards, and terminal-control removal.
 
 ### Isolated Pi public-SDK check

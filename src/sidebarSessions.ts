@@ -11,6 +11,7 @@ import { listRecentPiSessions, type PiSessionSummary } from "./sessionHistory";
 import type { SessionWriters } from "./sessionWriters";
 import type { PiChatViewProvider } from "./sidebar";
 import { isRecord } from "./sidebarHelpers";
+import { patchRetainedTranscript } from "./sidebarTranscript";
 import { parseSidebarSlashCommand } from "./slashCommands";
 import { requireTrustedFile } from "./workflowUi";
 
@@ -212,6 +213,15 @@ export class SidebarSessions implements vscode.Disposable {
       this.publishList();
       if (entry === this.displayed) this.publish();
       return entry === this.displayed && this.ready;
+    }
+    if (message.type === "transcriptTailPatch") {
+      const state = patchRetainedTranscript(entry.state, message);
+      if (!state) return false;
+      entry.state = state;
+      if (entry !== this.displayed || !this.ready || !this.view) return false;
+      const sidebar = { entryId: entry.id, bindingGeneration: this.generation };
+      void this.view.webview.postMessage({ ...message, sidebar });
+      return true;
     }
     if (
       message.type === "clearInput" &&

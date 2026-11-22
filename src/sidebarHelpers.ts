@@ -33,6 +33,7 @@ export type WebviewMessage =
         | "cancel"
         | "reconnect"
         | "refreshHistory"
+        | "refreshTranscript"
         | "refreshSessions"
         | "retry"
         | "newSession"
@@ -183,6 +184,7 @@ export function isWebviewMessage(value: unknown, maxImageBytes: number): value i
     "cancel",
     "reconnect",
     "refreshHistory",
+    "refreshTranscript",
     "refreshSessions",
     "retry",
     "newSession",

@@ -430,7 +430,7 @@ export function getSidebarHtml(
       : !sidebar;
     const vscode = {
       postMessage(message, envelope = captureSidebarEnvelope()) {
-        if (envelope && sameSidebarEnvelope(envelope) && !['ready', 'sidebarViewState', 'acknowledgeResult'].includes(message.type)) publishSidebarViewState(true);
+        if (envelope && sameSidebarEnvelope(envelope) && !['ready', 'sidebarViewState', 'acknowledgeResult', 'refreshTranscript'].includes(message.type)) publishSidebarViewState(true);
         return vscodeApi.postMessage(envelope ? { ...message, ...envelope } : message);
       }
     };
@@ -500,7 +500,10 @@ export function getSidebarHtml(
     let programmaticConversationScrollTop;
     let conversationClientHeight = conversationElement.clientHeight;
     let hasNewTranscriptOutput = false;
-    let lastTranscriptSignature = '';
+    let transcriptRevision;
+    let transcriptSyncPending = false;
+    let transcriptTail;
+    let transcriptSignatures;
     let displayedSessionIdentity;
     let renderedMessageStructure = '';
     let renderedMessageHtml = [];
@@ -577,7 +580,7 @@ export function getSidebarHtml(
         sidebarReadingRestore = sidebarReadingStates.get(next.entryId);
         conversationPinnedToBottom = sidebarReadingRestore?.followingLatest ?? true;
         hasNewTranscriptOutput = sidebarReadingRestore?.newOutput ?? false;
-        lastTranscriptSignature = '';
+        transcriptSignatures = undefined;
         displayedSessionIdentity = undefined;
         toolRows.clear();
         messagesElement.replaceChildren();
@@ -857,10 +860,16 @@ export function getSidebarHtml(
       }
     }
 
+    function transcriptSignature(message) {
+      return JSON.stringify([message.id, message.html, message.thinking, message.tool, message.attachments]);
+    }
+
     function renderMessages(messages) {
-      const signature = JSON.stringify(messages.map(message => [message.id, message.html, message.thinking, message.tool, message.attachments]));
-      if (!conversationPinnedToBottom && lastTranscriptSignature && signature !== lastTranscriptSignature) hasNewTranscriptOutput = true;
-      lastTranscriptSignature = signature;
+      const signatures = messages.map(transcriptSignature);
+      if (!conversationPinnedToBottom && transcriptSignatures && (signatures.length !== transcriptSignatures.length
+          || signatures.some((signature, index) => signature !== transcriptSignatures[index]))) hasNewTranscriptOutput = true;
+      transcriptSignatures = signatures;
+      transcriptTail = messages.at(-1);
       const followConversation = conversationPinnedToBottom;
       const readingTop = conversationElement.scrollTop;
       const visibleMessages = messages.filter(message => message.role !== 'assistant' || Boolean(message.html) || message.thinking?.length);
@@ -1864,6 +1873,36 @@ export function getSidebarHtml(
       status.hidden = !status.children.length;
     }
 
+    function applyTranscriptTail(message) {
+      if (!sameSidebarEnvelope(message.sidebar) || !Number.isSafeInteger(message.baseRevision)) return;
+      if (message.baseRevision < transcriptRevision || transcriptSyncPending) return;
+      const wrapper = messagesElement.lastElementChild;
+      if (message.baseRevision !== transcriptRevision || transcriptTail?.role !== 'assistant'
+          || transcriptTail.id !== message.id || wrapper?.messageId !== message.id
+          || typeof message.content !== 'string' || typeof message.html !== 'string'
+          || (!message.html && !transcriptTail.thinking?.length)) {
+        transcriptSyncPending = true;
+        vscode.postMessage({ type: 'refreshTranscript' });
+        return;
+      }
+      transcriptRevision += 1;
+      const htmlChanged = message.html !== transcriptTail.html;
+      transcriptTail = { ...transcriptTail, content: message.content, html: message.html };
+      if (!htmlChanged) return;
+      transcriptSignatures[transcriptSignatures.length - 1] = transcriptSignature(transcriptTail);
+      renderedMessageHtml[renderedMessageHtml.length - 1] = message.html;
+      wrapper.renderedHtml = message.html;
+      const readingTop = conversationElement.scrollTop;
+      setMessageContent(wrapper.children[1], message.html);
+      conversationHistory.onTailChanged(transcriptTail);
+      if (conversationPinnedToBottom) scrollConversationToBottom();
+      else {
+        hasNewTranscriptOutput = true;
+        setConversationScrollTop(readingTop);
+        updateLatestOutput();
+      }
+    }
+
     function render(state) {
       editorRequest = state.editorRequest;
       const editorSummary = $('editor-request');
@@ -1885,7 +1924,7 @@ export function getSidebarHtml(
       if (!sidebar && displayedSessionIdentity !== undefined && displayedSessionIdentity !== sessionIdentity) {
         conversationPinnedToBottom = true;
         hasNewTranscriptOutput = false;
-        lastTranscriptSignature = '';
+        transcriptSignatures = undefined;
         toolRows.clear();
         messagesElement.replaceChildren();
         renderedMessageStructure = '';
@@ -2096,10 +2135,17 @@ export function getSidebarHtml(
     window.addEventListener('message', event => {
       const message = event.data;
       if (!message || typeof message.type !== 'string') return;
+      if (message.type === 'transcriptTailPatch') {
+        applyTranscriptTail(message);
+        return;
+      }
       if (message.type === 'state') {
         if (sidebar && (!message.sidebar || message.sidebar.bindingGeneration < sidebar.bindingGeneration
             || (message.sidebar.bindingGeneration === sidebar.bindingGeneration && message.sidebar.entryId !== sidebar.entryId))) return;
+        if (sameSidebarEnvelope(message.sidebar) && message.transcriptRevision < transcriptRevision) return;
         bindSidebar(message.sidebar);
+        transcriptRevision = message.transcriptRevision;
+        transcriptSyncPending = false;
       } else if (sidebar && (!message.sidebar || !sameSidebarEnvelope(message.sidebar))) return;
       if (sidebar && Number.isSafeInteger(message.sidebar?.composerContext))
         sidebar.composerContext = Math.max(sidebar.composerContext, message.sidebar.composerContext);

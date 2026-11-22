@@ -516,6 +516,9 @@ Raw Markdown HTML is escaped by the host parser.
 Link targets permit only HTTP, HTTPS, and mailto schemes without whitespace or control characters.
 Markdown images produce only their alt text.
 Browser DOMPurify sanitization is a second boundary before message HTML insertion, retaining the MathML needed for accessible math but removing active elements and event handlers.
+Text-only transcript patches use the same Markdown renderer and browser sanitizer as full snapshots.
+The Webview applies them only to the current assistant tail under the current transcript revision and, in the Sidebar, the current entry binding.
+A missing update requests an in-memory snapshot under the existing view binding, not a Pi history fetch or request replay.
 
 KaTeX uses `trust: false`, strict errors, 4,000 source characters per formula, 50 formulas per message, 200 macro expansions, and a 10em size limit.
 Resource-loading and HTML extension commands fall back to source.

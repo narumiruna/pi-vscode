@@ -74,6 +74,7 @@ import {
   type ToolActivity,
   type TranscriptAttachment,
 } from "./sidebarState";
+import { assistantTextTail, type TranscriptTailPatch } from "./sidebarTranscript";
 import { discoverSlashCommands, parseSidebarSlashCommand } from "./slashCommands";
 import { WorkflowDocuments } from "./workflowUi";
 
@@ -223,6 +224,9 @@ export class PiChatViewProvider
   private historyLoading = false;
   private readonly queuedTranscriptPresentations = new Map<string, QueuedTranscriptPresentation>();
   private renderTimer: NodeJS.Timeout | undefined;
+  private fullStatePending = false;
+  private transcriptRevision = 0;
+  private lastTranscript: { messages: readonly SidebarMessage[]; tailHtml: string } | undefined;
   private foregroundCancellable = false;
   private noticeRevision = 0;
   private recentSessions: PiSessionSummary[] = [];
@@ -390,6 +394,7 @@ export class PiChatViewProvider
         this.drafts.endView();
         this.view = undefined;
         this.webviewReady = false;
+        this.lastTranscript = undefined;
         this.pendingNavigation = undefined;
       }
     });
@@ -591,6 +596,10 @@ export class PiChatViewProvider
     }
     if (isSessionDraftMessage(message)) {
       await this.drafts.handle(message);
+      return;
+    }
+    if (message.type === "refreshTranscript") {
+      if (this.webviewReady) this.scheduleState();
       return;
     }
     // Opening read-only details or settings must not change an in-progress draft capture.
@@ -2442,6 +2451,10 @@ export class PiChatViewProvider
       const update = isRecord(event.assistantMessageEvent) ? event.assistantMessageEvent : undefined;
       const message = this.assistantStream?.update(update);
       if (message) this.upsertAssistantMessage(message);
+      if (update?.type === "text_delta") {
+        if (message) this.scheduleState("textDelta");
+        return;
+      }
       if (update?.type === "thinking_delta") this.status = "Pi is thinking…";
     } else if (event.type === "message_end") {
       const message = isRecord(event.message) ? event.message : undefined;
@@ -2795,19 +2808,45 @@ export class PiChatViewProvider
     }
   }
 
-  private scheduleState(): void {
+  private scheduleState(kind: "full" | "textDelta" = "full"): void {
     if (this.disposed) return;
-    this.refreshTools();
-    if (this.renderTimer) {
-      return;
+    if (kind === "full") {
+      this.refreshTools();
+      this.fullStatePending = true;
     }
+    if (this.renderTimer) return;
     this.renderTimer = setTimeout(() => {
       this.renderTimer = undefined;
-      this.postState();
+      if (this.fullStatePending || !this.postTranscriptTail()) this.postState();
     }, 33);
   }
 
+  private postTranscriptTail(): boolean {
+    const previous = this.lastTranscript;
+    const streamId = this.assistantStream?.id;
+    if (!this.view || !this.webviewReady || !previous || !streamId) return false;
+    const tail = assistantTextTail(previous.messages, this.messages, streamId);
+    if (!tail || (!previous.tailHtml && !tail.thinking?.length)) return false;
+    if (tail.content === previous.messages.at(-1)?.content) return true;
+    const [html = ""] = this.markdownRenderer.renderBatch([tail.content]);
+    if (!html && !tail.thinking?.length) return false;
+    const patch: TranscriptTailPatch = {
+      type: "transcriptTailPatch",
+      baseRevision: this.transcriptRevision,
+      id: tail.id,
+      content: tail.content,
+      html,
+    };
+    this.transcriptRevision += 1;
+    this.lastTranscript = { messages: this.messages.slice(), tailHtml: html };
+    this.postMessage({ ...patch });
+    return true;
+  }
+
   private postState(): void {
+    clearTimeout(this.renderTimer);
+    this.renderTimer = undefined;
+    this.fullStatePending = false;
     this.refreshTools();
     const requestBusy = this.isForegroundRequestActive();
     const estimate = this.attachments.estimate;
@@ -2823,8 +2862,12 @@ export class PiChatViewProvider
       ...message,
       html: message.role === "shell" ? `<pre class="shell-output">${escapeHtml(message.content)}</pre>` : html[index],
     }));
+    this.lastTranscript = this.view
+      ? { messages: this.messages.slice(), tailHtml: messages.at(-1)?.html ?? "" }
+      : undefined;
     this.postMessage({
       type: "state",
+      transcriptRevision: ++this.transcriptRevision,
       messages,
       tools: this.tools,
       extensionUi: this.extensionUi.state,

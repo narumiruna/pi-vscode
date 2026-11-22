@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { nativeSidebarFixture } from "./session-switch-fixture.mjs";
@@ -34,6 +34,11 @@ export async function assertNativeSidebarConcurrency(options) {
   let cOpened = false;
   const events = async () => (await records("sidebar-events.jsonl")).slice(eventOffset);
   const release = (id) => writeFile(path.join(directory, `sidebar-release-${id.replace(/[^a-zA-Z0-9_-]/g, "_")}`), "release");
+  const deltaFile = path.join(directory, `sidebar-delta-${a.replace(/[^a-zA-Z0-9_-]/g, "_")}`);
+  const delta = async (text) => {
+    await writeFile(`${deltaFile}.tmp`, text);
+    await rename(`${deltaFile}.tmp`, deltaFile);
+  };
   const busy = async (id) => {
     await selected(id);
     await until(async () => await pi.locator("#cancel").isVisible() &&
@@ -68,6 +73,22 @@ export async function assertNativeSidebarConcurrency(options) {
         message: { role: "user", content: [{ type: "text", text: "Sidebar B saved history only" }], timestamp: 1 } },
     ].map((entry) => JSON.stringify(entry)).join("\n")}\n`);
     await hold(a, "Native Sidebar A-only held request", "Native Sidebar A-only final result");
+    await pi.evaluate(() => {
+      window.onNativeTranscriptPatch = ({ data }) => {
+        if (data?.type === "transcriptTailPatch") window.nativeTranscriptPatch = data;
+        if (data?.type === "state" && data.sidebar?.view === "sessions")
+          window.nativeLauncherBinding = data.sidebar.bindingGeneration;
+        if (data?.type === "draftState") window.nativeDraftBinding = data.sidebar?.bindingGeneration;
+      };
+      window.addEventListener("message", window.onNativeTranscriptPatch);
+    });
+    await delta("Native partial reply");
+    await pi.locator("#messages .assistant").filter({ hasText: "Native partial reply" }).waitFor();
+    await delta(" via patch");
+    await pi.locator("#messages .assistant").filter({ hasText: "Native partial reply via patch" }).waitFor();
+    const patch = await pi.evaluate(() => window.nativeTranscriptPatch);
+    assert.equal(patch?.content, "Native partial reply via patch");
+    assert.equal(patch.messages, undefined, "a native streaming patch has no historical messages");
     await composer.fill(aDraft);
     const aEntry = await currentEntry();
 
@@ -197,11 +218,15 @@ export async function assertNativeSidebarConcurrency(options) {
     assert.equal(await optional("starts.jsonl"), warmStarts, "A/B/C reselection never restarts retained runtimes");
     assert.equal(await optional("switches.jsonl"), switchesBefore, "Concurrent navigation never calls switch_session");
     // The Sessions composer promotes its own entry and changes recovery bindings during acceptance.
-    await pi.locator("#back-to-sessions").click();
-    await pi.locator("#sessions").waitFor({ state: "visible" });
-    await composer.fill("Native launcher first-send acceptance");
     await writeFile(path.join(directory, "response.txt"), "Native launcher accepted result");
     const launcherStarts = (await records("starts.jsonl")).length;
+    await pi.locator("#back-to-sessions").click();
+    await pi.locator("#sessions").waitFor({ state: "visible" });
+    await until(() => pi.evaluate(() => Number.isSafeInteger(window.nativeLauncherBinding) &&
+      window.nativeDraftBinding === window.nativeLauncherBinding), "Sessions launcher and its draft binding ready");
+    await composer.click();
+    await composer.fill("Native launcher first-send acceptance");
+    assert.equal(await composer.inputValue(), "Native launcher first-send acceptance");
     await pi.locator("#send").click();
     await modal("Open Session");
     dOpened = true;
@@ -219,12 +244,13 @@ export async function assertNativeSidebarConcurrency(options) {
       navigation: "A running -> saved B cold -> new C -> retained A",
       coldStarts: freshStarts.length, freshFilesDistinct: true, hiddenResultUnread: true,
       originBoundInput: true, independentDrafts: 3, coldFirstSendClear: true, launcherAcceptedClear: true, stop: "B stopped; A continued to completion",
-      switchSessionCalls: 0, captures, provider: "fixture only",
+      switchSessionCalls: 0, tailOnlyStreaming: true, captures, provider: "fixture only",
     }));
   } catch (error) {
     console.error("PI_NATIVE_SIDEBAR_FAILURE", JSON.stringify({
       error: String(error.stack ?? error),
       session: await pi.locator("#session").inputValue(),
+      composer: await composer.inputValue(),
       status: await pi.locator("#status").textContent(),
       notice: await pi.locator("#notice").textContent(),
       messages: (await pi.locator("#messages").innerText()).slice(-4_000),
@@ -234,8 +260,11 @@ export async function assertNativeSidebarConcurrency(options) {
     throw error;
   } finally {
     await pi.evaluate(() => {
+      window.removeEventListener("message", window.onNativeTranscriptPatch);
       if (window.nativeSidebarFileReader) window.FileReader = window.nativeSidebarFileReader;
     });
+    await rm(deltaFile, { force: true });
+    await rm(`${deltaFile}.tmp`, { force: true });
     // Stop any surviving held work before closing its runtime; preserve saved history.
     if (dOpened && d) {
       await choose(d);
