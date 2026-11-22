@@ -149,7 +149,7 @@ Completed means the request settled, not that its answer or file changes are cor
 
 One fixed pool permits **one Primary plus eight additional runtimes in total across Sidebar conversations and editor panels**.
 Retained idle conversations and cleanup-quarantined sessions count toward the additional eight.
-Opening an additional Sidebar session requires the shared-file warning's explicit **Open Session** confirmation.
+Open an additional Sidebar session directly without a confirmation dialog.
 Use **Close Session** on an auxiliary Sidebar conversation to stop only its work and discard its unsent memory-only state after confirmation, without deleting saved Pi history.
 Hiding the Sidebar does not close conversations.
 

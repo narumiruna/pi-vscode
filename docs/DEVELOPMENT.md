@@ -214,7 +214,8 @@ Use the verification table below to distinguish automated coverage from the rema
 2. **Open saved or new work during A.**
    While A runs, open a previously unloaded saved B, then create C from New Session and the Sessions composer.
    Repeat Resume Session and local `/new`/`/resume` without attachments/prepared actions.
-   Confirm **Open Session**, verify separate writers and captured composer transfer, then cancel an opening and verify unchanged selection/draft.
+   Verify no opening confirmation appears and each session has a separate writer and retains its own composer.
+   Cancel the Resume picker and verify the selection and draft are unchanged.
    Exercise editor-owned file reveal, shared capacity with editor panels, cancelled Close Session, verified cleanup, and retained writer/slot/root quarantine on uncertain cleanup.
 3. **Authoritative Sessions activity.**
    Observe Running through startup/tools/retry/compaction/queue settlement, Waiting for input during source-labelled input/approval, and Completed/Failed/Stopped after their distinct outcomes.

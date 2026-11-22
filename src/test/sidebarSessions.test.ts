@@ -46,7 +46,8 @@ async function fixture(action: (f: any) => Promise<void>, options: { resolveView
   mock.workspace.getConfiguration = () => ({ get: (_key: string, fallback: unknown) => fallback });
   mock.window.activeTextEditor = undefined;
   mock.window.registerWebviewViewProvider = () => ({ dispose() {} });
-  mock.window.showWarningMessage = async (_message: string, _options: unknown, ...choices: string[]) => choices[0];
+  const warning = vi.fn(async (_message: string, _options: unknown, ...choices: string[]) => choices[0]);
+  mock.window.showWarningMessage = warning;
   mock.window.showQuickPick = async () => undefined;
   mock.window.showInputBox = async () => undefined;
   const state = new Map<string, unknown>([
@@ -274,6 +275,7 @@ async function fixture(action: (f: any) => Promise<void>, options: { resolveView
       compose,
       send,
       complete,
+      warning,
       a: entries()[0],
     });
   } finally {
@@ -302,6 +304,7 @@ test("one Sidebar view runs A/B concurrently and opens fresh C while both remain
     await vi.waitFor(() => assert.equal(f.latest().sidebar.entryId, b.id));
     f.dispatch({ type: "newSession" });
     await vi.waitFor(() => assert.equal(f.entries().length, 3));
+    assert.deepEqual(f.warning.mock.calls, [], "New Session must open without a warning dialog");
     const c = f.displayed();
     assert.notEqual(c, f.a);
     assert.notEqual(c, b);
@@ -814,7 +817,7 @@ test("Stop cancels only the selected Sidebar runtime and preserves the sibling r
   });
 });
 
-test.each(["cancel", "capacity", "editor", "current", "missing"])(
+test.each(["capacity", "editor", "current", "missing"])(
   "row selection settles its unchanged source binding after %s",
   async (outcome) => {
     await fixture(async (f) => {
@@ -826,7 +829,6 @@ test.each(["cancel", "capacity", "editor", "current", "missing"])(
       assert.ok(savedRow);
       const releases: (() => void)[] = [];
       const reveal = vi.fn(() => true);
-      if (outcome === "cancel") mock.window.showWarningMessage = async () => undefined;
       if (outcome === "capacity") for (let i = 0; i < 8; i++) releases.push(f.slots.acquire());
       if (outcome === "editor") (f.manager as any).services.revealEditorSession = reveal;
       if (outcome === "current") await f.manager.select(f.a.id);
@@ -848,7 +850,7 @@ test.each(["cancel", "capacity", "editor", "current", "missing"])(
         });
         assert.equal(f.displayed(), entry);
         assert.deepEqual(f.binding(), origin);
-        assert.equal(f.entries().length, 2, "no runtime is admitted for a cancelled or unchanged selection");
+        assert.equal(f.entries().length, 2, "no runtime is admitted for a rejected or unchanged selection");
         if (outcome === "editor") assert.deepEqual(reveal.mock.calls, [[saved]]);
         if (outcome !== "current") assert.equal(f.displayed(), launcher);
       } finally {
@@ -867,18 +869,34 @@ test("a late row selection completion cannot unlock a newer binding of the same 
     await f.manager.showSessions();
     const launcher = f.displayed();
     const row = f.rows().find((row: any) => row.sessionId === "saved-delayed");
-    const decision = deferred<string | undefined>();
-    const warning = vi.fn(() => decision.promise);
-    mock.window.showWarningMessage = warning;
-    f.dispatch({ type: "switchRecentSession", id: row.id });
-    await vi.waitFor(() => assert.equal(warning.mock.calls.length, 1));
-    f.manager.revealConversation(f.primary);
-    await f.manager.showSessions();
-    assert.equal(f.displayed(), launcher);
-    const mark = f.view.webview.messages.length;
-    decision.resolve(undefined);
-    await vi.waitFor(() => assert.equal((f.manager as any).navigating, false));
-    assert.ok(!f.view.webview.messages.slice(mark).some((message: any) => message.type === "sessionSwitchRejected"));
+    const validation = deferred<{ uri: MockUri; root: string }>();
+    const manager = f.manager as any;
+    const checkWorkspace = manager.workspace.bind(manager);
+    let paused = false;
+    const workspace = vi
+      .spyOn(manager, "workspace")
+      .mockImplementationOnce(checkWorkspace)
+      .mockImplementationOnce(() => {
+        paused = true;
+        return validation.promise;
+      });
+    const root = { uri: MockUri.file(f.root), root: f.root };
+    try {
+      f.dispatch({ type: "switchRecentSession", id: row.id });
+      await vi.waitFor(() => assert.equal(paused, true));
+      f.manager.revealConversation(f.primary);
+      await f.manager.showSessions();
+      assert.equal(f.displayed(), launcher);
+      const mark = f.view.webview.messages.length;
+      validation.resolve(root);
+      await vi.waitFor(() => assert.equal(manager.navigating, false));
+      assert.equal(f.displayed(), launcher);
+      assert.equal(f.slots.count, 0);
+      assert.ok(!f.view.webview.messages.slice(mark).some((message: any) => message.type === "sessionSwitchRejected"));
+    } finally {
+      validation.resolve(root);
+      workspace.mockRestore();
+    }
   });
 });
 
@@ -982,6 +1000,7 @@ test("saved unloaded B gets an independent owner while A is busy and reuses it o
     assert.ok(savedRow);
     f.dispatch({ type: "switchRecentSession", id: savedRow.id });
     await vi.waitFor(() => assert.equal(f.displayed().runtime.currentState.sessionId, "saved-B"));
+    assert.deepEqual(f.warning.mock.calls, [], "opening a saved Sidebar session must not show a warning dialog");
     const b = f.displayed();
     await vi.waitFor(() => assert.ok(f.latest().messages.some((message: any) => message.content === "saved B answer")));
     assert.equal(b.runtime.currentState.sessionFile, saved);
@@ -1307,47 +1326,40 @@ test("inactive recovery handshakes and warnings are delivered only after their o
   });
 });
 
-test("cancelled or rejected launcher submissions settle without losing their originating draft", async () => {
+test("launcher submissions rejected at capacity settle without losing their originating draft", async () => {
   await fixture(async (f) => {
     await f.manager.showSessions();
     const launcher = f.displayed();
-    f.compose("retain cancelled launcher", 5, true, false);
-    mock.window.showWarningMessage = async () => undefined;
-    const mark = f.view.webview.messages.length;
-    f.dispatch({ type: "sendNewSession", text: launcher.composer.text, revision: 5 });
-    await vi.waitFor(() => assert.ok(f.view.webview.messages.slice(mark).some((m: any) => m.type === "sendRejected")));
-    assert.equal(f.displayed(), launcher);
-    assert.equal(launcher.composer.text, "retain cancelled launcher");
-    assert.equal(f.slots.count, 0);
+    const text = "keep launcher draft";
+    f.compose(text, 5, true, false);
     const releases = Array.from({ length: 8 }, () => f.slots.acquire());
     try {
-      const rejected = f.view.webview.messages.length;
-      f.dispatch({ type: "sendNewSession", text: launcher.composer.text, revision: 5 });
+      const mark = f.view.webview.messages.length;
+      f.dispatch({ type: "sendNewSession", text, revision: 5 });
       await vi.waitFor(() =>
-        assert.ok(f.view.webview.messages.slice(rejected).some((m: any) => m.type === "sendRejected")),
+        assert.ok(f.view.webview.messages.slice(mark).some((m: any) => m.type === "sendRejected")),
       );
-      assert.equal(launcher.composer.text, "retain cancelled launcher");
+      assert.equal(f.displayed(), launcher);
+      assert.equal(launcher.composer.text, text);
+      assert.equal(f.slots.count, 8);
     } finally {
       for (const release of releases) release();
     }
   });
 });
 
-test("cancelled slash navigation settles the captured submission and preserves its draft", async () => {
+test("cancelling the /resume picker settles the captured submission and preserves its draft", async () => {
   await fixture(async (f) => {
-    mock.window.showWarningMessage = async () => undefined;
     mock.window.showOpenDialog = async () => undefined;
-    for (const text of ["/new", "/resume"]) {
-      f.compose(text, f.a.composer.revision + 1);
-      const mark = f.view.webview.messages.length;
-      f.dispatch({ type: "send", text, revision: f.a.composer.revision });
-      await vi.waitFor(() =>
-        assert.ok(f.view.webview.messages.slice(mark).some((m: any) => m.type === "sendRejected")),
-      );
-      assert.equal(f.displayed(), f.a);
-      assert.equal(f.a.composer.text, text);
-      assert.ok(!f.view.webview.messages.slice(mark).some((m: any) => m.type === "clearInput"));
-    }
+    f.compose("/resume", 1);
+    const detailMark = f.view.webview.messages.length;
+    f.dispatch({ type: "send", text: "/resume", revision: 1 });
+    await vi.waitFor(() =>
+      assert.ok(f.view.webview.messages.slice(detailMark).some((m: any) => m.type === "sendRejected")),
+    );
+    assert.equal(f.displayed(), f.a);
+    assert.equal(f.a.composer.text, "/resume");
+    assert.ok(!f.view.webview.messages.slice(detailMark).some((m: any) => m.type === "clearInput"));
     await f.manager.showSessions();
     const launcher = f.displayed();
     f.compose("/resume", 3, true, false);
@@ -1372,6 +1384,7 @@ test("promoted launcher retains acceptance ownership then saves later drafts und
     assert.equal(f.primary.draftStore.get("sessions")?.text, "launcher request");
     f.dispatch({ type: "sendNewSession", text: "launcher request", revision: 2 });
     await vi.waitFor(() => assert.equal(f.clients.get(entry.runtime)?.active, true));
+    assert.deepEqual(f.warning.mock.calls, [], "sending from Sessions must not show a warning dialog");
     await vi.waitFor(() => assert.equal(entry.composer.text, ""));
     assert.equal(drafts.scope, "session");
     assert.notEqual(drafts.binding.owner, "sessions");
@@ -1766,7 +1779,7 @@ test.each(["pi.switchSession", "pi.previousSession", "pi.nextSession"])(
   },
 );
 
-test("native switching does not focus the Sidebar after picker or admission cancellation", async () => {
+test("native switching does not focus the Sidebar after picker cancellation or capacity rejection", async () => {
   await fixture(async (f) => {
     const saved = path.join(f.root, "cancel-native-selection.jsonl");
     await writeFile(saved, `${JSON.stringify({ type: "session", id: "cancel-native-selection", cwd: f.root })}\n`);
@@ -1780,8 +1793,12 @@ test("native switching does not focus the Sidebar after picker or admission canc
         assert.ok(choice);
         return choice;
       };
-      mock.window.showWarningMessage = async () => undefined;
-      await mock.registrations.get("pi.switchSession")();
+      const releases = Array.from({ length: 8 }, () => f.slots.acquire());
+      try {
+        await assert.rejects(mock.registrations.get("pi.switchSession")(), /session slot/);
+      } finally {
+        for (const release of releases) release();
+      }
       assert.deepEqual(focus.mock.calls, []);
       assert.equal(f.displayed(), f.a);
       assert.equal(f.view.visible, false);
@@ -1806,8 +1823,12 @@ test("native cycling advances past an editor-owned session in either direction w
       f.rows().map((row: any) => row.sessionId),
       [f.runtime.currentState.sessionId, editor.runtime.currentState.sessionId, "after-editor"],
     );
+    assert.deepEqual(
+      f.warning.mock.calls.map((call: unknown[]) => call.slice(1)),
+      [[{ modal: true }, "Open Session"]],
+    );
+    f.warning.mockClear();
     const focus = vi.spyOn(mock.commands, "executeCommand");
-    const warning = vi.spyOn(mock.window, "showWarningMessage");
     try {
       const next = mock.registrations.get("pi.nextSession");
       const previous = mock.registrations.get("pi.previousSession");
@@ -1815,7 +1836,7 @@ test("native cycling advances past an editor-owned session in either direction w
       assert.equal(editor.panel.reveals, 1);
       assert.equal(f.displayed(), f.a);
       assert.deepEqual(focus.mock.calls, [], "revealing the editor must not focus the Sidebar");
-      assert.deepEqual(warning.mock.calls, [], "revealing the existing writer must not ask for admission");
+      assert.deepEqual(f.warning.mock.calls, [], "revealing the existing writer must not ask for admission");
       assert.equal(f.starts.length, 2);
       await next();
       const destination = f.displayed();
@@ -1832,7 +1853,6 @@ test("native cycling advances past an editor-owned session in either direction w
       assert.equal(f.slots.count, 2);
       assert.deepEqual(focus.mock.calls, [["pi.chatView.focus"], ["pi.chatView.focus"]]);
     } finally {
-      warning.mockRestore();
       focus.mockRestore();
     }
   });

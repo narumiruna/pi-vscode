@@ -201,7 +201,7 @@ Transcript **New output** and **Jump to latest** remain separate reading control
 There is one fixed pool: **one Primary runtime plus at most eight additional runtimes across Sidebar conversations and editor panels together**.
 Retained idle sessions and cleanup-quarantined sessions count toward the additional eight.
 At capacity, opening is rejected without evicting work or changing the selected conversation.
-Each additional Sidebar opening requires the shared-file warning's explicit **Open Session** confirmation.
+New and saved Sidebar sessions open without a confirmation dialog.
 There is no automatic worktree creation or file isolation.
 Concurrent tools can change the same files; review Source Control and any checkpoint warnings.
 
@@ -321,7 +321,7 @@ Changed membership rebuilds the cycle; retained unsaved live entries remain sele
 An empty list does not switch, and a single current entry does not create another runtime.
 
 Display selection remains available while another conversation has an ordinary request, queue, or input dialog.
-New or unloaded saved entries require trusted, file-backed, matching-workspace startup, shared capacity, writer checks, and **Open Session** confirmation.
+New or unloaded saved entries require trusted, file-backed, matching-workspace startup, shared capacity, and writer checks.
 An in-progress admission is not queued again; stale picker results are rejected.
 Per-conversation drafts, attachments, proposals, checkpoints, retry state, and extension UI stay with their controller instead of being cleared by display selection.
 Optional retained text is never automatically restored or sent.

@@ -15,7 +15,7 @@ Validation uses disposable profiles and deterministic Pi responses, without live
 One Sidebar webview presents retained per-runtime controllers, not one mutable runtime destination.
 Sessions rows, View all, native Switch Session, Previous/Next, New Session, Resume Session, and applicable `/new`/`/resume` shortcuts can select live, cold saved, or fresh conversations during another ordinary request.
 Live selection is display-only; it does not call RPC `switch_session`, abort work, clear queues, or invalidate origin-bound input requests.
-Cold saved or new conversation admission uses a separate runtime and explicit **Open Session** shared-file confirmation.
+Cold saved or new conversations use a separate runtime without an opening confirmation.
 Actual session/resource mutations keep their exclusive canonical-workspace and originating-session idle gates.
 
 Each controller owns its transcript/history, stream, composer text, attachments, queues, model/thinking state, Stop, proposals, checkpoints, notices, and subscriptions.
@@ -244,7 +244,7 @@ Word wrap sends one fixed display message to the originating view without submit
 
 | Action | Existing handler / alternate entry | Required state or approval |
 | --- | --- | --- |
-| Resume | `resumeSession()`; recent Sessions is a bounded alternative only | Registry selection may run during another ordinary request; cold saved admission validates workspace, capacity, writer, and shared-file confirmation. |
+| Resume | `resumeSession()`; recent Sessions is a bounded alternative only | Registry selection may run during another ordinary request; cold saved admission checks workspace, capacity, and writer ownership. |
 | Rename | `nameSession()`; More only | Native name input; cancel performs no rename. |
 | Compact | `compact()`; `/compact` | Idle owned session; existing runtime checks. |
 | Tree/Fork/Clone | `browseSessionTree()`; palette | Trusted idle matching session; revision-safe branch draft. |

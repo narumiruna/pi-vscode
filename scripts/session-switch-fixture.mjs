@@ -77,7 +77,6 @@ export async function nativeSidebarFixture({ page, directory, invoke, until, fra
     await until(async () => (await rows().allTextContents()).filter((text) => text.includes(id)).length === 1,
       `description filter ${id}`);
     await input().press("Enter");
-    if (cold) await modal("Open Session");
     assert.equal((await done()).error, undefined);
     await selected(id);
     assert.equal(await optional("switches.jsonl"), switches, "Sidebar selection never sends switch_session");
@@ -96,14 +95,14 @@ export async function nativeSidebarFixture({ page, directory, invoke, until, fra
       }
     }, `closed Sidebar process ${id} exited`);
   };
-  return { pi, optional, records, widget, input, rows, modal, start, closePicker, selected, choose, closeSelected };
+  return { pi, optional, records, widget, input, rows, start, closePicker, selected, choose, closeSelected };
 }
 
 /** Native Quick Pick and real keyboard dispatch over independent retained Sidebar runtimes. */
 export async function assertNativeSessionSwitch(options) {
   const { page, directory, workspace, invoke, until } = options;
   const ui = await nativeSidebarFixture(options);
-  const { pi, optional, records, widget, input, rows, modal, start, closePicker, selected, choose, closeSelected } = ui;
+  const { pi, optional, records, widget, input, rows, start, closePicker, selected, choose, closeSelected } = ui;
   const composer = pi.locator("#input");
   const originalDraft = await composer.inputValue();
   const draft = "A session switch cancellation keeps this draft";
@@ -226,7 +225,6 @@ export async function assertNativeSessionSwitch(options) {
     await until(async () => (await rows().allTextContents()).some((text) => text.includes(invalidId)), "cold destination offered");
     await writeFile(invalidFile, savedSession(invalidId, path.dirname(workspace)));
     await input().press("Enter");
-    await modal("Open Session");
     await done();
     assert.equal(await optional("starts.jsonl"), warmStarts, "Changed header rejected before cold process startup");
     assert.equal(await optional("switches.jsonl"), switchesBefore, "No navigation sends switch_session");
@@ -236,7 +234,7 @@ export async function assertNativeSessionSwitch(options) {
     await invoke("command", { command: "notifications.clearAll" });
     console.log("PI_NATIVE_SESSION_SWITCH", JSON.stringify({
       defaults: resolvedDefaults, conflicts: [],
-      picker: "duplicate titles, description search, cancel, current, saved B cold --session with confirmation",
+      picker: "duplicate titles, description search, cancel, current, saved B cold --session without confirmation",
       drafts: "A/B independent and retained", cycle: "three retained runtimes, both wraparounds, mtime stable",
       keyboard: "editor/composer dispatch; terminal and Quick Pick excluded",
       staleDestination: "invalid cold header rejected before startup", switchSessionCalls: 0,

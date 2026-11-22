@@ -183,7 +183,7 @@ Transcript New output/Jump to latest remains a separate feature.
 One fixed admission pool permits **one Primary plus eight additional interactive runtimes total across Sidebar entries and editor panels**.
 Retained idle entries and quarantined cleanup count toward the additional eight; capacity rejection does not evict work or lose a draft.
 Saved discovery stays bounded to 100 entries and a 64 MiB metadata-read budget; live entries are merged and deduplicated so they remain selectable.
-An additional Sidebar opening requires explicit **Open Session** confirmation of shared files without worktree isolation.
+An additional Sidebar session opens without a confirmation dialog and shares workspace files without worktree isolation.
 Auxiliary **Close Session** confirms before stopping its work or discarding unsent memory-only state, retains saved Pi history, and cannot discard protected failed-restore data.
 Capacity and writer claims release only after bounded verified cleanup; uncertainty retains reservations and originating canonical-root exclusive-workflow exclusion until reload.
 

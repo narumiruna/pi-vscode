@@ -138,7 +138,8 @@ This marker is not durable history, a permission signal, or proof that work is s
 
 One fixed shared pool permits **one Primary runtime plus eight additional runtimes total across auxiliary Sidebar conversations and editor panels**.
 Retained idle sessions and cleanup-quarantined sessions count toward the additional eight.
-Admission requires trust, a file-backed matching canonical workspace, a writer reservation, and explicit **Open Session** shared-file confirmation.
+Admission requires trust, a file-backed matching canonical workspace, and a writer reservation.
+Sidebar sessions share workspace files and do not require a separate opening confirmation.
 At capacity, creation is rejected without evicting active work, losing a draft, or changing selection.
 No worktree or credential isolation is added.
 Existing transcript, image, queue, attachment, and saved-discovery bounds remain in force; discovery retains at most 100 saved entries plus deduplicated live entries.

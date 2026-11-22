@@ -425,7 +425,7 @@ export class SidebarSessions implements vscode.Disposable {
       try {
         await this.select(message.id);
       } finally {
-        // Cancel, rejected admission, and editor reveal can leave this binding unchanged.
+        // Rejected admission and editor reveal can leave this binding unchanged.
         if (this.displayed === entry && this.generation === generation)
           this.fromController(entry, { type: "sessionSwitchRejected" });
       }
@@ -471,7 +471,7 @@ export class SidebarSessions implements vscode.Disposable {
           await entry.controller.receiveSidebarMessage({ ...message, type: "send" });
           return;
         }
-        if (!(await this.admitLauncher(entry))) return;
+        await this.admitLauncher(entry);
         // Capture the Sessions draft submission before selecting its new session-file owner.
         const submission = entry.controller.receiveSidebarMessage({ ...message, type: "send" });
         delegated = true;
@@ -489,7 +489,7 @@ export class SidebarSessions implements vscode.Disposable {
         String(message.type),
       )
     ) {
-      if (!(await this.admitLauncher(entry))) return;
+      await this.admitLauncher(entry);
       entry.transport?.fire({ type: "draftSelect", scope: "session" });
       this.display(entry);
     }
@@ -664,24 +664,12 @@ export class SidebarSessions implements vscode.Disposable {
     }
   }
 
-  private async admission(): Promise<(() => void) | undefined> {
+  private async admission(): Promise<() => void> {
     const release = this.services.slots.acquire();
     const generation = this.generation;
     try {
-      const workspace = await this.workspace();
-      const approved = await vscode.window.showWarningMessage(
-        "Open an independent Sidebar session? Sessions share workspace files and can change them at the same time. They are not isolated. Advanced global commands still target the Primary session.",
-        { modal: true },
-        "Open Session",
-      );
-      if (approved !== "Open Session") {
-        release();
-        return undefined;
-      }
-      if (generation !== this.generation) throw new Error("Session selection changed during confirmation.");
-      const current = await this.workspace();
-      if (current.uri.toString() !== workspace.uri.toString() || current.root !== workspace.root)
-        throw new Error("Pi workspace changed.");
+      await this.workspace();
+      if (generation !== this.generation) throw new Error("Session selection changed while opening the session.");
       return release;
     } catch (error) {
       release();
@@ -689,9 +677,8 @@ export class SidebarSessions implements vscode.Disposable {
     }
   }
 
-  private async admitLauncher(entry: Entry): Promise<boolean> {
+  private async admitLauncher(entry: Entry): Promise<void> {
     const release = await this.admission();
-    if (!release) return false;
     if (this.launcher !== entry || this.disposed) {
       release();
       throw new Error("The session composer changed.");
@@ -705,25 +692,19 @@ export class SidebarSessions implements vscode.Disposable {
     }
     entry.release = release;
     this.launcher = undefined;
-    return true;
   }
 
   public async create(): Promise<boolean> {
     if (this.picking) throw new Error("A session picker is already open.");
     if (this.navigating) return false;
     this.navigating = true;
-    let release: (() => void) | undefined;
     try {
-      release = await this.admission();
-      if (!release) return false;
-      const reservation = release;
-      release = undefined;
-      const entry = await this.make(undefined, reservation);
+      const release = await this.admission();
+      const entry = await this.make(undefined, release);
       this.cycle = [];
       this.display(entry);
       return true;
     } finally {
-      release?.();
       this.navigating = false;
     }
   }
@@ -746,7 +727,6 @@ export class SidebarSessions implements vscode.Disposable {
     if (this.picking) throw new Error("A session picker is already open.");
     if (this.navigating) return false;
     this.navigating = true;
-    let release: (() => void) | undefined;
     let connect: Entry | undefined;
     try {
       await this.workspace();
@@ -762,11 +742,8 @@ export class SidebarSessions implements vscode.Disposable {
             this.editorCycleId = summary.key;
             return true;
           }
-          release = await this.admission();
-          if (!release) return false;
-          const reservation = release;
-          release = undefined;
-          entry = connect = await this.make(summary, reservation);
+          const release = await this.admission();
+          entry = connect = await this.make(summary, release);
           // Loading changes this conversation's ID, not its native cycle position.
           const retainedId = entry.id;
           this.cycle = this.cycle.map((member) => (member === summary.key ? retainedId : member));
@@ -776,7 +753,6 @@ export class SidebarSessions implements vscode.Disposable {
       if (entry !== this.displayed || entry.id !== id) this.display(entry);
       else this.editorCycleId = undefined;
     } finally {
-      release?.();
       this.navigating = false;
     }
     // Reveal the selected detail without waiting for history or blocking another selection.
