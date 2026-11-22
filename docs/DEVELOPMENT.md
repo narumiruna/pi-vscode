@@ -378,7 +378,7 @@ It reports timer-gap p95, capture time, and dispatch time separately; these are 
 The gate requires at least 50% less warm timer-gap p95 in the 9,800-file fixture and permits at most 15 ms or 10% median dispatch regression, whichever is greater, in each fixture.
 Run this benchmark separately from compilation and other system-intensive checks.
 The full native UI suite on VS Code 1.146.0 holds capture open, presses Stop, and verifies no RPC prompt.
-The next request waits for settlement with Send disabled, then completes through the real worker.
+The next request waits for settlement with Send disabled, then completes through the real worker and shows the announced file write with Diff and Revert available.
 For packaged worker validation, run `npm run package`, inspect `extension/out/checkpointWorker.js` in `pi.vsix`, and run the same native UI suite with the `packaged` selector in a disposable profile.
 
 ### Settlement, file completion, and streamed rendering validation
@@ -395,6 +395,7 @@ xvfb-run -a node scripts/test-native-ui.mjs 1.146.0 completion
 The checkpoint benchmark compares the original synchronous settlement with cold, warm, mixed-write, large-file, and concurrent workloads.
 It reports timer-gap p95 and elapsed settlement separately.
 The browser benchmark reports startup JavaScript bytes, readiness timing, DOM replacements, and host/browser handler timing.
+Its coverage probe checks that profiling counts a cold highlight before it counts highlights for streamed updates.
 The focused native completion fixture uses a disposable profile and times a narrowed query in a workspace with 2,304 unrelated paths.
 For the packaged UI check, also inspect `extension/out/rich-content/mermaid.js` and the bundled renderer licence files in `pi.vsix`.
 

@@ -383,6 +383,7 @@ Persistent Pi RPC single lines allow 64 MiB instead of 5 MiB, with unchanged LF 
 Public `get_messages` still returns the full active branch without pagination, JSONL reads or model calls.
 Initial load and settlement still use the full response.
 Repeat navigation can reuse up to three prepared display windows of an unchanged text-only snapshot within the in-memory budget.
+One visibility and message-count pass supplies all prepared windows.
 A cache miss, new session or work, process replacement, or explicit Refresh requires an authoritative fetch.
 Full-response decoding and synchronous JSON parsing can still increase memory use and pause the Extension Host.
 Locally typed frame-too-large errors produce an allowlisted Output category and a fixed Sidebar notice, without raw frame, error or path data.
@@ -520,6 +521,7 @@ Two attempts, one source file; no private Test Explorer API.
 Implementation: `checkpointCapture.ts`, `checkpointCaptureHost.ts`, `checkpointWorker.ts`, `changeTracker.ts`, and `checkpointHistory.ts`.
 Small workspaces use bounded batches for capture and settlement; larger workspaces share one checkpoint worker per Extension Host.
 The request keeps its workspace lease until settlement completes or is discarded.
+A second bounded check of matched files determines whether the inline Revert action is available; stale matches stay available for inspection.
 Stop cancels capture before prompt dispatch without aborting an idle Pi client.
 Offline tests cover capture limits, editor changes, concurrent ownership, worker failure, and Stop followed by a successful request.
 Memory-only; no creations/deletions/shell rollback.

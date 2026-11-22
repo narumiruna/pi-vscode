@@ -7,6 +7,8 @@ import { invokePiWithCancellation, readPiInvocationSettings } from "./vscodePi";
 
 const maxPrefixCharacters = 12_000;
 const maxSuffixCharacters = 6_000;
+const linePrefixProbeCharacters = 256;
+const linePrefixScanCharacters = 4_096;
 const maxCacheEntries = 50;
 const cacheTtlMs = 30_000;
 
@@ -65,11 +67,29 @@ export class PiInlineCompletionProvider implements vscode.InlineCompletionItemPr
     }
     const cacheKey = `${documentId}:${version}:${offset}:${languageId}`;
     const cached = this.cache.get(cacheKey);
-    // Keep the derived length, not source text, to check automatic eligibility without a line read on hits.
+    // Cache the exact length so any later minimum can be checked without reading text.
     let linePrefixLength = cached?.linePrefixLength;
+    let linePrefixTail: string | undefined;
+    const readLinePrefixTail = () =>
+      (linePrefixTail ??= readLineRange(
+        document,
+        position.line,
+        Math.max(0, position.character - linePrefixProbeCharacters),
+        position.character,
+      ));
     const readLinePrefixLength = () =>
-      (linePrefixLength ??= document.lineAt(position.line).text.slice(0, position.character).trim().length);
-    if (minimum > 0 && readLinePrefixLength() < minimum) return undefined;
+      (linePrefixLength ??= measureLinePrefix(document, position, readLinePrefixTail()));
+    const meetsMinimum = (minimum: number) => {
+      if (!(minimum > 0)) return true;
+      if (minimum > position.character) return false;
+      if (linePrefixLength !== undefined) return linePrefixLength >= minimum;
+      const tail = readLinePrefixTail();
+      const length = tail.trim().length;
+      if (tail.length === position.character) linePrefixLength = length;
+      // A trimmed suffix can prove eligibility, but may omit earlier text that counts.
+      return length >= minimum || readLinePrefixLength() >= minimum;
+    };
+    if (!meetsMinimum(minimum)) return undefined;
 
     const item = (text: string) => [new vscode.InlineCompletionItem(text, new vscode.Range(position, position))];
     if (cacheMatches(cached, () => completionScope(document.uri).key)) return item(cached.text);
@@ -80,7 +100,7 @@ export class PiInlineCompletionProvider implements vscode.InlineCompletionItemPr
         languageId,
         manual,
       );
-      return currentMinimum !== undefined && !(currentMinimum > 0 && readLinePrefixLength() < currentMinimum);
+      return currentMinimum !== undefined && meetsMinimum(currentMinimum);
     };
     const debounceMs = Math.max(0, configuration.get<number>("debounceMilliseconds", 650));
     if (!(await cancellableDelay(debounceMs, token)) || !isCurrent()) {
@@ -94,12 +114,12 @@ export class PiInlineCompletionProvider implements vscode.InlineCompletionItemPr
     const settled = this.cache.get(cacheKey);
     if (cacheMatches(settled, () => scope.key)) return item(settled.text);
 
-    const prefixLength = readLinePrefixLength();
-    const prompt = buildCompletionPrompt({
-      file: scope.file,
-      languageId,
-      ...readCompletionContext(document, position, offset),
-    });
+    const context = readCompletionContext(document, position, offset);
+    // Reuse the bounded prompt prefix for any eligibility checks that still need text.
+    if (linePrefixLength === undefined) {
+      linePrefixTail = context.prefix.slice(Math.max(0, context.prefix.length - position.character));
+    }
+    const prompt = buildCompletionPrompt({ file: scope.file, languageId, ...context });
     const operationId = this.logger.operation();
 
     try {
@@ -125,7 +145,7 @@ export class PiInlineCompletionProvider implements vscode.InlineCompletionItemPr
         text: completion,
         createdAt: Date.now(),
         scopeKey: scope.key,
-        linePrefixLength: prefixLength,
+        linePrefixLength: readLinePrefixLength(),
       });
       this.pruneCache();
       return item(completion);
@@ -169,6 +189,30 @@ function minimumPrefixLength(configuration: PiConfiguration, languageId: string,
     return undefined;
   }
   return manual ? 0 : configuration.get<number>("minimumPrefixLength", 3);
+}
+
+function readLineRange(document: vscode.TextDocument, line: number, start: number, end: number): string {
+  return document.getText(new vscode.Range(line, start, line, end));
+}
+
+function measureLinePrefix(document: vscode.TextDocument, position: vscode.Position, tail: string): number {
+  let end = position.character;
+  let start = end - tail.length;
+  let last = tail.trimEnd();
+  // Find the two trim boundaries without reading the text between them.
+  while (!last && start > 0) {
+    end = start;
+    start = Math.max(0, end - linePrefixScanCharacters);
+    last = readLineRange(document, position.line, start, end).trimEnd();
+  }
+  if (!last) return 0;
+  for (let first = 0; first < start; ) {
+    const next = Math.min(start, first + (first === 0 ? linePrefixProbeCharacters : linePrefixScanCharacters));
+    const chunk = readLineRange(document, position.line, first, next).trimStart();
+    if (chunk) return start + last.length - (next - chunk.length);
+    first = next;
+  }
+  return last.trimStart().length;
 }
 
 function completionScope(resource: vscode.Uri): { file: string; key: string } {

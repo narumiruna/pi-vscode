@@ -50,10 +50,10 @@ import { SidebarExtensionUi } from "./sidebarExtensionUi";
 import { SidebarFileCompletion } from "./sidebarFileCompletion";
 import {
   boundToolText,
-  canPrimeHistoryPages,
   convertPiMessages,
   extractToolText,
   formatError,
+  indexTextHistory,
   isRecord,
   isWebviewMessage,
   modelSupportsImages,
@@ -61,6 +61,7 @@ import {
   safeJson,
   shouldPostActionErrorNotice,
   stringValue,
+  type TextHistoryIndex,
   toolOperationSummary,
   type WebviewMessage,
 } from "./sidebarHelpers";
@@ -2212,6 +2213,7 @@ export class PiChatViewProvider
     const release = this.requestGate.acquire();
     this.postState();
     try {
+      this.changeTracker.checkRestore(id);
       const confirmation = await vscode.window.showWarningMessage(
         `Revert Pi's change to ${change.label}?`,
         { modal: true },
@@ -2823,16 +2825,18 @@ export class PiChatViewProvider
           discarded();
           return;
         }
-        page = this.historyPage(values, historyBefore);
-        if (canPrimeHistoryPages(values)) {
+        const textHistory = indexTextHistory(values);
+        const convertPage = (before?: number) => this.historyPage(values, before, textHistory);
+        page = convertPage(historyBefore);
+        if (textHistory) {
           if (page.window.start > 0) {
-            const earlier = this.historyPage(values, page.window.start);
+            const earlier = convertPage(page.window.start);
             if (historyBefore === undefined && earlier.window.start > 0 && earlier.window.start < page.window.start) {
-              this.historyPages.remember(earlier.window.start, this.historyPage(values, earlier.window.start));
+              this.historyPages.remember(earlier.window.start, convertPage(earlier.window.start));
             }
             this.historyPages.remember(page.window.start, earlier);
           }
-          if (browsing && historyBefore !== undefined) this.historyPages.remember(undefined, this.historyPage(values));
+          if (browsing && historyBefore !== undefined) this.historyPages.remember(undefined, convertPage());
           this.historyPages.remember(historyBefore, page);
         }
       }
@@ -2869,7 +2873,11 @@ export class PiChatViewProvider
     }
   }
 
-  private historyPage(values: readonly unknown[], before?: number): ConversationHistoryPage {
+  private historyPage(
+    values: readonly unknown[],
+    before?: number,
+    textHistory?: TextHistoryIndex,
+  ): ConversationHistoryPage {
     let window = emptyConversationHistory();
     const messages = convertPiMessages(values, {
       imageAssets: this.imageAssets,
@@ -2877,6 +2885,7 @@ export class PiChatViewProvider
       maxMessages,
       maxCharacters: maxStoredCharacters,
       historyBefore: before,
+      textHistory,
       onHistoryWindow: (value) => {
         window = value;
       },

@@ -108,14 +108,14 @@ test("an unchanged automatic hit schedules no timer, reads no document text, and
   );
   await vi.advanceTimersByTimeAsync(649);
   assert.equal(invoke.mock.calls.length, 0);
-  assert.deepEqual(source.ranges, []);
+  assert.deepEqual(source.ranges, [{ start: largePrefix.length - 256, end: largePrefix.length }]);
   await vi.advanceTimersByTimeAsync(1);
   const coldItem = (await cold)?.[0];
   assert.equal(coldItem?.insertText, "insert");
-  assert.deepEqual(source.lineReads, [1]);
+  assert.deepEqual(source.lineReads, []);
   assert.deepEqual(
     source.ranges.map(({ start, end }) => end - start),
-    [11_999, 5_999],
+    [256, 11_999, 5_999],
   );
   assert.equal(invoke.mock.calls.length, 1);
 
@@ -123,17 +123,96 @@ test("an unchanged automatic hit schedules no timer, reads no document text, and
   assert.equal(vi.getTimerCount(), 0);
   assert.equal(timer.mock.calls.length, 1);
   assert.deepEqual((await warm)?.[0], coldItem);
-  assert.equal(source.lineReads.length, 1);
-  assert.equal(source.ranges.length, 2);
+  assert.equal(source.lineReads.length, 0);
+  assert.equal(source.ranges.length, 3);
   assert.equal(invoke.mock.calls.length, 1);
 
   const cancellation = new vscode.CancellationTokenSource();
   cancellation.cancel();
   assert.equal(await run(provider, source, largePrefix.length, automatic, cancellation.token), undefined);
   assert.equal(timer.mock.calls.length, 1);
-  assert.equal(source.lineReads.length, 1);
-  assert.equal(source.ranges.length, 2);
+  assert.equal(source.lineReads.length, 0);
+  assert.equal(source.ranges.length, 3);
   assert.equal(invoke.mock.calls.length, 1);
+});
+
+test.each([
+  { name: "automatic", triggerKind: automatic },
+  { name: "manual", triggerKind: vscode.InlineCompletionTriggerKind.Invoke },
+])("a million-character single line uses only bounded reads on a cold $name request", async ({ triggerKind }) => {
+  settings.set("pi.inlineCompletions.enabled", true);
+  const prefix = `  ${"a".repeat(499_998)}  `;
+  const suffix = "z".repeat(1_000_000 - prefix.length);
+  const offset = prefix.length;
+  if (triggerKind !== automatic) settings.set("pi.inlineCompletions.minimumPrefixLength", offset + 1);
+  const source = fixture(prefix + suffix);
+  const provider = new PiInlineCompletionProvider();
+  const probes = triggerKind === automatic ? [{ start: offset - 256, end: offset }] : [];
+
+  const cold = run(provider, source, offset, triggerKind);
+  assert.deepEqual(source.lineReads, []);
+  assert.deepEqual(source.ranges, probes);
+  await vi.advanceTimersByTimeAsync(650);
+  const result = await cold;
+  assert.equal(result?.[0]?.insertText, "insert");
+  assert.deepEqual(source.lineReads, []);
+  const reads = [
+    ...probes,
+    { start: offset - 12_000, end: offset },
+    { start: offset, end: offset + 6_000 },
+    { start: 0, end: 256 },
+  ];
+  assert.deepEqual(source.ranges, reads);
+  assert.equal(
+    invoke.mock.calls[0][0],
+    buildCompletionPrompt({ file, languageId: "typescript", ...boundCompletionContext(prefix, suffix, 12_000, 6_000) }),
+  );
+
+  // Even minima above the settings UI limit must use the exact cached length, not a capped count.
+  settings.set("pi.inlineCompletions.minimumPrefixLength", 499_998);
+  const warm = run(provider, source, offset, automatic);
+  assert.equal(vi.getTimerCount(), 0);
+  assert.deepEqual(await warm, result);
+  settings.set("pi.inlineCompletions.minimumPrefixLength", 499_999);
+  assert.equal(await run(provider, source, offset, automatic), undefined);
+  assert.equal(vi.getTimerCount(), 0);
+  assert.deepEqual(source.lineReads, []);
+  assert.deepEqual(source.ranges, reads);
+  assert.equal(invoke.mock.calls.length, 1);
+});
+
+test.each([
+  { name: "interior ASCII whitespace", prefix: "\t A \t B \t", suffix: "x", length: 5 },
+  { name: "Unicode whitespace around a surrogate pair", prefix: "\uFEFF\u00A0😀\u2003", suffix: "x", length: 2 },
+  { name: "cursor between surrogate code units", prefix: " \uD83D", suffix: "\uDE00", length: 1 },
+  { name: "long leading whitespace", prefix: `${" ".repeat(600)}x`, suffix: "y", length: 1 },
+  { name: "long trailing whitespace", prefix: `x y${"\t".repeat(600)}`, suffix: "z", length: 3 },
+  { name: "only whitespace", prefix: "\u2003".repeat(10_000), suffix: "x", length: 0 },
+  { name: "column zero", prefix: "", suffix: "abc", length: 0 },
+])("automatic eligibility matches trim().length with $name", async ({ prefix, suffix, length }) => {
+  const before = "other line\r\n";
+  const cursor = before.length + prefix.length;
+  const source = fixture(before + prefix + suffix, "\r\n");
+  const provider = new PiInlineCompletionProvider();
+  settings.set("pi.inlineCompletions.enabled", true);
+  settings.set("pi.inlineCompletions.minimumPrefixLength", length + 1);
+
+  const rejected = run(provider, source, cursor, automatic);
+  assert.equal(vi.getTimerCount(), 0);
+  assert.equal(await rejected, undefined);
+  assert.ok(source.ranges.every(({ start, end }) => start >= before.length && end <= cursor && end - start <= 4_096));
+  assert.equal(invoke.mock.calls.length, 0);
+
+  settings.set("pi.inlineCompletions.minimumPrefixLength", length);
+  const accepted = run(provider, source, cursor, automatic);
+  await vi.advanceTimersByTimeAsync(650);
+  assert.equal((await accepted)?.[0]?.insertText, "insert");
+  const readCount = source.ranges.length;
+  settings.set("pi.inlineCompletions.minimumPrefixLength", length + 1);
+  assert.equal(await run(provider, source, cursor, automatic), undefined);
+  assert.equal(vi.getTimerCount(), 0);
+  assert.equal(source.ranges.length, readCount);
+  assert.deepEqual(source.lineReads, []);
 });
 
 test.each([
@@ -146,8 +225,9 @@ test.each([
     prefix: `${"a".repeat(600_000)}😀${"b".repeat(11_999)}`,
     suffix: `${"c".repeat(5_999)}🦊${"d".repeat(600_000)}`,
     eol: "\n",
+    headProbe: true,
   },
-])("the miss prompt matches the old UTF-16 slices: $name", async ({ prefix, suffix, eol }) => {
+])("the miss prompt matches the old UTF-16 slices: $name", async ({ prefix, suffix, eol, headProbe }) => {
   const source = fixture(prefix + suffix, eol);
   const pending = run(new PiInlineCompletionProvider(), source, prefix.length);
   assert.deepEqual(source.ranges, []);
@@ -156,10 +236,12 @@ test.each([
   assert.equal(result?.[0].insertText, "insert");
   assert.deepEqual(result?.[0]?.range?.start, source.positionAt(prefix.length));
   assert.deepEqual(result?.[0]?.range?.end, source.positionAt(prefix.length));
-  assert.equal(source.ranges.length, 2);
+  assert.equal(source.ranges.length, headProbe ? 3 : 2);
   const [prefixUnits, suffixUnits] = source.ranges.map(({ start, end }) => end - start);
   assert.ok(prefixUnits <= 12_000);
   assert.ok(suffixUnits <= 6_000);
+  if (headProbe) assert.deepEqual(source.ranges[2], { start: 0, end: 256 });
+  assert.deepEqual(source.lineReads, []);
   assert.equal(invoke.mock.calls.length, 1);
   assert.equal(invoke.mock.calls[0][2], uri);
   assert.equal(
@@ -207,7 +289,7 @@ test("a miss reuses an answer that another request has cached during its debounc
   await vi.advanceTimersByTimeAsync(1);
   assert.deepEqual(await overlapping, await first);
   assert.equal(source.ranges.length, 2);
-  assert.equal(source.lineReads.length, 1);
+  assert.equal(source.lineReads.length, 0);
   assert.equal(invoke.mock.calls.length, 1);
 });
 
@@ -251,9 +333,45 @@ test("manual invoke bypasses automatic enablement and minimum length but not exc
   await expectNoTimer(run(provider, source, cursor, automatic), true);
   settings.set("pi.inlineCompletions.excludedLanguages", ["typescript"]);
   await expectNoTimer(run(provider, source, cursor), false);
-  assert.equal(source.lineReads.length, 1);
+  assert.equal(source.lineReads.length, 0);
   assert.equal(source.ranges.length, 2);
   assert.equal(invoke.mock.calls.length, 1);
+});
+
+test.each(["debounce", "Pi invocation"])("raising the minimum during %s rechecks eligibility", async (phase) => {
+  settings.set("pi.inlineCompletions.enabled", true);
+  settings.set("pi.inlineCompletions.minimumPrefixLength", 0);
+  const provider = new PiInlineCompletionProvider();
+  const source = fixture("  a  ");
+  let finish!: (value: string) => void;
+  if (phase === "Pi invocation") {
+    invoke.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+  }
+
+  const pending = run(provider, source, 5, automatic);
+  assert.deepEqual(source.ranges, []);
+  if (phase === "Pi invocation") await vi.advanceTimersByTimeAsync(650);
+  settings.set("pi.inlineCompletions.minimumPrefixLength", 2);
+  if (phase === "Pi invocation") finish(response);
+  else await vi.advanceTimersByTimeAsync(650);
+  assert.equal(await pending, undefined);
+  assert.deepEqual(source.lineReads, []);
+  const reads = [{ start: 0, end: 5 }];
+  if (phase === "Pi invocation") reads.push({ start: 5, end: 5 });
+  assert.deepEqual(source.ranges, reads);
+  assert.equal(invoke.mock.calls.length, phase === "Pi invocation" ? 1 : 0);
+
+  settings.set("pi.inlineCompletions.minimumPrefixLength", 1);
+  const fresh = run(provider, source, 5, automatic);
+  assert.equal(vi.getTimerCount(), 1);
+  await vi.advanceTimersByTimeAsync(650);
+  const result = await fresh;
+  assert.equal(result?.[0]?.insertText, "insert");
+
+  settings.set("pi.inlineCompletions.minimumPrefixLength", Number.NaN);
+  const warm = run(provider, source, 5, automatic);
+  assert.equal(vi.getTimerCount(), 0);
+  assert.deepEqual(await warm, result);
 });
 
 test.each(["cancelled", "changed", "closed"])(

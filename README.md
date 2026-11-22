@@ -187,6 +187,7 @@ Ordinary requests can overlap, but direct shell, session/resource controls, Appl
 Concurrent activity can make checkpoint restoration unavailable.
 If you select **Stop** while Pi prepares the workspace checkpoint, the extension cancels the request before it sends the prompt.
 After Pi responds, large checkpoints use the same background worker to verify file changes before the request releases its workspace lease.
+The extension rechecks matched files before offering to revert them.
 
 Editor panels do not automatically restore or restart after window reload.
 After a panel closes and writer cleanup is verified, resume its saved session through the sidebar.

@@ -231,25 +231,48 @@ export interface ConvertPiMessagesOptions {
   readonly maxMessages?: number;
   readonly maxCharacters?: number;
   readonly historyBefore?: number;
+  readonly textHistory?: TextHistoryIndex;
   readonly onHistoryWindow?: (window: ConversationHistoryWindow) => void;
 }
 
-export function canPrimeHistoryPages(values: readonly unknown[]): boolean {
-  if (values.length > 2_000) return false;
+export interface TextHistoryIndex {
+  readonly values: readonly unknown[];
+  readonly visibleBefore: Uint16Array;
+  readonly assistantOccurrences: Uint16Array;
+}
+
+/** Index only a bounded, text-only RPC snapshot. Do not retain it with cached pages. */
+export function indexTextHistory(values: readonly unknown[]): TextHistoryIndex | undefined {
+  if (values.length > 2_000) return undefined;
+  const visibleBefore = new Uint16Array(values.length + 1);
+  const assistantOccurrences = new Uint16Array(values.length);
+  const precedingAssistants = new Map<number, number>();
   let remaining = 250_000;
-  for (const value of values) {
-    if (!isRecord(value) || (value.role !== "user" && value.role !== "assistant")) return false;
+  for (const [index, value] of values.entries()) {
+    if (!isRecord(value)) return undefined;
+    const role = value.role;
+    if (role !== "user" && role !== "assistant") return undefined;
     const content = value.content;
-    if (typeof content === "string") remaining -= content.length;
+    let length = 0;
+    if (typeof content === "string") length = content.length;
     else if (Array.isArray(content) && content.length <= 32) {
       for (const part of content) {
-        if (!isRecord(part) || part.type !== "text" || typeof part.text !== "string") return false;
-        remaining -= part.text.length;
+        if (!isRecord(part) || part.type !== "text" || typeof part.text !== "string") return undefined;
+        length += part.text.length;
       }
-    } else return false;
-    if (remaining < 0) return false;
+    } else return undefined;
+    remaining -= length;
+    if (remaining < 0) return undefined;
+    // hasMessageText requires nonempty text in at least one part, not a joined separator.
+    visibleBefore[index + 1] = visibleBefore[index] + (length > 0 ? 1 : 0);
+    if (length > 0 && role === "assistant") {
+      const timestamp = historyAssistantTimestamp(value, index);
+      const occurrence = precedingAssistants.get(timestamp) ?? 0;
+      assistantOccurrences[index] = occurrence;
+      precedingAssistants.set(timestamp, occurrence + 1);
+    }
   }
-  return true;
+  return { values, visibleBefore, assistantOccurrences };
 }
 
 export function convertPiMessages(values: readonly unknown[], options: ConvertPiMessagesOptions): SidebarMessage[] {
@@ -259,9 +282,13 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
   const retainedEntries: Array<{ readonly index: number; readonly value: Record<string, unknown> }> = [];
   const end =
     options.historyBefore === undefined ? values.length : Math.min(values.length, Math.max(0, options.historyBefore));
+  const textHistory = options.textHistory?.values === values && Number.isInteger(end) ? options.textHistory : undefined;
+  const textCounts = textHistory?.visibleBefore;
   for (let index = end - 1; index >= 0 && retainedEntries.length < retainedCount; index -= 1) {
+    if (textCounts && textCounts[index + 1] === textCounts[index]) continue;
     const value = values[index];
-    if (isVisibleHistoryMessage(value)) retainedEntries.push({ index, value });
+    if ((textCounts && isRecord(value)) || (!textCounts && isVisibleHistoryMessage(value)))
+      retainedEntries.push({ index, value });
   }
   retainedEntries.reverse();
 
@@ -279,21 +306,19 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
 
   let messages: SidebarMessage[] = [];
   const assistantOccurrences = new Map<number, number>();
-  // Seed only retained timestamps, so duplicate timestamps keep their identity across windows.
-  for (const { index, value } of retainedEntries) {
-    if (value.role !== "assistant") continue;
-    const timestamp =
-      typeof value.timestamp === "number" && Number.isSafeInteger(value.timestamp) ? value.timestamp : index;
-    assistantOccurrences.set(timestamp, 0);
-  }
   const firstRetainedIndex = retainedEntries[0]?.index ?? 0;
-  for (let index = 0; index < firstRetainedIndex; index += 1) {
-    const value = values[index];
-    if (!isRecord(value) || value.role !== "assistant") continue;
-    const timestamp =
-      typeof value.timestamp === "number" && Number.isSafeInteger(value.timestamp) ? value.timestamp : index;
-    if (assistantOccurrences.has(timestamp) && (hasMessageText(value.content) || hasMessageThinking(value.content)))
-      assistantOccurrences.set(timestamp, (assistantOccurrences.get(timestamp) ?? 0) + 1);
+  if (!textHistory) {
+    // Seed only retained timestamps, so duplicate timestamps keep their identity across windows.
+    for (const { index, value } of retainedEntries) {
+      if (value.role === "assistant") assistantOccurrences.set(historyAssistantTimestamp(value, index), 0);
+    }
+    for (let index = 0; index < firstRetainedIndex; index += 1) {
+      const value = values[index];
+      if (!isRecord(value) || value.role !== "assistant") continue;
+      const timestamp = historyAssistantTimestamp(value, index);
+      if (assistantOccurrences.has(timestamp) && (hasMessageText(value.content) || hasMessageThinking(value.content)))
+        assistantOccurrences.set(timestamp, (assistantOccurrences.get(timestamp) ?? 0) + 1);
+    }
   }
   // Correlate only calls from the selected source window. Results outside the window
   // cannot populate an earlier window or resurrect an omitted tool payload.
@@ -304,7 +329,7 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
     .slice(-maxToolActivities);
   const retainedCallIndices = new Map(retainedCalls.map(({ call, index }) => [call.id, index]));
   const results = new Map<string, Record<string, unknown>>();
-  for (let index = firstRetainedIndex; index < end; index += 1) {
+  for (let index = firstRetainedIndex; !textHistory && index < end; index += 1) {
     const value = values[index];
     if (
       isRecord(value) &&
@@ -351,10 +376,9 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
       const thinking = piMessageThinking(value.content);
       if (text || thinking.length) {
         const replacement = extractReplacement(text);
-        const timestamp =
-          typeof value.timestamp === "number" && Number.isSafeInteger(value.timestamp) ? value.timestamp : index;
-        const occurrence = assistantOccurrences.get(timestamp) ?? 0;
-        assistantOccurrences.set(timestamp, occurrence + 1);
+        const timestamp = historyAssistantTimestamp(value, index);
+        const occurrence = textHistory?.assistantOccurrences[index] ?? assistantOccurrences.get(timestamp) ?? 0;
+        if (!textHistory) assistantOccurrences.set(timestamp, occurrence + 1);
         messages.push({
           id: `pi-assistant-${timestamp}-${occurrence}`,
           role: "assistant",
@@ -386,15 +410,19 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
   }
   if (options.onHistoryWindow) {
     const start = messages.length ? sourceIndices.get(messages[0]!.id)! : end;
-    let total = 0;
+    let total = textCounts?.[values.length] ?? 0;
     let omittedBefore = 0;
     let omittedAfter = 0;
-    for (let index = 0; index < values.length; index += 1) {
-      if (!isVisibleHistoryMessage(values[index])) continue;
-      const count = historyMessageCount(values[index]);
-      total += count;
-      if (index < start) omittedBefore += count;
-      if (index >= end) omittedAfter += count;
+    if (textCounts) {
+      omittedBefore = textCounts[start];
+      omittedAfter = total - textCounts[end];
+    } else {
+      for (let index = 0; index < values.length; index += 1) {
+        const count = historyMessageCount(values[index]);
+        total += count;
+        if (index < start) omittedBefore += count;
+        if (index >= end) omittedAfter += count;
+      }
     }
     options.onHistoryWindow({
       mode: options.historyBefore === undefined ? "latest" : "earlier",
@@ -405,11 +433,19 @@ export function convertPiMessages(values: readonly unknown[], options: ConvertPi
       omittedAfter,
       truncated:
         messages.some((message) => message.truncated || message.thinking?.some((block) => block.truncated)) ||
-        messages.length < retainedEntries.reduce((count, { value }) => count + historyMessageCount(value), 0),
+        messages.length <
+          (textCounts
+            ? retainedEntries.length
+            : retainedEntries.reduce((count, { value }) => count + historyMessageCount(value), 0)),
     });
   }
   const availableMessages = sidebarMessagesForWebview(messages, (id) => options.imageAssets.has(id));
   return mergeKnownImageLabels(availableMessages, options.knownMessages ?? []);
+}
+
+function historyAssistantTimestamp(value: Record<string, unknown>, index: number): number {
+  const timestamp = value.timestamp;
+  return typeof timestamp === "number" && Number.isSafeInteger(timestamp) ? timestamp : index;
 }
 
 function limitHistoryMessages(

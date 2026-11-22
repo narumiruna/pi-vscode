@@ -501,7 +501,8 @@ The separate **Pi: Inline Edit (Preview)**, diagnostic Quick Fix, and next-edit 
 Automatic inline completions are disabled by default.
 Enable `pi.inlineCompletions.enabled` to request them after a typing pause.
 A matching cached result can appear immediately without another request.
-Otherwise, the completion reads only the text near the cursor after the typing pause.
+Otherwise, the completion reads a bounded range around the cursor for the prompt.
+When the eligibility check cannot determine the trimmed line-prefix length from those ranges, it checks the whitespace at the edges separately.
 
 ### Temporary passage annotations
 

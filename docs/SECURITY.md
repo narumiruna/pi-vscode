@@ -493,7 +493,9 @@ Stop before dispatch cancels preparation without sending a prompt or aborting th
 A capture failure discards partial results; it does not trigger a synchronous fallback, bypass protection, or replay the prompt.
 Settlement compares every captured path in bounded batches and keeps the original before-images on the host.
 The request keeps its workspace lease while the host checks ownership, dirty buffers, and concurrent invalidation before publishing results.
-A stale or incomplete comparison does not grant restore access; a restore still performs its own fresh preflight.
+Only matching changed files receive a second bounded comparison before the inline Revert button is enabled.
+If a match is now stale, its captured change remains available for inspection, but the inline Revert button stays disabled.
+The host checks the selected file before showing a revert confirmation and again before writing; external files can still change between checks.
 History is memory-only, capped at 20 requests, 2 MiB per file side and 20 MiB retained before/after bytes; unresolved restore failures retain recovery data and may prevent new history from being retained.
 
 Opening an auxiliary Sidebar or editor session enables conservative checkpoint invalidation for Primary and additional conversation trackers.

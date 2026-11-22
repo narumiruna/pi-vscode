@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { installVscodeMock, MockUri } from "./vscodeMock";
 
-function setup() {
+function setup(count = 205) {
   const mock = installVscodeMock();
   mock.window.registerWebviewViewProvider = () => ({ dispose() {} });
   const { registerPiSidebar } = require("../sidebar") as typeof import("../sidebar");
   let stateChanged = () => {};
-  const source = Array.from({ length: 205 }, (_, index) => ({
+  const source = Array.from({ length: count }, (_, index) => ({
     role: "user",
     timestamp: index,
     content: `History ${index}`,
@@ -102,6 +102,44 @@ test("bounded text history primes two earlier windows; navigation keeps the late
       generation: provider.historySyncRevision,
     });
     assert.equal(fixture.calls(), 1, "active work never fetches history");
+  } finally {
+    fixture.dispose();
+  }
+});
+
+test("settlement visits an older entry outside the three primed windows only once", async () => {
+  const fixture = setup(305);
+  const { provider, runtime } = fixture;
+  const getMessages: () => Promise<readonly unknown[]> = runtime.getMessages;
+  let oldestReads = 0;
+  runtime.getMessages = async () => {
+    const values = (await getMessages()).slice();
+    const oldest = values[0];
+    return Object.defineProperty(values, 0, {
+      get() {
+        oldestReads += 1;
+        return oldest;
+      },
+    });
+  };
+  try {
+    await provider.syncMessagesFromPi(false, undefined, "history-refresh", true);
+    for (const start of [205, 105, 5]) {
+      assert.equal(provider.historyWindow.start, start);
+      assert.equal(provider.historyWindow.total, 305);
+      assert.equal(provider.historyWindow.omittedBefore, start);
+      assert.equal(provider.historyWindow.omittedAfter, 205 - start);
+      assert.equal(provider.messages[0].content, `History ${start}`);
+      if (start > 5) {
+        await provider.handleMessage({
+          type: "historyWindow",
+          direction: "earlier",
+          generation: provider.historySyncRevision,
+        });
+      }
+    }
+    assert.equal(fixture.calls(), 1);
+    assert.equal(oldestReads, 1, "only snapshot indexing visits entries outside the primed windows");
   } finally {
     fixture.dispose();
   }

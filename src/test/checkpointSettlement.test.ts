@@ -127,6 +127,40 @@ test("worker settlement matches exact before and announced results, retains excl
   });
 });
 
+test("a stale early match remains available for inspection but cannot offer Revert", async () => {
+  await fixture(async (root, tracker) => {
+    const name = "a-covered";
+    const file = path.join(root, name);
+    writeFileSync(file, "before");
+    await tracker.startRequest(root);
+    announce(tracker, name, "Pi result");
+    writeFileSync(file, "Pi result");
+    const pool = checkpointCaptureWorker;
+    const original = pool.settle;
+    let changedBeforeComplete = false;
+    pool.settle = (root, entries, signal, accept) =>
+      original.call(pool, root, entries, signal, (change) => {
+        accept(change);
+        if (change.path === name && change.matched) {
+          changedBeforeComplete = true;
+          writeFileSync(file, "external result");
+        }
+      });
+    try {
+      const [change] = (await tracker.finishRequest()) ?? [];
+      assert.equal(changedBeforeComplete, true);
+      assert.ok(change);
+      assert.equal(change.canPreview, true);
+      assert.equal(change.canRevert, false);
+      assert.equal(records(tracker)[0]?.files[0]?.after, "Pi result");
+      assert.throws(() => tracker.checkRestore(change.id), /stale/);
+      assert.equal(readFileSync(file, "utf8"), "external result");
+    } finally {
+      pool.settle = original;
+    }
+  });
+});
+
 test("ownership replacement and reset reject stale jobs without poisoning the next settlement", async () => {
   await fixture(async (root, tracker) => {
     const name = "covered";

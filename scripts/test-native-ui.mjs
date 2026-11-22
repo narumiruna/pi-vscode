@@ -1296,9 +1296,19 @@ try {
       await pi.locator("#cancel").waitFor({ state: "hidden" });
       assert.equal(await prompts(), before, "Stop before dispatch must not send the held prompt");
       await invoke("holdCheckpointSettlementOnce");
+      const edited = "checkpoint-worker-files/0.txt";
+      const after = "checkpoint fixture after a tool write\n";
+      await rm(path.join(directory, "tools-release"), { force: true });
+      await writeFile(path.join(directory, "tools.json"), JSON.stringify([
+        ["write", { path: edited, content: after }, { content: [{ type: "text", text: "Fixture wrote the file" }] }],
+      ]));
       await respond("Native checkpoint worker result");
       await composer.fill(later);
       await pi.locator("#send").click();
+      await until(async () => (await pi.locator("#messages").innerText()).includes("Native checkpoint worker result"),
+        "the fixture announced the write but has not settled");
+      await writeFile(path.join(workspace, edited), after);
+      await writeFile(path.join(directory, "tools-release"), "settle after the fixture write");
       await until(async () => (await readFile(path.join(directory, "checkpoint-settlement-entered"), "utf8").catch(() => "")) !== "" &&
         !(await pi.locator("#cancel").isVisible()), "settled agent is waiting for checkpoint verification");
       await composer.fill("Unsent draft during checkpoint settlement");
@@ -1309,7 +1319,11 @@ try {
       await writeFile(path.join(directory, "checkpoint-settlement-release"), "Continue with the real worker");
       await until(async () => (await pi.locator("#messages").innerText()).includes("Native checkpoint worker result") &&
         (await pi.locator("#status").innerText()) === "" && await pi.locator("#send").isEnabled(), "later request completes through the real worker");
-      console.log("PI_NATIVE_CHECKPOINT_CAPTURE", "Stop did not send a prompt; the next request became Ready after real worker settlement");
+      const change = pi.locator(".change").filter({ hasText: `Modified · ${edited}` });
+      await change.waitFor({ state: "attached" });
+      assert.equal(await change.getByRole("button", { name: "Diff", exact: true }).isEnabled(), true);
+      assert.equal(await change.getByRole("button", { name: "Revert", exact: true }).isEnabled(), true);
+      console.log("PI_NATIVE_CHECKPOINT_CAPTURE", "Stop did not send a prompt; real worker settlement covered the announced write before Ready");
     } finally {
       await rm(checkpointFiles, { recursive: true, force: true });
     }

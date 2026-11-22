@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { Session } from "node:inspector/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { chromium } from "playwright-core";
 import { browserPlatformArgs } from "./test-browser-platform.mjs";
 
@@ -11,7 +12,13 @@ import { browserPlatformArgs } from "./test-browser-platform.mjs";
 const out = path.resolve(process.argv[2] ?? "out");
 const require = createRequire(import.meta.url);
 const { getSidebarHtml } = require(path.join(out, "sidebarHtml.js"));
-const { MarkdownRenderer } = require(path.join(out, "markdown.js"));
+const markdownModule = require.resolve(path.join(out, "markdown.js"));
+const { MarkdownRenderer } = require(markdownModule);
+const markdownUrl = pathToFileURL(markdownModule).href;
+const countCoverage = (result, source, name) => result.filter((script) => source(script.url)).flatMap((script) => script.functions)
+  .filter((fn) => name.test(fn.functionName)).reduce((total, fn) => total + fn.ranges[0].count, 0);
+const countHighlights = (result) => countCoverage(result,
+  (url) => url === markdownUrl || url.endsWith("/highlight.js/lib/core.js"), /^highlight\d*$/);
 const server = createServer(async (request, response) => {
   const name = request.url?.slice(1) ?? "";
   if (!/^(?:rich-content|mermaid)\.(?:js|css)$/.test(name)) return response.writeHead(404).end();
@@ -94,11 +101,14 @@ try {
     const countedRenderer = new MarkdownRenderer();
     countedRenderer.renderBatch([initial]);
     await profile.post("Profiler.startPreciseCoverage", { callCount: true });
+    if (name === "long") {
+      countedRenderer.renderBatch(["```ts\nconst uncachedCoverageProbe: string = 'probe';\n```"]);
+      const { result } = await profile.post("Profiler.takePreciseCoverage");
+      assert.equal(countHighlights(result), 1, "coverage detects a cold highlight before counting warm updates");
+    }
     for (const source of updates) countedRenderer.renderBatch([source]);
     const { result } = await profile.post("Profiler.takePreciseCoverage");
     await profile.post("Profiler.stopPreciseCoverage");
-    const count = (name) => result.filter((script) => script.url.endsWith("/markdown.js")).flatMap((script) => script.functions)
-      .filter((fn) => fn.functionName === name).reduce((total, fn) => total + fn.ranges[0].count, 0);
     const measurements = await page.evaluate((patches) => {
       const durations = [];
       const content = document.querySelector(".content");
@@ -119,7 +129,8 @@ try {
     }, rendered);
     const { durations, ...counts } = measurements;
     results.push({ name, browser: stats(durations.slice(5)), host: stats(hostTimes.slice(5)),
-      highlights: count("highlight2"), fullMarkdownRenders: count("renderSafeMarkdown"), ...counts, requests });
+      highlights: countHighlights(result), fullMarkdownRenders: countCoverage(result,
+        (url) => url === markdownUrl, /^renderSafeMarkdown$/), ...counts, requests });
     await page.close();
   }
   const assetBytes = async (name) => (await readFile(path.join(out, "rich-content", name))).length;

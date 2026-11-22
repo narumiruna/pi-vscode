@@ -285,7 +285,35 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
           () => true,
           () => false,
         )
-        .then((compared) => {
+        .then(async (compared) => {
+          const stale = new Set<string>();
+          let rechecked = false;
+          if (
+            compared &&
+            !controller.signal.aborted &&
+            !request.unprovenEffects &&
+            !settlement.invalidated &&
+            settlement.status !== "process-exit"
+          ) {
+            // Check only the files that could be offered for restore, after the full comparison ends.
+            const entries: SettlementEntry[] = [];
+            for (const { path, matched } of changed) {
+              const file = request.files.get(path);
+              if (matched && file) entries.push({ path, before: file.expected });
+            }
+            if (entries.length) {
+              rechecked = await settleCheckpoint(
+                request.cwd,
+                entries.length,
+                entries.values(),
+                controller.signal,
+                ({ path }) => stale.add(path),
+              ).then(
+                () => true,
+                () => false,
+              );
+            }
+          }
           if (controller.signal.aborted || !canPublish() || !sameWorkspaceRoot(request.cwd, request.rootIdentity))
             return undefined;
           editorChanges.collectDirty();
@@ -295,6 +323,7 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
             settlement.invalidated,
             editorChanges,
             compared ? changed : undefined,
+            (name) => rechecked && !stale.has(name),
           );
         })
         .finally(() => {
@@ -315,6 +344,7 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
     invalidated: boolean,
     editorChanges: ReturnType<typeof observeEditorChanges>,
     changed: SettlementChange[] | undefined,
+    canRevert: (name: string) => boolean,
   ): TrackedFileChange[] {
     if (status === "process-exit") {
       request.unprovenEffects = true;
@@ -354,36 +384,41 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
       files,
       exclusions: request.exclusions.slice(0, 1000),
     });
-    // The complete comparison already checked these files. Restore always runs its own fresh preflight.
-    return this.listChanges(false);
+    return this.listChanges(canRevert);
   }
 
   public get changes(): TrackedFileChange[] {
-    return this.listChanges(true);
+    return this.listChanges();
   }
-  private listChanges(checkDisk: boolean): TrackedFileChange[] {
+  private listChanges(canRevert?: (name: string) => boolean): TrackedFileChange[] {
     const record = this.latest;
-    return record
-      ? record.files
-          .filter((file) => !file.reverted)
-          .map((file) => {
-            let canRevert = true;
-            try {
-              if (checkDisk) this.preflight(record, [file.path]);
-            } catch {
-              canRevert = false;
-            }
-            return {
-              id: `${record.id}:${file.path}`,
-              uri: vscode.Uri.file(path.join(record.repository, file.path)).toString(),
-              label: file.path,
-              created: false,
-              deleted: false,
-              canRevert,
-              canPreview: true,
-            };
-          })
-      : [];
+    if (!record) return [];
+    const check =
+      canRevert ??
+      ((name: string) => {
+        try {
+          this.preflight(record, [name]);
+          return true;
+        } catch {
+          return false;
+        }
+      });
+    return record.files
+      .filter((file) => !file.reverted)
+      .map((file) => ({
+        id: `${record.id}:${file.path}`,
+        uri: vscode.Uri.file(path.join(record.repository, file.path)).toString(),
+        label: file.path,
+        created: false,
+        deleted: false,
+        canRevert: check(file.path),
+        canPreview: true,
+      }));
+  }
+  public checkRestore(id: string): void {
+    requireTrustedFile();
+    const { record, name } = this.resolve(id);
+    this.preflight(record, [name]);
   }
   public async review(id: string): Promise<void> {
     const { record, name } = this.resolve(id);

@@ -112,6 +112,91 @@ test("bounded history replaces windows with source offsets and no duplicate-labe
   }
 });
 
+test("indexed text history preserves source cursors, display counts, duplicate IDs and truncation", () => {
+  const mock = installVscodeMock();
+  try {
+    const { convertPiMessages, indexTextHistory } = require("../sidebarHelpers") as typeof import("../sidebarHelpers");
+    const assistant = (content: unknown) => ({ role: "assistant", timestamp: 0, content });
+    const user = (content: unknown) => ({ role: "user", content });
+    const text = (value: string) => ({ type: "text", text: value });
+    const values = [
+      { role: "assistant", content: "old" }, // Missing timestamp falls back to source index 0.
+      assistant(""),
+      user([]),
+      assistant([text(""), text("")]),
+      user(" "),
+      assistant([text("a"), text("")]),
+      user(""),
+      assistant("later"),
+      user("tail"),
+      assistant([]),
+    ];
+    const textHistory = indexTextHistory(values);
+    assert.ok(textHistory);
+    for (const [historyBefore, maxCharacters, start, omittedBefore, omittedAfter, truncated, assistantId] of [
+      [undefined, 250_000, 7, 3, 0, false, "pi-assistant-0-2"],
+      [7, 250_000, 4, 1, 2, false, "pi-assistant-0-1"],
+      [4, 250_000, 0, 0, 4, false, "pi-assistant-0-0"],
+      [0, 250_000, 0, 0, 5, false, undefined],
+      [undefined, 2, 8, 4, 0, true, undefined],
+    ] as const) {
+      const convert = (indexed: boolean) => {
+        let window = emptyConversationHistory();
+        const page = convertPiMessages(values, {
+          imageAssets: cache(),
+          maxMessages: 2,
+          maxCharacters,
+          historyBefore,
+          textHistory: indexed ? textHistory : undefined,
+          onHistoryWindow: (metadata) => {
+            window = metadata;
+          },
+        });
+        return { page, window };
+      };
+      const indexed = convert(true);
+      assert.deepEqual(indexed, convert(false));
+      assert.equal(indexed.page.find(({ role }) => role === "assistant")?.id, assistantId);
+      assert.deepEqual(indexed.window, {
+        mode: historyBefore === undefined ? "latest" : "earlier",
+        start,
+        end: historyBefore ?? values.length,
+        total: 5,
+        omittedBefore,
+        omittedAfter,
+        truncated,
+      });
+    }
+  } finally {
+    mock.restore();
+  }
+});
+
+test("the text history index keeps the conservative priming bounds", () => {
+  const mock = installVscodeMock();
+  try {
+    const { indexTextHistory } = require("../sidebarHelpers") as typeof import("../sidebarHelpers");
+    const text = (value: string) => ({ type: "text", text: value });
+    const user = (content: unknown) => ({ role: "user", content });
+    assert.ok(indexTextHistory(Array.from({ length: 2_000 }, () => user(""))));
+    assert.equal(indexTextHistory(Array.from({ length: 2_001 }, () => user(""))), undefined);
+    const parts = Array.from({ length: 32 }, () => text(""));
+    assert.ok(indexTextHistory([user(parts), user("x".repeat(250_000))]));
+    assert.equal(indexTextHistory([user([...parts, text("")])]), undefined);
+    assert.equal(indexTextHistory([user([text("x".repeat(250_000)), text("y")])]), undefined);
+    for (const value of [
+      { role: "custom", content: "extension text" },
+      user([text("visible"), { type: "image" }]),
+      { role: "assistant", content: [{ type: "thinking", thinking: "visible thought" }] },
+      user([{ type: "text", text: null }]),
+    ]) {
+      assert.equal(indexTextHistory([user("starts with text"), value]), undefined);
+    }
+  } finally {
+    mock.restore();
+  }
+});
+
 test("character-bound windows expose omitted long-message text and permit earlier message navigation", () => {
   const mock = installVscodeMock();
   try {
