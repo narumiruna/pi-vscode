@@ -8,7 +8,7 @@ import { nativeSidebarFixture } from "./session-switch-fixture.mjs";
 export async function assertNativeSidebarConcurrency(options) {
   const { page, directory, workspace, until } = options;
   const ui = await nativeSidebarFixture(options);
-  const { pi, optional, records, modal, choose, selected, closeSelected } = ui;
+  const { pi, optional, records, choose, selected, closeSelected } = ui;
   const composer = pi.locator("#input");
   const a = await pi.locator("#session").inputValue();
   assert.ok(a, "Concurrency starts in the connected Primary detail");
@@ -122,7 +122,6 @@ export async function assertNativeSidebarConcurrency(options) {
     });
     assert.equal(await pi.evaluate(() => typeof window.finishNativeSidebarImage), "function", "B paste really starts a delayed read");
     await pi.locator("#new-session").click();
-    await modal("Open Session");
     cOpened = true;
     await until(async () => await pi.locator("#input").inputValue() === "" &&
       await pi.locator("#session").inputValue() === "", "fresh C independent composer and session");
@@ -228,7 +227,6 @@ export async function assertNativeSidebarConcurrency(options) {
     await composer.fill("Native launcher first-send acceptance");
     assert.equal(await composer.inputValue(), "Native launcher first-send acceptance");
     await pi.locator("#send").click();
-    await modal("Open Session");
     dOpened = true;
     await until(async () => (await pi.locator("#messages").innerText()).includes("Native launcher accepted result") &&
       !(await pi.locator("#cancel").isVisible()), "Sessions composer creates its own settled conversation");
