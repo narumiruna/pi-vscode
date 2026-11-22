@@ -2,7 +2,19 @@ import { opendir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { setImmediate as yieldTurn } from "node:timers/promises";
 import { Worker } from "node:worker_threads";
-import { type CaptureEntry, type CaptureRecord, scanCheckpoint, skipCaptureDirectory } from "./checkpointCapture";
+import {
+  type CaptureEntry,
+  type CaptureRecord,
+  checkpointReader,
+  compareCheckpoint,
+  maxCaptureBatchEntries,
+  maxSettlementBatchBytes,
+  type SettlementChange,
+  type SettlementEntry,
+  scanCheckpoint,
+  settlementEntryBytes,
+  skipCaptureDirectory,
+} from "./checkpointCapture";
 import type { CaptureCommand, CaptureReply } from "./checkpointWorker";
 
 const maxInlineEntries = 128;
@@ -50,10 +62,9 @@ async function smallListing(root: string, signal: AbortSignal): Promise<Map<stri
 
 type Job = {
   id: number;
-  root: string;
-  dirty: ReadonlySet<string>;
   signal: AbortSignal;
-  accept: (record: CaptureRecord) => void;
+  next: (id: number) => CaptureCommand | undefined;
+  accept: (reply: Extract<CaptureReply, { type: "batch" | "settled" }>) => boolean;
   cancel: () => void;
   finish: (error?: Error) => void;
 };
@@ -70,7 +81,65 @@ export class CheckpointCaptureWorker {
       new Worker(path.join(__dirname, "checkpointWorker.js"), { env: {}, execArgv: [] }),
   ) {}
 
-  public capture(root: string, dirty: ReadonlySet<string>, signal: AbortSignal, accept: Job["accept"]): Promise<void> {
+  public capture(
+    root: string,
+    dirty: ReadonlySet<string>,
+    signal: AbortSignal,
+    accept: (record: CaptureRecord) => void,
+  ): Promise<void> {
+    let started = false;
+    return this.enqueue(
+      signal,
+      (id) => {
+        if (started) return { type: "ack", id };
+        started = true;
+        return { type: "start", id, root, dirty: [...dirty] };
+      },
+      (reply) => {
+        if (reply.type !== "batch") throw new Error("Unexpected checkpoint capture reply.");
+        for (const record of reply.records) {
+          if (signal.aborted) break;
+          accept(record);
+        }
+        return reply.done;
+      },
+    );
+  }
+
+  public settle(
+    root: string,
+    entries: Iterator<SettlementEntry>,
+    signal: AbortSignal,
+    accept: (change: SettlementChange) => void,
+  ): Promise<void> {
+    let next = entries.next();
+    return this.enqueue(
+      signal,
+      (id) => {
+        const batch: SettlementEntry[] = [];
+        let bytes = 0;
+        while (!next.done && batch.length < maxCaptureBatchEntries) {
+          const cost = settlementEntryBytes(next.value);
+          if (cost > maxSettlementBatchBytes) throw new Error("Checkpoint entry exceeds its transfer limit.");
+          if (bytes + cost > maxSettlementBatchBytes) break;
+          bytes += cost;
+          batch.push(next.value);
+          next = entries.next();
+        }
+        if (batch.length) return { type: "compare", id, root, entries: batch };
+      },
+      (reply) => {
+        if (reply.type !== "settled") throw new Error("Unexpected checkpoint settlement reply.");
+        for (const change of reply.changes) {
+          if (signal.aborted) break;
+          accept(change);
+        }
+        return Boolean(next.done);
+      },
+    );
+  }
+
+  private enqueue(signal: AbortSignal, next: Job["next"], accept: Job["accept"]): Promise<void> {
     if (signal.aborted) return Promise.reject(cancelled());
     if (this.closing) return Promise.reject(new Error("Checkpoint worker is stopping."));
     if (this.waiting.length + Number(Boolean(this.active)) >= maxCaptureJobs)
@@ -78,9 +147,8 @@ export class CheckpointCaptureWorker {
     return new Promise((resolve, reject) => {
       const job: Job = {
         id: ++this.id,
-        root,
-        dirty,
         signal,
+        next,
         accept,
         cancel: () => {
           if (this.active === job) this.send({ type: "cancel", id: job.id });
@@ -125,12 +193,7 @@ export class CheckpointCaptureWorker {
         worker.on("exit", () => this.fail(worker));
       }
       this.worker.ref();
-      this.worker.postMessage({
-        type: "start",
-        id: job.id,
-        root: job.root,
-        dirty: [...job.dirty],
-      } satisfies CaptureCommand);
+      this.sendNext(job);
     } catch {
       this.fail(this.worker);
     }
@@ -139,26 +202,32 @@ export class CheckpointCaptureWorker {
   private receive(worker: Worker, reply: CaptureReply): void {
     const job = this.active;
     if (worker !== this.worker || !job || job.id !== reply.id) return;
-    if (reply.type === "batch" && !job.signal.aborted) {
-      for (const record of reply.records) {
-        if (job.signal.aborted) break;
-        job.accept(record);
-      }
-      if (!reply.done) {
-        setImmediate(() => {
-          if (this.active === job && !job.signal.aborted) this.send({ type: "ack", id: job.id });
-        });
-        return;
-      }
-    } else if (reply.type === "batch" && !reply.done) return;
+    if (reply.type === "batch" || reply.type === "settled") {
+      if (job.signal.aborted) return;
+      if (job.accept(reply)) this.complete(job);
+      else setImmediate(() => this.sendNext(job));
+    } else {
+      this.complete(
+        job,
+        job.signal.aborted || reply.type === "cancelled" ? cancelled() : new Error("Checkpoint worker job failed."),
+      );
+    }
+  }
+
+  private sendNext(job: Job): void {
+    if (this.active !== job || job.signal.aborted) return;
+    try {
+      const command = job.next(job.id);
+      if (command) this.send(command);
+      else this.complete(job);
+    } catch (error) {
+      this.complete(job, error instanceof Error ? error : new Error("Checkpoint batch failed."));
+    }
+  }
+
+  private complete(job: Job, error?: Error): void {
     this.active = undefined;
-    job.finish(
-      job.signal.aborted || reply.type === "cancelled"
-        ? cancelled()
-        : reply.type === "failed"
-          ? new Error("Checkpoint worker could not capture the workspace.")
-          : undefined,
-    );
+    job.finish(error ?? (job.signal.aborted ? cancelled() : undefined));
     this.startNext();
   }
 
@@ -197,11 +266,34 @@ export class CheckpointCaptureWorker {
 
 export const checkpointCaptureWorker = new CheckpointCaptureWorker();
 
+export async function settleCheckpoint(
+  root: string,
+  count: number,
+  entries: IterableIterator<SettlementEntry>,
+  signal: AbortSignal,
+  accept: (change: SettlementChange) => void,
+): Promise<void> {
+  if (count > maxInlineEntries) return checkpointCaptureWorker.settle(root, entries, signal, accept);
+  const read = checkpointReader(root);
+  let steps = 0;
+  let deadline = performance.now() + 2;
+  for (const entry of entries) {
+    if (signal.aborted) throw cancelled();
+    const result = compareCheckpoint(read, entry);
+    if (result) accept(result);
+    if (++steps % 16 === 0 || performance.now() >= deadline) {
+      await yieldTurn();
+      deadline = performance.now() + 2;
+    }
+  }
+  if (signal.aborted) throw cancelled();
+}
+
 export async function captureCheckpoint(
   root: string,
   dirty: ReadonlySet<string>,
   signal: AbortSignal,
-  accept: Job["accept"],
+  accept: (record: CaptureRecord) => void,
 ): Promise<void> {
   const listing = await smallListing(root, signal);
   if (signal.aborted) throw cancelled();

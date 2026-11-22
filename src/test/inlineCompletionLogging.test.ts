@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { TextDocument } from "vscode";
 import { PiLogger } from "../logging";
 import { installVscodeMock, MockUri } from "./vscodeMock";
 
@@ -17,21 +18,24 @@ function fixture() {
   vscode.workspace.getConfiguration = () => ({
     get: (key: string, fallback: unknown) => (key === "debounceMilliseconds" ? 0 : fallback),
   });
-  const document: any = {
+  const document = {
     uri: MockUri.file("/private/INLINE_SECRET.ts"),
     version: 1,
     languageId: "typescript",
+    lineCount: 1,
     lineAt: () => ({ text: "INLINE_SECRET" }),
-    offsetAt: () => 5,
-    getText: () => "INLINE_SECRET",
+    offsetAt: ({ line, character }: { line: number; character: number }) => (line === 0 ? character : 13),
+    positionAt: (offset: number) => new vscode.Position(0, Math.min(offset, 13)),
+    getText: ({ start, end }: { start: { character: number }; end: { character: number } }) =>
+      "INLINE_SECRET".slice(start.character, end.character),
   };
-  const token: any = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) };
+  const token = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) };
   return {
     channel,
     token,
     run: () =>
       provider.provideInlineCompletionItems(
-        document,
+        document as unknown as TextDocument,
         new vscode.Position(0, 5),
         { triggerKind: 0, selectedCompletionInfo: undefined },
         token,

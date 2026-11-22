@@ -1176,7 +1176,7 @@ test("Sessions-layer submission snapshots attachments and holds the request gate
       },
       dispose() {},
     });
-    internal.changeTracker.finishRequest = (status = "completed") => {
+    internal.changeTracker.finishRequest = async (status = "completed") => {
       trackerFinishes.push(status);
       return [];
     };

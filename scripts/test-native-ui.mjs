@@ -39,6 +39,7 @@ const version = process.argv[2] ?? "1.140.0";
 const workspaceAlias = process.argv[3] === "alias";
 const packaged = process.argv.includes("packaged");
 const selectionOnly = process.argv.includes("selection");
+const completionOnly = process.argv.includes("completion");
 const sessionSwitchOnly = process.argv.includes("session-switch");
 const settingsBaseline = process.argv.includes("settings-baseline");
 const settingsOnly = settingsBaseline || process.argv.includes("settings");
@@ -46,7 +47,7 @@ const outputDiagnosticsOnly = process.argv.includes("output-diagnostics");
 if (outputDiagnosticsOnly && packaged) throw new Error("Output diagnostics uses a source development profile only.");
 const annotationPrototypeOnly = process.argv.includes("annotation-prototype");
 const annotationsOnly = process.argv.includes("annotations") || annotationPrototypeOnly;
-const evidenceLabel = `${version}${workspaceAlias ? "-alias" : ""}${packaged ? "-packaged" : ""}${selectionOnly ? "-selection" : ""}${sessionSwitchOnly ? "-session-switch" : ""}${annotationsOnly ? "-annotations" : ""}${annotationPrototypeOnly ? "-prototype" : ""}${outputDiagnosticsOnly ? "-output-diagnostics" : ""}${settingsOnly ? settingsBaseline ? "-settings-baseline" : "-settings" : ""}`;
+const evidenceLabel = `${version}${workspaceAlias ? "-alias" : ""}${packaged ? "-packaged" : ""}${selectionOnly ? "-selection" : ""}${completionOnly ? "-completion" : ""}${sessionSwitchOnly ? "-session-switch" : ""}${annotationsOnly ? "-annotations" : ""}${annotationPrototypeOnly ? "-prototype" : ""}${outputDiagnosticsOnly ? "-output-diagnostics" : ""}${settingsOnly ? settingsBaseline ? "-settings-baseline" : "-settings" : ""}`;
 if (process.platform !== "linux" && !(process.platform === "darwin" && settingsOnly)) {
   throw new Error("The native UI runner supports Linux; focused Settings checks also support macOS.");
 }
@@ -107,7 +108,7 @@ try {
   await chmod(executableFixture, 0o700);
   // The focused selection lane starts empty instead of loading unrelated transfer history.
   if (!selectionOnly) await seedTransferSession(directory, workspace);
-  if (!selectionOnly && !annotationsOnly && !outputDiagnosticsOnly && !settingsOnly) {
+  if (!selectionOnly && !completionOnly && !annotationsOnly && !outputDiagnosticsOnly && !settingsOnly) {
     await seedSessionSwitch(directory, workspace);
   }
   const fixtureBin = path.join(directory, "bin");
@@ -115,7 +116,7 @@ try {
   // Fail closed even if an upload approval regression invokes gh. Never delegates to real gh.
   await writeFile(path.join(fixtureBin, "gh"), `#!/bin/sh\nprintf invoked >> '${path.join(directory, "gh-invoked")}'\nexit 91\n`, { mode: 0o700 });
   await respond("Native fixture explanation.");
-  if (!selectionOnly && !annotationsOnly && !outputDiagnosticsOnly) await writeFile(path.join(directory, "extension-ui.json"), JSON.stringify(extensionUiFixture));
+  if (!selectionOnly && !completionOnly && !annotationsOnly && !outputDiagnosticsOnly) await writeFile(path.join(directory, "extension-ui.json"), JSON.stringify(extensionUiFixture));
   await writeFile(
     path.join(userData, "User", "settings.json"),
     JSON.stringify({
@@ -309,6 +310,14 @@ try {
     await assertNativeAnnotationPrototype({ page, workspace, invoke, until, version: ready.version, evidenceLabel });
   } else if (annotationsOnly) {
     await assertNativeAnnotations({ page, directory, workspace, invoke, until, frame, pick });
+  } else if (completionOnly) {
+    const pi = await frame();
+    const row = pi.locator('#recent-session-list .session-row[aria-current="page"]');
+    const connection = () => pi.locator("#runtime").getAttribute("data-connection");
+    await until(async () => await row.isVisible() || await connection() === "connected", "completion fixture ready");
+    if (await row.isVisible()) await row.click();
+    await until(async () => await connection() === "connected", "completion fixture connected");
+    await assertNativeFileCompletion({ pi, page, invoke, pick, until, directory, workspace });
   } else if (sessionSwitchOnly) {
     const pi = await frame();
     const primaryRow = pi.locator('#recent-session-list .session-row[aria-current="page"]');
@@ -1266,7 +1275,7 @@ try {
     await assertExtensionEditorDialogs({ page, directory, invoke, until, frame });
   }
   }
-  if (!settingsOnly && !outputDiagnosticsOnly && !annotationsOnly && !selectionOnly && !sessionSwitchOnly && !process.argv.includes("transfer")) {
+  if (!settingsOnly && !outputDiagnosticsOnly && !annotationsOnly && !selectionOnly && !completionOnly && !sessionSwitchOnly && !process.argv.includes("transfer")) {
     await assertNativeSidebarConcurrency({ page, directory, workspace, invoke, until, frame });
     const checkpointFiles = path.join(workspace, "checkpoint-worker-files");
     await mkdir(checkpointFiles);
@@ -1286,14 +1295,21 @@ try {
       await pi.locator("#cancel").click();
       await pi.locator("#cancel").waitFor({ state: "hidden" });
       assert.equal(await prompts(), before, "Stop before dispatch must not send the held prompt");
+      await invoke("holdCheckpointSettlementOnce");
       await respond("Native checkpoint worker result");
       await composer.fill(later);
       await pi.locator("#send").click();
-      await until(async () => (await pi.locator("#messages").innerText()).includes("Native checkpoint worker result") &&
-        !(await pi.locator("#cancel").isVisible()), "later request completes through the real worker");
+      await until(async () => (await readFile(path.join(directory, "checkpoint-settlement-entered"), "utf8").catch(() => "")) !== "" &&
+        !(await pi.locator("#cancel").isVisible()), "settled agent is waiting for checkpoint verification");
+      await composer.fill("Unsent draft during checkpoint settlement");
+      assert.notEqual(await pi.locator("#status").innerText(), "");
+      assert.equal(await pi.locator("#send").isEnabled(), false);
       assert.doesNotMatch(await prompts(), /Native checkpoint cancelled before dispatch/);
-      assert.match(await prompts(), /Native checkpoint request after cancellation/);
-      console.log("PI_NATIVE_CHECKPOINT_CAPTURE", "Stop did not send a prompt; the next request completed with the real worker");
+      assert.equal((await prompts()).split(later).length, 2, "the later prompt was sent exactly once");
+      await writeFile(path.join(directory, "checkpoint-settlement-release"), "Continue with the real worker");
+      await until(async () => (await pi.locator("#messages").innerText()).includes("Native checkpoint worker result") &&
+        (await pi.locator("#status").innerText()) === "" && await pi.locator("#send").isEnabled(), "later request completes through the real worker");
+      console.log("PI_NATIVE_CHECKPOINT_CAPTURE", "Stop did not send a prompt; the next request became Ready after real worker settlement");
     } finally {
       await rm(checkpointFiles, { recursive: true, force: true });
     }

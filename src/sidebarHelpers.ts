@@ -234,6 +234,24 @@ export interface ConvertPiMessagesOptions {
   readonly onHistoryWindow?: (window: ConversationHistoryWindow) => void;
 }
 
+export function canPrimeHistoryPages(values: readonly unknown[]): boolean {
+  if (values.length > 2_000) return false;
+  let remaining = 250_000;
+  for (const value of values) {
+    if (!isRecord(value) || (value.role !== "user" && value.role !== "assistant")) return false;
+    const content = value.content;
+    if (typeof content === "string") remaining -= content.length;
+    else if (Array.isArray(content) && content.length <= 32) {
+      for (const part of content) {
+        if (!isRecord(part) || part.type !== "text" || typeof part.text !== "string") return false;
+        remaining -= part.text.length;
+      }
+    } else return false;
+    if (remaining < 0) return false;
+  }
+  return true;
+}
+
 export function convertPiMessages(values: readonly unknown[], options: ConvertPiMessagesOptions): SidebarMessage[] {
   const requestedLimit = options.maxMessages ?? values.length + maxToolActivities;
   const messageLimit = Number.isSafeInteger(requestedLimit) ? Math.max(0, requestedLimit) : values.length;

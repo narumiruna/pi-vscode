@@ -7,8 +7,10 @@ import python from "highlight.js/lib/languages/python";
 import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
 import katex from "katex";
+import { completedFenceBoundary } from "./webview/markdownBoundary";
 
 type TokenizerExtension = import("marked", { with: { "resolution-mode": "import" }}).TokenizerExtension;
+type CodeToken = import("marked", { with: { "resolution-mode": "import" }}).Tokens.Code;
 
 // Bundled to CJS for the Extension Host; marked itself is ESM-only.
 const { Marked } = require("marked") as typeof import("marked", { with: { "resolution-mode": "import" }});
@@ -103,8 +105,52 @@ function mathExtension(block: boolean): TokenizerExtension {
   };
 }
 
+function closedFence({ raw, codeBlockStyle }: CodeToken): boolean {
+  if (codeBlockStyle === "indented") return false;
+  // Marked owns block parsing. Check only whether its fenced code token has an explicit closer.
+  const fence = /^ {0,3}(`{3,}|~{3,})/.exec(raw)?.[1];
+  if (!fence) return false;
+  let end = raw.length;
+  while (raw[end - 1] === "\n") end--;
+  const lastLine = raw.lastIndexOf("\n", end - 1);
+  if (lastLine < 0) return false;
+  const closer = /^ {0,3}(`{3,}|~{3,})[\t ]*$/.exec(raw.slice(lastLine + 1, end))?.[1];
+  return closer?.[0] === fence[0] && closer.length >= fence.length;
+}
+
+const completedFences = new WeakSet<CodeToken>();
+const highlights = new Map<string, string>();
+const maxHighlightCharacters = 500_000;
+let highlightCharacters = 0;
+
+function highlightCode(text: string, language: string, completed: boolean): string {
+  if (!hljs.getLanguage(language)) return escapeHtml(text);
+  const key = completed ? `${language}\n${text}` : undefined;
+  const hit = key === undefined ? undefined : highlights.get(key);
+  if (hit !== undefined) return hit;
+  const html = hljs.highlight(text, { language, ignoreIllegals: true }).value;
+  if (key === undefined || key.length + html.length > maxHighlightCharacters) return html;
+  while (highlights.size >= 16 || highlightCharacters + key.length + html.length > maxHighlightCharacters) {
+    const oldest = highlights.keys().next().value;
+    if (oldest === undefined) break;
+    highlightCharacters -= oldest.length + (highlights.get(oldest)?.length ?? 0);
+    highlights.delete(oldest);
+  }
+  highlights.set(key, html);
+  highlightCharacters += key.length + html.length;
+  return html;
+}
+
 const parser = new Marked({ gfm: true, breaks: false });
 parser.use({
+  hooks: {
+    processAllTokens(tokens) {
+      for (const token of tokens) {
+        if (token.type === "code" && closedFence(token as CodeToken)) completedFences.add(token as CodeToken);
+      }
+      return tokens;
+    },
+  },
   extensions: [mathExtension(true), mathExtension(false)].map((extension) => ({
     ...extension,
     renderer(token) {
@@ -141,16 +187,18 @@ parser.use({
     image({ text }) {
       return escapeHtml(text);
     },
-    code({ text, lang, raw }) {
+    code(token) {
+      const { text, lang } = token;
       const language = lang?.trim().split(/\s+/, 1)[0]?.toLowerCase() ?? "";
-      const highlighted = hljs.getLanguage(language)
-        ? hljs.highlight(text, { language, ignoreIllegals: true }).value
-        : escapeHtml(text);
+      const completed = completedFences.has(token);
+      const highlighted = highlightCode(text, language, completed);
       const code = `<pre><code${language && /^[a-z0-9_+-]+$/.test(language) ? ` class="language-${language}"` : ""}>${highlighted}</code></pre>`;
-      // An open fence remains source text while streaming.
-      const fence = /^ {0,3}(`{3,}|~{3,})/.exec(raw)?.[1];
-      const closed = fence && new RegExp(`\\n {0,3}${fence[0]}{${fence.length},}\\s*$`).test(raw);
-      return language === "mermaid" && closed ? `<div class="mermaid-source">${code}</div>` : code;
+      // An open Mermaid fence remains source text while streaming.
+      const block =
+        language === "mermaid" && (completed || closedFence(token))
+          ? `<div class="mermaid-source">${code}</div>`
+          : code;
+      return completed ? block + completedFenceBoundary : block;
     },
     checkbox({ checked }) {
       return `<span class="task-checkbox" aria-label="${checked ? "Completed" : "Not completed"}">${checked ? "☑" : "☐"}</span> `;

@@ -428,6 +428,126 @@ test("a sibling admitted during capture invalidates the new checkpoint before di
   });
 });
 
+test("request ownership and Ready wait for one asynchronous checkpoint settlement", async () => {
+  await fixture(async (f) => {
+    const { hasOperation } = require("../operationLocks") as typeof import("../operationLocks");
+    const held = deferred<Awaited<ReturnType<InstanceType<typeof WorkspaceChangeTracker>["finishRequest"]>>>();
+    const tracker = f.primary.changeTracker as InstanceType<typeof WorkspaceChangeTracker>;
+    const settle = vi.spyOn(tracker, "finishRequest").mockReturnValue(held.promise);
+    const client = f.clients.get(f.a.runtime);
+    try {
+      await f.send(f.a, "held settlement");
+      client.complete("reply before settlement");
+      await vi.waitFor(() => {
+        assert.equal(settle.mock.calls.length, 1);
+        assert.equal(f.latest().runtime.busy, true);
+        assert.match(f.latest().status, /Finishing/);
+      });
+      assert.equal(hasOperation(f.root), true);
+      assert.equal(f.latest().runtime.cancellable, false);
+      held.resolve([]);
+      await vi.waitFor(() => {
+        assert.equal(hasOperation(f.root), false);
+        assert.equal(f.latest().runtime.busy, false);
+        assert.equal(f.latest().status, "Ready");
+      });
+      assert.equal(settle.mock.calls.length, 1);
+    } finally {
+      held.resolve([]);
+      settle.mockRestore();
+    }
+  });
+});
+
+test("saved-session refresh runs once after a reply and does not delay Ready or hold its lease", async () => {
+  await fixture(async (f) => {
+    const sessionHistory = require("../sessionHistory") as typeof import("../sessionHistory");
+    const { hasOperation } = require("../operationLocks") as typeof import("../operationLocks");
+    const scan = deferred<Awaited<ReturnType<typeof sessionHistory.listRecentPiSessions>>>();
+    const list = vi.spyOn(sessionHistory, "listRecentPiSessions").mockReturnValue(scan.promise);
+    try {
+      await f.send(f.a, "one request");
+      await f.complete(f.a, "one reply");
+      await vi.waitFor(() => {
+        assert.equal(f.latest().runtime.busy, false);
+        assert.equal(f.latest().status, "Ready");
+        assert.equal(f.latest().messages.at(-1)?.content, "one reply");
+        assert.equal(list.mock.calls.length, 1);
+      });
+      assert.equal(hasOperation(f.root), false);
+      scan.resolve([]);
+      await nextTurn();
+      assert.equal(list.mock.calls.length, 1);
+    } finally {
+      scan.resolve([]);
+      list.mockRestore();
+    }
+  });
+});
+
+test("a delayed automatic scan cannot replace a newer explicit Sessions refresh", async () => {
+  await fixture(async (f) => {
+    const sessionHistory = require("../sessionHistory") as typeof import("../sessionHistory");
+    const delayed = deferred<Awaited<ReturnType<typeof sessionHistory.listRecentPiSessions>>>();
+    const list = vi
+      .spyOn(sessionHistory, "listRecentPiSessions")
+      .mockReturnValueOnce(delayed.promise)
+      .mockResolvedValueOnce([{ key: "new", path: "/fixture-new", sessionId: "new", title: "New", updatedAt: 2 }]);
+    try {
+      f.manager.requestFinished(f.primary, "request", "completed", true);
+      await vi.waitFor(() => assert.equal(list.mock.calls.length, 1));
+      await f.manager.refresh();
+      assert.ok(f.rows().some((row: { id: string }) => row.id === "new"));
+      delayed.resolve([{ key: "old", path: "/fixture-old", sessionId: "old", title: "Old", updatedAt: 1 }]);
+      await nextTurn();
+      assert.equal(
+        f.rows().some((row: { id: string }) => row.id === "old"),
+        false,
+      );
+      assert.ok(f.rows().some((row: { id: string }) => row.id === "new"));
+    } finally {
+      delayed.resolve([]);
+      list.mockRestore();
+    }
+  });
+});
+
+test("automatic saved-session scans coalesce concurrent completions and retain the latest result", async () => {
+  await fixture(async (f) => {
+    const sessionHistory = require("../sessionHistory") as typeof import("../sessionHistory");
+    const first = deferred<Awaited<ReturnType<typeof sessionHistory.listRecentPiSessions>>>();
+    const second = deferred<Awaited<ReturnType<typeof sessionHistory.listRecentPiSessions>>>();
+    const list = vi
+      .spyOn(sessionHistory, "listRecentPiSessions")
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+      .mockResolvedValue([]);
+    const done = (id: string) => f.manager.requestFinished(f.primary, id, "completed", true);
+    try {
+      done("one");
+      done("two");
+      await vi.waitFor(() => assert.equal(list.mock.calls.length, 1));
+      done("three");
+      done("four");
+      await nextTurn();
+      assert.equal(list.mock.calls.length, 1);
+      first.resolve([{ key: "old", path: "/fixture-old", sessionId: "old", title: "Old", updatedAt: 1 }]);
+      await vi.waitFor(() => assert.equal(list.mock.calls.length, 2));
+      second.resolve([{ key: "new", path: "/fixture-new", sessionId: "new", title: "New", updatedAt: 2 }]);
+      await vi.waitFor(() => assert.ok(f.rows().some((row: { id: string }) => row.id === "new")));
+      assert.equal(
+        f.rows().some((row: { id: string }) => row.id === "old"),
+        false,
+      );
+      assert.equal(list.mock.calls.length, 2);
+    } finally {
+      first.resolve([]);
+      second.resolve([]);
+      list.mockRestore();
+    }
+  });
+});
+
 test("streaming renders and sends only the assistant tail and retains inactive updates", async () => {
   await fixture(async (f) => {
     await f.send(f.a, "request A");
@@ -1730,7 +1850,7 @@ test("R13 browsing Sessions preserves Primary's restorable checkpoint without en
       args: { path: "checkpoint.txt", content: "covered result\n" },
     });
     await writeFile(file, "covered result\n");
-    const [change] = tracker.finishRequest();
+    const [change] = (await tracker.finishRequest()) ?? [];
     assert.ok(change);
     assert.equal(change.canRevert, true);
     const safety = vi.spyOn(WorkspaceChangeTracker.prototype, "enableConcurrentSafety");

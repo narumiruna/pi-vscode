@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
-import { build } from "esbuild";
 import { chromium } from "playwright-core";
 import { browserPlatformArgs } from "./test-browser-platform.mjs";
 import { assertExtensionUi } from "./extension-ui-fixture.mjs";
@@ -12,6 +11,7 @@ import { assertDiscoveryWrapBrowser } from "./discovery-wrap-fixture.mjs";
 import { assertHistoryBrowser } from "./history-fixture.mjs";
 import { assertComposerDraftRecovery } from "./draft-fixture.mjs";
 import { assertRichContent, richFixture } from "./rich-content-fixture.mjs";
+import { assertStreamedRichContent } from "./rich-stream-fixture.mjs";
 import { assertComposerFileCompletion } from "./completion-fixture.mjs";
 import { assertThinkingBrowser } from "./thinking-fixture.mjs";
 import { assertPanelInteractions } from "./panel-interaction-fixture.mjs";
@@ -29,7 +29,7 @@ const { formatBashExecutionText } = require("../out/directShell.js");
 const server = createServer(async (request, response) => {
   try {
     const name = request.url?.slice(1) ?? "";
-    if (!/^(?:rich-content\.(?:js|css)|fonts\/KaTeX_[A-Za-z0-9_-]+\.(?:woff2?|ttf))$/.test(name)) {
+    if (!/^(?:rich-content\.(?:js|css)|mermaid\.js|fonts\/KaTeX_[A-Za-z0-9_-]+\.(?:woff2?|ttf))$/.test(name)) {
       response.writeHead(404).end();
       return;
     }
@@ -78,7 +78,9 @@ try {
     source: origin,
     script: `${origin}/rich-content.js`,
     style: `${origin}/rich-content.css`,
+    mermaidScript: `${origin}/mermaid.js`,
   });
+  console.log("PI_RICH_STREAM_BROWSER_EVIDENCE", JSON.stringify(await assertStreamedRichContent(browser, html, renderSafeMarkdown, origin)));
   console.log("PI_PANEL_INTERACTION_BROWSER_EVIDENCE", JSON.stringify(await assertPanelInteractions(
     browser, html, renderSafeMarkdown, origin,
   )));
@@ -267,32 +269,32 @@ try {
   console.log("PI_RICH_BROWSER_EVIDENCE", JSON.stringify(evidence));
 
   // A delayed Mermaid stub proves races, cache reuse and disposal deterministically.
-  const stub = await build({
-    entryPoints: ["src/webview/richContent.mts"],
-    bundle: true,
-    write: false,
-    format: "iife",
-    plugins: [
-      {
-        name: "delayed-mermaid",
-        setup(build) {
-          build.onResolve({ filter: /^mermaid$/ }, () => ({ path: "mermaid", namespace: "test" }));
-          build.onLoad({ filter: /.*/, namespace: "test" }, () => ({
-            contents: `export default { initialize(){}, render(id, source){ window.renderCount=(window.renderCount||0)+1; return new Promise(resolve=>{ window.finishDiagram=()=>resolve({svg:'<svg xmlns="http://www.w3.org/2000/svg" id="'+id+'" aria-labelledby="'+id+'-title" aria-describedby="'+id+'-desc"><style>#'+id+'{color:red;--label:"piDiagram1";filter:url(#'+id+'-paint)} @media all { #'+id+' text {fill:rgb(1,2,3)} }</style><title id="'+id+'-title">piDiagram1 title</title><desc id="'+id+'-desc">piDiagram10 description</desc><defs><marker id="'+id+'-arrow"><path d="M0 0L1 1"/></marker><filter id="'+id+'-paint"/><linearGradient id="'+id+'-fill"/><linearGradient href="#'+id+'-fill"/></defs><path marker-end="url(#'+id+'-arrow)" style="filter:url(#'+id+'-paint)"/><use href="#'+id+'-arrow"/><text>'+source.replaceAll('&','&amp;').replaceAll('<','&lt;')+'</text><image href="https://bad.invalid/a"/><set onbegin="window.attacked=true"/></svg>'}); if(window.autoFinish) queueMicrotask(window.finishDiagram); }); } };`,
-          }));
-        },
-      },
-    ],
-  });
-  const race = await browser.newPage();
-  await race.setContent('<div class="content"></div>');
-  await race.addScriptTag({ content: stub.outputFiles[0].text });
+  const stub = `window.piMermaid = { initialize(config){ window.mermaidTheme = config.theme; }, render(id, source){ window.renderCount=(window.renderCount||0)+1; window.renderedSource=source; return new Promise(resolve=>{ window.finishDiagram=()=>resolve({svg:'<svg xmlns="http://www.w3.org/2000/svg" id="'+id+'" aria-labelledby="'+id+'-title" aria-describedby="'+id+'-desc"><style>#'+id+'{color:red;--label:"piDiagram1";filter:url(#'+id+'-paint)} @media all { #'+id+' text {fill:rgb(1,2,3)} }</style><title id="'+id+'-title">piDiagram1 title</title><desc id="'+id+'-desc">piDiagram10 description</desc><defs><marker id="'+id+'-arrow"><path d="M0 0L1 1"/></marker><filter id="'+id+'-paint"/><linearGradient id="'+id+'-fill"/><linearGradient href="#'+id+'-fill"/></defs><path marker-end="url(#'+id+'-arrow)" style="filter:url(#'+id+'-paint)"/><use href="#'+id+'-arrow"/><text>'+source.replaceAll('&','&amp;').replaceAll('<','&lt;')+'</text><image href="https://bad.invalid/a"/><set onbegin="window.attacked=true"/></svg>'}); if(window.autoFinish) queueMicrotask(window.finishDiagram); }); } };`;
+  const stubPage = async (beforeLoad = Promise.resolve()) => {
+    const page = await browser.newPage();
+    await page.route(`${origin}/mermaid.js`, async (route) => {
+      await beforeLoad;
+      await route.fulfill({ contentType: "text/javascript", body: stub });
+    });
+    // Use the same nonce-only script policy as the webview; allow SVG styles for namespacing assertions.
+    await page.setContent(`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-race'; style-src 'unsafe-inline'">
+      <div class="content"></div><script nonce="race" src="${origin}/rich-content.js" data-mermaid-script="${origin}/mermaid.js"></script>`);
+    return page;
+  };
+  let releaseLoad;
+  const race = await stubPage(new Promise((resolve) => { releaseLoad = resolve; }));
+  const loading = race.waitForRequest(`${origin}/mermaid.js`);
   const diagram = renderSafeMarkdown("```mermaid\nflowchart LR\nA[piDiagram1 piDiagram10]-->B\n```");
-  await race.evaluate(
-    (value) => window.piRichContent.setContent(document.querySelector(".content"), value, () => {}),
-    diagram,
-  );
+  const renderRace = (html) => race.evaluate((value) => window.piRichContent.setContent(document.querySelector(".content"), value, () => {}), html);
+  await renderRace(renderSafeMarkdown("```mermaid\nflowchart LR\nOld-->Target\n```"));
+  await loading;
+  assert.match(await race.locator(".mermaid-source code").textContent(), /Old-->Target/);
+  await renderRace(diagram);
+  await race.evaluate(() => { document.body.className = "vscode-dark"; });
+  releaseLoad();
   await race.waitForFunction(() => Boolean(window.finishDiagram));
+  assert.equal(await race.evaluate(() => window.mermaidTheme), "dark", "initialize for the current theme after loading");
+  assert.equal(await race.evaluate(() => window.renderedSource), "flowchart LR\nA[piDiagram1 piDiagram10]-->B", "skip content replaced during load");
   await race.evaluate(() => {
     window.piRichContent.setContent(document.querySelector(".content"), "<p>Updated</p>", () => {});
     window.finishDiagram();
@@ -402,9 +404,7 @@ try {
   });
   await race.waitForTimeout(20);
   assert.equal(await race.locator(".mermaid-preview").count(), 0);
-  const bounded = await browser.newPage();
-  await bounded.setContent('<div class="content"></div>');
-  await bounded.addScriptTag({ content: stub.outputFiles[0].text });
+  const bounded = await stubPage();
   const blocks = Array.from({ length: 110 }, (_, index) =>
     renderSafeMarkdown(`\`\`\`mermaid\nflowchart LR\nN${index}-->Z\n\`\`\``),
   ).join("");

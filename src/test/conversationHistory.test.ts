@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  ConversationHistoryPages,
   type ConversationHistoryWindow,
   emptyConversationHistory,
   historyRequestIsCurrent,
@@ -18,6 +19,56 @@ function messages(count: number): unknown[] {
     content: [{ type: "text", text: `Message ${index}: duplicate label 日本語 🐈 [.*]` }],
   }));
 }
+
+test("browsing pages are bounded and reject an evicted image or a different origin", () => {
+  const pages = new ConversationHistoryPages();
+  const window = emptyConversationHistory();
+  const page = (content: string) => ({
+    window,
+    messages: [{ id: content.slice(0, 6), role: "user" as const, content }],
+  });
+  pages.bind("origin A");
+  for (let index = 0; index < 4; index++) pages.remember(index, page(String(index)));
+  assert.equal(
+    pages.get(0, () => true),
+    undefined,
+  );
+  assert.equal(pages.get(1, () => true)?.messages[0]?.content, "1");
+  pages.remember(4, {
+    window,
+    messages: [
+      {
+        id: "image",
+        role: "user",
+        content: "",
+        attachments: [
+          {
+            type: "image",
+            label: "Image",
+            fullLabel: "Image",
+            assetId: "image",
+            availability: "available",
+          },
+        ],
+      },
+    ],
+  });
+  assert.equal(
+    pages.get(4, () => false),
+    undefined,
+  );
+  assert.ok(pages.get(4, () => true));
+  pages.remember(5, page("x".repeat(800_000)));
+  assert.equal(
+    pages.get(5, () => true),
+    undefined,
+  );
+  pages.bind("origin B");
+  assert.equal(
+    pages.get(4, () => true),
+    undefined,
+  );
+});
 
 test("bounded history replaces windows with source offsets and no duplicate-label ambiguity", () => {
   const mock = installVscodeMock();

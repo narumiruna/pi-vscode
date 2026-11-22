@@ -11,7 +11,12 @@ function setup() {
     timestamp: index,
     content: `History ${index}`,
   }));
+  const frameBytes = () =>
+    Buffer.byteLength(
+      `${JSON.stringify({ type: "response", command: "get_messages", success: true, data: { messages: source } })}\n`,
+    );
   let calls = 0;
+  let wireBytes = 0;
   const runtime: any = {
     currentState: { connected: true, busy: false, sessionId: "one" },
     currentCwd: process.cwd(),
@@ -22,6 +27,7 @@ function setup() {
     },
     getMessages: async () => {
       calls += 1;
+      wireBytes += frameBytes();
       return source;
     },
   };
@@ -42,7 +48,10 @@ function setup() {
     runtime,
     persisted,
     calls: () => calls,
+    wireBytes: () => wireBytes,
+    frameBytes,
     stateChanged: () => stateChanged(),
+    source,
     dispose() {
       for (const disposable of context.subscriptions) disposable.dispose();
       mock.restore();
@@ -50,7 +59,7 @@ function setup() {
   };
 }
 
-test("host reacquires authoritative history for each bounded replacement; earlier windows are not persisted", async () => {
+test("bounded text history primes two earlier windows; navigation keeps the latest persisted cache", async () => {
   const fixture = setup();
   const { provider, persisted } = fixture;
   try {
@@ -63,23 +72,93 @@ test("host reacquires authoritative history for each bounded replacement; earlie
       direction: "earlier",
       generation: provider.historySyncRevision,
     });
-    assert.equal(fixture.calls(), 2);
+    assert.equal(fixture.calls(), 1);
     assert.equal(provider.messages.length, 100);
     assert.equal(provider.messages[0].content, "History 5");
     assert.equal(persisted.length, saved, "older browsing does not replace the latest cache");
     const generation = provider.historySyncRevision;
     await provider.handleMessage({ type: "historyWindow", direction: "earlier", generation: generation - 1 });
-    assert.equal(fixture.calls(), 2, "stale controls cannot navigate");
-    await provider.handleMessage({ type: "historyWindow", direction: "latest", generation });
-    assert.equal(fixture.calls(), 3);
+    assert.equal(fixture.calls(), 1, "stale controls cannot navigate");
+    await provider.handleMessage({ type: "historyWindow", direction: "earlier", generation });
+    assert.equal(fixture.calls(), 1, "second earlier page is part of the same snapshot");
+    assert.equal(provider.messages[0].content, "History 0");
+    await provider.handleMessage({
+      type: "historyWindow",
+      direction: "latest",
+      generation: provider.historySyncRevision,
+    });
+    assert.equal(fixture.calls(), 1);
+    assert.equal(persisted.length, saved);
     assert.equal(provider.messages[0].content, "History 105");
+    assert.equal(
+      fixture.wireBytes(),
+      fixture.frameBytes(),
+      "only the initial full history frame crosses the fixture RPC boundary",
+    );
     fixture.runtime.currentState.busy = true;
     await provider.handleMessage({
       type: "historyWindow",
       direction: "earlier",
       generation: provider.historySyncRevision,
     });
-    assert.equal(fixture.calls(), 3, "active work never fetches history");
+    assert.equal(fixture.calls(), 1, "active work never fetches history");
+  } finally {
+    fixture.dispose();
+  }
+});
+
+test("history mutations and explicit refresh do not reuse stale pages", async () => {
+  const fixture = setup();
+  const { provider, source } = fixture;
+  try {
+    await provider.syncMessagesFromPi();
+    source[5].content = "Changed by Pi";
+    provider.handleRuntimeEvent({ type: "message_end", message: { role: "custom", content: "Pi changed history" } });
+    await provider.handleMessage({
+      type: "historyWindow",
+      direction: "earlier",
+      generation: provider.historySyncRevision,
+    });
+    assert.equal(fixture.calls(), 2);
+    assert.equal(provider.messages[0].content, "Changed by Pi");
+    await provider.handleMessage({
+      type: "historyWindow",
+      direction: "latest",
+      generation: provider.historySyncRevision,
+    });
+    assert.equal(fixture.calls(), 2);
+    source[5].content = "Changed before explicit refresh";
+    await provider.syncMessagesFromPi();
+    await provider.handleMessage({
+      type: "historyWindow",
+      direction: "earlier",
+      generation: provider.historySyncRevision,
+    });
+    assert.equal(fixture.calls(), 3);
+    assert.equal(provider.messages[0].content, "Changed before explicit refresh");
+  } finally {
+    fixture.dispose();
+  }
+});
+
+test("history with custom messages keeps the authoritative fetch on navigation", async () => {
+  const fixture = setup();
+  const { provider, source } = fixture;
+  try {
+    source[1].role = "custom";
+    await provider.syncMessagesFromPi();
+    await provider.handleMessage({
+      type: "historyWindow",
+      direction: "earlier",
+      generation: provider.historySyncRevision,
+    });
+    await provider.handleMessage({
+      type: "historyWindow",
+      direction: "latest",
+      generation: provider.historySyncRevision,
+    });
+    assert.equal(fixture.calls(), 3);
+    assert.equal(provider.messages[0].content, "History 105");
   } finally {
     fixture.dispose();
   }

@@ -1,5 +1,32 @@
 import DOMPurify from "dompurify";
-import mermaid from "mermaid";
+import { completedFenceBoundary, completedFenceClass } from "./markdownBoundary";
+
+type Mermaid = typeof import("mermaid").default;
+const globals = window as Window & { piMermaid?: Mermaid };
+const bootstrapScript = document.currentScript as HTMLScriptElement | null;
+const mermaidScript = bootstrapScript?.dataset.mermaidScript;
+const nonce = bootstrapScript?.nonce;
+let mermaidLoad: Promise<Mermaid | undefined> | undefined;
+
+function loadMermaid(): Promise<Mermaid | undefined> {
+  // The URL and nonce come from the host's bootstrap tag, never from transcript content.
+  // Keep the first result, including failure, so streaming updates cannot trigger retries.
+  mermaidLoad ??= new Promise<Mermaid | undefined>((resolve) => {
+    if (!mermaidScript || !nonce) return resolve(undefined);
+    const script = document.createElement("script");
+    script.nonce = nonce;
+    script.src = mermaidScript;
+    const finish = (mermaid?: Mermaid) => {
+      delete globals.piMermaid;
+      script.remove();
+      resolve(mermaid);
+    };
+    script.onload = () => finish(globals.piMermaid);
+    script.onerror = () => finish();
+    document.head.append(script);
+  }).catch(() => undefined);
+  return mermaidLoad;
+}
 
 const maxSource = 8000;
 const maxCache = 64;
@@ -10,7 +37,8 @@ let cacheCharacters = 0;
 let sequence = 0;
 let running = false;
 let disposed = false;
-let activeTheme = "";
+let activeTheme = theme();
+let configuredTheme: typeof activeTheme | undefined;
 interface Job {
   element: HTMLElement;
   source: string;
@@ -18,24 +46,25 @@ interface Job {
   resize: () => void;
 }
 
-function theme(): string {
+function theme(): "dark" | "default" {
   return document.body.classList.contains("vscode-dark") || document.body.classList.contains("vscode-high-contrast")
     ? "dark"
     : "default";
 }
-function configure(): void {
-  activeTheme = theme();
+function configure(mermaid: Mermaid): void {
+  if (configuredTheme === activeTheme) return;
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: "strict",
     suppressErrorRendering: true,
-    theme: activeTheme as "dark" | "default",
+    theme: activeTheme,
     maxTextSize: maxSource,
     maxEdges: 100,
     htmlLabels: false,
     flowchart: { htmlLabels: false },
     sequence: { useMaxWidth: true },
   });
+  configuredTheme = activeTheme;
 }
 
 export function allowedDiagram(source: string): boolean {
@@ -143,6 +172,7 @@ function display(job: Job, value: { svg: string } | null): void {
     job.element.setAttribute("aria-label", "Diagram not rendered; source follows");
     return;
   }
+  job.element.removeAttribute("aria-label");
   const preview = document.createElement("div");
   preview.className = "mermaid-preview";
   preview.setAttribute("role", "img");
@@ -167,24 +197,32 @@ async function drain(): Promise<void> {
         display(job, cache.get(job.key) ?? null);
         continue;
       }
-      const id = `piDiagram${++sequence}`;
+      const mermaid = await loadMermaid();
+      if (!current(job)) continue;
+      const renderTheme = activeTheme;
       let value: { svg: string } | null = null;
       try {
-        const result = await mermaid.render(id, job.source);
-        const svg = cleanSvg(result.svg);
-        if (svg.includes("<svg")) value = { svg };
+        if (mermaid) {
+          configure(mermaid);
+          const result = await mermaid.render(`piDiagram${++sequence}`, job.source);
+          if (disposed) break;
+          const svg = cleanSvg(result.svg);
+          if (svg.includes("<svg")) value = { svg };
+        }
       } catch {
-        /* Keep the source on parser, layout or sanitizer failure. */
+        /* Keep the source on load, parser, layout or sanitizer failure. */
       }
       if (disposed) break;
-      store(job.key, value);
-      display(job, value);
+      if (renderTheme === activeTheme) {
+        store(job.key, value);
+        display(job, value);
+      }
     }
   } finally {
     running = false;
   }
 }
-function enrich(element: HTMLElement, resize: () => void): void {
+function enrich(element: HTMLElement | DocumentFragment, resize: () => void): void {
   for (const target of element.querySelectorAll<HTMLElement>(".mermaid-source")) {
     const source = target.querySelector("code")?.textContent ?? "";
     const key = `${activeTheme}:${source}`;
@@ -198,20 +236,62 @@ function enrich(element: HTMLElement, resize: () => void): void {
     else target.setAttribute("aria-label", "Diagram not rendered; source follows");
   }
   // Initial content can be enriched before its article is attached.
-  queueMicrotask(() => {
-    void drain();
-  });
+  if (pending.size && !running) queueMicrotask(() => void drain());
 }
-function setContent(element: HTMLElement, html: string, resize: () => void): void {
-  for (const target of pending.keys()) if (!target.isConnected || element.contains(target)) pending.delete(target);
-  element.innerHTML = DOMPurify.sanitize(html, {
+interface Boundary {
+  end: number;
+  node: HTMLElement;
+}
+const boundaries = new WeakMap<HTMLElement, Boundary>();
+
+function readBoundary(fragment: DocumentFragment, html: string, offset: number): Boundary | undefined {
+  const last = html.lastIndexOf(completedFenceBoundary);
+  if (last === -1) return undefined;
+  let node: HTMLElement | undefined;
+  for (const marker of fragment.querySelectorAll(`.${completedFenceClass}`)) {
+    const prev = marker.previousSibling;
+    node =
+      marker.parentNode === fragment &&
+      prev instanceof HTMLElement &&
+      (prev.tagName === "PRE" || prev.classList.contains("mermaid-source"))
+        ? prev
+        : undefined;
+    marker.remove();
+  }
+  if (node) return { node, end: offset + last + completedFenceBoundary.length };
+}
+
+function setContent(element: HTMLElement, html: string, resize: () => void, previousHtml?: string): void {
+  const prior = boundaries.get(element);
+  // The caller passes previous HTML only for the same assistant tail. The host has fully rendered
+  // the new source, so even later link definitions that change earlier blocks break this match.
+  const retained =
+    prior?.node.parentNode === element &&
+    previousHtml &&
+    previousHtml.length >= prior.end &&
+    html.startsWith(previousHtml.slice(0, prior.end))
+      ? prior
+      : undefined;
+  const offset = retained?.end ?? 0;
+  const suffix = html.slice(offset);
+  const fragment = DOMPurify.sanitize(suffix, {
     USE_PROFILES: { html: true, mathMl: true },
     ADD_TAGS: ["semantics", "annotation"],
     ADD_ATTR: ["encoding"],
     FORBID_TAGS: ["style", "img", "input", "form", "iframe", "object", "embed"],
     ALLOW_DATA_ATTR: false,
+    RETURN_DOM_FRAGMENT: true,
   });
-  enrich(element, resize);
+  const next = readBoundary(fragment, suffix, offset) ?? retained;
+  if (next) boundaries.set(element, next);
+  else boundaries.delete(element);
+  if (retained) while (retained.node.nextSibling) retained.node.nextSibling.remove();
+  for (const target of pending.keys()) {
+    if (!target.isConnected || (!retained && element.contains(target))) pending.delete(target);
+  }
+  enrich(fragment, resize);
+  if (retained) element.append(fragment);
+  else element.replaceChildren(fragment);
 }
 function dispose(): void {
   disposed = true;
@@ -220,10 +300,9 @@ function dispose(): void {
   cacheCharacters = 0;
   observer.disconnect();
 }
-configure();
 const observer = new MutationObserver(() => {
   if (theme() === activeTheme || disposed) return;
-  configure();
+  activeTheme = theme();
   cache.clear();
   cacheCharacters = 0;
   pending.clear();

@@ -114,6 +114,49 @@ export async function run(): Promise<void> {
             };
             break;
           }
+          case "holdCheckpointSettlementOnce": {
+            const extension = vscode.extensions.getExtension("narumi.narumi-pi");
+            assert.ok(extension);
+            const { checkpointCaptureWorker } = require(
+              path.join(extension.extensionPath, "out/checkpointCaptureHost.js"),
+            ) as typeof import("../checkpointCaptureHost");
+            const original = checkpointCaptureWorker.settle;
+            checkpointCaptureWorker.settle = async (...args) => {
+              checkpointCaptureWorker.settle = original;
+              await writeFile(path.join(directory, "checkpoint-settlement-entered"), "Worker settlement pending");
+              const deadline = Date.now() + 20_000;
+              while (!(await readFile(path.join(directory, "checkpoint-settlement-release"), "utf8").catch(() => ""))) {
+                if (args[2].aborted || Date.now() > deadline) throw new Error("Checkpoint settlement fixture stopped.");
+                await new Promise((resolve) => setTimeout(resolve, 50));
+              }
+              await original.apply(checkpointCaptureWorker, args);
+            };
+            break;
+          }
+          case "completionFileSearch": {
+            const folder = vscode.workspace.getWorkspaceFolder(root);
+            assert.ok(folder);
+            const cancellation = new vscode.CancellationTokenSource();
+            try {
+              if (request.cancel === true) cancellation.cancel();
+              const started = performance.now();
+              const pending = vscode.workspace.findFiles(
+                new vscode.RelativePattern(folder, request.include),
+                request.exclude,
+                request.maxResults,
+                cancellation.token,
+              );
+              if (request.cancelInFlight === true) cancellation.cancel();
+              const uris = await pending;
+              result = {
+                paths: uris.map((uri) => path.relative(root.fsPath, uri.fsPath).split(path.sep).join("/")),
+                elapsedMs: performance.now() - started,
+              };
+            } finally {
+              cancellation.dispose();
+            }
+            break;
+          }
           case "clipboardRead":
             result = await vscode.env.clipboard.readText();
             break;
