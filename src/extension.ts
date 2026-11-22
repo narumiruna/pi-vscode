@@ -22,6 +22,7 @@ import { SidebarSessions } from "./sidebarSessions";
 import { registerTestRepair } from "./testRepairController";
 import { abortAllPiInvocations, initializePiRuntime } from "./vscodePi";
 import { registerWorkspaceDiagnostics } from "./workspaceDiagnosticsController";
+import { registerWorktreeCommand } from "./worktreeController";
 
 let shutdownSessions: (() => Promise<void>) | undefined;
 
@@ -140,6 +141,7 @@ async function activateWithLogger(
   registerPiChat(context);
   registerEditorActions(context, conversation);
   registerGitReview(context, runtime, conversation);
+  registerWorktreeCommand(context);
   registerWorkspaceDiagnostics(context, runtime, conversation);
   registerTestRepair(context, runtime, conversation);
   registerDebugContext(context, runtime, conversation);

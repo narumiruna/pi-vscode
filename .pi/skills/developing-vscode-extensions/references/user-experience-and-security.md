@@ -25,6 +25,20 @@ Official sources:
 - [Tree View actions](https://code.visualstudio.com/api/extension-guides/tree-view#view-actions): primary `navigation` actions, secondary overflow actions, and group ordering.
 - [Menus contribution point](https://code.visualstudio.com/api/references/contribution-points#contributes.menus): menu locations, view conditions, and `@<number>` ordering inside groups.
 
+## Use Built-in Git Worktree Operations
+
+- On VS Code 1.146.0, the bundled `vscode.git` extension exposes extension API version 1 through `getAPI(1)`.
+  - Check that the extension is available and enabled before requesting its API; the bundled Git extension can be disabled.
+  - `Repository.createWorktree()` returns the actual path; when called with a branch and no path, the Git extension chooses the location and can run its normal worktree setup after creation.
+  - The `repositories` getter creates fresh wrappers, so match a selected repository by its root URI rather than wrapper object identity.
+- Use `vscode.openFolder` with a folder `Uri` and `{ forceNewWindow: true }` to request a new window on this version.
+  - Opening in the current window can stop the current Extension Host.
+
+Official sources:
+
+- [Git extension API README (1.146.0)](https://github.com/microsoft/vscode/blob/1.146.0/extensions/git/README.md#api), [API declarations](https://github.com/microsoft/vscode/blob/1.146.0/extensions/git/src/api/git.d.ts), [repository wrapper](https://github.com/microsoft/vscode/blob/1.146.0/extensions/git/src/api/api1.ts#L447-L449), and [worktree setup](https://github.com/microsoft/vscode/blob/1.146.0/extensions/git/src/repository.ts#L1952-L2005).
+- [Built-in commands](https://code.visualstudio.com/api/references/commands) and the [Git extension’s new-window command (1.146.0)](https://github.com/microsoft/vscode/blob/1.146.0/extensions/git/src/commands.ts#L3805-L3813).
+
 ## Use Native Settings
 
 - Contribute extension settings through `contributes.configuration` instead of creating a custom Settings page or webview.

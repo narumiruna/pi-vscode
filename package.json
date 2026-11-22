@@ -265,6 +265,12 @@
         "enablement": "isWorkspaceTrusted && workspaceFolderCount != 0"
       },
       {
+        "command": "pi.newWorktreeInNewWindow",
+        "title": "New Worktree in New Window",
+        "category": "Pi",
+        "enablement": "isWorkspaceTrusted && workspaceFolderCount != 0 && !isWeb && !remoteName && !virtualWorkspace"
+      },
+      {
         "command": "pi.switchSession",
         "title": "Switch Session",
         "category": "Pi",
@@ -389,6 +395,11 @@
           "command": "pi.newConcurrentSession",
           "when": "view == pi.chatView",
           "group": "navigation@1"
+        },
+        {
+          "command": "pi.newWorktreeInNewWindow",
+          "when": "view == pi.chatView && isWorkspaceTrusted && workspaceFolderCount != 0 && !isWeb && !remoteName && !virtualWorkspace",
+          "group": "workspace@10"
         },
         {
           "command": "pi.openSettings",

@@ -12,6 +12,7 @@ import {
   vscodeBridgePortEnvironmentKey,
   vscodeBridgeTokenEnvironmentKey,
 } from "../vscodeBridgeProtocol";
+import { seedTaskRepository, simulateSharedGitDirectory } from "./backgroundGitFixture";
 import { installVscodeMock, MockUri } from "./vscodeMock";
 
 test("background manager restores legacy/interrupted tasks safely, previews cancelled results, recovers imports and guards cleanup", async () => {
@@ -28,6 +29,7 @@ test("background manager restores legacy/interrupted tasks safely, previews canc
   const storage = path.join(root, "storage");
   const worktree = path.join(storage, "worktrees", "cancelled");
   const git = (...args: string[]) => execFileSync("git", args, { cwd: repository, env: gitEnvironment() });
+  let identity: ReturnType<typeof simulateSharedGitDirectory> | undefined;
   const managers: InstanceType<typeof BackgroundAgentManager>[] = [];
   let persisted: any[] = [];
   const create = (records: unknown[]) => {
@@ -46,7 +48,6 @@ test("background manager restores legacy/interrupted tasks safely, previews canc
   };
   try {
     await mkdir(repository);
-    await mkdir(path.dirname(worktree), { recursive: true });
     git("init", "-q");
     await writeFile(path.join(repository, "a.txt"), "base\n");
     git("add", "a.txt");
@@ -117,8 +118,11 @@ test("background manager restores legacy/interrupted tasks safely, previews canc
       clientPrototype.setSessionName = originalSetSessionName;
     }
 
-    const origin = { repository: await gitIdentity(repository), baseCommit: (await gitRevision(repository)).head! };
-    git("-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", worktree, origin.baseCommit);
+    const baseCommit = (await gitRevision(repository)).head;
+    assert.ok(baseCommit);
+    const origin = { repository: await gitIdentity(repository), baseCommit };
+    await seedTaskRepository(worktree, origin.repository, origin.baseCommit);
+    identity = simulateSharedGitDirectory(worktree, origin.repository);
     await writeFile(path.join(worktree, "a.txt"), "result\n");
     const base = { title: "fixture", output: "Model says tests passed", status: "completed" };
     const manager = create([
@@ -181,15 +185,41 @@ test("background manager restores legacy/interrupted tasks safely, previews canc
     assert.equal(await readFile(path.join(worktree, "a.txt"), "utf8"), "result\n", "import retains recovery source");
     const recovered = create(persisted);
     assert.deepEqual(recovered.states.find((task) => task.id === "cancelled")?.importReport?.applied, ["a.txt"]);
-    await manager.cleanupWorktree("cancelled");
+    const childProcess = require("node:child_process") as {
+      execFile(
+        command: string,
+        args: string[],
+        options: unknown,
+        callback: (error: Error | null, stdout: string, stderr: string) => void,
+      ): void;
+    };
+    const exec = vi
+      .spyOn(childProcess, "execFile")
+      .mockImplementationOnce((_command, _args, _options, callback) => {
+        callback(null, `worktree ${repository}\0\0worktree ${worktree}\0\0`, "");
+      })
+      .mockImplementationOnce((_command, _args, _options, callback) => {
+        void rm(worktree, { recursive: true }).then(
+          () => callback(null, "", ""),
+          (error: Error) => callback(error, "", ""),
+        );
+      })
+      .mockImplementation(() => assert.fail("Unexpected Git subprocess during cleanup"));
+    try {
+      await manager.cleanupWorktree("cancelled");
+      assert.deepEqual(
+        exec.mock.calls.map(([command, args]) => [command, ...args]),
+        [
+          ["git", "-C", worktree, "worktree", "list", "--porcelain", "-z"],
+          ["git", "-C", repository, "worktree", "remove", "--force", worktree],
+        ],
+      );
+    } finally {
+      exec.mockRestore();
+    }
     assert.equal(manager.states.find((task) => task.id === "cancelled")?.worktreePath, undefined);
     await assert.rejects(manager.openSession("cancelled"), /Isolated sessions/);
     await assert.rejects(readFile(path.join(worktree, "a.txt")), { code: "ENOENT" });
-    const created = await (manager as any).createWorktree(repository, "created");
-    assert.equal(created.origin.baseCommit, origin.baseCommit);
-    assert.equal(await readFile(path.join(created.worktreePath, "a.txt"), "utf8"), "base\n");
-    (manager as any).setTask({ ...base, id: "created", worktreePath: created.worktreePath, origin: created.origin });
-    await manager.cleanupWorktree("created");
     const bounded = create(Array.from({ length: 25 }, (_, index) => ({ ...base, id: String(index) })));
     assert.equal(bounded.states.length, 20);
     (bounded as any).resultOperations.add("5");
@@ -207,6 +237,7 @@ test("background manager restores legacy/interrupted tasks safely, previews canc
     managers.forEach((manager) => {
       manager.dispose();
     });
+    identity?.mockRestore();
     vscode.restore();
     await rm(root, { recursive: true, force: true });
   }

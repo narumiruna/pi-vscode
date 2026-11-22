@@ -33,6 +33,7 @@ export async function run(): Promise<void> {
   const source = await vscode.workspace.openTextDocument(uri);
   const directShell = await verifyNativeDirectShell();
   const sessionQuickSwitch = await verifyNativeSessionSwitch(root);
+  assert.ok((await vscode.commands.getCommands(true)).includes("pi.newWorktreeInNewWindow"));
   if (!vscode.workspace.isTrusted) {
     await verifyNativePiControl(root);
     await assert.rejects(queryCodeContext("definition", uri, new vscode.Position(1, 0)), /trusted/);
@@ -44,6 +45,7 @@ export async function run(): Promise<void> {
       annotations: "Clear command needs no client; authenticated foreground annotation routes reject Restricted Mode",
       directShell,
       sessionQuickSwitch,
+      worktreeCommandRegistration: "passed",
     });
     return;
   }
@@ -184,6 +186,7 @@ export async function run(): Promise<void> {
     diagnosticEncodingCases,
     directShell,
     sessionQuickSwitch,
+    worktreeCommandRegistration: "passed",
   });
 }
 

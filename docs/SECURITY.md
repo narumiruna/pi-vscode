@@ -329,6 +329,10 @@ RPC launches explicitly pass `--no-approve` when this setting is disabled, rathe
 New workflow processes and mutations reject untrusted or virtual workspaces in the host, not just disabled UI.
 Foreground actions and resumed session headers must match Pi's canonical working directory.
 Cross-worktree sessions must be opened in the matching workspace window.
+**Pi: New Worktree in New Window** checks trust, local desktop placement, and the selected file-backed repository in the host before creating a worktree through VS Code’s built-in Git extension.
+The command does not start a Pi request, grant trust to the new window, change task permissions, or remove the worktree on failure or close.
+The normal Git checkout and VS Code worktree setup can run configured hooks or tasks, or copy and link files according to the existing settings.
+Do not treat the worktree as a security sandbox.
 The Pi bridge extension is bundled in the VSIX and loaded process-locally for foreground RPC and **Open in Terminal** Pi sessions.
 Release/source installers and extension activation remove only the historical `picode.ts` and `pi-vscode.ts` global bridge paths created by this project; they do not create a Pi extension directory on a clean installation.
 Activation performs this migration before starting Pi and fails closed if cleanup cannot complete, preventing a legacy global copy from loading beside the bundled bridge after a direct VSIX or Marketplace upgrade.

@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 
 interface MenuContribution {
   readonly command?: string;
+  readonly group?: string;
   readonly when?: string;
 }
 
@@ -159,6 +160,18 @@ test("workflow commands are contributed, registered, documented and keep minimum
     "Ask Debug Context",
   ])
     assert.ok(readme.includes(`Pi: ${label}`));
+});
+
+test("new-window worktree creation is a Pi overflow and Command Palette action, not the session plus action", () => {
+  const id = "pi.newWorktreeInNewWindow";
+  const enablement = "isWorkspaceTrusted && workspaceFolderCount != 0 && !isWeb && !remoteName && !virtualWorkspace";
+  const contributed = manifest.contributes.commands.find(({ command }) => command === id);
+  assert.deepEqual(contributed, { command: id, title: "New Worktree in New Window", category: "Pi", enablement });
+  const actions = manifest.contributes.menus["view/title"];
+  const action = actions.find(({ command }) => command === id);
+  assert.deepEqual(action, { command: id, group: "workspace@10", when: `view == pi.chatView && ${enablement}` });
+  assert.equal(actions.find(({ command }) => command === "pi.newConcurrentSession")?.group, "navigation@1");
+  assert.ok(!manifest.contributes.menus.commandPalette.some(({ command }) => command === id));
 });
 
 test("session navigation commands keep stable IDs and guarded, overridable chords", () => {
