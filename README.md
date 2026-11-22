@@ -208,6 +208,7 @@ See the [validation coverage](docs/FEATURE_MATRIX.md#concurrent-interactive-edit
 | Repair diagnostics | **Pi: Fix Workspace Diagnostics (Preview)**. |
 | Repair a failed test | **Pi: Repair Failed Test (Preview)**; approve a command or inspect an existing log. |
 | Ask about paused debug values | **Pi: Ask Debug Context**; supports paused Node.js debug sessions. |
+| Open a separate Git worktree | **Pi: New Worktree in New Window**, also in the Pi Sidebar title’s **⋯** menu; local, trusted Git workspaces only. |
 | Import isolated-agent results | **More… → Review Results → Apply Selected** on an inactive worktree agent. |
 | Inspect or restore request checkpoints | **More… → Request Checkpoints**; memory-only file recovery, not a Git rewind. |
 

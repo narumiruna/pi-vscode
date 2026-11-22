@@ -128,7 +128,9 @@ export function installVscodeMock(): any {
     },
     ProgressLocation: { Notification: 15 },
     version: "1.140.0",
-    env: {},
+    UIKind: { Desktop: 1, Web: 2 },
+    env: { uiKind: 1 },
+    extensions: { getExtension: () => undefined },
     outputChannels: [],
     InlineCompletionTriggerKind: { Invoke: 0, Automatic: 1 },
     InlineCompletionItem: class {

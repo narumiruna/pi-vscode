@@ -141,6 +141,13 @@ The universal layout retains the production dependency closure and six native pr
 Asset inclusion is not a claim that all targets work.
 See [Bundled runtime validation](BUNDLED_RUNTIME_VALIDATION.md) for discovery evidence, final-gate status, license disposition, and retained platform/remote/provider handoff.
 
+### Open a worktree in a new window
+
+**Pi: New Worktree in New Window** uses VS Code’s built-in Git extension to create a named branch from the selected repository’s HEAD and open its worktree in a new window.
+The command needs a trusted, local desktop workspace and a repository discovered by Source Control.
+It does not move sessions or uncommitted changes and does not remove the worktree on close.
+See [the worktree instructions](USER_GUIDE.md#open-a-worktree-in-a-new-window) for recovery and shared-folder limits.
+
 ### Concurrent Sidebar sessions
 
 One registered Sidebar displays retained per-runtime conversation controllers.

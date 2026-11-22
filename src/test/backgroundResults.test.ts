@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmod, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -10,6 +10,7 @@ import {
   validTaskOrigin,
 } from "../backgroundResults";
 import { gitEnvironment, gitIdentity } from "../gitSnapshots";
+import { seedTaskRepository, simulateSharedGitDirectory } from "./backgroundGitFixture";
 
 async function fixture(
   run: (
@@ -19,7 +20,7 @@ async function fixture(
     git: (cwd: string, ...args: string[]) => string,
   ) => Promise<void>,
 ): Promise<void> {
-  const root = await mkdtemp(path.join(tmpdir(), "pi-results-"));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "pi-results-")));
   const task = `${root}-task`;
   const git = (cwd: string, ...args: string[]) =>
     execFileSync("git", ["-c", "commit.gpgsign=false", ...args], {
@@ -40,8 +41,14 @@ async function fixture(
     git(root, "add", ".");
     git(root, "commit", "-qm", "base");
     const origin = { repository: await gitIdentity(root), baseCommit: git(root, "rev-parse", "HEAD") };
-    git(root, "worktree", "add", "--detach", task, origin.baseCommit);
-    await run(root, task, origin, git);
+    await seedTaskRepository(task, origin.repository, origin.baseCommit);
+    await assert.rejects(captureBackgroundResult(task, origin), /not an isolated worktree/);
+    const identity = simulateSharedGitDirectory(task, origin.repository);
+    try {
+      await run(root, task, origin, git);
+    } finally {
+      identity.mockRestore();
+    }
   } finally {
     await rm(task, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
@@ -118,6 +125,7 @@ test("Git index modes preserve executable content changes when filesystem modes 
     git(root, "update-index", "--chmod=+x", "executable");
     git(root, "commit", "-qm", "executable base");
     const recorded = { ...origin, baseCommit: git(root, "rev-parse", "HEAD") };
+    git(task, "fetch", "-q", "--no-tags", root, recorded.baseCommit);
     git(task, "reset", "--hard", recorded.baseCommit);
     git(task, "config", "core.filemode", "false");
     await chmod(path.join(task, "executable"), 0o644);
@@ -152,6 +160,7 @@ test("a skipped oversized candidate does not consume the budget for later fittin
     git(root, "add", "a", "b", "c", "d");
     git(root, "commit", "-qm", "bounded base");
     const recorded = { ...origin, baseCommit: git(root, "rev-parse", "HEAD") };
+    git(task, "fetch", "-q", "--no-tags", root, recorded.baseCommit);
     git(task, "reset", "--hard", recorded.baseCommit);
     for (const [name, size] of [
       ["a", 90_000],
@@ -181,9 +190,9 @@ test("observed Git reads never execute configured filters/fsmonitor or inherited
       `require('fs').writeFileSync(${JSON.stringify(marker)},'unsafe helper');process.stdout.write('rewritten');`,
     );
     const command = `${JSON.stringify(process.execPath)} ${JSON.stringify(helper)}`;
-    git(root, "config", "filter.fixture.clean", command);
-    git(root, "config", "filter.fixture.required", "true");
-    git(root, "config", "core.fsmonitor", command);
+    git(task, "config", "filter.fixture.clean", command);
+    git(task, "config", "filter.fixture.required", "true");
+    git(task, "config", "core.fsmonitor", command);
     await writeFile(path.join(task, ".gitattributes"), "modified filter=fixture\n");
     await writeFile(path.join(task, "modified"), "actual result\n");
     const previous = process.env.GIT_EXTERNAL_DIFF;

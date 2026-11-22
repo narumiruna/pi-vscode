@@ -47,6 +47,9 @@ npm exec --yes --package=@biomejs/biome@2.5.13 -- biome check src resources
 | `npm run package` | Run the full test suite, create or overwrite `pi.vsix`, and run the extracted bundled-runtime smoke check. |
 | `npm run test:bundled-runtime` | Extract local `pi.vsix` outside the checkout and check its actual runtime offline without PATH Pi/Node lookup. |
 
+`npm test` does not create linked Git worktrees.
+Background result tests use independent temporary repositories and simulate the shared Git directory and worktree removal.
+
 #### Build order
 
 Rerun `npm run compile` after renderer or style changes when using `npm run watch`.

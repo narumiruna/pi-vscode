@@ -149,6 +149,24 @@ Check remaining work before starting conflicting operations.
 Use `@pi` in VS Code's native Chat view when you prefer the native participant workflow.
 Native Chat history is separate from the Pi sidebar session.
 
+### Open a worktree in a new window
+
+Choose **New Worktree in New Window** in the Pi Sidebar title’s **⋯** menu, or run **Pi: New Worktree in New Window** from the Command Palette.
+Use a trusted, local VS Code desktop workspace with the built-in Git extension enabled and a repository visible in Source Control.
+You can open a subfolder of a repository if VS Code associates that folder with the repository in Source Control.
+If more than one repository is available for the open folders, choose the source repository.
+Pi makes a new branch with a generated `pi/worktree-…` name from the selected repository’s current commit and opens the worktree in a new window.
+You do not enter a branch name or path; the Git extension chooses the worktree location.
+
+The original branch, staged and unstaged changes, and running Pi sessions stay in the original window.
+Pi does not move conversations or send a prompt.
+VS Code can still [copy or link ignored files](https://code.visualstudio.com/docs/sourcecontrol/branches-worktrees#_include-files-when-creating-a-worktree) and run configured worktree tasks.
+A worktree has its own checked-out files, but it shares Git history and can share folders; it is not a security sandbox.
+
+If the worktree was created but the new window could not open, use the displayed path to open the folder in a new window.
+Closing the window does not delete the worktree.
+Manage or remove worktrees in [Source Control](https://code.visualstudio.com/docs/sourcecontrol/branches-worktrees#_working-with-git-worktrees).
+
 ### Concurrent Sidebar sessions
 
 The Sidebar displays one conversation at a time over retained independent runtimes.
