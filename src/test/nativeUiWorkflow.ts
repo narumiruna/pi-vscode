@@ -96,6 +96,24 @@ export async function run(): Promise<void> {
           case "command":
             result = await vscode.commands.executeCommand(request.command, ...(request.args ?? []));
             break;
+          case "holdCheckpointCaptureOnce": {
+            const extension = vscode.extensions.getExtension("narumi.narumi-pi");
+            assert.ok(extension);
+            const { checkpointCaptureWorker } = require(
+              path.join(extension.extensionPath, "out/checkpointCaptureHost.js"),
+            ) as typeof import("../checkpointCaptureHost");
+            const original = checkpointCaptureWorker.capture;
+            checkpointCaptureWorker.capture = async (_root, _dirty, signal, _accept) => {
+              checkpointCaptureWorker.capture = original;
+              await writeFile(path.join(directory, "checkpoint-capture-entered"), "Worker capture pending");
+              await new Promise<void>((_resolve, reject) => {
+                const cancel = () => reject(new Error("Pi request was cancelled."));
+                if (signal.aborted) cancel();
+                else signal.addEventListener("abort", cancel, { once: true });
+              });
+            };
+            break;
+          }
           case "clipboardRead":
             result = await vscode.env.clipboard.readText();
             break;

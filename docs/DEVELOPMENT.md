@@ -363,6 +363,23 @@ Native checks download a VS Code test build into the system temporary cache and 
 UI checks use a deterministic Pi RPC fixture; Playwright connects only to the disposable profile's loopback debugging endpoint.
 These checks do not use a live model, your VS Code profile, or your workspace.
 
+### Checkpoint capture validation
+
+From the repository root, compare foreground checkpoint capture with the original implementation:
+
+```bash
+npm run compile
+node scripts/benchmark-checkpoint-capture.cjs 49a7f26
+```
+
+The benchmark alternates 24 samples of each path in unchanged 100-file and 9,800-file fixtures, with a cold worker or a reused worker.
+It compares ordered checkpoint records, exclusions, and byte totals and uses the offline Pi subprocess to verify real RPC dispatch.
+It reports timer-gap p95, capture time, and dispatch time separately; these are Node.js measurements, not native UI latency.
+The gate requires at least 50% less warm timer-gap p95 in the 9,800-file fixture and permits at most 15 ms or 10% median dispatch regression, whichever is greater, in each fixture.
+Run this benchmark separately from compilation and other system-intensive checks.
+The full native UI suite on VS Code 1.146.0 also holds capture open, presses Stop, verifies no RPC prompt, and sends another request through the real worker.
+For packaged worker validation, run `npm run package`, inspect `extension/out/checkpointWorker.js` in `pi.vsix`, and run the same native UI suite with the `packaged` selector in a disposable profile.
+
 ### Operation diagnostics validation
 
 Append `output-diagnostics` to `test:native-ui` for the isolated **Show Output** fixture.

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { realpathSync, statSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -228,6 +229,7 @@ export class PiChatViewProvider
   private transcriptRevision = 0;
   private lastTranscript: { messages: readonly SidebarMessage[]; tailHtml: string } | undefined;
   private foregroundCancellable = false;
+  private pendingDispatch: AbortController | undefined;
   private noticeRevision = 0;
   private recentSessions: PiSessionSummary[] = [];
   private sessionRefreshRevision = 0;
@@ -405,6 +407,7 @@ export class PiChatViewProvider
 
   public dispose(): void {
     this.disposed = true;
+    this.pendingDispatch?.abort();
     this.historySyncRevision += 1;
     this.sessionRefreshRevision += 1;
     this.sessionCycle = [];
@@ -689,7 +692,8 @@ export class PiChatViewProvider
           break;
         case "cancel":
           this.requestLifecycle.cancel();
-          await this.runtime.abort();
+          if (this.pendingDispatch) this.pendingDispatch.abort();
+          else await this.runtime.abort();
           this.queuedTranscriptPresentations.clear();
           this.status = "Stopped · Check history and effects before sending again";
           this.postState();
@@ -1635,10 +1639,32 @@ export class PiChatViewProvider
     let synchronizingHistory = false;
     let releaseOperation = () => {};
     let overlapped = false;
+    let preparedCheckpoint: Awaited<ReturnType<WorkspaceChangeTracker["prepareRequest"]>> | undefined;
+    const dispatchWatchers: vscode.Disposable[] = [];
+    const clearDispatchWatchers = () => {
+      for (const watcher of dispatchWatchers.splice(0)) watcher.dispose();
+    };
+    const dispatch = new AbortController();
+    this.pendingDispatch = dispatch;
     try {
       await this.runtime.ensureStarted(resource ?? this.surface?.resource);
+      const session = this.submissionSessionIdentity();
+      const generation = this.runtime.clientGeneration;
+      const cwd = this.runtime.currentCwd;
+      const root = await realpath(cwd);
+      const rootIdentity = statSync(root, { bigint: true });
+      if (dispatch.signal.aborted || this.disposed) throw new Error("Pi request was cancelled.");
+      const originMatches = () =>
+        this.runtime.clientGeneration === generation && this.submissionSessionIdentity() === session;
+      if (!originMatches()) throw new Error("Pi session changed before submission.");
+      dispatchWatchers.push(
+        this.runtime.onDidChangeState(() => {
+          if (!originMatches()) dispatch.abort();
+        }),
+        vscode.workspace.onDidChangeWorkspaceFolders(() => dispatch.abort()),
+      );
       releaseOperation = acquireAgentOperation(
-        await realpath(this.runtime.currentCwd),
+        root,
         "foreground Pi request",
         () => {
           overlapped = true;
@@ -1702,14 +1728,32 @@ export class PiChatViewProvider
         resource,
         images,
         behavior.clearComposerOnAccepted ? onAccepted : undefined,
-        () => {
+        async () => {
           this.requestLifecycle.throwIfCancelled();
           validate?.();
+          if (!originMatches() || dispatch.signal.aborted) throw new Error("Pi session changed before submission.");
           if (shouldTrackConversationChanges(policy)) {
-            this.changeTracker.startRequest(this.runtime.currentCwd, this.runtime.currentState.sessionId);
-            if (overlapped) this.changeTracker.invalidateConcurrentRequest();
-            this.trackCurrentRequestChanges = true;
+            preparedCheckpoint = await this.changeTracker.prepareRequest(
+              root,
+              this.runtime.currentState.sessionId ?? "unknown",
+              dispatch.signal,
+            );
           }
+          return () => {
+            this.requestLifecycle.throwIfCancelled();
+            if (!originMatches() || dispatch.signal.aborted || realpathSync(cwd) !== root)
+              throw new Error("Pi session or workspace changed before submission.");
+            const currentRoot = statSync(root, { bigint: true });
+            if (currentRoot.dev !== rootIdentity.dev || currentRoot.ino !== rootIdentity.ino)
+              throw new Error("Pi session or workspace changed before submission.");
+            validate?.();
+            if (preparedCheckpoint) {
+              preparedCheckpoint.commit(overlapped);
+              this.trackCurrentRequestChanges = true;
+            }
+            clearDispatchWatchers();
+            this.pendingDispatch = undefined;
+          };
         },
         origin === "composer" && !onResponse && policy === undefined && !text.startsWith("/"),
         retryable,
@@ -1803,6 +1847,9 @@ export class PiChatViewProvider
       throw error;
     } finally {
       this.foregroundCancellable = false;
+      this.pendingDispatch = undefined;
+      preparedCheckpoint?.dispose();
+      clearDispatchWatchers();
       await this.runtime.shutdownCompletion?.catch(() => {});
       releaseOperation();
       releaseRequest();
@@ -2374,6 +2421,7 @@ export class PiChatViewProvider
   }
 
   private handleRuntimeEvent(event: PiRpcEvent): void {
+    if (event.type === "process_exit") this.pendingDispatch?.abort();
     if (
       event.type === "process_exit" ||
       event.type === "session_imported" ||

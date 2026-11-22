@@ -64,7 +64,7 @@ test("rejected checkpoint candidates leave room for later fitting files", () => 
   assert.deepEqual(record.exclusions, ["overflow: retained snapshot limit", "oversized-side: retained snapshot limit"]);
 });
 
-test("semantic lookup preserves attributable request-start checkpoints; dirty, external and shell changes are not restorable", () => {
+test("semantic lookup preserves attributable request-start checkpoints; dirty, external and shell changes are not restorable", async () => {
   const vscode = installVscodeMock();
   const { WorkspaceChangeTracker } = require("../changeTracker") as typeof import("../changeTracker");
   const root = mkdtempSync(path.join(tmpdir(), "pi-checkpoint-"));
@@ -72,7 +72,7 @@ test("semantic lookup preserves attributable request-start checkpoints; dirty, e
   const tracker = new WorkspaceChangeTracker();
   try {
     writeFileSync(file, "before");
-    tracker.startRequest(root, "session");
+    await tracker.startRequest(root, "session");
     tracker.captureToolEvent({
       type: "tool_execution_start",
       toolName: "vscode_code_context",
@@ -92,7 +92,7 @@ test("semantic lookup preserves attributable request-start checkpoints; dirty, e
     tracker.revert(changes[0]!.id);
     assert.equal(readFileSync(file, "utf8"), "before");
     vscode.workspace.textDocuments = [{ uri: MockUri.file(file), isDirty: true }];
-    tracker.startRequest(root, "session");
+    await tracker.startRequest(root, "session");
     writeFileSync(file, "dirty");
     tracker.captureToolEvent({
       type: "tool_execution_start",
@@ -101,7 +101,7 @@ test("semantic lookup preserves attributable request-start checkpoints; dirty, e
     });
     assert.equal(tracker.finishRequest().length, 0);
     vscode.workspace.textDocuments = [];
-    tracker.startRequest(root, "session");
+    await tracker.startRequest(root, "session");
     tracker.captureToolEvent({
       type: "tool_execution_start",
       toolName: "write",
@@ -109,11 +109,11 @@ test("semantic lookup preserves attributable request-start checkpoints; dirty, e
     });
     writeFileSync(file, "external edit");
     assert.equal(tracker.finishRequest().length, 0);
-    tracker.startRequest(root, "session");
+    await tracker.startRequest(root, "session");
     tracker.captureToolEvent({ type: "tool_execution_start", toolName: "bash", args: {} });
     writeFileSync(file, "shell effect");
     assert.equal(tracker.finishRequest().length, 0);
-    tracker.startRequest(root, "session");
+    await tracker.startRequest(root, "session");
     tracker.captureToolEvent({
       type: "tool_execution_start",
       toolName: "write",
@@ -122,7 +122,7 @@ test("semantic lookup preserves attributable request-start checkpoints; dirty, e
     tracker.captureToolEvent({ type: "tool_execution_start", toolName: "custom_mutation", args: {} });
     writeFileSync(file, "custom effect");
     assert.equal(tracker.finishRequest().length, 0);
-    tracker.startRequest(root, "session");
+    await tracker.startRequest(root, "session");
     tracker.captureToolEvent({
       type: "tool_execution_start",
       toolName: "write",
@@ -142,7 +142,7 @@ test("semantic lookup preserves attributable request-start checkpoints; dirty, e
     rmSync(file);
     const large = "x".repeat(2 * 1024 * 1024);
     for (let index = 0; index < 11; index++) writeFileSync(path.join(root, `bounded-${index}`), large);
-    tracker.startRequest(root, "session");
+    await tracker.startRequest(root, "session");
     const captures = (tracker as any).current.files as Map<string, unknown>;
     assert.ok(captures.size <= 10);
     const omitted = Array.from({ length: 11 }, (_, index) => `bounded-${index}`).find((name) => !captures.has(name))!;

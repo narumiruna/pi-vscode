@@ -184,6 +184,7 @@ Other existing global integrations, including editor actions, review, and repair
 Terminal handoff/recovery, confirmed restart, and temporary annotations remain Primary-only and are omitted from auxiliary routes.
 Ordinary requests can overlap, but direct shell, session/resource controls, Apply, import, and checkpoint restore keep their exclusive workspace gates.
 Concurrent activity can make checkpoint restoration unavailable.
+If you select **Stop** while Pi prepares the workspace checkpoint, the extension cancels the request before it sends the prompt.
 
 Editor panels do not automatically restore or restart after window reload.
 After a panel closes and writer cleanup is verified, resume its saved session through the sidebar.

@@ -84,9 +84,9 @@ function fixture(connected = true, busy = false, source = "alpha beta gamma\n", 
       _resource: unknown,
       _images: unknown,
       onAccepted?: () => void,
-      beforeSubmit?: () => void,
+      beforeSubmit?: () => void | Promise<() => void>,
     ) => {
-      beforeSubmit?.();
+      (await beforeSubmit?.())?.();
       calls.push({ kind: "prompt", session: runtime.currentState.sessionId, message });
       history.push(
         { role: "user", content: message },

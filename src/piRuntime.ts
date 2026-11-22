@@ -599,7 +599,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     resource?: vscode.Uri,
     images?: readonly PiRpcImage[],
     onAccepted?: () => void,
-    beforeSubmit?: () => void,
+    beforeSubmit?: () => void | Promise<() => void>,
     allowQueue = false,
     retryable = false,
   ): Promise<string | { disposition: "handled" } | undefined> {
@@ -614,7 +614,7 @@ export class PiRuntimeManager implements vscode.Disposable {
     resource?: vscode.Uri,
     images?: readonly PiRpcImage[],
     onAccepted?: () => void,
-    beforeSubmit?: () => void,
+    beforeSubmit?: () => void | Promise<() => void>,
     allowQueue = false,
   ): Promise<string | { disposition: "handled" } | undefined> {
     if (/^\/vscode-pi-/i.test(message.trimStart()))
@@ -627,7 +627,23 @@ export class PiRuntimeManager implements vscode.Disposable {
       if (this.state.busy) {
         throw new Error("Pi is already working. Send a steering message or cancel the active request first.");
       }
-      beforeSubmit?.();
+      const captureOrigin = [this.generation, this.state.sessionId, this.state.sessionFile, this.currentCwd];
+      const preparation = beforeSubmit?.();
+      const commit = preparation && (await preparation);
+      if (resource && preparation) await this.assertResourceMatchesActiveWorkspace(resource);
+      if (this.editorWorkspace) await this.assertEditorWorkspace();
+      this.assertEditorWorkspaceMembership();
+      if (!vscode.workspace.isTrusted) throw new Error("Pi requires a trusted workspace.");
+      const current = [this.generation, this.state.sessionId, this.state.sessionFile, this.currentCwd];
+      if (
+        this.disposed ||
+        this.client !== client ||
+        !client.isRunning ||
+        this.state.busy ||
+        captureOrigin.some((value, index) => value !== current[index])
+      )
+        throw new Error("Pi request was disposed or replaced before submission.");
+      commit?.();
 
       const settled = this.createSettledWaiter();
       void settled.promise.catch(() => undefined);
@@ -642,11 +658,6 @@ export class PiRuntimeManager implements vscode.Disposable {
         pendingQueue: emptyPendingQueue(),
       });
       try {
-        if (this.editorWorkspace) {
-          await this.assertEditorWorkspace();
-          if (this.disposed || this.client !== client || !client.isRunning)
-            throw new Error("Pi request was disposed or replaced before submission.");
-        }
         request.submitted = true;
         request.generation = this.generation;
         const disposition = await client.prompt(message, images);

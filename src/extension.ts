@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { WorkspaceChangeTracker } from "./changeTracker";
 import { registerPiChat } from "./chat";
+import { checkpointCaptureWorker } from "./checkpointCaptureHost";
 import { ConcurrentSessions } from "./concurrentSessions";
 import { registerDebugContext } from "./debugContextController";
 import { registerEditorActions } from "./editorActions";
@@ -151,7 +152,7 @@ async function activateWithLogger(
 
 export async function deactivate(): Promise<void> {
   abortAllPiInvocations();
-  await shutdownSessions?.();
+  await Promise.allSettled([shutdownSessions?.(), checkpointCaptureWorker.close()]);
   shutdownSessions = undefined;
 }
 

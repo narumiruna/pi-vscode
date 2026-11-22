@@ -220,10 +220,12 @@ export function installVscodeMock(): any {
       onDidChangeConfiguration: (listener: (...args: any[]) => void) => listen(configurationEvents, "change", listener),
       onDidChangeWorkspaceFolders: (listener: (...args: any[]) => void) => listen(workspaceEvents, "folders", listener),
       onDidGrantWorkspaceTrust: (listener: (...args: any[]) => void) => listen(workspaceEvents, "trust", listener),
+      onDidOpenTextDocument: (listener: (...args: any[]) => void) => listen(workspaceEvents, "openDocument", listener),
       onDidCloseTextDocument: (listener: (...args: any[]) => void) =>
         listen(workspaceEvents, "closeDocument", listener),
       onDidChangeTextDocument: (listener: (...args: any[]) => void) =>
         listen(workspaceEvents, "changeDocument", listener),
+      emitTextDocumentChange: (event: unknown) => workspaceEvents.emit("changeDocument", event),
       textDocuments: [],
       workspaceFolders: [],
       registerTextDocumentContentProvider: disposable,

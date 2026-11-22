@@ -5,20 +5,20 @@ import {
   ftruncateSync,
   lstatSync,
   openSync,
-  readdirSync,
   readSync,
   realpathSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
 import * as vscode from "vscode";
+import { checkpointPathKey, maxCheckpointFile as maxFile } from "./checkpointCapture";
+import { captureCheckpoint } from "./checkpointCaptureHost";
 import { CheckpointHistory, expectedToolText, type RequestCheckpoint } from "./checkpointHistory";
 import { decodeText, safeRelativePath } from "./gitSnapshots";
 import { acquireOperation, observeOperations } from "./operationLocks";
 import type { PiRpcEvent } from "./piRpcClient";
 import { isDirtyFile, requireTrustedFile } from "./workflowUi";
 
-const maxFile = 2 * 1024 * 1024;
 const concurrentWriterExclusion = "Concurrent workspace writers: request attribution is unproven; restore unavailable.";
 const invalidatedCheckpointExclusion =
   "Other workspace activity: historical checkpoint attribution is unverified; restore unavailable.";
@@ -57,6 +57,7 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
       }
     | undefined;
   private latest: RequestCheckpoint | undefined;
+  private capture: AbortController | undefined;
 
   public get hasProtectedRecovery(): boolean {
     return this.history.values.some((record) => record.restoreFailed);
@@ -90,68 +91,99 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
     if (!request.exclusions.includes(concurrentWriterExclusion)) request.exclusions.unshift(concurrentWriterExclusion);
   }
 
-  /** This boundary completes synchronously before runtime.prompt can submit to the subprocess. */
-  public startRequest(cwd: string, sessionId = "unknown"): void {
-    const root = realpathSync(cwd);
-    if (this.operationObserver && this.observedRoot !== root) this.enableConcurrentSafety(root);
-    this.previews.clear();
+  public async prepareRequest(root: string, sessionId: string, requestSignal: AbortSignal) {
+    if (this.capture) throw new Error("A checkpoint capture is already pending.");
+    const controller = new AbortController();
+    this.capture = controller;
+    const signal = AbortSignal.any([controller.signal, requestSignal]);
     const files = new Map<string, StartFile>();
-    const exclusions: string[] = [
-      "Coverage: pre-captured existing regular text files only; new files, deletions, and shell effects are unsupported.",
-    ];
-    let bytes = 0;
-    let visited = 0;
-    const pending = [""];
-    while (pending.length && visited < 10_000 && bytes < 20 * 1024 * 1024) {
-      const relative = pending.pop()!;
+    const exclusions: string[] = [];
+    let expectedBytes = 0;
+    const ineligible = new Set<string>();
+    const names = new Map<string, string>();
+    let ambiguousBuffer = false;
+    const exclude = (doc: vscode.TextDocument) => {
+      if (doc.uri.scheme !== "file") return;
+      let absolute: string;
       try {
-        if (realpathSync(path.join(root, relative)) !== path.join(root, relative)) {
-          exclusions.push(`${relative}: symlink directory`);
-          continue;
-        }
-        for (const entry of readdirSync(path.join(root, relative), { withFileTypes: true })) {
-          if (++visited > 10_000) break;
-          const name = path.posix.join(relative.replace(/\\/g, "/"), entry.name);
-          if ([".git", "node_modules", ".aru"].includes(entry.name)) {
-            exclusions.push(`${name}: excluded directory`);
-            continue;
-          }
-          if (entry.isDirectory()) {
-            pending.push(name);
-            continue;
-          }
-          if (!entry.isFile() || dirty(path.join(root, name))) {
-            exclusions.push(`${name}: non-regular or dirty buffer`);
-            continue;
-          }
-          const before = readCovered(root, name);
-          if (before === undefined) {
-            exclusions.push(`${name}: unavailable, non-text or oversized`);
-            continue;
-          }
-          bytes += Buffer.byteLength(before);
-          if (bytes > 20 * 1024 * 1024) {
-            exclusions.push("Request-start capture overflow");
-            break;
-          }
-          files.set(name, { before, expected: before, announced: false, unsupported: false });
-        }
+        absolute = realpathSync(doc.uri.fsPath);
       } catch {
-        exclusions.push(`${relative}: unavailable during request-start capture`);
+        absolute = path.resolve(doc.uri.fsPath);
       }
-    }
-    if (pending.length || visited >= 10_000) exclusions.push("Request-start enumeration limit");
-    const expectedBytes = [...files.values()].reduce((total, file) => total + Buffer.byteLength(file.expected), 0);
-    this.current = {
-      cwd: root,
-      sessionId,
-      startedAt: Date.now(),
-      files,
-      expectedBytes,
-      exclusions,
-      unprovenEffects: false,
+      const key = checkpointPathKey(absolute);
+      const relative = path.relative(checkpointPathKey(root), key);
+      if (!relative || path.isAbsolute(relative) || relative.startsWith(`..${path.sep}`) || relative === "..") return;
+      if (ineligible.size >= 10_000 && !ineligible.has(key)) {
+        ambiguousBuffer = true;
+        return;
+      }
+      ineligible.add(key);
     };
-    this.latest = undefined;
+    const listeners = [
+      vscode.workspace.onDidOpenTextDocument((doc) => {
+        if (doc.isDirty) exclude(doc);
+      }),
+      vscode.workspace.onDidChangeTextDocument(({ document, contentChanges }) => {
+        if (document.isDirty || contentChanges.length) exclude(document);
+      }),
+    ];
+    const dispose = () => {
+      for (const listener of listeners) listener.dispose();
+      if (this.capture === controller) this.capture = undefined;
+    };
+    try {
+      for (const doc of vscode.workspace.textDocuments) if (doc.isDirty) exclude(doc);
+      await captureCheckpoint(root, new Set(ineligible), signal, (record) => {
+        if ("exclusion" in record) exclusions.push(record.exclusion);
+        else {
+          const { path: name, before } = record;
+          files.set(name, { before, expected: before, announced: false, unsupported: false });
+          names.set(checkpointPathKey(path.join(root, name)), name);
+          expectedBytes += Buffer.byteLength(before);
+        }
+      });
+      return {
+        dispose,
+        commit: (overlapped: boolean) => {
+          if (signal.aborted || this.capture !== controller) throw new Error("Pi request was cancelled.");
+          if (ambiguousBuffer) throw new Error("Too many editor changes during checkpoint capture.");
+          for (const key of ineligible) {
+            const name = names.get(key);
+            const file = name === undefined ? undefined : files.get(name);
+            if (name === undefined || !file) continue;
+            files.delete(name);
+            expectedBytes -= Buffer.byteLength(file.before);
+            exclusions.push(`${name}: editor buffer changed during capture`);
+          }
+          if (this.operationObserver && this.observedRoot !== root) this.enableConcurrentSafety(root);
+          this.previews.clear();
+          this.current = {
+            cwd: root,
+            sessionId,
+            startedAt: Date.now(),
+            files,
+            expectedBytes,
+            exclusions,
+            unprovenEffects: overlapped,
+          };
+          if (overlapped) exclusions.unshift(concurrentWriterExclusion);
+          this.latest = undefined;
+          dispose();
+        },
+      };
+    } catch (error) {
+      dispose();
+      throw error;
+    }
+  }
+
+  public async startRequest(cwd: string, sessionId = "unknown"): Promise<void> {
+    const prepared = await this.prepareRequest(realpathSync(cwd), sessionId, new AbortController().signal);
+    try {
+      prepared.commit(false);
+    } finally {
+      prepared.dispose();
+    }
   }
 
   /** Direct shell has no deterministic file attribution or restorable coverage. */
@@ -427,6 +459,7 @@ export class WorkspaceChangeTracker implements vscode.TextDocumentContentProvide
     return this.lookupPreview(uri) ?? "Checkpoint preview expired.";
   }
   public resetSession(): void {
+    this.capture?.abort();
     this.current = undefined;
     this.latest = undefined;
     this.history.clear();

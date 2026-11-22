@@ -32,8 +32,8 @@ function write(tracker: WorkspaceChangeTracker, root: string, content: string, n
   writeFileSync(path.join(root, name), content);
 }
 
-function checkpoint(tracker: WorkspaceChangeTracker, root: string, content: string, session = "session") {
-  tracker.startRequest(root, session);
+async function checkpoint(tracker: WorkspaceChangeTracker, root: string, content: string, session = "session") {
+  await tracker.startRequest(root, session);
   write(tracker, root, content);
   const changes = tracker.finishRequest();
   assert.equal(changes.length, 1);
@@ -53,11 +53,11 @@ function latestCheckpoint(tracker: WorkspaceChangeTracker) {
   return record;
 }
 
-test("overlapping agent requests exclude both captures and invalidate prior history without discarding recovery data", () => {
+test("overlapping agent requests exclude both captures and invalidate prior history without discarding recovery data", async () => {
   const f = fixture();
   const releases: (() => void)[] = [];
   try {
-    const prior = checkpoint(f.first, f.root, "prior result");
+    const prior = await checkpoint(f.first, f.root, "prior result");
     const priorRecord = latestCheckpoint(f.first);
     priorRecord.restoreFailed = true;
     writeFileSync(path.join(f.root, "other"), "other before");
@@ -68,7 +68,7 @@ test("overlapping agent requests exclude both captures and invalidate prior hist
         f.first.invalidateConcurrentRequest();
       }),
     );
-    f.first.startRequest(f.root, "first");
+    await f.first.startRequest(f.root, "first");
     releases.push(
       acquireAgentOperation(f.root, "second", () => {
         overlapped[1] = true;
@@ -76,7 +76,7 @@ test("overlapping agent requests exclude both captures and invalidate prior hist
       }),
     );
     assert.deepEqual(overlapped, [true, true]);
-    f.second.startRequest(f.root, "second");
+    await f.second.startRequest(f.root, "second");
     if (overlapped[1]) f.second.invalidateConcurrentRequest();
     write(f.first, f.root, "first result");
     write(f.second, f.root, "second result", "other");
@@ -101,23 +101,23 @@ test("overlapping agent requests exclude both captures and invalidate prior hist
   }
 });
 
-test("overlap known before capture invalidates completed checkpoints and can be reapplied after startRequest", () => {
+test("overlap known before capture invalidates completed checkpoints and can be reapplied after startRequest", async () => {
   const f = fixture();
   try {
     f.first.invalidateConcurrentRequest();
-    const prior = checkpoint(f.first, f.root, "prior result");
+    const prior = await checkpoint(f.first, f.root, "prior result");
     f.first.invalidateConcurrentRequest();
     f.first.invalidateConcurrentRequest();
     assert.equal(f.first.changes[0]?.canRevert, false);
     assert.throws(() => f.first.revert(prior.id), /restore unavailable/);
-    f.first.startRequest(f.root, "session");
+    await f.first.startRequest(f.root, "session");
     f.first.invalidateConcurrentRequest();
     f.first.invalidateConcurrentRequest();
     write(f.first, f.root, "overlapped result");
     assert.deepEqual(f.first.finishRequest(), []);
     const record = latestCheckpoint(f.first);
     assert.equal(record.exclusions.filter((reason) => reason.startsWith("Concurrent workspace writers:")).length, 1);
-    const fresh = checkpoint(f.first, f.root, "later independent result");
+    const fresh = await checkpoint(f.first, f.root, "later independent result");
     f.first.revert(fresh.id);
     assert.equal(readFileSync(path.join(f.root, "file"), "utf8"), "overlapped result");
   } finally {
@@ -125,10 +125,10 @@ test("overlap known before capture invalidates completed checkpoints and can be 
   }
 });
 
-test("concurrent-writer exclusion remains explicit when other exclusions have reached the report limit", () => {
+test("concurrent-writer exclusion remains explicit when other exclusions have reached the report limit", async () => {
   const f = fixture();
   try {
-    f.first.startRequest(f.root);
+    await f.first.startRequest(f.root);
     for (let index = 0; index < 1_001; index++) {
       f.first.captureToolEvent({ type: "tool_execution_start", toolName: "write", args: { path: `missing-${index}` } });
     }
@@ -143,7 +143,7 @@ test("concurrent-writer exclusion remains explicit when other exclusions have re
   }
 });
 
-test("sequential sibling agent admission invalidates old attribution even if final bytes match again", () => {
+test("sequential sibling agent admission invalidates old attribution even if final bytes match again", async () => {
   const f = fixture();
   const releases: (() => void)[] = [];
   try {
@@ -152,13 +152,13 @@ test("sequential sibling agent admission invalidates old attribution even if fin
     let overlaps = 0;
     const releaseFirst = acquireAgentOperation(f.root, "first", () => overlaps++, f.first);
     releases.push(releaseFirst);
-    const prior = checkpoint(f.first, f.root, "first result", "first");
+    const prior = await checkpoint(f.first, f.root, "first result", "first");
     releaseFirst();
     assert.equal(f.first.changes[0]?.canRevert, true);
     const releaseSecond = acquireAgentOperation(f.root, "second", () => overlaps++, f.second);
     releases.push(releaseSecond);
     assert.equal(f.first.changes[0]?.canRevert, false);
-    f.second.startRequest(f.root, "second");
+    await f.second.startRequest(f.root, "second");
     write(f.second, f.root, "temporary sibling result");
     write(f.second, f.root, "first result");
     assert.deepEqual(f.second.finishRequest(), []);
@@ -173,14 +173,14 @@ test("sequential sibling agent admission invalidates old attribution even if fin
 });
 
 for (const label of ["Apply", "worktree import", "checkpoint restore"]) {
-  test(`sibling ${label} admission makes earlier checkpoints non-restorable`, () => {
+  test(`sibling ${label} admission makes earlier checkpoints non-restorable`, async () => {
     const f = fixture();
     try {
       f.first.enableConcurrentSafety(f.root);
       const releaseAgent = acquireAgentOperation(f.root, "first", () => {}, f.first);
-      let prior: ReturnType<typeof checkpoint>;
+      let prior: Awaited<ReturnType<typeof checkpoint>>;
       try {
-        prior = checkpoint(f.first, f.root, "first result");
+        prior = await checkpoint(f.first, f.root, "first result");
       } finally {
         releaseAgent();
       }
@@ -198,15 +198,15 @@ for (const label of ["Apply", "worktree import", "checkpoint restore"]) {
   });
 }
 
-test("a tracker can restore its own valid checkpoint without invalidating itself", () => {
+test("a tracker can restore its own valid checkpoint without invalidating itself", async () => {
   const f = fixture();
   try {
     f.first.enableConcurrentSafety(f.root);
     f.second.enableConcurrentSafety(f.root);
     const release = acquireAgentOperation(f.root, "first", () => {}, f.first);
-    let change: ReturnType<typeof checkpoint>;
+    let change: Awaited<ReturnType<typeof checkpoint>>;
     try {
-      change = checkpoint(f.first, f.root, "first result");
+      change = await checkpoint(f.first, f.root, "first result");
     } finally {
       release();
     }
@@ -219,17 +219,17 @@ test("a tracker can restore its own valid checkpoint without invalidating itself
   }
 });
 
-test("enabling concurrent safety invalidates existing checkpoints but single-tracker behavior stays unchanged", () => {
+test("enabling concurrent safety invalidates existing checkpoints but single-tracker behavior stays unchanged", async () => {
   const f = fixture();
   try {
-    const baseline = checkpoint(f.first, f.root, "baseline");
+    const baseline = await checkpoint(f.first, f.root, "baseline");
     acquireOperation(f.root, "unrelated existing control")();
     f.first.revert(baseline.id);
     assert.equal(readFileSync(path.join(f.root, "file"), "utf8"), "before");
-    const prior = checkpoint(f.first, f.root, "prior result");
+    const prior = await checkpoint(f.first, f.root, "prior result");
     f.first.enableConcurrentSafety(f.root);
     assert.throws(() => f.first.revert(prior.id), /historical checkpoint attribution is unverified/);
-    const fresh = checkpoint(f.first, f.root, "fresh result");
+    const fresh = await checkpoint(f.first, f.root, "fresh result");
     f.first.enableConcurrentSafety(path.join(f.root, "."));
     f.first.revert(fresh.id);
     assert.equal(readFileSync(path.join(f.root, "file"), "utf8"), "prior result");
@@ -238,12 +238,12 @@ test("enabling concurrent safety invalidates existing checkpoints but single-tra
   }
 });
 
-test("concurrent observation survives session reset and is removed on disposal", () => {
+test("concurrent observation survives session reset and is removed on disposal", async () => {
   const f = fixture();
   try {
     f.first.enableConcurrentSafety(f.root);
     f.first.resetSession();
-    const prior = checkpoint(f.first, f.root, "after reset");
+    const prior = await checkpoint(f.first, f.root, "after reset");
     acquireOperation(f.root, "sibling Apply", f.second)();
     assert.throws(() => f.first.revert(prior.id), /historical checkpoint attribution is unverified/);
     f.first.dispose();
@@ -260,7 +260,7 @@ test("preview lookup distinguishes another tracker's missing content from an emp
   const f = fixture();
   try {
     const { Uri } = require("vscode") as typeof import("vscode");
-    const change = checkpoint(f.first, f.root, "");
+    const change = await checkpoint(f.first, f.root, "");
     const record = latestCheckpoint(f.first);
     const before = Uri.from({ scheme: "pi-checkpoint", path: "/file", query: `${record.id}-before` });
     const after = before.with({ query: `${record.id}-after` });
@@ -278,13 +278,13 @@ test("preview lookup distinguishes another tracker's missing content from an emp
   }
 });
 
-test("startRequest rebinds enabled observation when its canonical workspace changes", () => {
+test("startRequest rebinds enabled observation when its canonical workspace changes", async () => {
   const f = fixture();
   const other = realpathSync(mkdtempSync(path.join(tmpdir(), "pi-rebound-checkpoint-")));
   try {
     writeFileSync(path.join(other, "file"), "other before");
     f.first.enableConcurrentSafety(f.root);
-    const prior = checkpoint(f.first, other, "other result");
+    const prior = await checkpoint(f.first, other, "other result");
     acquireOperation(f.root, "old workspace operation")();
     assert.equal(f.first.changes[0]?.canRevert, true);
     acquireOperation(other, "current workspace operation")();
