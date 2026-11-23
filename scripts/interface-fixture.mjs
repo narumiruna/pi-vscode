@@ -341,7 +341,6 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
               "more",
               "send",
               "cancel",
-              "after-this",
               "runtime",
               "input",
               "reconnect",
@@ -476,15 +475,28 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
   assert.equal(await page.evaluate(() => window.posted.at(-1).type), "removeAttachment");
   assert.equal(await page.locator("#image-preview").evaluate((dialog) => dialog.open), false);
 
-  // Both buttons and shortcuts use exactly one submission path, with captured host-owned attachments.
+  // Steer reuses the idle Send icon and theme colors; Follow-up is keyboard-only.
   await theme("vscode-dark");
   await page.setViewportSize({ width: 600, height: 800 });
-  await state({
-    runtime: { ...runtime, busy: true, queueable: true, cancellable: true },
-    attachments: descriptors.slice(0, 1),
-  });
-  await page.locator("#input").focus();
-  for (const id of ["add-context", "cancel", "after-this", "send"]) {
+  await page.mouse.move(0, 0);
+  const send = page.locator("#send");
+  await state();
+  const sendIcon = await send.locator("svg").innerHTML();
+  await state({ runtime: { ...runtime, busy: true, queueable: true, cancellable: true } });
+  assert.equal(await page.locator("#after-this").count(), 0);
+  assert.equal(await page.locator("#cancel").textContent(), "");
+  assert.equal(await send.textContent(), "");
+  assert.equal(await send.locator("svg").innerHTML(), sendIcon);
+  assert.match(await send.getAttribute("aria-label"), /^Steer:/);
+  await composer.fill("   ");
+  assert.equal(await send.isDisabled(), true);
+  assert.equal(await send.evaluate((button) => getComputedStyle(button).color), "rgb(160, 160, 160)");
+  await composer.fill("Continue");
+  assert.equal(await send.isEnabled(), true);
+  await page.waitForFunction(() => getComputedStyle(document.getElementById("send")).backgroundColor === "rgb(0, 120, 212)");
+  assert.match(await send.getAttribute("title"), /Follow-up \(Alt\+Enter\)/);
+  await composer.focus();
+  for (const id of ["add-context", "cancel", "send"]) {
     await page.keyboard.press("Tab");
     assert.equal(await page.evaluate(() => document.activeElement.id), id, "queue focus order follows visual order");
   }
@@ -514,7 +526,6 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
   });
   for (const [action, kind] of [
     ["#send", "steer"],
-    ["#after-this", "followUp"],
     ["Enter", "steer"],
     ["Alt+Enter", "followUp"],
   ]) {
@@ -559,7 +570,7 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
         : status + (!foreground.connected && !/disconnected/i.test(status) ? " · disconnected" : ""),
     );
     assert.equal(await page.locator("#cancel").isVisible(), foreground.cancellable);
-    assert.equal(await page.locator("#after-this").isVisible(), foreground.queueable);
+    assert.equal(await send.isVisible(), foreground.queueable);
     assert.equal(await page.locator("#model-picker").isDisabled(), true);
     assert.equal(await page.locator("#runtime").isVisible(), true);
     assert.equal(await page.locator("#runtime").count(), 1, "there is only one foreground progress line");
@@ -653,7 +664,6 @@ export async function assertInterface(browser, getSidebarHtml, renderSafeMarkdow
     if (extra.runtime?.connected !== false) assert.match(await page.locator("#status").innerText(), reason);
     else assert.match(await page.locator("#status").innerText(), /disconnected/i);
     assert.equal(await page.locator("#send").getAttribute("title"), await status.textContent());
-    assert.equal(await page.locator("#after-this").getAttribute("title"), await status.textContent());
     assert.equal(await page.locator("#send").isDisabled(), true);
     assert.equal(await page.locator("#composer-help").evaluate((element) => element.open), false);
   }

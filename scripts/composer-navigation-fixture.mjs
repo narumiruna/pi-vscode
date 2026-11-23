@@ -27,7 +27,7 @@ export async function assertComposerStatusContract(pi) {
   assert.equal(await explanation.getAttribute("role"), null);
   assert.equal(await explanation.getAttribute("aria-live"), null);
   assert.match(await explanation.getAttribute("data-state"), /^(empty|blocked|ready)$/);
-  for (const id of ["input", "send", "after-this"]) {
+  for (const id of ["input", "send"]) {
     assert.ok((await pi.locator(`#${id}`).getAttribute("aria-describedby")).split(/\s+/).includes("composer-status"));
   }
   for (const id of ["reconnect", "retry", "refresh-history"]) {

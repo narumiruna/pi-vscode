@@ -31,8 +31,8 @@ export async function assertExtensionUi(browser, getSidebarHtml) {
         ...(queued
           ? {
               pendingQueue: {
-                steering: [{ id: "next", text: "Next native instruction", kind: "steering" }],
-                followUp: [{ id: "later", text: "After this native instruction", kind: "followUp" }],
+                steering: [{ id: "next", text: "Steer native instruction", kind: "steering" }],
+                followUp: [{ id: "later", text: "Follow-up native instruction", kind: "followUp" }],
               },
             }
           : {}),
@@ -143,7 +143,6 @@ export async function assertExtensionUi(browser, getSidebarHtml) {
             "input",
             "add-context",
             "cancel",
-            "after-this",
             "send",
             "notice",
             "status",

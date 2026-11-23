@@ -30,7 +30,6 @@ test("composer blockers use the primary status and preserve non-live description
     assert.match(status.textContent, reason, flags);
     assert.match(sidebar.element("status").textContent, reason, flags);
     assert.equal(sidebar.element("send").title, status.textContent, flags);
-    assert.equal(sidebar.element("after-this").title, status.textContent, flags);
     assert.equal(sidebar.element("send").disabled, true, flags);
     assert.equal(sidebar.element("send").hidden, hidden, flags);
     assert.equal(sidebar.run("document.activeElement === input"), false, "status updates do not steal focus");
@@ -50,15 +49,18 @@ test("composer blockers clear when ready and empty text is neutral, not a failur
   assert.equal(sidebar.element("send").disabled, false);
   sidebar.run("busy = true; queueable = true; updateSendState()");
   assert.equal(sidebar.element("composer-status").hidden, true);
-  assert.match(sidebar.element("send").title, /after the current tool/);
-  assert.match(sidebar.element("after-this").title, /finishes responding/);
+  assert.match(sidebar.element("send").title, /Steer \(Enter\).*after the current tool/);
+  assert.match(sidebar.element("send").title, /Follow-up \(Alt\+Enter\).*after the response/);
   const html = getSidebarHtml(1000, 1024);
   assert.match(html, /id="composer-status" hidden/);
   assert.doesNotMatch(html, /id="composer-status"[^>]*(?:role="status"|aria-live)/);
   assert.match(html, /id="status" role="status" aria-live="polite" aria-atomic="true"/);
-  for (const id of ["input", "send", "after-this"]) {
+  for (const id of ["input", "send"]) {
     assert.match(html, new RegExp(`id="${id}"[^>]*aria-describedby="[^"]*composer-status`));
   }
+  assert.doesNotMatch(html, /id="after-this"/);
+  assert.match(html, /id="cancel"[^>]*title="Stop"[^>]*><svg[^>]*aria-hidden="true"[^>]*>.*<\/svg><\/button>/);
+  assert.match(html, /id="send"[^>]*><svg[^>]*aria-hidden="true"[^>]*>.*<\/svg><\/button>/);
   assert.ok(html.indexOf('id="composer-status"') < html.indexOf('id="composer-help"'));
 });
 
@@ -201,18 +203,14 @@ test("busy prepared actions block all queue paths but preserve editing and Stop,
     assert.match(sidebar.element("status").textContent, /Wait for Pi to finish.*cannot be queued/);
     assert.equal(sidebar.element("send").hidden, true);
     assert.equal(sidebar.element("send").disabled, true);
-    assert.equal(sidebar.element("send").classList.contains("queue-action"), false);
-    assert.equal(sidebar.element("after-this").hidden, true);
-    assert.equal(sidebar.element("after-this").disabled, true);
     assert.equal(sidebar.element("input").disabled, false);
     assert.equal(sidebar.element("cancel").hidden, false);
-    assert.doesNotMatch(sidebar.element("composer-hint").textContent, /Next:|After this:/);
+    assert.doesNotMatch(sidebar.element("composer-hint").textContent, /Steer|Follow-up/);
     const input = sidebar.element("input");
     input.value = "A newer draft";
     input.listeners.get("input")!();
     const before = sidebar.posted.length;
     sidebar.element("send").listeners.get("click")!();
-    sidebar.element("after-this").listeners.get("click")!();
     const keydown = input.listeners.get("keydown")!;
     keydown({ key: "Enter", preventDefault() {} });
     keydown({ key: "Enter", altKey: true, preventDefault() {} });
@@ -229,7 +227,6 @@ test("busy prepared actions block all queue paths but preserve editing and Stop,
     assert.equal(input.value, "A newer draft");
     assert.equal(sidebar.element("send").hidden, false);
     assert.equal(sidebar.element("send").disabled, false);
-    assert.equal(sidebar.element("after-this").hidden, false);
     sidebar.element("send").listeners.get("click")!();
     assert.deepEqual(
       { ...sidebar.posted.at(-1) },
@@ -763,7 +760,7 @@ test("follow-up shortcut selection uses the webview client OS", () => {
   windows.run("busy = true; queueable = true; updateSendState()");
   assert.equal(
     windows.element("composer-hint").textContent,
-    "Next: after the current tool · After this: after the response · Enter / Ctrl+Q · Shift+Enter for a new line",
+    "Steer (Enter): after the current tool · Follow-up (Ctrl+Q): after the response · Shift+Enter for a new line",
   );
 
   const linux = createSidebarScriptHarness("Linux x86_64");
@@ -772,7 +769,7 @@ test("follow-up shortcut selection uses the webview client OS", () => {
   linux.run("busy = true; queueable = true; updateSendState()");
   assert.equal(
     linux.element("composer-hint").textContent,
-    "Next: after the current tool · After this: after the response · Enter / Alt+Enter · Shift+Enter for a new line",
+    "Steer (Enter): after the current tool · Follow-up (Alt+Enter): after the response · Shift+Enter for a new line",
   );
 
   const reducedPlatform = createSidebarScriptHarness("", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
@@ -1467,7 +1464,7 @@ test("session changes reset tool disclosures even when call IDs repeat", () => {
   assert.equal(sidebar.element("messages").children[0]?.children[1]?.children[0], toolRow(sidebar, "same"));
 });
 
-test("visible queue actions use the keyboard submission path and block duplicate or unsupported sends", () => {
+test("the Steer button queues one instruction and blocks duplicate or unsupported sends", () => {
   const sidebar = createSidebarScriptHarness();
   sidebar.receive({ type: "showSessionDetail" });
   const state = (runtime: Record<string, unknown> = {}) =>
@@ -1477,31 +1474,26 @@ test("visible queue actions use the keyboard submission path and block duplicate
       runtime: { connected: true, busy: true, queueable: true, cancellable: true, ...runtime },
       attachments: [{ id: "context", label: "file.ts", image: false }],
     });
-  for (const [id, kind] of [
-    ["send", "steer"],
-    ["after-this", "followUp"],
-  ]) {
-    state();
-    sidebar.receive({ type: "setInput", text: "Continue with context" });
-    const button = sidebar.element(id);
-    assert.equal(button.hidden, false);
-    assert.equal(button.disabled, false);
-    assert.equal(sidebar.element("input").placeholder, "Write a follow-up…");
-    const before = sidebar.posted.length;
-    button.listeners.get("click")!();
-    assert.equal(sidebar.posted.length, before + 1);
-    assert.equal(sidebar.posted.at(-1).type, "queueInstruction");
-    assert.equal(sidebar.posted.at(-1).kind, kind);
-    assert.equal(sidebar.posted.at(-1).text, "Continue with context");
-    button.listeners.get("click")!();
-    assert.equal(sidebar.posted.length, before + 1, "pending acceptance blocks a second click");
-    sidebar.receive({ type: "sendRejected" });
-  }
-  sidebar.receive({ type: "setInput", text: "/compact" });
-  assert.equal(sidebar.element("send").disabled, true);
-  assert.equal(sidebar.element("after-this").disabled, true);
+  state();
+  sidebar.receive({ type: "setInput", text: "Continue with context" });
+  const button = sidebar.element("send");
+  assert.equal(button.hidden, false);
+  assert.equal(button.disabled, false);
+  assert.equal(sidebar.element("input").placeholder, "Write a follow-up…");
   let count = sidebar.posted.length;
-  sidebar.element("after-this").listeners.get("click")!();
+  button.listeners.get("click")!();
+  assert.equal(sidebar.posted.length, count + 1);
+  assert.equal(sidebar.posted.at(-1).type, "queueInstruction");
+  assert.equal(sidebar.posted.at(-1).kind, "steer");
+  assert.equal(sidebar.posted.at(-1).text, "Continue with context");
+  button.listeners.get("click")!();
+  assert.equal(sidebar.posted.length, count + 1, "pending acceptance blocks a second click");
+  sidebar.receive({ type: "sendRejected" });
+
+  sidebar.receive({ type: "setInput", text: "/compact" });
+  assert.equal(button.disabled, true);
+  count = sidebar.posted.length;
+  button.listeners.get("click")!();
   assert.equal(sidebar.posted.length, count);
   assert.match(sidebar.element("notice").textContent, /Slash commands cannot be queued/);
   sidebar.receive({ type: "setInput", text: "Continue" });
@@ -1512,14 +1504,13 @@ test("visible queue actions use the keyboard submission path and block duplicate
   assert.equal(sidebar.posted.length, count);
   assert.match(sidebar.element("notice").textContent, /queue is full/);
   state({ queueable: false });
-  assert.equal(sidebar.element("after-this").hidden, true);
-  assert.equal(sidebar.element("send").hidden, true);
+  assert.equal(button.hidden, true);
   assert.equal(sidebar.element("cancel").hidden, false);
   state({ connected: false });
-  assert.equal(sidebar.element("after-this").disabled, true);
-  const before = sidebar.posted.length;
-  sidebar.element("after-this").listeners.get("click")!();
-  assert.equal(sidebar.posted.length, before);
+  assert.equal(button.disabled, true);
+  count = sidebar.posted.length;
+  button.listeners.get("click")!();
+  assert.equal(sidebar.posted.length, count);
 });
 
 test("model identity and session details expose full runtime values without persistent footer IDs", () => {
@@ -3665,11 +3656,11 @@ test("busy composer queues attachment-only steering and follow-up while preservi
   assert.equal(pendingRows.length, 2);
   assert.deepEqual(
     pendingRows[0]?.children.map((child) => child.textContent),
-    ["Next:", "one · with attachments"],
+    ["Steer:", "one · with attachments"],
   );
   assert.deepEqual(
     pendingRows[1]?.children.map((child) => child.textContent),
-    ["After this:", "two"],
+    ["Follow-up:", "two"],
   );
   const contextQueueCount = sidebar.posted.length;
   sidebar.run("submissionPending = false; submit()");
@@ -3720,7 +3711,7 @@ test("pending queue renders plain-language labels, duplicate text and safe bound
   assert.equal(pending.children.length, 1);
   assert.deepEqual(
     pending.children[0]?.children.map((child) => child.textContent),
-    ["After this:", "after completion"],
+    ["Follow-up:", "after completion"],
   );
   assert.equal(sidebar.element("queue-status").textContent, "1 message queued");
   assert.equal(sidebar.element("messages").children.length, 1, "delivered input moves into the transcript state");

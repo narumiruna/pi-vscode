@@ -192,7 +192,8 @@ export async function assertConcurrentSessions(browser, getSidebarHtml, renderSa
       const otherTranscript = await other.page.locator("#messages").innerText();
       await panel.page.bringToFront();
       const stop = panel.page.getByRole("button", { name: "Cancel Pi response", exact: true });
-      assert.equal(await stop.innerText(), "Stop");
+      assert.equal(await stop.innerText(), "");
+      assert.equal(await stop.getAttribute("title"), "Stop");
       await stop.click();
       assert.deepEqual(await posted(panel.page, "cancel"), [{ type: "cancel" }]);
       assert.deepEqual(await posted(other.page, "cancel"), otherStops, "Stop must post only to its own page");
