@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.1
+
+### Patch Changes
+
+- 74b5021: Use icon-only Stop and Steer controls during Pi responses.
+  Keep Follow-up available through its keyboard shortcut and show the shortcut in Submission help.
+
 ## 0.12.0
 
 ### Minor Changes
