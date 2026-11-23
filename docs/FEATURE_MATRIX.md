@@ -63,7 +63,7 @@ Persistent Pi session files and exact legacy global bridge cleanup paths are unc
 | Failed-test repair | Explicit process command or supplied failure log, read-only proposal, approved save/rerun | [Test-repair evidence and limits](#failed-test-repair). |
 | Request checkpoints | Bounded pre-prompt snapshots, coverage report, preview and guarded restore | [Checkpoint evidence and limits](#request-checkpoints). |
 | Direct shell | Explicit idle-session `!command` / `!!command`, no extra pi-vscode approval in the sidebar or controlled TUI, correlated plain-text cards, Stop and a finite deadline | [Shell contract and evidence](#direct-shell). |
-| In-flight instructions | Visible Next and After this actions, Enter/platform alternate shortcuts, Submission help, attachment snapshots, pending text, delivery-time transcript entries and recovered drafts | [Queue evidence and limits](#in-flight-instructions). |
+| In-flight instructions | Stop and Steer icons, keyboard-only Follow-up, Submission help, attachment snapshots, pending text, delivery-time transcript entries and recovered drafts | [Queue evidence and limits](#in-flight-instructions). |
 | Debug-context questions | Explicit bounded paused Node.js capture, variable selection, inspection/redaction, read-only question | [Debugger evidence and limits](#debug-context-questions). |
 | Pi Settings | Pi view title native ⋯ menu: Extension Settings then Pi Configuration, directly in one configuration group; native Settings and singleton Global Pi/Project Pi file editor | [Settings behavior and evidence](#pi-settings). |
 | Pi extension status and text widgets | Keyed text-only status in More → Conversation details; above/below-editor widgets retain their placement, separate from host status and controls | [Extension UI evidence and limits](#pi-extension-status-and-text-widgets). |
@@ -314,7 +314,7 @@ The documented `biome check src resources` check passed with warnings and no err
 A one-off macOS VS Code 1.146.0 native screenshot check used a disposable development profile and deterministic RPC fixture, without extension installation or model calls.
 It verified native session-opening confirmation, two split editor panels with distinct session IDs and active requests, separate drafts, and Stop in one panel while the other kept working.
 Post-review host regressions cover opened workspace aliases, multi-root reconnect, accepted queue recovery, already-detached stop completion, late capacity warnings, and exclusive exclusion after unverified cleanup.
-Queue recovery tests also cover equal text with distinct image snapshots in Next and After this, with both reported and unreported pending records.
+Queue recovery tests also cover equal text with distinct image snapshots in the steering and follow-up queues, with both reported and unreported pending records.
 A post-review macOS VS Code 1.146.0 check opened the workspace through a directory symlink and verified two native panels, distinct session IDs, concurrent requests, and independent Stop with the same offline fixture.
 These focused checks are not a complete native UI suite.
 The alias fixture selects a junction on Windows; this local run tested a macOS symlink only.
@@ -332,7 +332,7 @@ Fixed-status unit/browser checks and full Linux native UI suites passed on VS Co
 ### Visible submission blockers
 
 Neutral empty input cannot replace progress.
-Nonlive `#composer-status` describes input/Send/After this separately from the single polite, atomic `#status` live region; no duplicate visible row or announcements.
+Nonlive `#composer-status` describes the input and Send/Steer button separately from the single polite, atomic `#status` live region; no duplicate visible row or announcements.
 Host authorization is unchanged.
 Unit/browser and Linux native UI checks passed for the new placement and descriptions; real screen-reader announcements remain unverified.
 

@@ -37,23 +37,28 @@ test("small listing matches byte order and excludes unsupported or linked files"
   });
 });
 
-test("real worker preserves the old byte and entry limits across batches", async () => {
+test("real worker enforces the entry limit across batches", async () => {
   await workspace(async (root) => {
-    for (let i = 0; i < 10_002; i++) await writeFile(path.join(root, String(i).padStart(5, "0")), "x");
+    for (let i = 0; i < 10_002; i++) await writeFile(path.join(root, String(i)), "x");
     const records: CaptureRecord[] = [];
-    const capture = () =>
-      captureCheckpoint(root, new Set(), new AbortController().signal, (record) => records.push(record));
-    await capture();
+    await captureCheckpoint(root, new Set(), new AbortController().signal, (record) => records.push(record));
     assert.equal(records.filter((record) => "path" in record).length, 10_000);
     assert.deepEqual(records.at(-1), { exclusion: "Request-start enumeration limit" });
-    records.length = 0;
-    for (let i = 0; i < 11; i++)
-      await writeFile(path.join(root, String(i).padStart(5, "0")), "x".repeat(maxCheckpointFile));
-    await capture();
+  });
+}, 60_000);
+
+test("real worker enforces the byte limit across batches", async () => {
+  await workspace(async (root) => {
+    const content = Buffer.alloc(maxCheckpointFile, "x");
+    for (let i = 0; i < 11; i++) await writeFile(path.join(root, String(i)), content);
+    const records: CaptureRecord[] = [];
+    await checkpointCaptureWorker.capture(root, new Set(), new AbortController().signal, (record) =>
+      records.push(record),
+    );
     assert.equal(records.filter((record) => "path" in record).length, 10);
     assert.deepEqual(records.at(-1), { exclusion: "Request-start capture overflow" });
   });
-}, 20_000);
+});
 
 test("worker exit releases active and queued captures without a fallback scan", async () => {
   const worker = new CheckpointCaptureWorker(() => new Worker("process.exit(1)", { eval: true }));

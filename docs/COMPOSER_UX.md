@@ -94,7 +94,7 @@ Its disabled-send explanation remains accessible and in the tooltip, but never b
 
 The primary `#status` is the single polite, atomic live region.
 Its text changes only when the selected message changes.
-The separate nonlive `#composer-status` supplies the current submission explanation through `aria-describedby` for the input, Send, and After this.
+The separate nonlive `#composer-status` supplies the current submission explanation through `aria-describedby` for the input and the Send/Steer button.
 It has no separate visible row and does not duplicate live announcements.
 Disabled-button titles remain available.
 
@@ -126,10 +126,10 @@ Non-neutral blockers enter primary-status priority 2, below problems and above p
 | 11 | Queued slash command or full ten-message queue | Wait for settlement or a queued message to start. |
 | 12 | Images with a model that does not support them | Choose a suitable model or remove images. |
 | 13 | Empty text without attachments | Enter a message or attach context. |
-| None | Submission available | No blocker status; titles explain Send, Next or After this. |
+| None | Submission available | No blocker status; the button tooltip explains Send or Steer and the Follow-up shortcut. |
 
-Stop is separate from submission.
-The composer has an attachment icon on the left and one model/thinking button with submission controls on the right.
+The composer has an attachment icon on the left and a model/thinking button on the right, followed by icon-only Stop and Send/Steer controls when available.
+Follow-up has no button; its shortcut is shown in the Steer tooltip and Submission help.
 Long model labels truncate visually, not in accessible names or tooltips.
 The button opens a native Change Model / Change Thinking Level picker; each operation changes only the selected value.
 

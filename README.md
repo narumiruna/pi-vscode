@@ -86,6 +86,9 @@ Marketplace installation does not require `curl` or a POSIX shell. For manual VS
 
 When new messages arrive, the panel preserves text selection in messages that remain in the current window. Tool input/output **Copy** buttons use the VS Code clipboard. Pasting text with an image keeps both. After Enter, the draft stays until Pi accepts it; **Sending this message** shows this pending state. Rejected submissions keep the text, and acceptance does not clear a newer draft or move focus from the transcript.
 
+While Pi accepts queued instructions, the composer shows **Stop** and **Steer** as icons.
+Choose **Steer** or press Enter to send after the current tool; press Alt+Enter (Ctrl+Q on Windows, including Remote WSL) for a **Follow-up** after the response.
+
 Type `/` in either Sidebar composer for shortcuts, including before Pi connects.
 Use `/new`, `/model`, `/thinking`, `/settings`, `/extension-settings`, `/resume`, and `/session` for existing controls.
 Run `/skills` to search loaded skills, or `/commands` to search Pi extension commands, prompt templates, and skills.

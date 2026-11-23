@@ -294,14 +294,9 @@ export function getSidebarHtml(
     #add-context { flex: 0 0 30px; width: 30px; min-width: 30px; padding: 6px; border-color: transparent; color: var(--vscode-descriptionForeground); }
     #model-picker { border-color: transparent; background: transparent; }
     #model-picker:hover:not(:disabled) { background: var(--vscode-list-hoverBackground, var(--vscode-toolbar-hoverBackground)); }
-    #send { width: 30px; flex: 0 0 30px; padding: 6px; }
+    #cancel, #send { width: 30px; flex: 0 0 30px; padding: 6px; }
     #send:disabled { border-color: var(--pi-control-border); color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground)); background: transparent; }
-    #send.queue-action { width: auto; flex: 0 0 auto; padding: 4px 9px; }
-    #after-this { min-height: 30px; font-size: .9em; }
-    #submission-label { display: none; }
-    #send.queue-action #submission-label { display: inline; }
-    #send.queue-action .icon { display: none; }
-    #cancel { border-color: var(--pi-control-border); font-size: .9em; }
+    #cancel { border-color: var(--pi-control-border); }
     #notice { max-height: 12vh; overflow-y: auto; padding: 7px 2px 0; color: var(--vscode-descriptionForeground); font-size: .85em; overflow-wrap: anywhere; }
     #notice:empty { display: none; }
     #notice.error { color: var(--vscode-errorForeground); }
@@ -318,9 +313,8 @@ export function getSidebarHtml(
     body.vscode-high-contrast .attachment-image, body.vscode-high-contrast-light .attachment-image { border-color: var(--vscode-contrastBorder); }
     body.vscode-high-contrast .composer-box:focus-within, body.vscode-high-contrast-light .composer-box:focus-within { border-color: var(--vscode-focusBorder); }
     @media (max-width: 340px) { #app { padding: 0 8px 8px; } .sessions-actions { gap: 0; } .composer-actions { gap: 4px; padding-left: 6px; padding-right: 6px; } .composer-submit-actions { gap: 4px; } .empty { padding-left: 2px; padding-right: 2px; } .empty h2 { font-size: 1.5em; } button.welcome-action { gap: 9px; padding: 10px; } }
-    @media (max-width: 240px) { #cancel, #after-this { padding: 4px; } .composer-actions, .composer-submit-actions { gap: 3px; } #thinking-label { display: none; } }
-    @media (max-width: 300px) { .composer-submit-actions:has(#send.queue-action) { flex-wrap: wrap; justify-content: flex-end; } }
-    @media (max-width: 200px) { .sessions-actions .icon-button { width: 24px; padding: 3px; } .composer-submit-actions:has(#send.queue-action) { display: contents; } .composer-actions:has(#send.queue-action) { justify-content: flex-end; } .composer-actions:has(#send.queue-action) #model-picker { flex: 1 1 0; } }
+    @media (max-width: 240px) { .composer-actions, .composer-submit-actions { gap: 3px; } #thinking-label { display: none; } }
+    @media (max-width: 200px) { .sessions-actions .icon-button { width: 24px; padding: 3px; } }
     @media (max-height: 500px) { textarea { max-height: 18vh; } #attachments { max-height: 16vh; } .empty { padding-top: 8px; padding-bottom: 16px; } .welcome-mark { display: none; } .empty-actions { margin-top: 16px; } }
     @media (prefers-reduced-motion: no-preference) { button { transition: background-color .12s ease, border-color .12s ease, transform .08s ease; } .composer-box { transition: border-color .12s ease, box-shadow .12s ease; } }
   </style>
@@ -385,9 +379,8 @@ export function getSidebarHtml(
           <button id="add-context" class="secondary" type="button" title="Attach code, files, or images" aria-label="Attach code, files, or images">${icon("attachment")}</button>
           <div class="composer-submit-actions">
           <button id="model-picker" class="secondary" type="button" aria-label="Change Pi model and thinking level" aria-haspopup="dialog"><span id="model-label">Choose model…</span><span id="thinking-label"></span>${icon("chevron")}</button>
-          <button id="cancel" class="secondary" type="button" aria-label="Cancel Pi response" hidden>${icon("stop")}<span>Stop</span></button>
-          <button id="after-this" class="secondary" type="button" aria-describedby="composer-status" aria-label="After this: send when Pi finishes responding" hidden>After this</button>
-          <button id="send" type="button" aria-describedby="composer-status" aria-label="Send message" title="Send message" disabled>${icon("send")}<span id="submission-label">Next</span></button>
+          <button id="cancel" class="secondary" type="button" aria-label="Cancel Pi response" title="Stop" hidden>${icon("stop")}</button>
+          <button id="send" type="button" aria-describedby="composer-status" aria-label="Send message" title="Send message" disabled>${icon("send")}</button>
           </div>
         </div>
       </div>
@@ -739,8 +732,8 @@ export function getSidebarHtml(
         showNotice('Wait for Pi to finish before starting a new session.', 'warning', false, true);
         return;
       }
-      // Return button submissions to the composer before host state can hide the action.
-      if (document.activeElement === sendButton || document.activeElement === $('after-this')) input.focus({ preventScroll: true });
+      // Return focus to the composer before host state can hide the button.
+      if (document.activeElement === sendButton) input.focus({ preventScroll: true });
       if (busy && !navigationCommand) {
         if (input.value.trimStart().startsWith('/') || pendingQueueCount >= 10) {
           showNotice(input.value.trimStart().startsWith('/') ? 'Slash commands cannot be queued. Wait for Pi to finish.' : 'The queue is full. Wait for a pending message to start.', 'warning', false, true);
@@ -1716,7 +1709,7 @@ export function getSidebarHtml(
       const steering = Array.isArray(pending.steering) ? pending.steering : [];
       const followUp = Array.isArray(pending.followUp) ? pending.followUp : [];
       const rows = [];
-      for (const [kind, label, items] of [['steering', 'Next:', steering], ['followUp', 'After this:', followUp]]) {
+      for (const [kind, label, items] of [['steering', 'Steer:', steering], ['followUp', 'Follow-up:', followUp]]) {
         for (const item of items) {
           if (!item || typeof item.text !== 'string') continue;
           const row = document.createElement('div');
@@ -1740,7 +1733,7 @@ export function getSidebarHtml(
       $('queue-status').textContent = rows.length
         ? rows.length + (rows.length === 1 ? ' message queued' : ' messages queued')
         : '';
-      $('pending-queue').title = 'Next: sent after the current tool finishes. After this: sent when Pi finishes responding.';
+      $('pending-queue').title = 'Steer: sent after the current tool finishes. Follow-up: sent when Pi finishes responding.';
     }
 
     function updateSendState() {
@@ -1770,12 +1763,8 @@ export function getSidebarHtml(
       const shellBlocked = shellInput && (attachedItems > 0 || canQueue || sessionsLayerVisible);
       const queueBlocked = canQueue && (input.value.trimStart().startsWith('/') || shellInput || pendingQueueCount >= 10);
       sendButton.hidden = busy && !canQueue && !navigationCommand;
-      sendButton.classList.toggle('queue-action', canQueue);
-      sendButton.setAttribute('aria-label', canQueue ? 'Next: send after the current tool finishes' : 'Send message');
-      $('after-this').hidden = !canQueue;
+      sendButton.setAttribute('aria-label', canQueue ? 'Steer: send after the current tool finishes' : 'Send message');
       sendButton.disabled = Boolean(editorBlocker) || Boolean(composerDraft?.blocked()) || Boolean(fileCompletion?.busy) || (busy && !canQueue && !navigationCommand) || queueBlocked || shellBlocked || slashBlocked || submissionPending || backgroundSubmissionPending || imageLoading || Boolean(recoveredDraftPending) || sessionStartBlocked || connectionBlocked || (!input.value.trim() && !attachedItems) || imageBlocked;
-      $('after-this').disabled = sendButton.disabled;
-      $('after-this').title = 'Send when Pi finishes responding (' + followUpShortcutLabel + ')';
       const settingsReason = !connected && !sidebar?.canStart ? 'Reconnect to change settings.' : interactionLocked ? 'Settings are locked during active work.' : '';
       $('settings-description').textContent = [settingsReason, thinkingUnavailableReason].filter(Boolean).join(' ');
       $('model-picker').setAttribute('aria-describedby', 'settings-description');
@@ -1804,8 +1793,7 @@ export function getSidebarHtml(
       const emptyDraft = blocker === 'Enter a message or attach context to send.';
       composerStatus.hidden = true;
       composerStatus.dataset.state = emptyDraft ? 'empty' : blocker ? 'blocked' : 'ready';
-      sendButton.title = blocker || (canQueue ? 'Send after the current tool finishes (Enter)' : !input.value.trim() && attachedItems ? 'Send attachments' : sessionsLayerVisible ? 'Start new session' : 'Send message');
-      if (blocker) $('after-this').title = blocker;
+      sendButton.title = blocker || (canQueue ? 'Steer (Enter): send after the current tool finishes · Follow-up (' + followUpShortcutLabel + '): send after the response' : !input.value.trim() && attachedItems ? 'Send attachments' : sessionsLayerVisible ? 'Start new session' : 'Send message');
       $('composer-hint').textContent = imageLoading
         ? 'Loading pasted image…'
         : backgroundSubmissionPending
@@ -1817,7 +1805,7 @@ export function getSidebarHtml(
               : navigationCommand
                 ? 'Select or create a Sidebar session without stopping this work.'
                 : queueable && !sessionsLayerVisible && !editorRequest
-                ? 'Next: after the current tool · After this: after the response · Enter / ' + followUpShortcutLabel + ' · Shift+Enter for a new line'
+                ? 'Steer (Enter): after the current tool · Follow-up (' + followUpShortcutLabel + '): after the response · Shift+Enter for a new line'
                 : busy
                   ? 'Wait for Pi to finish before sending'
                   : shellInput ? 'Direct shell: ! includes model context · !! excludes model context, not history' : 'Enter to send · Shift+Enter for a new line';
@@ -2237,7 +2225,7 @@ export function getSidebarHtml(
           resizeInput();
           composerRevision += 1;
           // A delayed acknowledgement must not take focus from text the reader is selecting.
-          if (document.activeElement === sendButton || document.activeElement === $('after-this')) input.focus({ preventScroll: true });
+          if (document.activeElement === sendButton) input.focus({ preventScroll: true });
         }
         updateSendState();
       }
@@ -2251,7 +2239,6 @@ export function getSidebarHtml(
     });
     $('recover-queue').addEventListener('click', () => vscode.postMessage({ type: 'recoverQueue', revision: composerRevision }));
     sendButton.addEventListener('click', () => submit());
-    $('after-this').addEventListener('click', () => submit('followUp'));
     cancelButton.addEventListener('click', () => vscode.postMessage({ type: 'cancel' }));
     $('cancel-editor-request').addEventListener('click', () => {
       if (editorRequest) vscode.postMessage({ type: 'cancelEditorRequest', id: editorRequest.id });

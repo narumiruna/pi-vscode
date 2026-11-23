@@ -29,7 +29,7 @@ export async function assertFixedStatus({ page, state, post, runtime, themes, th
     assert.equal(await description.evaluate((node) => node.hidden), true);
     assert.equal(await description.getAttribute("role"), null);
     assert.equal(await description.getAttribute("aria-live"), null);
-    for (const id of ["input", "send", "after-this"]) {
+    for (const id of ["input", "send"]) {
       assert.ok(
         (await page.locator(`#${id}`).getAttribute("aria-describedby")).split(/\s+/).includes("composer-status"),
       );

@@ -264,7 +264,7 @@ Restore the original workspace binding, or open a new panel for the intended wor
 1. Review the modal warning that sessions can change the same workspace files and are not isolated.
    Choose **Open Session** to continue, or cancel without opening a panel.
 2. Use the panel's composer and **Attach** controls for its own requests and context.
-   Its native model/thinking pickers, **Next**, **After this**, and **Stop** apply to that panel's runtime.
+   Its native model/thinking pickers, **Steer**, **Follow-up**, and **Stop** apply to that panel's runtime.
 3. Hide the panel or switch tabs to leave work running.
    Close the panel to stop only its runtime, without deleting saved Pi session files.
    Closing a tab does not prove that every detached process stopped; inspect any cleanup warning before conflicting work.
@@ -672,10 +672,12 @@ Prompt markers now use `PI_VSCODE_*`; old markers remain plain transcript text.
   Commands cannot enter the in-flight queue or run from a prepared editor action.
   Sidebar shortcut names take precedence over duplicate Pi extension command names.
   Other TUI-only commands are not listed.
-- **In-flight instructions:** While an ordinary request is running, choose **Next** (Enter) to submit after the current tool finishes, or **After this** to submit after the response finishes.
-  The alternate shortcut is Alt+Enter on macOS and Linux, or Ctrl+Q on Windows (including remote WSL sessions).
-  **Submission help** explains the actions; **Stop** stays separate.
-  Pending text stays visible under these labels, then moves into the transcript as soon as Pi starts that user message.
+- **In-flight instructions:** While Pi accepts queued instructions, the composer shows **Stop** and **Steer** in that order, with no text on the buttons.
+  Click the up arrow or press Enter to **Steer** after the current tool finishes.
+  To send a **Follow-up** after Pi finishes responding, press Alt+Enter on macOS and Linux or Ctrl+Q on Windows (including remote WSL sessions).
+  The arrow uses the theme's primary button color when the draft can be sent, and appears muted and disabled when the draft has neither text nor attachments.
+  The **Steer** tooltip and **Submission help** list both shortcuts.
+  Pending text stays visible under **Steer** or **Follow-up**, then moves into the transcript as soon as Pi starts that user message.
   Locked requests cannot accept queued messages.
 - **Debug questions:** Pause a Node.js debugger and run **Pi: Ask Debug Context**.
   Approve capture, choose local variables, inspect or redact the snapshot, and ask a read-only question.
@@ -892,7 +894,7 @@ Long assistant prose uses a bounded reading column.
 Code, tables, math, and diagrams can use the full message width.
 Primary status stays above the composer box, outside the scrolling content.
 Its single polite, atomic `#status` live region announces only selected-message changes.
-The nonlive `#composer-status` supplies the submission description for the input, Send, and After this without a second visible row or duplicate announcement.
+The nonlive `#composer-status` supplies the submission description for the input and the Send/Steer button without a second visible row or duplicate announcement.
 **More… → Conversation details** contains context usage and **Session details**, with the copyable session ID.
 Runtime notices keep short summaries and **Show Output** opens safe technical categories in **Output → Pi**, not raw details.
 Queue uncertainty never means it is safe to resend.
@@ -1125,7 +1127,7 @@ Key operational limits:
   An acknowledgement or process exit does not prove that escaped or Windows descendants stopped.
   Never repeat an uncertain command automatically.
 - In-flight instructions are limited to 10 messages and 50,000 characters.
-  **Next** and **After this** messages can include captured text attachments and up to 5 images; slash commands cannot be queued.
+  **Steer** and **Follow-up** messages can include captured text attachments and up to 5 images; slash commands cannot be queued.
   Pending transcript presentation is memory-only, public pending previews are capped at 1,000 characters per message, and pending/recovered attachment snapshots are memory-only and capped at 30 MiB.
 - Debug capture supports paused `node` and `pwa-node` js-debug sessions only; it does not evaluate expressions or mutate debugger state.
 

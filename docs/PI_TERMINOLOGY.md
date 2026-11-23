@@ -47,8 +47,8 @@ Its blocks are projections of `ThinkingContent`, not hidden provider reasoning.
 - **Direct shell**, **Sign In/Sign Out**, and **Global Pi/Project Pi** are also Pi terms.
   They do not need a blanket rename.
   Public settings APIs use global/project scope.
-- **Next** and **After this** are composer action labels.
-  The corresponding Pi settings are steering mode and follow-up mode.
+- **Steer** and **Follow-up** are composer actions that use Pi’s steering and follow-up queues.
+  **Steer** has a button and a shortcut; **Follow-up** is keyboard-only.
 - Session tree, branch, fork and clone retain their separate meanings.
   A bounded UI tree is not the raw SDK `SessionTreeNode` type.
 - Checkpoints, Preview/Apply, ownership and view-state names remain extension concepts.

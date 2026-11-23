@@ -519,7 +519,6 @@ try {
     await until(async () => (await pi.locator("#editor-request-label").textContent()) === "Explain Selection",
       "busy Explain staged");
     assert.equal(await input.inputValue(), "Keep this read-only note while Pi works.");
-    assert.equal(await pi.locator("#after-this").isVisible(), false);
     assert.equal(await pi.locator("#send").isVisible(), false);
     await input.press("Enter");
     assert.equal((await records("prompts.jsonl")).length, 3);
@@ -995,7 +994,8 @@ try {
   pi = await frame();
   await pi.locator("#input").fill("Hold this deterministic response");
   await pi.locator("#input").press("Enter");
-  await pi.locator("#after-this").waitFor();
+  await pi.getByRole("button", { name: /^Steer:/ }).waitFor();
+  assert.equal(await pi.locator("#after-this").count(), 0);
   assert.equal(await pi.locator("#cancel").isVisible(), true);
   assert.match(await pi.locator("#status").innerText(), /working|Sending/i);
   await assertComposerStatusContract(pi);
@@ -1007,12 +1007,13 @@ try {
   assert.equal(await pi.locator(".extension-ui-block script, .extension-ui-block a").count(), 0);
   assert.equal(await pi.evaluate(() => window.extensionInjected), undefined);
   assert.equal(await pi.locator("#extension-ui-below > p").textContent(), "below");
-  for (const [selector, text] of [
-    ["#send", "Next native instruction"],
-    ["#after-this", "After this native instruction"],
+  for (const [shortcut, text] of [
+    [undefined, "Steer native instruction"],
+    ["Alt+Enter", "Follow-up native instruction"],
   ]) {
     await pi.locator("#input").fill(text);
-    await pi.locator(selector).click();
+    if (shortcut) await pi.locator("#input").press(shortcut);
+    else await pi.locator("#send").click();
     await until(async () => (await pi.locator("#input").inputValue()) === "", "accepted native queue input");
   }
   const queued = (await readFile(path.join(directory, "queued.jsonl"), "utf8")).trim().split("\n").map(JSON.parse);
@@ -1046,7 +1047,6 @@ try {
       "input",
       "add-context",
       "cancel",
-      "after-this",
       "send",
       "status",
       "runtime",

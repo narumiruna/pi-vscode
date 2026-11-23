@@ -60,7 +60,6 @@ export async function assertDirectShellInterface(browser, getSidebarHtml, format
   assert.equal(await page.locator("#send").isDisabled(), true);
   await post({ ...state, runtime: { connected: true, busy: true, queueable: true } });
   assert.equal(await page.locator("#send").isDisabled(), true);
-  assert.equal(await page.locator("#after-this").isDisabled(), true);
   await post({ ...state, runtime: { connected: true, busy: true, queueable: false, cancellable: true } });
   assert.equal(await page.locator("#cancel").isVisible(), true);
   const text = formatBashExecutionText("printf '<img src=x>'", true, { output: "<img src=x onerror=alert(1)>\n[unsafe](https://invalid.example)", exitCode: 7, cancelled: true, truncated: true });

@@ -1017,7 +1017,8 @@ Only observed process results count as test evidence; supplied logs and backgrou
 
 Only ordinary composer requests own the active session queue.
 Callback-owned editor, review, repair and debug requests cannot accept continuations.
-While queueable, Enter sends a steering message after current tool calls; Alt+Enter sends a follow-up on macOS and Linux clients, while Windows clients use Ctrl+Q, including when connected to WSL or another remote workspace.
+While queueable, the Steer button and Enter send steering messages after current tool calls.
+Follow-up is keyboard-only: Alt+Enter on macOS and Linux clients, or Ctrl+Q on Windows clients, including when connected to WSL or another remote workspace.
 Either path starts immediately while Pi is idle.
 Slash commands are not queued.
 
