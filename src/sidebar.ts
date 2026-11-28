@@ -1757,7 +1757,7 @@ export class PiChatViewProvider
           }
           return () => {
             this.requestLifecycle.throwIfCancelled();
-            if (!originMatches() || dispatch.signal.aborted || realpathSync(cwd) !== root)
+            if (!originMatches() || dispatch.signal.aborted || realpathSync.native(cwd) !== root)
               throw new Error("Pi session or workspace changed before submission.");
             const currentRoot = statSync(root, { bigint: true });
             if (currentRoot.dev !== rootIdentity.dev || currentRoot.ino !== rootIdentity.ino)
@@ -1776,7 +1776,7 @@ export class PiChatViewProvider
                     this.runtime.clientGeneration === generation &&
                     !runtimeSessionIdentityChanged(capturedSession, this.runtime.currentState) &&
                     this.runtime.currentCwd === cwd &&
-                    realpathSync(cwd) === root
+                    realpathSync.native(cwd) === root
                   );
                 } catch {
                   return false;

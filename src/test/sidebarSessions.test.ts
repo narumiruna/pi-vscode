@@ -31,9 +31,13 @@ function deferred<T>() {
 
 const nextTurn = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-async function fixture(action: (f: any) => Promise<void>, options: { resolveView?: boolean } = {}): Promise<void> {
+async function fixture(
+  action: (f: any) => Promise<void>,
+  options: { resolveView?: boolean; lowercaseDrive?: boolean } = {},
+): Promise<void> {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "pi-sidebar-sessions-")));
-  const folder = { uri: MockUri.file(root) };
+  const workspacePath = options.lowercaseDrive ? root.replace(/^[A-Z](?=:)/, (drive) => drive.toLowerCase()) : root;
+  const folder = { uri: MockUri.file(workspacePath) };
   mock.workspace.workspaceFolders = [folder];
   mock.workspace.getWorkspaceFolder = (resource: MockUri) => {
     const relative = path.relative(root, resource.fsPath);
@@ -373,6 +377,34 @@ test.each(["stop", "client replacement", "worker failure", "disposal"])(
         await f.complete(f.a, "later result");
       }
     });
+  },
+);
+
+test.skipIf(process.platform !== "win32")(
+  "a lowercase workspace drive allows dispatch and checkpoint publication",
+  async () => {
+    await fixture(
+      async (f) => {
+        assert.match(f.runtime.currentCwd, /^[a-z]:\\/);
+        assert.notEqual(f.runtime.currentCwd, f.root);
+        const name = "checkpoint.txt";
+        const file = path.join(f.root, name);
+        await writeFile(file, "before\n");
+
+        await f.send(f.a, "edit the checkpoint fixture");
+        const client = f.clients.get(f.a.runtime);
+        assert.equal(client.prompts.length, 1);
+        const content = "after\n";
+        client.emit({ type: "tool_execution_start", toolName: "write", args: { path: name, content } });
+        await writeFile(file, content);
+        await f.complete(f.a, "fixture updated");
+
+        const [change] = f.latest().changes;
+        assert.equal(change?.label, name);
+        assert.equal(change?.canRevert, true);
+      },
+      { lowercaseDrive: true },
+    );
   },
 );
 
