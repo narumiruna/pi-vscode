@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.12.2
+
+### Patch Changes
+
+- c68e713: Fix Sidebar prompt submission and checkpoint results on Windows when the workspace path uses a lowercase drive letter.
+
 ## 0.12.1
 
 ### Patch Changes
